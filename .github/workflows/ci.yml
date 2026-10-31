@@ -1,0 +1,257 @@
+# The suite's CI: one shared job set, each job run only when its paths changed (blueprint, The
+# monorepo). GitHub-hosted runners. Actions are pinned to full commit SHAs; Dependabot proposes
+# bumps. Every cargo command that resolves dependencies passes --locked (PROC-13).
+#
+# The one check to require on main is `ci / ok`: path-filtered jobs that do not run are skipped,
+# and a required check that is skipped never reports, so `ok` stands in for all of them.
+#
+# Room left for what arrives later: the typescript job runs once a package.json exists (the suite
+# mod, wi-6e750e), the plugins job once a plugins/<plugin>/.claude-plugin/plugin.json exists.
+# Per-package selection inside the rust jobs, the conformance kit and skillcheck come with the
+# packages they test.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_WARNINGS: deny   # Cargo 1.97+ build.warnings (MOD-13)
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.paths.outputs.rust }}
+      launcher: ${{ steps.paths.outputs.launcher }}
+      plugins: ${{ steps.paths.outputs.plugins }}
+      typescript: ${{ steps.paths.outputs.typescript }}
+      labels: ${{ steps.paths.outputs.labels }}
+      has-plugins: ${{ steps.paths.outputs.has-plugins }}
+      has-package: ${{ steps.paths.outputs.has-package }}
+      base: ${{ steps.paths.outputs.base }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # Every area is on when there is no base to diff against (a new branch, a manual run) or
+      # when CI itself changed.
+      - name: Changed areas
+        id: paths
+        shell: bash
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            base=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD)
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ -n "$BEFORE" ] \
+            && [ "$BEFORE" != 0000000000000000000000000000000000000000 ] \
+            && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            base=$BEFORE
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ -z "$base" ]; then changed=ALL; else changed=$(git diff --name-only "$base" HEAD); fi
+          echo "$changed" | sed 's/^/  /'
+          area() { # name, extended regex over changed paths
+            if [ "$changed" = ALL ] || grep -qE '^\.github/workflows/ci\.yml$' <<<"$changed" \
+              || grep -qE "$2" <<<"$changed"; then on=true; else on=false; fi
+            echo "$1: $on"
+            echo "$1=$on" >> "$GITHUB_OUTPUT"
+          }
+          area rust '^(Cargo\.(toml|lock)|rust-toolchain\.toml|clippy\.toml|rustfmt\.toml|deny\.toml|\.cargo/|\.claude/temper/|\.claude/temper\.json|crates/|tools/[^/]+/(Cargo\.toml|src/|tests/|benches/|build\.rs)|spec/)'
+          area launcher '^tools/launcher/'
+          area plugins '^(plugins/|tools/launcher/launcher)'
+          area typescript '(^|/)(package(-lock)?\.json|tsconfig[^/]*\.json)$|\.(ts|tsx|mts)$'
+          # A job-level `if` cannot call hashFiles, so whether there is anything to check is an
+          # output too.
+          exists() { if compgen -G "$2" >/dev/null; then echo "$1=true"; else echo "$1=false"; fi >> "$GITHUB_OUTPUT"; }
+          exists has-plugins 'plugins/*/.claude-plugin/plugin.json'
+          exists has-package 'package.json'
+          area labels '^(\.github/labels\.yml|tools/labels/)'
+
+  rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0       # the lint ratchet diffs against the merge base
+          persist-credentials: false
+      - name: Baseline mode
+        if: hashFiles('.claude/temper-baseline.json') != ''
+        run: echo "CARGO_BUILD_WARNINGS=warn" >> "$GITHUB_ENV"
+      # CI runs the vendored temper CLI from the commit under test; flag any change to it.
+      - name: Vendored temper CLI
+        if: needs.changes.outputs.base != ''
+        shell: bash
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          if git diff --quiet "$BASE" HEAD -- .claude/temper; then exit 0; fi
+          msg="$(git diff --name-only "$BASE" HEAD -- .claude/temper | wc -l | tr -d ' ') file(s) in .claude/temper/ changed, and CI ran the changed copy. Check that /temper:setup wrote them, not a hand edit."
+          echo "::warning file=.claude/temper/VERSION::$msg"
+          printf '> **VENDORED CLI CHANGED.** %s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-28
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml; MSRV equals it, so no msrv job
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
+        with:
+          tool: cargo-nextest,cargo-deny,cargo-hack,cargo-machete
+      - run: cargo fmt --all -- --check
+      # One clippy, rustdoc and scanner run through the vendored temper CLI (Lint in AGENTS.md).
+      - name: Lint (temper)
+        shell: bash
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          args=()
+          if [ -n "$BASE" ]; then args=(--base "$BASE"); fi
+          node .claude/temper/temper.mjs baseline --check --locked "${args[@]}"
+      - name: Layer rules (cargo xtask layers)
+        run: cargo xtask layers
+      - name: Each crate builds on its own (ARC-16)
+        shell: bash
+        run: >-
+          cargo metadata --locked --no-deps --format-version 1
+          | jq -r '.packages[].name'
+          | xargs -I{} cargo check --locked -p {}
+      - name: Feature combinations (API-16)
+        run: cargo hack check --locked --workspace --feature-powerset
+      - run: cargo nextest run --locked --workspace --all-features --no-tests=fail
+      - run: cargo test --locked --doc --workspace --all-features
+      - name: Docs build (rustdoc lints are checked by Lint (temper))
+        run: cargo doc --locked --workspace --no-deps --all-features
+      - run: cargo deny --locked check
+      - name: Unused dependencies (CRF-05)
+        run: cargo machete
+
+  rust-windows:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Baseline mode
+        if: hashFiles('.claude/temper-baseline.json') != ''
+        shell: bash
+        run: echo "CARGO_BUILD_WARNINGS=warn" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-28
+        with:
+          toolchain: "1.98.1"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo test --locked --workspace --all-features
+
+  launcher:
+    needs: changes
+    if: needs.changes.outputs.launcher == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: sh launcher
+        if: runner.os != 'Windows'
+        run: sh tools/launcher/test.sh
+      - name: cmd launcher
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tools/launcher/test.ps1
+
+  plugins:
+    needs: changes
+    if: needs.changes.outputs.plugins == 'true' && needs.changes.outputs.has-plugins == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: No plugin ships a bin/ (claude.ai rejects it)
+        shell: bash
+        run: |
+          if ls -d plugins/*/bin 2>/dev/null; then echo "::error::a plugin ships bin/; use libexec/"; exit 1; fi
+      - name: Launcher copies match tools/launcher
+        shell: bash
+        run: |
+          status=0
+          for manifest in plugins/*/.claude-plugin/plugin.json; do
+            libexec=$(dirname "$(dirname "$manifest")")/libexec
+            [ -d "$libexec" ] || continue
+            for f in "$libexec"/*; do
+              [ -f "$f" ] || continue
+              case "$f" in *.cmd) src=tools/launcher/launcher.cmd ;; *) src=tools/launcher/launcher ;; esac
+              cmp -s "$f" "$src" || { echo "::error file=$f::differs from $src"; status=1; }
+            done
+          done
+          exit $status
+      - name: claude plugin validate --strict
+        shell: bash
+        run: |
+          for manifest in plugins/*/.claude-plugin/plugin.json; do
+            npx --yes @anthropic-ai/claude-code@2.1.286 plugin validate --strict "$manifest"
+          done
+
+  typescript:
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true' && needs.changes.outputs.has-package == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check --workspaces --if-present
+
+  labels:
+    needs: changes
+    if: needs.changes.outputs.labels == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check the label manifest
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pyyaml==6.0.3
+          "$RUNNER_TEMP/venv/bin/python" tools/labels/check.py .github/labels.yml
+
+  ok:
+    needs: [changes, rust, rust-windows, launcher, plugins, typescript, labels]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job that ran passed
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "::error::a job ended $r"; exit 1 ;; esac
+          done

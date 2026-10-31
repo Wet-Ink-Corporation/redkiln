@@ -1,0 +1,68 @@
+# The suite's one label set (Backlog call A, wi-cef669; references/docs/backlog.md, The label set).
+# Backlog applies it idempotently to every suite repository; until that plugin exists,
+# tools/labels/apply.sh does. Kind of work, hierarchy, order, priority, effort and dates are not
+# labels: they are issue types, sub-issues, native dependencies and issue fields.
+#
+# Each family has one rule an agent can check:
+#   exactly-one-while-open  an open issue carries exactly one label of the family
+#   exactly-one             every issue carries exactly one
+#   at-least-one            every issue carries one or more
+#   zero-or-more            any number; each one is a gate an agent never picks up past
+#   at-most-one             none or one
+#   reserved                written only by its owner; a human edit is drift
+# tools/labels/check.py validates this file in CI.
+version: 1
+
+families:
+  - prefix: "status/"
+    rule: exactly-one-while-open
+    about: The Board column. Blocked is a native dependency, never a label.
+  - prefix: "needs/"
+    rule: zero-or-more
+    about: A gate. An agent never picks up an issue carrying one.
+  - prefix: "area/"
+    rule: at-least-one
+    about: The package the work is in, one per layer or plugin.
+  - prefix: "source/"
+    rule: exactly-one
+    about: Who filed it.
+  - prefix: "mode/"
+    rule: at-most-one
+    about: Whether Loop may run it unattended.
+  - prefix: "rk:"
+    rule: reserved
+    owner: rk-loop
+    about: Written only by Loop's tracker adapter (AC-507). No label is created ahead of it.
+
+labels:
+  - { name: "status/triage", color: "d4c5f9", description: "New; not yet ready to work" }
+  - { name: "status/ready", color: "0e8a16", description: "Ready to pick up; only a person sets it" }
+  - { name: "status/in-progress", color: "fbca04", description: "Claimed and being worked" }
+  - { name: "status/in-review", color: "1d76db", description: "A pull request is open for it" }
+
+  - { name: "needs/decision", color: "b60205", description: "Waits on a decision (a Weigh-In call or a Decision issue)" }
+  - { name: "needs/repro", color: "b60205", description: "Waits on a reproduction" }
+  - { name: "needs/human", color: "b60205", description: "Waits on a person" }
+  - { name: "needs/breakdown", color: "b60205", description: "Too big; split into sub-issues first" }
+  - { name: "needs/spec", color: "b60205", description: "Waits on a spec or acceptance criteria" }
+
+  - { name: "area/core", color: "c5def5", description: "Redkiln Core: SPEC, redkiln-core, -calibrate, -capacity" }
+  - { name: "area/kits", color: "c5def5", description: "The kits: guard, dispatch, github, craft, catalog, view" }
+  - { name: "area/rust", color: "c5def5", description: "Redkiln Rust (rk-rust)" }
+  - { name: "area/bench", color: "c5def5", description: "Bench (rk-bench)" }
+  - { name: "area/weigh-in", color: "c5def5", description: "Weigh-In (rk-weigh-in)" }
+  - { name: "area/knowledge", color: "c5def5", description: "Knowledge (rk-knowledge)" }
+  - { name: "area/review", color: "c5def5", description: "Review (rk-review and deploy/review)" }
+  - { name: "area/loop", color: "c5def5", description: "Loop (rk-loop)" }
+  - { name: "area/backlog", color: "c5def5", description: "Backlog (rk-backlog)" }
+  - { name: "area/bundle", color: "c5def5", description: "The redkiln bundle, the suite mod and the release repository" }
+  - { name: "area/repo", color: "c5def5", description: "The monorepo itself: workspace, CI, tools, docs" }
+
+  - { name: "source/human", color: "ededed", description: "Filed by a person" }
+  - { name: "source/agent", color: "ededed", description: "Filed by an agent" }
+  - { name: "source/audit", color: "ededed", description: "Filed from an audit" }
+  - { name: "source/ci", color: "ededed", description: "Filed by CI" }
+  - { name: "source/review", color: "ededed", description: "Filed from a review finding" }
+
+  - { name: "mode/afk", color: "5319e7", description: "Loop may run it unattended" }
+  - { name: "mode/hitl", color: "5319e7", description: "Needs a person in the loop" }

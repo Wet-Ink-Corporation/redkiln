@@ -1,0 +1,68 @@
+#!/bin/sh
+# The suite's shared plugin launcher (AGENTS.md, Plugin rules). Each plugin ships a copy as
+# plugins/<plugin>/libexec/<binary>, beside libexec/<binary>.cmd, and the copy's own file name is
+# the binary it runs. It runs the prebuilt build for this platform from libexec/<target>/.
+#
+# Not bin/: Claude Code puts a plugin's bin/ on PATH, and claude.ai rejects hosted plugins that
+# ship one. Hooks start the launcher by path in exec form, so it stays executable; on Windows the
+# same path resolves to libexec/<binary>.cmd.
+#
+# Order: the newest build among this platform's targets (a stale native build must not shadow a
+# fresh cross-build), then a <binary> on PATH other than this launcher, then nothing.
+# With nothing to run, a hook call (`<binary> hook <event> ...`) exits 0, guards included, so a
+# missing install never blocks a session; on SessionStart it says so in a systemMessage (not in
+# Cowork, which runs no plugin hooks of its own). Any other call exits 127 with a message.
+# Once a build runs, its exit code is the launcher's, so a failing guard still blocks.
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+name=$(basename -- "$0")
+ext=""
+case "$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)" in
+  Linux-x86_64)              targets="x86_64-unknown-linux-musl x86_64-unknown-linux-gnu" ;;
+  Linux-aarch64|Linux-arm64) targets="aarch64-unknown-linux-musl aarch64-unknown-linux-gnu" ;;
+  Darwin-arm64)              targets="aarch64-apple-darwin" ;;
+  Darwin-x86_64)             targets="x86_64-apple-darwin" ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT*) targets="x86_64-pc-windows-msvc x86_64-pc-windows-gnu"; ext=".exe" ;;
+  *)                         targets="" ;;
+esac
+pick=""
+for t in $targets; do
+  bin="$dir/$t/$name$ext"
+  [ -f "$bin" ] || continue
+  if [ -z "$pick" ] || [ "$bin" -nt "$pick" ]; then
+    pick="$bin"
+  fi
+done
+if [ -n "$pick" ]; then
+  [ -x "$pick" ] || chmod +x "$pick" 2>/dev/null
+  exec "$pick" "$@"
+fi
+# A <binary> on PATH, skipping every PATH entry that is this directory (compared resolved).
+# REDKILN_LAUNCHER stops recursion through a copy of this launcher found elsewhere on PATH.
+if [ -z "${REDKILN_LAUNCHER:-}" ]; then
+  self=$(CDPATH= cd -- "$dir" 2>/dev/null && pwd -P)
+  found=""
+  saved_ifs=$IFS
+  IFS=:
+  set -f
+  for entry in $PATH; do
+    [ -n "$entry" ] || entry=.
+    [ -f "$entry/$name" ] && [ -x "$entry/$name" ] || continue
+    [ "$(CDPATH= cd -- "$entry" 2>/dev/null && pwd -P)" != "$self" ] || continue
+    found="$entry/$name"
+    break
+  done
+  set +f
+  IFS=$saved_ifs
+  if [ -n "$found" ]; then
+    REDKILN_LAUNCHER=1 exec "$found" "$@"
+  fi
+fi
+why="no $name build for $(uname -s 2>/dev/null)-$(uname -m 2>/dev/null) in this plugin's libexec and none on PATH"
+if [ "${1:-}" = "hook" ]; then
+  if [ "${2:-}" = "SessionStart" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" != "remote_cowork" ]; then
+    printf '{"systemMessage":"%s is off: %s. Install a release that ships one."}\n' "$name" "$why"
+  fi
+  exit 0
+fi
+echo "$name: $why ($dir)" >&2
+exit 127
