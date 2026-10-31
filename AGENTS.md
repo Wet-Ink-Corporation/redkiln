@@ -31,13 +31,14 @@ Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer als
 
 `cargo xtask layers` (`tools/xtask/src/layers.rs`) reads `cargo metadata` and fails on any of these; CI runs it, and its tests pin each rule.
 
-- **Placement.** Every member sits under `crates/core/`, `crates/kits/`, `crates/<plugin>/` for a listed plugin, or `tools/`. A crate under `crates/<plugin>/` named `*-contract` is that plugin's contract crate. A new plugin folder is a crate-boundary change (H-16).
+- **Placement.** Every member sits directly under `crates/core/`, `crates/kits/`, `crates/<plugin>/` for a listed plugin, or `tools/` (`crates/core/<crate>`, never deeper). A crate under `crates/<plugin>/` named `*-contract` is that plugin's contract crate. A new plugin folder is a crate-boundary change (H-16).
 - **Core** depends on nothing outside Core.
 - **Kits and contract crates** depend only on Core. A contract crate never reaches into its own plugin's internals.
 - **A plugin's crates** depend on Core, kits, any plugin's contract crate and their own plugin's crates, never another plugin's internals. Another plugin's domain is reached through its contract crate, its events or its `--json` CLI (blueprint design rule 4).
 - **Tools** depend on Core, kits and contract crates.
-- Dev and build dependencies follow the same rules. Only crates with a binary target use `anyhow` (H-09), and no crate is publishable (`publish = false`; turning it on is H-16).
-- Every crate builds alone (`cargo check -p`, CI). Loop brings its stricter rules (no tokio in the kernel, git through one wrapper, no egress in kernel tests) when it moves, and they join the check then.
+- Dev and build dependencies follow the same rules. Only crates with a binary target use `anyhow` outside their dev-dependencies (H-09), and no crate is publishable (`publish = false`; turning it on is H-16).
+
+Beside the check, CI builds every crate alone (`cargo check -p`). Loop brings its stricter rules (no tokio in the kernel, git through one wrapper, no egress in kernel tests) when it moves, and they join the check then.
 
 ## Plugin rules
 

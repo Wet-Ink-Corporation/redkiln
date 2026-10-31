@@ -21,14 +21,17 @@ fn main() -> ExitCode {
     };
     match outcome {
         Ok(code) => code,
-        Err(message) => {
-            // Nothing is left to report a failed write of the error itself to.
-            if writeln!(io::stderr().lock(), "xtask: {message}").is_err() {
-                return ExitCode::from(2);
-            }
-            ExitCode::from(2)
-        }
+        Err(message) => report(&message),
     }
+}
+
+/// Writes `message` to stderr and returns exit code 2, the code for "could not check".
+fn report(message: &str) -> ExitCode {
+    // A failed write of the error has nowhere else to go; the exit code reports it either way.
+    if writeln!(io::stderr().lock(), "xtask: {message}").is_err() {
+        return ExitCode::from(2);
+    }
+    ExitCode::from(2)
 }
 
 /// Checks this workspace, whose root manifest is two levels above this crate.
@@ -45,7 +48,7 @@ fn run_layers() -> Result<ExitCode, String> {
     if violations.is_empty() {
         writeln!(
             io::stdout().lock(),
-            "layers: {} members follow the layer rules",
+            "layers: ok, workspace members checked: {}",
             packages.len()
         )
         .map_err(|error| error.to_string())?;

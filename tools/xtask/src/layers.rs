@@ -243,6 +243,8 @@ pub enum ReadError {
 /// [`ReadError`] when cargo cannot run or fails, prints something else than metadata, or names a
 /// member outside the workspace root or in a directory that is not UTF-8.
 pub fn read_workspace(cargo: &OsStr, manifest: &Path) -> Result<Vec<Package>, ReadError> {
+    // Unbounded and untimed on purpose: the pinned toolchain reporting on this repository's own
+    // manifests, whose authors can already run code through build.rs (H-13 trust boundary).
     let output = Command::new(cargo)
         .args(["metadata", "--no-deps", "--locked", "--format-version", "1"])
         .arg("--manifest-path")

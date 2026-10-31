@@ -236,6 +236,82 @@ fn rejects_a_tool_depending_on_plugin_internals() {
 }
 
 #[test]
+fn rejects_a_contract_depending_on_another_contract() {
+    let workspace = with(
+        fully_wired(),
+        library(
+            "review-contract",
+            "crates/review/review-contract",
+            &[("weighin-contract", Kind::Normal)],
+        ),
+    );
+
+    assert_eq!(
+        check(&workspace),
+        vec![Violation::ForbiddenEdge {
+            from: "review-contract",
+            to: "weighin-contract"
+        }],
+        "contract crates depend only on Core, not on each other"
+    );
+}
+
+#[test]
+fn rejects_a_kit_depending_on_a_contract() {
+    let workspace = with(
+        fully_wired(),
+        library(
+            "redkiln-guard",
+            "crates/kits/redkiln-guard",
+            &[("weighin-contract", Kind::Normal)],
+        ),
+    );
+
+    assert_eq!(
+        check(&workspace),
+        vec![Violation::ForbiddenEdge {
+            from: "redkiln-guard",
+            to: "weighin-contract"
+        }],
+        "kits depend only on Core"
+    );
+}
+
+#[test]
+fn rejects_a_tool_depending_on_another_tool() {
+    let workspace = with(
+        fully_wired(),
+        binary("skillcheck", "tools/skillcheck", &[("xtask", Kind::Normal)]),
+    );
+
+    assert_eq!(
+        check(&workspace),
+        vec![Violation::ForbiddenEdge {
+            from: "skillcheck",
+            to: "xtask"
+        }],
+        "dev tools use Core, kits and contracts only"
+    );
+}
+
+#[test]
+fn rejects_a_member_nested_below_its_layer_folder() {
+    let workspace = with(
+        fully_wired(),
+        library("deep", "crates/core/group/deep", &[]),
+    );
+
+    assert_eq!(
+        check(&workspace),
+        vec![Violation::Unplaced {
+            package: "deep",
+            dir: "crates/core/group/deep"
+        }],
+        "members sit directly under their layer folder"
+    );
+}
+
+#[test]
 fn rejects_a_member_outside_the_layout() {
     let workspace = with(fully_wired(), library("stray", "misc/stray", &[]));
 
