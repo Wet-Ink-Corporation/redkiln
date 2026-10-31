@@ -66,7 +66,7 @@ Every import follows the migration plan's eight steps: one merge commit whose se
 | CI-only checks | `cargo check -p <crate>` for each crate (ARC-16), `cargo hack check --workspace --feature-powerset` (API-16), `cargo machete` (CRF-05) |
 | Full gate (Claude Code) | `/temper:gate`, or `node "$TEMPER_CLI" gate` |
 
-CI is `.github/workflows/ci.yml` on GitHub-hosted runners: a `changes` job decides which jobs run from the paths a change touches (rust, Windows tests, launcher on three platforms, plugins, TypeScript, labels), and `ci / ok` passes only when every job that ran passed. `ci / ok` is the one check to require on `main`. The TypeScript job starts running once a `package.json` exists (the suite mod, wi-6e750e), and the plugins job once a plugin manifest does.
+CI is `.github/workflows/ci.yml` on GitHub-hosted runners: a `changes` job decides which jobs run from the paths a change touches (rust, Windows tests, launcher on three platforms, plugins, TypeScript, labels), and the `ok` job passes only when every job that ran passed. `ok` (source GitHub Actions; the PR list shows it as `ci / ok`) is the one check to require on `main`. The TypeScript job starts running once a `package.json` exists (the suite mod, wi-6e750e), and the plugins job once a plugin manifest does.
 
 Toolchain 1.98.1 (`rust-toolchain.toml`). MSRV 1.98.1 (`rust-version`), equal to the pin as in weigh-in and anneal, raised only as an H-16 decision (MOD-01). Profiles are temper's template (PERF-09). Until Redkiln Rust 2.0 dogfoods, the gate is temper 1.4.0 vendored once at `.claude/temper/` (migration call E).
 
