@@ -22,7 +22,7 @@ The per-plugin overrides (`WEIGHIN_STORE`, `ANNEAL_STORE`, `--store` on each CLI
 
 ## Opening
 
-**ST-04.** The store is a happenstance SQLite event store. Core pins one happenstance version for every binary; the move from 0.3.2 to 0.4.1 happens once, in Core, with fixtures from 0.1.x and 0.2.2 ledgers (migration plan, risks).
+**ST-04.** The store is a happenstance SQLite event store. Core pins one happenstance version for every binary; the move from 0.3.2 to 0.4.1 happens once, in Core, with fixtures from 0.1.x and 0.2.2 ledgers (migration plan, risks). The pinned version must offer a public ingest call that stores an event under its existing `EventId` (ID-02, JR-11). 0.3.2 has the unique origin columns but no public ingest call, so before Move 1 either the 0.4.x Core pins provides one or adding it (an upstream happenstance release, or a `[patch]`) is decided as an H-16 dependency call.
 
 **ST-05.** The store runs under SQLite's TRUNCATE journal mode, never WAL and never DELETE. WAL and DELETE both delete files beside the database, and Cowork's connected folders refuse deletes (`SQLITE_IOERR_DELETE`) and WAL's shared memory. TRUNCATE keeps one `events.sqlite3-journal` beside the store, emptied at each commit and never deleted. Concretely:
 
@@ -57,12 +57,13 @@ The version is read from the file's 100-byte header before SQLite opens it, so a
 
 ## Repo class and config
 
-**ST-12.** `.redkiln/suite.toml` is committed and reviewed. SPEC 1.0 defines two keys in its `[suite]` table; the rest of the file arrives later (README, Not in this draft):
+**ST-12.** `.redkiln/suite.toml` is committed and reviewed. SPEC 1.0 defines three keys in its `[suite]` table; the rest of the file arrives later (README, Not in this draft):
 
 | Key | Values | Default |
 | --- | --- | --- |
 | `repo_class` | `own` or `client` | `client` |
 | `store` | a path, relative to the worktree root | none: ST-01 step 4 or 5 |
+| `owner` | the owner's name, lower-case ASCII words joined by dashes | git's `user.name`, else the local part of `user.email`, in that form (weigh-in B-31) |
 
 **ST-13.** A missing file, a missing key, or a file that does not parse means `client`, so a forgotten config never publishes (pressure-test recommendation 11). A `client` repository never exports journals, pushes a ref, publishes a board, or projects items to GitHub (Blueprint design rule 10). Core enforces this: the export and publish paths ask Core for the class and get `client` unless the file says `own`.
 
