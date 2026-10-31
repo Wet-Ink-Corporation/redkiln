@@ -37,7 +37,7 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 
 ## One-way items
 
-These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event carrying it has been written outside a test, and costly after: every stored event, committed journal and plugin that reads them would need a migration. Each needs Ryan's confirmation before Move 1 writes it to a real store; until then the draft carries the recommendation.
+These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event carrying it has been written outside a test, and costly after: every stored event, committed journal and plugin that reads them would need a migration. Ryan confirmed OW-1 to OW-15 as drafted on 2026-10-31 (decision card in the SPEC thread); OW-13 still waits on the refs spike, which picks between its two places. A change to any of them now needs his decision.
 
 | # | Item | Draft recommendation | Section |
 | --- | --- | --- | --- |
