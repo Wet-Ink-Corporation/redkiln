@@ -151,26 +151,33 @@ fn rejects_core_depending_on_a_kit() {
     );
 }
 
-/// `fully_wired` plus a second Core leaf, `redkiln-capacity`, and a kit using a Core leaf.
+/// `fully_wired` plus a second Core leaf, `redkiln-capacity`, and a member of every other layer
+/// (kit, contract, plugin crate, tool) using a Core leaf.
 fn with_two_core_leaves() -> Vec<Package> {
-    with(
-        with(
-            fully_wired(),
-            library(
-                "redkiln-capacity",
-                "crates/core/redkiln-capacity",
-                &[("redkiln-core", Kind::Normal)],
-            ),
+    let leaf_users = [
+        library(
+            "redkiln-capacity",
+            "crates/core/redkiln-capacity",
+            &[("redkiln-core", Kind::Normal)],
         ),
         library(
             "redkiln-guard",
             "crates/kits/redkiln-guard",
-            &[
-                ("redkiln-core", Kind::Normal),
-                ("redkiln-calibrate", Kind::Normal),
-            ],
+            &[("redkiln-calibrate", Kind::Normal)],
         ),
-    )
+        library(
+            "review-contract",
+            "crates/review/review-contract",
+            &[("redkiln-calibrate", Kind::Normal)],
+        ),
+        library(
+            "weighin-core",
+            "crates/weigh-in/weighin-core",
+            &[("redkiln-capacity", Kind::Normal)],
+        ),
+        binary("xtask", "tools/xtask", &[("redkiln-calibrate", Kind::Dev)]),
+    ];
+    leaf_users.into_iter().fold(fully_wired(), with)
 }
 
 #[test]
