@@ -39,4 +39,6 @@ try {
 } finally {
   Remove-Item -Recurse -Force $work
 }
+# Exit explicitly: otherwise the last native command's code (the build's 5 above) leaks out.
 if ($failed) { exit 1 }
+exit 0
