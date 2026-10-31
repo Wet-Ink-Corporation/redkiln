@@ -40,7 +40,7 @@ A command whose result a gate or CI reads states `proves` and `does_not_prove`; 
 | 70 | Internal error: the command could not run (a refused store, a git failure, a bug) | The envelope when it can be written |
 | 74 | Output error: stdout or stderr could not be written | Nothing usable |
 
-Codes 1 and 3 to 63 are each command's own (1 is "cycle" for one command and "test red" for another). A new command never gives 2 a meaning of its own, because Claude Code reads a hook's exit 2 as "block". anneal's two existing own uses of 2 (`task done`, `ledger`) are told apart from a usage error by the envelope on stdout, and Bench renumbers them at its next major.
+Codes 1 and 3 to 63 are each command's own (1 is "cycle" for one command and "test red" for another). A new command never gives 2 a meaning of its own, because Claude Code reads a hook's exit 2 as "block". anneal gives 2 a command-specific meaning in a dozen of its exit-code tables (`ledger`, `task done`, `repro`, `dag`, `floor-guard`, `watch`, `rollout`, `brief`, `verify risk`, `eval`, `status`, `hook`). Each of those writes an envelope on stdout, which tells it apart from a usage error, and Bench renumbers them before `rk-bench` 0.1.0, its first release.
 
 **CLI-06.** Whether findings fail a command is the command's to state. A gate exits non-zero when its findings fail it; a report (`ci-check`, `status`) exits 0 whenever it wrote its report, and its findings are data for the caller to judge (weigh-in `ci.rs`).
 

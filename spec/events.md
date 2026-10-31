@@ -23,7 +23,7 @@ Every fact in the store is one event: a JSON envelope, stored as the data of one
 | `data` | object | The payload, defined by the type's owner |
 
 ```json
-{"type":"weighin.item_decided","version":1,"ts":"2026-10-31T04:20:11Z","actor":"human:ryan","trust":{"level":"witnessed","via":"chat-card"},"writer":{"binary":"weighin","version":"2.0.0","spec":"1.0.0"},"session":"8b6fb94b-0975-5275-b434-6c9e60544265","worktree":"wt-5d41402abc4b","branch":"main","head":"bd234009c1e5a7d4f1c3b2a0e9f8d7c6b5a49382","cites":["0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f/41"],"data":{"item":"wi-3fa9c01b2e","option":"a","applies":"once"}}
+{"type":"weighin.item_decided","version":1,"ts":"2026-10-31T04:20:11Z","actor":"human:ryan","trust":{"level":"witnessed","via":"ask-user-question","ref":"toolu_01XyZ"},"writer":{"binary":"weighin","version":"2.0.0","spec":"1.0.0"},"session":"8b6fb94b-0975-5275-b434-6c9e60544265","worktree":"wt-5d41402abc4b","branch":"main","head":"bd234009c1e5a7d4f1c3b2a0e9f8d7c6b5a49382","cites":["0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:41"],"data":{"item":"wi-3fa9c01b2e","option":"a","applies":"once"}}
 ```
 
 Optional keys are left out rather than written as `null`; a reader accepts either.
@@ -77,7 +77,6 @@ Why nested: both ledgers flatten today, and they already disagree about what may
 | `trust` | `asserted`, `witnessed` or `attested` | Every event |
 | `session` | The envelope's `session` | Every event that has one |
 | `worktree` | The envelope's `worktree` | Every event that has one |
-| `origin` | The event's identity (ID-02) | Every imported event |
 | `item` | A Weigh-In item id (`wi-…`) | Events about an item, in any namespace |
 | `subject` | `<method>:<hash>` of a subject (ID-09) | Approvals, decision requests, verdicts and gate results |
 | `pr` | A pull request number | Events about a pull request |
@@ -86,7 +85,7 @@ Why nested: both ledgers flatten today, and they already disagree about what may
 
 Any other key is prefixed with its namespace and a dot (`weighin.channel`, `bench.point`), so plugins never collide on a key. Adding an unprefixed key is a SPEC minor.
 
-**EV-13.** Tags, like `origin` and `recorded_at`, sit outside a payload's canonical digest (Loop ADR-0131). Adding a tag to a type never changes the digest of its payloads.
+**EV-13.** Tags, like the stored identity and `recorded_at`, sit outside a payload's canonical digest (Loop ADR-0131). Adding a tag to a type never changes the digest of its payloads.
 
 ## Durable facts and telemetry
 

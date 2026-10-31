@@ -54,6 +54,8 @@ These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event car
 | OW-11 | The decision request record | The fields in DR-02, as one shape for every plugin's human gate (Weigh-In call A) | DR-02 |
 | OW-12 | Journal line format | One stored envelope per line, with its `origin` | JR-02 |
 | OW-13 | Where journals live | Undecided: pressure-test call A waits on the refs spike; the draft writes committed files until then | JR-07 |
+| OW-14 | Hash method names and digest forms | `sha256`, `git-commit`, `git-tree`, `patch-id`, `rust-fingerprint`, written `<method>:<hex>` | ID-09 |
+| OW-15 | Content-hash id derivations | Each id kind's domain string and input fields; Weigh-In's captured-item input kept as today | ID-04, DR-03 |
 
 Everything else in the draft is two-way: it can change in a SPEC minor or a Core release without touching stored data.
 
@@ -62,7 +64,7 @@ Everything else in the draft is two-way: it can change in a SPEC minor or a Core
 The SPEC is extracted, not invented (migration plan, principle 4). Its first version is weigh-in's and anneal's ledgers made one, which are near-copies today, plus the shapes the planning documents settled:
 
 - `references/docs/blueprint.md`: Redkiln Core, How they compose, Data and state, design rules 1, 5, 7, 9 and 10.
-- `references/docs/blueprint-pressure-test.md`: Approvals and hash methods, Trust, Event schemas over time, Order and time, Volume, retention and privacy, calls A to C.
+- `references/docs/blueprint-pressure-test.md`: Which hash an approval binds to, Scenarios, Trust, Event schemas over time, Order and time, Volume, retention and privacy, calls A to C.
 - `references/docs/weigh-in.md`: The decision model, What a request carries, Where an unattended question is answered.
 - weigh-in at 1.1.1: `crates/weighin/src/store.rs`, `env.rs`, `git.rs`, `journal.rs`, `ci/report.rs`; `crates/weighin-core/src/event.rs`, `id.rs`.
 - anneal at `1952536`: `docs/ledger.md`, `docs/exit-codes.md`, `crates/anneal-cli/src/envelope.rs`, `crates/anneal-ledger/`.
