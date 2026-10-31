@@ -37,7 +37,7 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 
 ## One-way items
 
-These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event carrying it has been written outside a test, and costly after: every stored event, committed journal and plugin that reads them would need a migration. Each needs Ryan's confirmation before Move 1 writes it to a real store; until then the draft carries the recommendation.
+These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event carrying it has been written outside a test, and costly after: every stored event, committed journal and plugin that reads them would need a migration. Ryan confirmed OW-1 to OW-15 as drafted on 2026-10-31 (decision card in the SPEC thread); OW-13 still waits on the refs spike, which picks between its two places. A change to any of them now needs his decision.
 
 | # | Item | Draft recommendation | Section |
 | --- | --- | --- | --- |
@@ -57,7 +57,7 @@ These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event car
 | OW-14 | Hash method names and digest forms | `sha256`, `git-commit`, `git-tree`, `patch-id`, `rust-fingerprint`, written `<method>:<hex>` | ID-09 |
 | OW-15 | Content-hash id derivations | Each id kind's domain string and input fields; Weigh-In's captured-item input kept as today | ID-04, DR-03 |
 
-One dependency call sits beside the table: identity across imports needs a public happenstance ingest call that 0.3.2 lacks (ST-04), to be settled before Move 1 as an H-16 decision.
+One dependency sits beside the table: identity across imports needs a public happenstance ingest call, which no release has yet (0.4.3 keeps it behind `cfg(test)`). Ryan decided on 2026-10-31 that it comes from a happenstance release that Core then pins (ST-04).
 
 Everything else in the draft is two-way: it can change in a SPEC minor or a Core release without touching stored data.
 
