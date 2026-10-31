@@ -12,7 +12,7 @@ Core holds one approval record, so that an approval given in one plugin can answ
 | `verdict` | string | `approved`, `rejected` or `withdrawn` |
 | `scope` | string | Where it holds: `worktree`, `branch` or `repository`. Default `repository` |
 | `gates` | array of strings, or absent | The gates that may accept it, as `<namespace>.<gate>` (`bench.plan`, `loop.planning`). Absent: any gate whose subject matches |
-| `decider` | string | Who decided: `github:<login>` or `human:<name>`. When `trust.by` is present it equals it; a surface that reports no identity (an `AskUserQuestion` answer) gives `human:<owner>`, the `owner` Core resolves for the repository (ST-12) |
+| `decider` | string | Who decided: `github:<login>` or `human:<name>`. When `trust.by` is present it equals it; a surface that reports no identity (an `AskUserQuestion` answer) gives `human:<owner>`, the `owner` Core resolves for the repository (ST-12). With no owner and no reported identity (a bare container with no git identity), the approval is refused, not recorded without a decider |
 | `expires` | string or absent | RFC 3339 UTC; absent means it does not expire |
 | `request` | string or absent | The `wi-` item it answers, when it answers a decision request |
 
