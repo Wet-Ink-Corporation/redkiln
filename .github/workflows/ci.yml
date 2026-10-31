@@ -2,7 +2,7 @@
 # monorepo). GitHub-hosted runners. Actions are pinned to full commit SHAs; Dependabot proposes
 # bumps. Every cargo command that resolves dependencies passes --locked (PROC-13).
 #
-# The one check to require on main is `ci / ok`: path-filtered jobs that do not run are skipped,
+# The one check to require on main is `ok` (shown as `ci / ok` on a PR; source GitHub Actions): path-filtered jobs that do not run are skipped,
 # and a required check that is skipped never reports, so `ok` stands in for all of them.
 #
 # Room left for what arrives later: the typescript job runs once a package.json exists (the suite
