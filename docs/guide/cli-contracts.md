@@ -13,7 +13,7 @@ Typed values are the source; Markdown is a rendering. A human-facing artifact is
 
 ### CL-2 `--json` is a versioned contract
 
-Every machine document carries its schema id (`<name>/<n>`), changes additively within a version, and is checked by golden fixtures. A consumer pins the version it reads. A CLI that "exits 0 whenever it writes a report and 1 only on its own errors" leaves policy to the caller (weigh-in `ci-check`). Streamed lines carry a discriminator and readers dispatch on it.
+Every machine document carries its schema id (`<namespace>.<command>/<n>`, SPEC CLI-02 to CLI-08), changes additively within a version, and is checked by golden fixtures. A consumer pins the version it reads. A CLI that "exits 0 whenever it writes a report and 1 only on its own errors" leaves policy to the caller (weigh-in `ci-check`). Streamed lines carry a discriminator and readers dispatch on it.
 
 - **Evidence.** weigh-in `weighin.ci-check/1`, `crates/weighin/src/ci/report.rs`; anneal `status --json` (`schema: 1`, additive); assay `schemas/` and golden fixtures; SPEC CLI; prior art below (cargo `--format-version`).
 

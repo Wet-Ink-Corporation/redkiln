@@ -38,7 +38,7 @@ Consumers fetch release binaries by digest. A digest proves integrity, not origi
 
 ### CR-6 Semver is defined by the impact on an adopted repository
 
-A new check that fails only new or changed code is minor; one that fails untouched code is major; raising a minimum Claude Code, Node or toolchain version is major, because it can stop hooks for anyone who has not upgraded.
+A new check that fails only new or changed code is minor; one that fails untouched code is major; raising a minimum Claude Code or Node version is major, because it can stop hooks for anyone who has not upgraded.
 
 - **Evidence.** temper `docs/history/decisions.md:130-133`, wi-22c6a1, wi-c038a8.
 
@@ -46,7 +46,7 @@ A new check that fails only new or changed code is minor; one that fails untouch
 
 Keep the required check's name independent of the runner, keep local gates runnable as the evidence of record, and make "minutes ran out" a documented mode, not an emergency migration.
 
-- **Why.** Actions billing blocked assay's CI on 19 and 20 October; an emergency move to another runner provider ended when its free minutes ran out and was reverted; weigh-in made the same round trip. Making the repositories public is what made minutes free.
+- **Why.** Actions billing blocked assay's CI on 20 October, from 17:58; an emergency move to another runner provider ended when its free minutes ran out and was reverted; weigh-in made the same round trip. Making the repositories public is what made minutes free.
 - **Evidence.** assay `docs/handoff-2026-10-19.md`, decision 0006; weigh-in B-33, PRs #154, #157, #159.
 
 ## Patterns worth copying

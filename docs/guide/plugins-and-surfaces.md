@@ -20,7 +20,7 @@ Evidence: weigh-in B-04, D-0002, D-0018, B-34, B-35, B-12, CHANGELOG 1.1.1 to 1.
 
 ### PS-1 No `bin/` in a plugin; binaries live in `libexec/<target>/` behind a launcher
 
-claude.ai rejects a hosted plugin with a top-level `bin/`, because Claude Code puts it on PATH outside the approval surface. Packaging refuses `bin/` twice: when the zip is built and when the marketplace tree is built. `libexec/` takes an allowlist (the launchers and `<target>/<binary>[.exe]`), not whatever a job downloaded.
+claude.ai rejects a hosted plugin with a top-level `bin/`, because Claude Code puts it on PATH outside the approval surface. Packaging refuses `bin/` twice: when the zip is built and when the marketplace tree is built. `libexec/` takes an allowlist (the launchers `<binary>` and `<binary>.cmd`, `<target>/<binary>[.exe]`, and the root `<binary>.exe` that Windows exec-form hooks need, [HK-3](hooks.md#hk-3-hooks-are-exec-form-and-call-one-binary-by-path)), not whatever a job downloaded.
 
 - **Why.** A rerun of weigh-in's release job downloaded every artifact of the run into `libexec/`, including a failed attempt's assets; the zip came out at 32 MB instead of 13.
 - **Evidence.** weigh-in B-03, B-15, `scripts/marketplace-branch.sh`; redkiln `AGENTS.md`, Plugin rules.
@@ -34,7 +34,7 @@ A plugin whose `hooks.json` names `modules` is switched off entirely in the desk
 
 ### PS-3 Duplicated launchers and versions are byte-checked
 
-Every copy of the shared launcher is `cmp`-identical to `tools/launcher/`, and every version site of a package agrees (Cargo, each `plugin.json`, the CHANGELOG heading). Vendored copies of anything are checked in CI, never synced on trust.
+Every copy of the shared launcher is `cmp`-identical to `tools/launcher/`, and every version site of a package agrees (Cargo, each `plugin.json`, the CHANGELOG heading). Vendored copies of anything are checked in CI, never synced on trust. This applies in the repository that owns the copies; in an adopted repository a changed vendored copy is flagged, not failed ([CR-3](ci-and-release.md#cr-3-ci-flags-not-fails-on-changes-only-a-human-may-make-where-codeowners-would-deadlock)).
 
 - **Why.** temper's byte check caught a CodeQL autofix that edited only the lens plugin's vendored copy of a file.
 - **Evidence.** anneal `scripts/check-versions.sh`; temper `tests/ci.sh:40-48`, `@73f2ff8`; redkiln `.github/workflows/ci.yml` (launcher copies).
@@ -47,7 +47,7 @@ The plugin cache is keyed on the version directory. A fix merged without a versi
 
 ### PS-5 The launcher picks the newest build, never recurses, and names what it skipped
 
-The launcher chooses the newest build among the listed targets (`-nt`), so a stale native build cannot shadow a fresh cross-build; falls back to PATH with an environment marker that stops it re-executing itself; and, where a fallback finds a binary of another version, runs it only if `--version` matches and names the copies it skipped.
+The launcher chooses the newest build among the listed targets (`-nt`), so a stale native build cannot shadow a fresh cross-build; falls back to PATH with an environment marker that stops it re-executing itself; and, where a fallback finds a binary of another version, runs it only if `--version` matches and names the copies it skipped. The shared launcher does not do this yet: its PATH fallback runs any `<binary>` that is not itself, with no version check, so that check is a launcher follow-up.
 
 - **Why.** Builds differ in journal mode, so an old build can reopen a ledger under WAL. weigh-in's Cowork fallback once picked a 0.2.1 build from a connected folder.
 - **Evidence.** weigh-in B-05, #143, `plugin/libexec/weighin`; anneal `plugin/libexec/anneal:26-234`; redkiln `tools/launcher/README.md`.
@@ -114,5 +114,5 @@ Naming a skill the plugin lacks sends the model to `Unknown skill`. Indexes are 
 
 - Agent Skills is an open standard with a progressive-disclosure budget: metadata about 100 tokens, `SKILL.md` under 5,000 tokens and 500 lines, references one level deep. **Adopt**: run `skills-ref validate` in the plugins CI job. [Agent Skills specification](https://agentskills.io/specification)
 - Claude Code truncates a skill's `description` and `when_to_use` at 1,536 characters in the listing. **Adopt**: put the key use case first. [Claude Code skills](https://code.claude.com/docs/en/skills)
-- uv's installer never needs to touch PATH and can be pinned by URL. **Agree**: we never put binaries on PATH. [uv installation](https://docs.astral.sh/uv/getting-started/installation/)
+- uv's installer never needs to touch PATH and can be pinned by URL. **Agree**: we never ship `bin/` or install onto the system PATH (exporting a binary for one Claude session through `CLAUDE_ENV_FILE`, as temper's D17 does, is a different thing). [uv installation](https://docs.astral.sh/uv/getting-started/installation/)
 - dist (cargo-dist) builds per-target archives with checksums and attestations. **We differ**: binaries must live inside the plugin folder; dist could still be the builder. [cargo-dist](https://github.com/axodotdev/cargo-dist/releases/tag/v0.33.1)

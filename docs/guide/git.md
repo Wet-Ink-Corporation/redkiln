@@ -27,7 +27,7 @@ Map outcomes from exit codes and porcelain output. Where only a message distingu
 
 Use git's own rules (`interpret-trailers --parse`, or `%(trailers)`), limited to the commit's final trailer block. A squash merge puts trailers mid-body, so a reader that must see them across squash merges reads every message line, deliberately and with a test.
 
-- **Evidence.** redkiln-rs #18; weigh-in `crates/weighin/src/ci.rs` (`ci-check` reads trailers on every line); redkiln `main` allows merge commits only, which keeps each PR's trailers where they were written (weigh-in D-0020).
+- **Evidence.** redkiln-rs #18; weigh-in `crates/weighin/src/ci.rs` (`ci-check` reads trailers on every line); redkiln `main` allows merge commits only, which keeps each PR's trailers where they were written (wi-e3e5af).
 
 ### GT-5 Compare-and-set only where the platform really provides it
 
@@ -37,9 +37,9 @@ Use git's own rules (`interpret-trailers --parse`, or `%(trailers)`), limited to
 
 ### GT-6 Patch-id keeps a verdict fresh across a rebase, and nothing else
 
-A verdict recorded for one head stays fresh for another when `git patch-id --verbatim` over a fully pinned diff matches from the same base. Pin the diff so the id depends only on content: `--no-color --no-ext-diff --no-textconv --no-renames --ignore-submodules=none --binary -U3 --src-prefix=a/ --dst-prefix=b/ <base>...<head>`. `--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles.
+A verdict recorded for one head stays fresh for another when `git patch-id --verbatim` over a fully pinned diff matches, each taken against its own merge base, so a clean rebase or squash keeps it. Pin the diff so the id depends only on content: `--no-color --no-ext-diff --no-textconv --no-renames --ignore-submodules=none --binary -U3 --src-prefix=a/ --dst-prefix=b/ <base>...<head>`. `--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles.
 
-- **Evidence.** anneal `docs/verdict.md:128-143`, `crates/anneal-cli/src/pr_diff.rs`, `@cdc9787`; SPEC ID-09 (`patch-id` hash method).
+- **Evidence.** anneal `docs/verdict.md:128-143`, `crates/anneal-cli/src/pr_diff.rs`, `@cdc9787`; SPEC ID-09 (`patch-id` hash method), which today names a plain `git diff <base>...<commit>` with no pinned flags; see [Tension T10](README.md#tensions-with-the-plan).
 
 ### GT-7 Worktree ownership comes from the store, never from the cwd
 

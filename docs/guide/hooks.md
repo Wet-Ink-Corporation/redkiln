@@ -1,12 +1,12 @@
 # Hooks
 
-Every `rk-*` plugin reaches Claude Code through hooks that call its binary. Four repositories have run hooks in production for a month or more; this chapter is what they agree on, and where they learned it. The SPEC's hook conventions section arrives with Move 2 (`spec/README.md`); until then these guardrails are the working rules, and HK-1 to HK-8 are its candidate text.
+Every `rk-*` plugin reaches Claude Code through hooks that call its binary. Four repositories have run hooks in production for a month or more; this chapter is what they agree on, and where they learned it. The SPEC already fixes the core of the hook contract in CLI-09 to CLI-11 (`spec/cli.md`): exec form by path, hooks fail open but still exit 2 on usage errors, a guard denies with a deny decision and exit 0 (exit 2 only when it cannot write one), and no build lets every hook through. Where this chapter and the SPEC differ, the SPEC wins; HK-1 to HK-8 add what it does not yet say, and are candidate text for the fuller hook section that arrives with Move 2.
 
 ## Guardrails
 
 ### HK-1 Hooks fail open, guards fail closed, a missing install warns
 
-A hook that records, injects or observes exits 0 on any failure of its own. A guard (a PreToolUse hook that refuses something) blocks when its binary runs and fails or times out: declare `onFailure: "block"` on the hook entry and keep the binary's own `--fail-closed` handling. With **no binary anywhere**, every hook exits 0, guards included, and SessionStart says that the plugin is off and why.
+This restates SPEC CLI-09 to CLI-11, which win where the wording differs. A hook that records, injects or observes exits 0 on any failure of its own (its usage errors still exit 2, CLI-09). A guard (a PreToolUse hook that refuses something) denies what it cannot judge with a deny decision and exit 0, and blocks when its binary runs and fails or times out (CLI-10): declare `onFailure: "block"` on the hook entry and keep the binary's own `--fail-closed` handling. With **no binary anywhere**, every hook exits 0, guards included, and SessionStart says that the plugin is off and why.
 
 - **Why.** claude.ai syncs plugins into cloud sessions without their `libexec/` builds. anneal's old launcher made every fail-closed guard exit 2 when it found no binary, so every Bash, Edit, Write and Agent call was blocked and the only way out was to remove the plugin. Ryan's call was "warn, don't block".
 - **Enforce.** A manifest test that `onFailure: "block"` appears exactly when the args carry `--fail-closed`, every entry is exec form with an explicit timeout, and every hook id is a subcommand the binary accepts (anneal's `hooks_manifest`). The launcher's no-binary path is a tested branch, not an accident.
@@ -21,7 +21,7 @@ Every hook error goes to a log in the plugin's state directory and the hook exit
 
 ### HK-3 Hooks are exec form and call one binary by path
 
-Each hook is `{"command": "${CLAUDE_PLUGIN_ROOT}/libexec/<binary>", "args": [...]}`: no shell, no `bin/` on PATH, no logic in the hook entry. On Linux and macOS the kernel runs the sh launcher by its shebang (mode `100755`, or the hook fails with `EACCES`); on Windows the same extensionless path resolves to `<binary>.exe`. A `.cmd` cannot be spawned this way (`EINVAL`), so the package ships the Windows build at `libexec/<binary>.exe` as well as per target.
+Each hook is `{"command": "${CLAUDE_PLUGIN_ROOT}/libexec/<binary>", "args": [...]}`: no shell, no `bin/` on PATH, no logic in the hook entry. On Linux and macOS the kernel runs the sh launcher by its shebang (mode `100755`, or the hook fails with `EACCES`); on Windows the same extensionless path resolves to `<binary>.exe`. A `.cmd` cannot be spawned this way (`EINVAL`), so weigh-in ships the Windows build at `libexec/<binary>.exe` as well as per target. The shared launcher (`tools/launcher/README.md`) ships only `libexec/<binary>` and `<binary>.cmd` today, so on Windows the exec-form hook has nothing to run; see [Tension T9](README.md#tensions-with-the-plan).
 
 - **Evidence.** weigh-in B-16, `plugin/hooks/hooks.json`; anneal `docs/hooks.md:34-41`; redkiln `AGENTS.md`, Plugin rules.
 
@@ -34,10 +34,10 @@ A PreToolUse hook that times out lets the tool call through, so a slow match is 
 
 ### HK-5 Budget time inside the hook, not by trusting `timeout`
 
-Each hook plans against its own timeout and measures as it goes. Sub-steps get explicit slices (anneal's guard gives git 1 s to find the ledger and each ledger statement 16 of its 100 ms, so a locked ledger still lets the deny out). A long Stop gate stops starting new uncached work before the hook timeout can cut it off (temper blocks before another gate after 540 s of a 1200 s hook). A heartbeat lets the next hook tell a timeout from an interruption.
+Each hook plans against its own timeout and measures as it goes. Sub-steps get explicit slices (anneal's guard gives each ledger statement 16 of its 100 ms, so a locked ledger still lets the deny out). A long Stop gate stops starting new uncached work before the hook timeout can cut it off (temper blocks before another gate after 540 s of a 1200 s hook). A heartbeat lets the next hook tell a timeout from an interruption.
 
 - **Why.** With default timeouts, a stuck writer could cost an anneal bootstrap about 100 s; 7 of 16 temper Stop gates in one redkiln-rs session ended with no recorded outcome.
-- **Evidence.** anneal `crates/anneal-cli/src/hook.rs:44-48`, `AGENTS.md:126,131,310`; temper wi-4521a7, #137, `scripts/lib/hooks.mjs:1305-1400,1621-1648`.
+- **Evidence.** anneal `CHANGELOG.md:63` (#89, #108), `crates/anneal-cli/AGENTS.md`; temper wi-4521a7, #137, `scripts/lib/hooks.mjs:1305-1400,1621-1648`.
 
 ### HK-6 Cap stdin, read only the fields you use, and make every field optional
 

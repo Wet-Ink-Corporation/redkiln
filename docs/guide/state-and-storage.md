@@ -6,16 +6,16 @@ The SPEC (`spec/store.md`, `events.md`, `journals.md`) defines the shared event 
 
 ### SS-1 Nothing beside the store is ever deleted, and read-only commands create nothing
 
-Cowork's connected folders refuse `unlink`, so the store runs under a TRUNCATE journal; a stale `-wal` is renamed aside, never deleted; offset files are overwritten, never removed; lock files live in the temp directory; writers create the store lazily on their first write; read-only commands never create one.
+Cowork's connected folders refuse `unlink`, so the store runs under a TRUNCATE journal; a stale `-wal` is renamed aside, never deleted; offset files are overwritten, never removed; per-process lock files (flock) live in the temp directory, never beside the store, while locks and reservations every worktree must share live under `<git-common-dir>/` as store rows or refs, not deletable files ([SS-7](#ss-7-locks-and-id-reservations-live-under-git-common-dir)); writers create the store lazily on their first write; read-only commands never create one.
 
 - **Why.** Creating a ledger under WAL or DELETE journals failed with `SQLITE_IOERR_DELETE` (2570), confirmed with strace and an unlink-refusing shim; `stats` once left an undeletable `.weighin/` in a user's folder.
 - **Evidence.** weigh-in B-01, B-11, B-28, `crates/weighin/src/store.rs:200`, `@4b8f28d`; SPEC ST.
 
-### SS-2 One owner of the file, one version stamp, and a newer store is refused untouched
+### SS-2 One owner of the file, one version stamp, and only a newer major is refused
 
-Only the core opener touches `events.sqlite3`. The product's schema version lives in `PRAGMA user_version` (happenstance keeps its own counter elsewhere); migrations run step by step inside one `BEGIN IMMEDIATE`; a store stamped newer than the build knows is refused with "upgrade", and not written. Tests build real old stores from copied payloads. Nothing else opens the file to sniff, hash or copy it: closing any descriptor drops SQLite's POSIX locks.
+Only the core opener touches `events.sqlite3`. The product's schema version lives in `PRAGMA user_version` (happenstance keeps its own counter elsewhere); migrations run step by step inside one `BEGIN IMMEDIATE`; a store of the same major and a newer minor opens, reads and appends without lowering the stamp, and only a newer major is refused with "upgrade", untouched (SPEC ST-07). weigh-in refused any newer stamp; the suite cannot, because one plugin's upgrade must not lock a sibling out. Tests build real old stores from copied payloads. Nothing else opens the file to sniff, hash or copy it: closing any descriptor drops SQLite's POSIX locks.
 
-- **Evidence.** weigh-in B-10, `crates/weighin/src/store.rs:349-387`; SPEC ST-06 (OW-2); prior-art/platform.md §1 (How To Corrupt An SQLite Database File).
+- **Evidence.** weigh-in B-10, `crates/weighin/src/store.rs:349-387`; SPEC ST-06 (OW-2), ST-07; prior-art/platform.md §1 (How To Corrupt An SQLite Database File).
 
 ### SS-3 Readers skip what they do not know, and only a newer major locks a reader out
 
@@ -46,7 +46,7 @@ Hook writes use a bounded busy timeout and take the write lock up front (`BEGIN 
 
 ### SS-7 Locks and id reservations live under `<git-common-dir>/`
 
-Every worktree must resolve the same lock. A lock holder is presumed alive until proven dead by more than a wall-clock step; fsync the parent directory as well as the file; never assume a cross-host lock can be cleared locally.
+Every worktree must resolve the same lock, so shared locks and id reservations resolve under `<git-common-dir>/`, held as store rows or refs rather than files that would have to be deleted ([SS-1](#ss-1-nothing-beside-the-store-is-ever-deleted-and-read-only-commands-create-nothing)). A lock holder is presumed alive until proven dead by more than a wall-clock step; fsync the parent directory as well as the file; never assume a cross-host lock can be cleared locally.
 
 - **Why.** Ids collided across worktrees until the lock moved; the Node RFC says this area "has been wrong three times".
 - **Evidence.** redkiln-old 0.12.0 CHANGELOG, A5-05, A5-06, A5-12.
