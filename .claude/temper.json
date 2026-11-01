@@ -23,7 +23,11 @@
     "trybuild",
     "divan",
     "criterion",
-    "tempfile"
+    "tempfile",
+    "tokio",
+    "sha2",
+    "clap",
+    "time"
   ],
   "manifests": {
     "ownLints": []
