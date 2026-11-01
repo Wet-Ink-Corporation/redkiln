@@ -1,11 +1,11 @@
 //! The plugin rules of `AGENTS.md` (CLI first, harness second), checked against synthetic
 //! plugins, a plugin tree on disk and this repository.
 
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use xtask::plugins::{FileKind, Plugin, PluginFile, Violation, check, read_plugins};
+
+use crate::support::{scratch, tree};
 
 const HOOKS: &str = r#"{"hooks":{"SessionStart":[{"hooks":[
   {"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/libexec/weighin","args":["hook","SessionStart"]}
@@ -31,6 +31,7 @@ fn text(path: &str, contents: &str) -> PluginFile {
 fn plugin(files: Vec<PluginFile>) -> Plugin {
     Plugin {
         name: "rk-weigh-in".to_owned(),
+        folder: true,
         files,
     }
 }
@@ -284,6 +285,7 @@ fn a_skill_naming_a_binary_the_plugin_does_not_ship_fails() {
 fn violations_come_in_plugin_order() {
     let other = Plugin {
         name: "rk-bench".to_owned(),
+        folder: true,
         files: vec![file("run.sh")],
     };
     let found = check(&[plugin(vec![file("run.sh")]), other]);
@@ -302,28 +304,66 @@ fn violations_come_in_plugin_order() {
     );
 }
 
-/// A fresh, empty directory for one test, under cargo's per-target scratch space.
-fn scratch(name: &str) -> io::Result<PathBuf> {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("xtask-plugins")
-        .join(name);
-    if dir.exists() {
-        fs::remove_dir_all(&dir)?;
+#[test]
+fn a_mod_folder_in_a_main_plugin_fails() {
+    for path in ["hooks/mod/register.tsx", "types/plugin-api.d.ts"] {
+        assert_eq!(
+            with(file(path)),
+            vec![Violation::Unlisted {
+                plugin: "rk-weigh-in".to_owned(),
+                path: path.to_owned()
+            }],
+            "{path}"
+        );
     }
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
 }
 
-/// Writes each `(path, contents)` under `root`, creating folders as needed.
-fn tree(root: &Path, files: &[(&str, &str)]) -> io::Result<()> {
-    for &(path, contents) in files {
-        let full = root.join(path);
-        if let Some(parent) = full.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(full, contents)?;
+#[test]
+fn only_a_shipped_binary_is_a_build() {
+    for path in [
+        "libexec/x/run.py",
+        "libexec/x86_64-unknown-linux-musl/run.py",
+        "libexec/x86_64-unknown-linux-musl/bench",
+        "libexec/x86_64-unknown-linux-musl/nested/weighin",
+    ] {
+        assert_eq!(
+            with(file(path)),
+            vec![Violation::Unlisted {
+                plugin: "rk-weigh-in".to_owned(),
+                path: path.to_owned()
+            }],
+            "{path}"
+        );
     }
-    Ok(())
+}
+
+#[test]
+fn skill_data_naming_an_unknown_binary_fails() {
+    assert_eq!(
+        with(text(
+            "skills/weigh-in/references/steps.json",
+            r#"{"run":"libexec/bench plan check"}"#
+        )),
+        vec![Violation::UnknownBinary {
+            plugin: "rk-weigh-in".to_owned(),
+            path: "skills/weigh-in/references/steps.json".to_owned(),
+            binary: "bench".to_owned()
+        }]
+    );
+}
+
+#[test]
+fn an_entry_that_is_not_a_folder_fails_alone() {
+    let entry = Plugin {
+        folder: false,
+        ..plugin(vec![])
+    };
+    assert_eq!(
+        check(&[entry]),
+        vec![Violation::NotAFolder {
+            plugin: "rk-weigh-in".to_owned()
+        }]
+    );
 }
 
 #[test]

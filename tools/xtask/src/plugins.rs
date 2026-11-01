@@ -14,7 +14,7 @@ use std::fmt;
 
 use serde::Deserialize;
 
-pub use read::{ReadError, read_plugins};
+pub use read::{MAX_DEPTH, MAX_FILES, MAX_TEXT, ReadError, read_plugins};
 
 /// The only form a hook command may take, followed by the binary's name.
 const HOOK_PREFIX: &str = "${CLAUDE_PLUGIN_ROOT}/libexec/";
@@ -62,6 +62,8 @@ pub struct PluginFile {
 pub struct Plugin {
     /// The folder's name.
     pub name: String,
+    /// Whether it is a real folder; a file or symlink directly under `plugins/` is not.
+    pub folder: bool,
     /// Every file under it, in path order.
     pub files: Vec<PluginFile>,
 }
@@ -69,6 +71,11 @@ pub struct Plugin {
 /// One way a plugin breaks the plugin rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Violation {
+    /// An entry directly under `plugins/` that is not a folder (a file or a symlink).
+    NotAFolder {
+        /// The entry's name.
+        plugin: String,
+    },
     /// The plugin has no `.claude-plugin/plugin.json`.
     NoManifest {
         /// The plugin folder.
@@ -125,6 +132,12 @@ pub enum Violation {
 impl fmt::Display for Violation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotAFolder { plugin } => {
+                write!(
+                    f,
+                    "{plugin}: not a folder; plugins/ holds only plugin folders"
+                )
+            }
             Self::NoManifest { plugin } => {
                 write!(f, "{plugin}: no .claude-plugin/plugin.json")
             }
@@ -187,8 +200,11 @@ struct Hook {
     args: Vec<String>,
 }
 
-/// Checks every plugin against the plugin rules. Pure: violations come in plugin order, and in
-/// file order within a plugin.
+/// Checks every plugin against the plugin rules.
+///
+/// Pure: violations come in plugin order. Within a plugin they come by kind: a missing manifest,
+/// an unreadable `hooks.json`, then placements in file order, then hooks in event order, then
+/// unknown binaries in file order. An entry that is not a folder gives only `NotAFolder`.
 #[must_use]
 pub fn check(plugins: &[Plugin]) -> Vec<Violation> {
     plugins.iter().flat_map(check_plugin).collect()
@@ -196,6 +212,9 @@ pub fn check(plugins: &[Plugin]) -> Vec<Violation> {
 
 fn check_plugin(plugin: &Plugin) -> Vec<Violation> {
     let name = || plugin.name.clone();
+    if !plugin.folder {
+        return vec![Violation::NotAFolder { plugin: name() }];
+    }
     let mut found = Vec::new();
     if !plugin
         .files
@@ -220,13 +239,13 @@ fn check_plugin(plugin: &Plugin) -> Vec<Violation> {
     let is_mod = hooks
         .as_ref()
         .is_some_and(|h| h.modules.as_ref().is_some_and(|m| !m.is_null()));
+    let launchers = launchers(plugin);
     found.extend(
         plugin
             .files
             .iter()
-            .filter_map(|file| placement(plugin, file, is_mod)),
+            .filter_map(|file| placement(plugin, file, is_mod, &launchers)),
     );
-    let launchers = launchers(plugin);
     if let Some(hooks) = &hooks {
         found.extend(check_hooks(&plugin.name, hooks, &launchers));
     }
@@ -235,15 +254,29 @@ fn check_plugin(plugin: &Plugin) -> Vec<Violation> {
 }
 
 /// The violation, if any, of where `file` sits in `plugin`.
-fn placement(plugin: &Plugin, file: &PluginFile, is_mod: bool) -> Option<Violation> {
-    let (name, path) = (plugin.name.clone(), file.path.clone());
+fn placement(
+    plugin: &Plugin,
+    file: &PluginFile,
+    is_mod: bool,
+    launchers: &[&str],
+) -> Option<Violation> {
+    let (name, path) = (|| plugin.name.clone(), || file.path.clone());
     if file.kind == FileKind::Other {
-        return Some(Violation::NotRegularFile { plugin: name, path });
+        return Some(Violation::NotRegularFile {
+            plugin: name(),
+            path: path(),
+        });
     }
-    match place(&file.path, is_mod) {
+    match place(&file.path, is_mod, launchers) {
         Place::Allowed => None,
-        Place::Unlisted => Some(Violation::Unlisted { plugin: name, path }),
-        Place::SkillInMod => Some(Violation::ModWithSkills { plugin: name, path }),
+        Place::Unlisted => Some(Violation::Unlisted {
+            plugin: name(),
+            path: path(),
+        }),
+        Place::SkillInMod => Some(Violation::ModWithSkills {
+            plugin: name(),
+            path: path(),
+        }),
     }
 }
 
@@ -277,7 +310,7 @@ enum Place {
     SkillInMod,
 }
 
-fn place(path: &str, is_mod: bool) -> Place {
+fn place(path: &str, is_mod: bool, launchers: &[&str]) -> Place {
     let segments: Vec<&str> = path.split('/').collect();
     let prompt = |allowed: bool| match (allowed, is_mod) {
         (false, _) => Place::Unlisted,
@@ -285,9 +318,10 @@ fn place(path: &str, is_mod: bool) -> Place {
         (true, false) => Place::Allowed,
     };
     let allowed = match segments.as_slice() {
-        [".claude-plugin", "plugin.json"] | ["hooks", "hooks.json"] | ["libexec", _, _] => true,
+        [".claude-plugin", "plugin.json"] | ["hooks", "hooks.json"] => true,
         [file] => ROOT_FILES.contains(file),
         ["libexec", name] => is_launcher(name),
+        ["libexec", target, build] => is_build(target, build, launchers),
         ["skills", _, rest @ ..] => {
             return prompt(!rest.is_empty() && has_extension(path, &SKILL_EXTENSIONS));
         }
@@ -315,6 +349,13 @@ fn has_extension(path: &str, extensions: &[&str]) -> bool {
 fn is_launcher(name: &str) -> bool {
     let stem = name.strip_suffix(".cmd").unwrap_or(name);
     !stem.is_empty() && stem.chars().all(is_binary_char)
+}
+
+/// A build is `libexec/<target>/<binary>[.exe]`: a target triple (a name with a `-`) and a binary
+/// the plugin ships a launcher copy for.
+fn is_build(target: &str, build: &str, launchers: &[&str]) -> bool {
+    let binary = build.strip_suffix(".exe").unwrap_or(build);
+    target.contains('-') && target.chars().all(is_binary_char) && launchers.contains(&binary)
 }
 
 fn is_binary_char(c: char) -> bool {

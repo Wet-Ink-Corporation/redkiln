@@ -12,16 +12,16 @@ Tool (`tools/`). A library (`src/lib.rs`, the tasks) plus a thin binary (`src/ma
 - Never: `cargo_metadata` or other crates for what `cargo metadata` and serde already give; `anyhow` in `src/lib.rs`.
 
 ## Public surface
-`xtask::layers`: `Package`, `Dependency`, `Kind`, `Violation`, `check`, `read_workspace`, `ReadError`. `xtask::plugins`: `Plugin`, `PluginFile`, `FileKind`, `Violation`, `check`, `read_plugins`, `ReadError`. Workspace-internal; nothing is published.
+`xtask::layers`: `Package`, `Dependency`, `Kind`, `Violation`, `check`, `read_workspace`, `ReadError`. `xtask::plugins`: `Plugin`, `PluginFile`, `FileKind`, `Violation`, `check`, `read_plugins`, `ReadError`, and the reader's limits `MAX_FILES`, `MAX_DEPTH`, `MAX_TEXT`. Workspace-internal; nothing is published.
 
 ## Invariants
 - Each `check` is pure: the same input gives the same violations, in member or plugin order.
-- `read_plugins` never follows a symlink, and caps what it reads: 5,000 files per plugin (claude.ai's limit), 16 folders deep, 1 MiB per text file it reads (H-13).
+- `read_plugins` never follows a symlink, `plugins/` itself included, and caps what it reads: 5,000 files per plugin (claude.ai's limit) and entries per folder, 16 folders deep, 1 MiB per text file it reads (H-13). Tests pin each limit at its boundary.
 - The layer of a member comes only from its directory (and, under `crates/<plugin>/`, from a `-contract` name suffix). The plugin folder list (`PLUGINS`) is the one place a new plugin is admitted; changing it is a crate-boundary change (H-16).
 - Dev and build dependencies are held to the same layer rules as normal ones.
 
 ## Errors
-`ReadError`: `Spawn` (cargo could not start), `Cargo` (it failed; carries its status and stderr), `Parse` (output was not the metadata expected), `OutsideWorkspace` and `NonUtf8` (a member's directory cannot be placed). `plugins::ReadError`: `Io`, `NonUtf8`, `TooMany`, `TooDeep`, `TooLarge`. Violations are values (`Violation`), not errors.
+`ReadError`: `Spawn` (cargo could not start), `Cargo` (it failed; carries its status and stderr), `Parse` (output was not the metadata expected), `OutsideWorkspace` and `NonUtf8` (a member's directory cannot be placed). `plugins::ReadError`: `Io`, `RootNotFolder`, `NonUtf8`, `NonUtf8Text`, `TooMany`, `TooManyEntries`, `TooDeep`, `TooLarge`. Violations are values (`Violation`), not errors.
 
 ## Test strategy
 Integration tests in `tests/it/` against synthetic workspaces and plugins, one per rule, plus trees written under `CARGO_TARGET_TMPDIR` for the plugin reader and one test each that reads this repository. Run with `cargo test -p xtask`.
