@@ -3,9 +3,11 @@
 //!
 //! A plugin is a thin integration of its binary into the harness: manifests, hooks that run
 //! `<binary> hook ...`, skills, agents and commands that tell the model which command to run,
-//! launcher copies and builds. Anything else in `plugins/<plugin>/` is functionality that belongs
-//! in the CLI, and fails the check. A mod plugin (its `hooks.json` lists `modules`) carries its
-//! module and types instead of skills, agents or commands.
+//! launcher copies, builds and, for a binary that runs in Cowork, one fetch script its skill
+//! sends to the device shell (`libexec/<binary>-cowork-fetch.sh`, M1-D). Anything else in
+//! `plugins/<plugin>/` is functionality that belongs in the CLI, and fails the check. A mod
+//! plugin (its `hooks.json` lists `modules`) carries its module and types instead of skills,
+//! agents or commands.
 
 mod read;
 
@@ -143,8 +145,8 @@ impl fmt::Display for Violation {
             }
             Self::Unlisted { plugin, path } => write!(
                 f,
-                "{plugin}/{path}: not a manifest, hook entry, skill, agent, command, launcher \
-                 or build; functionality belongs in the CLI"
+                "{plugin}/{path}: not a manifest, hook entry, skill, agent, command, launcher, \
+                 build or Cowork bootstrap; functionality belongs in the CLI"
             ),
             Self::NotRegularFile { plugin, path } => {
                 write!(f, "{plugin}/{path}: not a regular file")
@@ -320,7 +322,9 @@ fn place(path: &str, is_mod: bool, launchers: &[&str]) -> Place {
     let allowed = match segments.as_slice() {
         [".claude-plugin", "plugin.json"] | ["hooks", "hooks.json"] => true,
         [file] => ROOT_FILES.contains(file),
-        ["libexec", name] => is_launcher(name),
+        ["libexec", name] => {
+            is_launcher(name) || bootstrap_binary(name).is_some_and(|b| launchers.contains(&b))
+        }
         ["libexec", target, build] => is_build(target, build, launchers),
         ["skills", _, rest @ ..] => {
             return prompt(!rest.is_empty() && has_extension(path, &SKILL_EXTENSIONS));
@@ -349,6 +353,16 @@ fn has_extension(path: &str, extensions: &[&str]) -> bool {
 fn is_launcher(name: &str) -> bool {
     let stem = name.strip_suffix(".cmd").unwrap_or(name);
     !stem.is_empty() && stem.chars().all(is_binary_char)
+}
+
+/// The suffix of a Cowork bootstrap, `libexec/<binary>-cowork-fetch.sh` (M1-D): the one script a
+/// plugin may carry, which a skill reads and sends to Cowork's device shell to fetch its binary.
+const BOOTSTRAP_SUFFIX: &str = "-cowork-fetch.sh";
+
+/// The binary a Cowork bootstrap file name serves, or `None` when the name is not a bootstrap.
+fn bootstrap_binary(name: &str) -> Option<&str> {
+    name.strip_suffix(BOOTSTRAP_SUFFIX)
+        .filter(|binary| !binary.is_empty() && binary.chars().all(is_binary_char))
 }
 
 /// A build is `libexec/<target>/<binary>[.exe]`: a target triple (a name with a `-`) and a binary
@@ -390,6 +404,20 @@ fn named_binaries(text: &str) -> Vec<&str> {
             .find(|c: char| !is_binary_char(c))
             .unwrap_or(after.len());
         let (name, rest) = after.split_at(end);
+        // A bootstrap, `libexec/<binary>-cowork-fetch.sh` with nothing of a file name after it,
+        // names the binary it serves. A `.` continues the name only when a name character
+        // follows it (`.sh.bak`), not when it ends a sentence.
+        let whole_bootstrap = rest.strip_prefix(".sh").is_some_and(|tail| {
+            !tail
+                .strip_prefix('.')
+                .unwrap_or(tail)
+                .starts_with(is_binary_char)
+        });
+        let name = after
+            .get(..end + ".sh".len())
+            .filter(|_| whole_bootstrap)
+            .and_then(bootstrap_binary)
+            .unwrap_or(name);
         if !name.is_empty() && !rest.starts_with('/') && !names.contains(&name) {
             names.push(name);
         }

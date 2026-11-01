@@ -36,6 +36,7 @@ jobs:
       plugins: ${{ steps.paths.outputs.plugins }}
       typescript: ${{ steps.paths.outputs.typescript }}
       labels: ${{ steps.paths.outputs.labels }}
+      weigh-in: ${{ steps.paths.outputs.weigh-in }}
       has-plugins: ${{ steps.paths.outputs.has-plugins }}
       has-package: ${{ steps.paths.outputs.has-package }}
       base: ${{ steps.paths.outputs.base }}
@@ -79,6 +80,7 @@ jobs:
           exists has-plugins 'plugins/*/.claude-plugin/plugin.json'
           exists has-package 'package.json'
           area labels '^(\.github/labels\.yml|tools/labels/)'
+          area weigh-in '^(plugins/weigh-in(-mod)?/|tools/weigh-in/|tools/launcher/weighin-)'
 
   rust:
     needs: changes
@@ -161,6 +163,26 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --locked --workspace --all-features
 
+  # macOS is a release target of every binary, and its symlinked temp dirs are a case weigh-in's
+  # tests pin (weigh-in B-08), so the tests run there as they did in weigh-in's CI.
+  rust-macos:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Baseline mode
+        if: hashFiles('.claude/temper-baseline.json') != ''
+        run: echo "CARGO_BUILD_WARNINGS=warn" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-28
+        with:
+          toolchain: "1.98.1"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo test --locked --workspace --all-features
+
   launcher:
     needs: changes
     if: needs.changes.outputs.launcher == 'true'
@@ -211,6 +233,7 @@ jobs:
             [ -d "$libexec" ] || continue
             for f in "$libexec"/*; do
               [ -f "$f" ] || continue
+              case "$f" in *-cowork-fetch.sh) continue ;; esac   # a Cowork bootstrap (M1-D)
               case "$f" in *.cmd) src=tools/launcher/launcher.cmd ;; *) src=tools/launcher/launcher ;; esac
               cmp -s "$f" "$src" || { echo "::error file=$f::differs from $src"; status=1; }
             done
@@ -220,7 +243,7 @@ jobs:
         shell: bash
         run: |
           for manifest in plugins/*/.claude-plugin/plugin.json; do
-            npx --yes @anthropic-ai/claude-code@2.1.286 plugin validate --strict "$manifest"
+            npx --yes @anthropic-ai/claude-code@2.1.316 plugin validate --strict "$manifest"
           done
 
   typescript:
@@ -251,8 +274,31 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" install --quiet pyyaml==6.0.3
           "$RUNNER_TEMP/venv/bin/python" tools/labels/check.py .github/labels.yml
 
+  # Weigh-In's own checks, imported with it (Move 1): the Cowork fetch script against a fake
+  # device shell (weigh-in D-0021), and the mod's manifest, plugin tests and strict tsc (#114).
+  # No model calls.
+  weigh-in:
+    needs: changes
+    if: needs.changes.outputs.weigh-in == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Cowork fetch script
+        run: sh tools/launcher/weighin-cowork-fetch-check.sh
+      - name: Mod (validate --strict, claude plugin test, strict tsc)
+        env:
+          CLAUDE: npx --yes @anthropic-ai/claude-code@2.1.316
+          TSC: npx --yes -p typescript@6.0.2 tsc
+        run: bash tools/weigh-in/mod-check/mod-check.sh
+
   ok:
-    needs: [changes, rust, rust-windows, launcher, plugins, typescript, labels]
+    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:

@@ -67,9 +67,9 @@ The import commit is a merge whose second parent is weigh-in's tip, unchanged. I
 | `CHANGELOG.md` | `plugins/weigh-in/CHANGELOG.md` | Per-package changelog; 2.0.0's section goes on top |
 | `README.md` | `plugins/weigh-in/README.md` | |
 | `.github/workflows/*` | Not placed | Their jobs are rewritten into `ci.yml` (under `ok`) and the new release workflow |
-| `.claude/` (temper 1.3.0 copy, baseline, cloud hooks, rules), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/`, licences, `.githooks/` | Not placed | The root's own copies govern. Diff each against the root in the import PR: weigh-in's `clippy.toml` has the `watch::Ref` entry with `allow-invalid = true` (wi-727fbf), and `deny.toml` differs; anything weigh-in needs that the root lacks is an H-05 or H-16 call, not a silent merge |
+| `.claude/` (temper 1.3.0 copy, baseline, cloud hooks, rules), `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/`, licences, `.githooks/` | Not placed | The root's own copies govern. Diff each against the root in the import PR: weigh-in's `clippy.toml` has the `watch::Ref` entry with `allow-invalid = true` (wi-727fbf), and `deny.toml` differs; anything weigh-in needs that the root lacks is an H-05 or H-16 call, not a silent merge. Done in the import PR: clippy is clean under the root's `clippy.toml` without `allow-invalid`, and the root's stricter `deny.toml` passes, so neither file changed |
 | Root `.claude-plugin/marketplace.json` | Not placed | The suite's marketplace is assembled by the release into the renamed release repository (M1-G) |
-| Root `AGENTS.md`, `CLAUDE.md` | `docs/weigh-in/charter.md` (both, one file) | The crate map and commands are superseded by the root charter; the "Rules learned the hard way" (B-03, B-01, D-0002, D-0004, D-0021, B-35, B-05) become rules in `plugins/weigh-in/`'s charter where the root does not already state them |
+| Root `AGENTS.md`, `CLAUDE.md` | `docs/weigh-in/charter.md` (`AGENTS.md`, its decisions log included) and `docs/weigh-in/working-rules.md` (`CLAUDE.md`) | Two files, as the import PR placed them: each keeps its own blame. The crate map and commands are superseded by the root charter; the "Rules learned the hard way" (B-03, B-01, D-0002, D-0004, D-0021, B-35, B-05) become rules in `plugins/weigh-in/`'s charter where the root does not already state them |
 | `.gitattributes`, `.gitignore` | Not placed | Diffed against the root's; weigh-in's LF rule matches the root's |
 
 The import PR adds `AGENTS.md` Layout rows for the new top-level paths: `evals/` and `tools/weigh-in/` (a charter change in that PR, listed for Ryan's review).
@@ -78,9 +78,12 @@ Tags are not imported; `v0.1.0` to `v1.2.0` stay in the archived repository.
 
 ## Rename at the door
 
-The second commit changes names only:
+The second commit changes names only, and with them what makes the imported tree pass this repository's checks (paths, workspace entries, launcher copies, CI jobs):
 
 - Install id `rk-weigh-in`; the mod `rk-weigh-in-mod` (M1-C). The binary stays `weighin`, which anneal's bridge, assay's adapter and every skill already name.
+
+The event, store and config renames below change code and data, not names alone, so they land with `redkiln-core` (step 2) and the contract crate (step 5), not in the import PR:
+
 - Events `weighin.<type>` (the 13 types: `weighin.item_raised` to `weighin.item_acknowledged`), tagged `plugin:weighin` (`references/docs/weigh-in.md`, Events).
 - Store: `WEIGHIN_STORE` read for 2.x as a fallback below `$REDKILN_STORE`, with a warning (ST-01).
 - Config: `.redkiln/suite.toml` (`[suite]`), with `.kb/_ledger/config.json` as the 2.x fallback (M1-F); Weigh-In's own keys (owner, board mode, caps) in a `[weigh-in]` table.
@@ -90,7 +93,7 @@ The second commit changes names only:
 
 Each line is a PR or a small group of PRs, under the temper gate and a fresh-context review. The import PR comes first and changes no code.
 
-1. **Import** (two commits: placement merge, rename at the door). The gate must be green with the code as imported: workspace members, the lints the root sets, `cargo xtask layers` (the two crates are a plugin's crates and depend on nothing in Core yet), `cargo xtask plugins` (needs M1-D and M1-E first, or the import carries the script and `.exe` rule changes), CI jobs for Windows and macOS like weigh-in's. weigh-in's baseline is 0, so nothing is re-baselined.
+1. **Import** (two commits: placement merge, rename at the door). Lockfile entries keep weigh-in 1.2.0's resolved versions, and `weighin` keeps happenstance 0.3.2 as imported until step 2 moves the store onto Core's `=0.4.5`; no other crate may take 0.3.2 meanwhile. The launcher copies become the shared launcher's, and weigh-in's four launcher tests expect its wording (Ryan, 2026-11-01). Packaging (`build-plugin-bins`, `package-plugin.sh`, the marketplace branch) is not imported: it arrives as `cargo xtask` tasks before the 2.0.0 release, and `weighin-cowork-fetch.sh`'s connected-folder fallback learns the `plugins/weigh-in/libexec/` path then. The gate must be green with the code as imported: workspace members, the lints the root sets, `cargo xtask layers` (the two crates are a plugin's crates and depend on nothing in Core yet), `cargo xtask plugins` (needs M1-D and M1-E first, or the import carries the script and `.exe` rule changes), CI jobs for Windows and macOS like weigh-in's. weigh-in's baseline is 0, so nothing is re-baselined.
 2. **`redkiln-core`** at `crates/core/redkiln-core/`, from `store.rs` (872 lines), `env.rs` (1,003), `git.rs` (171) and the journal writer (`journal.rs`, `journal/append.rs`, 733), on happenstance `=0.4.5`. It implements ST-01 to ST-16, EV, ID and JR, takes anneal's typed errors (anneal `anneal-ledger`) and weigh-in's WAL conversion, and stamps `user_version` 1000. Fixtures: 0.1.x, 0.2.2 and a 1.2.0 ledger on 0.3.2, plus Ryan's live redkiln-rs ledger as a manual test case. `cargo xtask layers` gets the Core glob.
 3. **Conformance fixtures and schemas** under `spec/` (README, Not in this draft: "Schemas and golden fixtures, Move 1"): one golden per envelope, journal line and CLI envelope, read by `redkiln-core`'s tests.
 4. **`knowledge-contract`** at `crates/knowledge/knowledge-contract/`, holding `atom.rs` (1,213 lines) byte for byte, then atoms at `.kb/decision/` (Knowledge calls B and C). Its folder `crates/knowledge/` is a listed plugin.

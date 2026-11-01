@@ -1,0 +1,708 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Weigh-In Brief</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --ground:#F3F6F5; --paper:#FFFFFF; --paper-2:#EAF0EE; --ink:#172120; --ink-2:#3B4846; --muted:#5F6E6B;
+    --line:#D3DBD9; --line-2:#BFCAC7;
+    --accent:#0E6B66; --accent-ink:#FFFFFF; --accent-soft:#DDEEEC;
+    --copper:#B4571C; --copper-soft:#F8E6DA;
+    --oneway:#A6392C; --oneway-soft:#F7E1DD; --twoway:#2E7A4E; --twoway-soft:#DDF0E4; --amber:#946A08; --amber-soft:#F7ECCB;
+    --shadow:0 1px 2px rgba(23,33,32,.06),0 8px 24px rgba(23,33,32,.06);
+    --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+    --display:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0F1514; --paper:#161D1C; --paper-2:#1E2826; --ink:#E6ECEA; --ink-2:#C4CECB; --muted:#94A29E;
+      --line:#2A3634; --line-2:#3A4846;
+      --accent:#4FB3AB; --accent-ink:#0F1514; --accent-soft:#173331;
+      --copper:#E08A4F; --copper-soft:#3A2416;
+      --oneway:#E0705F; --oneway-soft:#3B1F1B; --twoway:#5FBF87; --twoway-soft:#173324; --amber:#D9B04A; --amber-soft:#332A10;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0F1514; --paper:#161D1C; --paper-2:#1E2826; --ink:#E6ECEA; --ink-2:#C4CECB; --muted:#94A29E;
+    --line:#2A3634; --line-2:#3A4846;
+    --accent:#4FB3AB; --accent-ink:#0F1514; --accent-soft:#173331;
+    --copper:#E08A4F; --copper-soft:#3A2416;
+    --oneway:#E0705F; --oneway-soft:#3B1F1B; --twoway:#5FBF87; --twoway-soft:#173324; --amber:#D9B04A; --amber-soft:#332A10;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--serif);font-size:17px;line-height:1.6;padding-inline:clamp(16px,4vw,40px);padding-block:0 96px}
+  a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+  a:hover{text-decoration-thickness:2px}
+  :focus-visible{outline:2px solid var(--copper);outline-offset:2px}
+  h1,h2,h3,h4{font-family:var(--display);line-height:1.12;text-wrap:balance;margin:0}
+  h1{font-size:clamp(40px,6vw,64px);font-weight:800;letter-spacing:-.02em}
+  h2{font-size:clamp(26px,3.2vw,34px);font-weight:700;letter-spacing:-.015em}
+  h3{font-size:21px;font-weight:700}
+  h4{font-size:17px;font-weight:700}
+  p{margin:0 0 1em}
+  code,.mono{font-family:var(--mono);font-size:.86em}
+  code{background:var(--paper-2);padding:.1em .35em;border-radius:3px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+  .lede{font-size:20px;line-height:1.5;color:var(--ink-2);max-width:62ch}
+
+  .page{max-width:1240px;margin:0 auto}
+  header.masthead{padding-block:56px 32px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr;gap:20px}
+  .mast-meta{display:flex;flex-wrap:wrap;gap:8px 18px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .mast-meta b{color:var(--ink);font-weight:600}
+
+  .shell{display:grid;grid-template-columns:240px minmax(0,1fr);gap:48px;padding-top:40px}
+  nav.rail{position:sticky;top:24px;align-self:start;font-family:var(--display);font-size:14px}
+  nav.rail ol{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+  nav.rail a{display:block;color:var(--ink-2);text-decoration:none;padding:6px 10px;border-left:2px solid var(--line);border-radius:0 4px 4px 0}
+  nav.rail a:hover,nav.rail a.active{color:var(--ink);border-left-color:var(--accent);background:var(--paper)}
+  nav.rail .sub{padding-left:14px;font-size:13px;color:var(--muted)}
+  main{min-width:0}
+  section{padding-block:8px 56px;border-bottom:1px solid var(--line);margin-bottom:40px}
+  section:last-of-type{border-bottom:0}
+  .prose{max-width:70ch}
+  .prose ul,.prose ol{padding-left:1.3em;margin:0 0 1em}
+  .prose li{margin-bottom:.35em}
+  .wide{max-width:none}
+
+  /* status + door chips */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);background:var(--paper);white-space:nowrap}
+  .chip.oneway{color:var(--oneway);border-color:var(--oneway);background:var(--oneway-soft)}
+  .chip.twoway{color:var(--twoway);border-color:var(--twoway);background:var(--twoway-soft)}
+  .chip.amber{color:var(--amber);border-color:var(--amber);background:var(--amber-soft)}
+  .chip.accent{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .chip.copper{color:var(--copper);border-color:var(--copper);background:var(--copper-soft)}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+  /* the decision item */
+  .item{background:var(--paper);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+  .item-head{padding:22px 26px 18px;border-bottom:1px solid var(--line);display:grid;gap:12px}
+  .item-id{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .item-q{font-family:var(--display);font-size:clamp(22px,2.6vw,28px);font-weight:700;line-height:1.2;text-wrap:balance}
+  .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0;border-bottom:1px solid var(--line)}
+  .fact{padding:14px 26px;border-right:1px solid var(--line)}
+  .fact:last-child{border-right:0}
+  .fact .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+  .fact .v{font-family:var(--display);font-size:15px;font-weight:700;line-height:1.3}
+  .item-body{padding:22px 26px}
+  .evidence{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+  .evidence li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:baseline;font-size:15.5px}
+  .evidence .src{font-family:var(--mono);font-size:12px;color:var(--accent);white-space:nowrap}
+
+  /* options */
+  .options{display:grid;gap:14px;margin-top:8px}
+  .opt{border:1px solid var(--line);border-radius:8px;background:var(--paper);display:grid;grid-template-columns:44px minmax(0,1fr);overflow:hidden;transition:border-color .15s}
+  .opt.selected{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .opt.recommended{border-color:var(--copper)}
+  .opt .letter{background:var(--paper-2);font-family:var(--display);font-weight:800;font-size:20px;display:flex;align-items:flex-start;justify-content:center;padding-top:16px;color:var(--ink-2);border-right:1px solid var(--line)}
+  .opt.selected .letter{background:var(--accent);color:var(--accent-ink)}
+  .opt .content{padding:16px 18px 14px;display:grid;gap:10px}
+  .opt .title{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+  .opt .title h3{font-size:19px}
+  .opt .sum{color:var(--ink-2);margin:0;font-size:16px}
+  .pros-cons{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 22px;font-size:15px}
+  .pros-cons h4{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:600}
+  .pros-cons ul{margin:0;padding-left:1.1em}
+  .pros-cons li{margin-bottom:4px}
+  .steelman{font-size:15px;border-left:3px solid var(--line-2);padding:6px 12px;color:var(--ink-2);background:var(--paper-2);border-radius:0 6px 6px 0}
+  .steelman b{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:3px;font-weight:600}
+  .opt .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+  .grounded{font-family:var(--mono);font-size:12px;color:var(--muted)}
+  button{font-family:var(--display);font-weight:700;font-size:14px;border-radius:6px;border:1px solid var(--line-2);background:var(--paper);color:var(--ink);padding:8px 14px;cursor:pointer}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  button.primary:hover{filter:brightness(1.08);color:var(--accent-ink)}
+  button.copper{background:var(--copper);color:#fff;border-color:var(--copper)}
+  button.copper:hover{color:#fff;filter:brightness(1.06)}
+  button.ghost{background:transparent}
+  button[disabled]{opacity:.55;cursor:default}
+  button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+  /* recommendation reveal */
+  .reveal{margin-top:22px;border:1px dashed var(--line-2);border-radius:8px;padding:18px 20px;background:var(--paper-2)}
+  .reveal[open]{border-style:solid;border-color:var(--copper);background:var(--copper-soft)}
+  .reveal summary{cursor:pointer;font-family:var(--display);font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .reveal summary::-webkit-details-marker{display:none}
+  .reveal summary .hint{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400}
+  .reveal .body{margin-top:14px;display:grid;gap:12px;font-size:16px}
+  .reveal .wrong{border-left:3px solid var(--oneway);padding:6px 12px;background:var(--paper);border-radius:0 6px 6px 0;font-size:15px}
+  .reveal .wrong b,.reveal .pre b{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:4px;font-weight:600}
+  .reveal .wrong b{color:var(--oneway)}
+  .reveal .pre{border-left:3px solid var(--amber);padding:6px 12px;background:var(--paper);border-radius:0 6px 6px 0;font-size:15px}
+  .reveal .pre b{color:var(--amber)}
+
+  /* record panel */
+  .record{margin-top:22px;border-top:1px solid var(--line);padding-top:18px;display:grid;gap:12px}
+  .record label{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .record textarea{width:100%;min-height:72px;font-family:var(--serif);font-size:15.5px;padding:10px 12px;border:1px solid var(--line-2);border-radius:6px;background:var(--paper);color:var(--ink);resize:vertical}
+  .record .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .ystmt{font-family:var(--mono);font-size:13px;line-height:1.55;background:var(--paper-2);border:1px solid var(--line);border-radius:6px;padding:12px 14px;white-space:pre-wrap;color:var(--ink-2)}
+  .saved{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .saved.ok{color:var(--twoway)}
+  .saved.warn{color:var(--amber)}
+
+  /* matrix */
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+  table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:820px}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+  th{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--paper-2);position:sticky;top:0}
+  td:first-child{font-family:var(--display);font-weight:700;white-space:nowrap}
+  tr:last-child td{border-bottom:0}
+  .y{color:var(--twoway);font-weight:600}.n{color:var(--oneway)}.p{color:var(--amber);font-weight:600}
+  .note{font-size:14px;color:var(--muted)}
+
+  /* pipeline */
+  .pipe{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:10px;margin:18px 0 8px}
+  .stage{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px 14px 12px;display:grid;gap:8px;align-content:start;position:relative}
+  .stage .n{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.1em}
+  .stage h4{font-size:17px}
+  .stage p{font-size:13.5px;color:var(--ink-2);margin:0;line-height:1.45}
+  .stage .mech{font-family:var(--mono);font-size:11.5px;color:var(--accent);line-height:1.5}
+  .stage .gate{font-family:var(--mono);font-size:11px;color:var(--oneway);border-top:1px dashed var(--line-2);padding-top:6px;margin-top:2px}
+  .stage.human{border-color:var(--copper);background:linear-gradient(180deg,var(--copper-soft),var(--paper) 40%)}
+  .pipewrap{overflow-x:auto}
+
+  /* principles */
+  .principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .pr{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:6px}
+  .pr h4{font-size:16px}
+  .pr p{font-size:14.5px;margin:0;color:var(--ink-2)}
+  .pr .ev{font-family:var(--mono);font-size:11.5px;color:var(--muted);line-height:1.5}
+
+  /* building blocks */
+  .blocks{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+  .blk{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:14px 16px;display:grid;gap:6px;font-size:14.5px}
+  .blk h4{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent)}
+  .blk p{margin:0;color:var(--ink-2)}
+  .blk .lim{color:var(--oneway);font-size:13.5px}
+
+  /* schema */
+  pre.schema{font-family:var(--mono);font-size:12.5px;line-height:1.55;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px 18px;overflow-x:auto;margin:0;color:var(--ink-2)}
+  pre.schema .c{color:var(--muted)}
+  pre.schema .k{color:var(--accent)}
+
+  /* roadmap */
+  .phases{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  .ph{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:grid;gap:8px;align-content:start}
+  .ph .n{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--muted)}
+  .ph h4{font-size:18px}
+  .ph ul{margin:0;padding-left:1.1em;font-size:14.5px}
+  .ph li{margin-bottom:5px}
+  .ph .est{font-family:var(--mono);font-size:12px;color:var(--copper)}
+
+  /* open questions */
+  .qs{display:grid;gap:12px}
+  .q{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:16px 18px;display:grid;gap:10px}
+  .q .head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .q h4{font-size:17px;flex:1 1 300px}
+  .q p{font-size:15px;margin:0;color:var(--ink-2)}
+  .q .picks{display:flex;flex-wrap:wrap;gap:8px}
+  .q .picks button{font-size:13.5px;padding:6px 12px}
+
+  .sources{font-size:14px;columns:2;column-gap:32px}
+  .sources li{break-inside:avoid;margin-bottom:6px}
+  .sources ol{padding-left:1.2em;margin:0}
+
+  .fn{font-size:14px;color:var(--muted)}
+
+  @media (max-width:900px){
+    .shell{grid-template-columns:1fr;gap:24px}
+    nav.rail{position:static}
+    nav.rail ol{display:flex;flex-wrap:wrap;gap:6px}
+    nav.rail a{border:1px solid var(--line);border-radius:999px;padding:5px 11px}
+    nav.rail .sub{display:none}
+    .sources{columns:1}
+    .facts{grid-template-columns:1fr 1fr}
+    .fact{border-right:0;border-bottom:1px solid var(--line)}
+  }
+  @media (max-width:520px){
+    .facts{grid-template-columns:1fr}
+    .opt{grid-template-columns:34px minmax(0,1fr)}
+    .opt .letter{font-size:16px;padding-top:14px}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="page">
+<header class="masthead">
+  <div class="eyebrow">Design brief · human-in-the-loop decision review for Claude Code · working codename</div>
+  <h1>Weigh-In</h1>
+  <p class="lede">Every session leaves behind questions the agent could not answer and choices it quietly made. This brief researches how others surface those, why most attempts rot, what Claude Code gives us to build with, and proposes a shape — presented the way the tool itself should present a decision.</p>
+  <div class="mast-meta">
+    <span>Prepared for <b>Ryan Britton</b></span>
+    <span>Date <b>2026-09-12</b></span>
+    <span>Research threads <b>3</b> · sources <b>60+</b></span>
+    <span>Claude Code docs verified <b>hooks · sub-agents · skills · headless · SDK user-input · sessions</b></span>
+  </div>
+</header>
+
+<div class="shell">
+<nav class="rail" aria-label="Sections">
+  <ol>
+    <li><a href="#decision">The decision on the table</a></li>
+    <li><a href="#prior-art">Prior art</a></li>
+    <li><a href="#lessons">Why these things die</a></li>
+    <li><a href="#blocks">Claude Code building blocks</a></li>
+    <li><a href="#design">Proposed design</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#open">Still needs you</a></li>
+    <li><a href="#sources">Sources</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ============ THE DECISION ============ -->
+<section id="decision">
+  <div class="eyebrow">Section 1 · This is what a Weigh-In item looks like</div>
+  <h2>The decision on the table</h2>
+  <p class="prose">Rather than describe the tool, the tool's core question is presented below in the format the research argues for: a full interrogative, why it matters, the door type, evidence you can verify, options that each get a steelman, and a recommendation you have to ask for. Read the options first — the recommendation is behind a reveal on purpose (see <a href="#lessons">principle 6</a>).</p>
+
+  <article class="item" aria-labelledby="d1q">
+    <div class="item-head">
+      <div class="item-id">
+        <span class="chip mono">D-0001</span>
+        <span class="chip accent"><span class="dot"></span>presented</span>
+        <span class="chip oneway">one-way door</span>
+        <span class="chip">blast radius: every repo you run agents in</span>
+        <span class="chip amber">resolve by: before Phase 1 build</span>
+      </div>
+      <div class="item-q" id="d1q">What shape should the human-in-the-loop decision-review mechanism take — adopt, skill pack, plugin, Redkiln-native item type, or standalone SDK console?</div>
+      <p style="margin:0;color:var(--ink-2)"><b>Why it matters.</b> The shape fixes where captured items live, whether capture can run unattended, what the review surface can look like, and whether decisions flow back into <code>.kb</code>. Reversing it later means migrating a register and retraining habits — the evidence says a decision practice survives on habits, not on markdown.</p>
+    </div>
+    <div class="facts">
+      <div class="fact"><div class="k">Impact if wrong</div><div class="v">A register nobody opens; the console-scraping ritual continues</div></div>
+      <div class="fact"><div class="k">Decider</div><div class="v">Ryan (solo owner of Redkiln + plugin estate)</div></div>
+      <div class="fact"><div class="k">Prior decisions in force</div><div class="v">ADRs live in <span class="mono">.kb</span>; CLI is the single write path for state; adversarial review gates</div></div>
+      <div class="fact"><div class="k">Do-nothing option</div><div class="v">Included below as A (adopt as-is), which is the closest to status quo</div></div>
+    </div>
+    <div class="item-body">
+      <div class="eyebrow">Evidence gathered before asking</div>
+      <ul class="evidence">
+        <li><span class="src">docs › sub-agents</span><span>Subagents cannot call <code>AskUserQuestion</code> — every "ask the human" must route through the main conversation or an SDK host. Grounding can be delegated; asking cannot.</span></li>
+        <li><span class="src">docs › hooks</span><span><code>Stop</code>/<code>SubagentStop</code> hooks receive <code>last_assistant_message</code>; <code>type: "prompt"</code> hooks run a cheap single-turn model evaluation (30 s default). Capture can be always-on and cheap.</span></li>
+        <li><span class="src">docs › hooks › defer</span><span><code>permissionDecision: "defer"</code> exits a <code>-p</code> run with <code>stop_reason: "tool_deferred"</code> and the pending <code>AskUserQuestion</code> preserved; the caller resumes with the answer in <code>updatedInput</code>. No timeout. This is the primitive for an asynchronous question queue from headless runs.</span></li>
+        <li><span class="src">docs › sessions</span><span>Transcript JSONL format "is internal to Claude Code and changes between versions" — mining <code>~/.claude/projects</code> is fragile by design; hooks and <code>-p --resume</code> are the supported script interfaces.</span></li>
+        <li><span class="src">docs › hooks › Elicitation</span><span>An MCP server can raise a form-mode (JSON-schema) or URL-mode elicitation; Claude Code shows a dialog. A registry MCP server could hand the user a local review page.</span></li>
+        <li><span class="src">survey › 2026-09</span><span>No tool found maintains a persistent, cross-session, queryable open-questions register for a coding agent; log4brains has listed "decision backlog" as coming soon since 2020.</span></li>
+        <li><span class="src">Buchgeher 2023 · ICSA 2026</span><span>Of 921 OSS repos with ADRs, more than half hold 1–5 records; 63% of 5,800 ADRs were opened already "accepted". Records without a live process do not get written.</span></li>
+      </ul>
+
+      <div class="eyebrow" style="margin-top:22px">Considered options</div>
+      <div class="options" id="options">
+
+        <div class="opt" data-opt="A">
+          <div class="letter">A</div>
+          <div class="content">
+            <div class="title"><h3>Adopt existing pieces as-is</h3><span class="chip">effort: hours</span></div>
+            <p class="sum">Install spec-kit's <code>/speckit.clarify</code>, compound-engineering's <code>ce-plan</code>, and <code>adr-gen</code>'s Stop hook. Use their spec-local Clarifications sections and post-hoc ADR generation.</p>
+            <div class="pros-cons">
+              <div><h4>Good, because</h4><ul><li>spec-kit's question format is the best-specified in the field: impact×uncertainty ranking, ≤5 per session, recommendation with reason, deferred list, write-back with contradiction removal</li><li>Zero code to maintain</li></ul></div>
+              <div><h4>Bad, because</h4><ul><li>Everything is spec-local or plan-local — no register, no status, no owner, no expiry</li><li>Nothing captures from console output or finished artifacts</li><li>adr-gen parses transcript JSONL that Anthropic says changes between versions; 1-star, single author</li><li>No grounding against <code>.kb</code>; no UI beyond chat</li></ul></div>
+            </div>
+            <div class="steelman"><b>Strongest case for</b>If most of your sessions are interactive and single-repo, clarify-before-plan removes the majority of buried questions at their source, and the "register" you'd build might become archaeology.</div>
+            <div class="actions"><span class="grounded">grounded in: spec-kit clarify.md · ce-plan SKILL.md · adr-gen README · sessions doc</span><button type="button" class="pick" data-opt="A" aria-pressed="false">Choose A</button></div>
+          </div>
+        </div>
+
+        <div class="opt" data-opt="B">
+          <div class="letter">B</div>
+          <div class="content">
+            <div class="title"><h3>A skill pack, prompts only</h3><span class="chip">effort: a day</span></div>
+            <p class="sum"><code>/hitl-scan</code> (extract from a path or the current session), <code>/decide</code> (walk items with <code>AskUserQuestion</code>), <code>/record</code> (write a MADR record). Lives in <code>.claude/skills</code> or a plugin's <code>skills/</code>.</p>
+            <div class="pros-cons">
+              <div><h4>Good, because</h4><ul><li>Fast; no infrastructure; works in every repo the moment it's copied in</li><li>Question cards are native (1–4 questions × 2–4 options, "(Recommended)" first, previews in the SDK)</li></ul></div>
+              <div><h4>Bad, because</h4><ul><li>Nothing is always-on: items are found only when you remember to run the scan</li><li>Ambig-SWE: agents merely told to ask over-ask and lose accuracy on well-specified work — triage needs to be a separate pass, which prompts alone don't enforce</li><li>Presentation capped at four options per question; no evidence links, no metrics, no "not useful" loop</li></ul></div>
+            </div>
+            <div class="steelman"><b>Strongest case for</b>Every larger option contains B as its first slice. Building B first and measuring how many items are actually acted on is the cheapest way to learn whether a register earns its keep.</div>
+            <div class="actions"><span class="grounded">grounded in: skills doc · SDK user-input doc · Vijayvargiya et al. ICLR 2026</span><button type="button" class="pick" data-opt="B" aria-pressed="false">Choose B</button></div>
+          </div>
+        </div>
+
+        <div class="opt" data-opt="C">
+          <div class="letter">C</div>
+          <div class="content">
+            <div class="title"><h3>A Claude Code plugin with hooks, agents and a registry server</h3><span class="chip">effort: weeks, in slices</span></div>
+            <p class="sum">Skills from B, plus <code>Stop</code>/<code>SubagentStop</code>/<code>PostToolUse</code> capture hooks (prompt-type classifier), triage and grounding subagents, and a small MCP server that owns the register (SQLite or JSONL), serves a local review page, and writes ADRs back.</p>
+            <div class="pros-cons">
+              <div><h4>Good, because</h4><ul><li>Always-on capture without changing how you work; portable across every repo via a marketplace</li><li>The register gets the three things the evidence says keep a practice alive: owner, trigger, expiry — plus action-rate metrics</li><li>Review surface is unconstrained (evidence links, reversibility badge, reveal-on-demand recommendation) via URL-mode elicitation or a Cowork artifact</li><li>Plugins can also carry <code>monitors/</code>, output styles and settings, so the "Needs you" nudge can be a background monitor</li></ul></div>
+              <div><h4>Bad, because</h4><ul><li>An MCP server is a process to keep alive and version</li><li>URL-mode elicitation is documented with authentication as the example; using it for a review page is plausible but unproven</li><li>Register lives beside Redkiln's backlog rather than in it — two sources of "what needs a human"</li></ul></div>
+            </div>
+            <div class="steelman"><b>Strongest case for</b>C is the portable core: it works in IQBG client repos that will never run Redkiln, and D can be layered on where Redkiln exists. Portability is the only way the habit forms everywhere.</div>
+            <div class="actions"><span class="grounded">grounded in: plugins-reference · hooks doc (prompt hooks, Elicitation) · Tricorder 2018 · SATD literature</span><button type="button" class="pick" data-opt="C" aria-pressed="false">Choose C</button></div>
+          </div>
+        </div>
+
+        <div class="opt" data-opt="D">
+          <div class="letter">D</div>
+          <div class="content">
+            <div class="title"><h3>Redkiln-native: <code>decision</code> as a first-class item type</h3><span class="chip">effort: weeks, on top of C</span></div>
+            <p class="sum">Add <code>decision</code> beside bug / incident / spike, with its own process (captured → triaged → grounded → presented → decided → recorded). The CLI keeps the single write path; the plugin from C is the capture/ground/present layer; the record lands as a <code>.kb</code> decision atom through kb-ingest; the Companion dashboard gains a "Needs you" column.</p>
+            <div class="pros-cons">
+              <div><h4>Good, because</h4><ul><li>Decisions become backlog items with the same stamped frontmatter, owner and stage as everything else — queryable with <code>redkiln status</code>, not a side file</li><li>Fits conventions already in force: accepted ADRs in <code>.kb</code>, supersede-never-edit, adversarial review gate before "decided"</li><li>Closes the loop the literature says is missing: question → human answer → durable record with neglected alternatives → constraint on future agents</li></ul></div>
+              <div><h4>Bad, because</h4><ul><li>Couples the mechanism to Redkiln's process engine; churn there is churn here</li><li>Non-Redkiln repos get nothing unless C ships as the portable core underneath</li><li>Largest total effort; the item type touches CLI, schema, and dashboard</li></ul></div>
+            </div>
+            <div class="steelman"><b>Strongest case for</b>You already own a backlog engine with a knowledge base, an intake pipeline and a review gate. A HITL decision is an item type you haven't declared yet, not a new system.</div>
+            <div class="actions"><span class="grounded">grounded in: redkiln conventions (hierarchy, single-write-path) · kb-ingest and closeout skills · Buchgeher 2023 · Kaplan-Moss on RFCs</span><button type="button" class="pick" data-opt="D" aria-pressed="false">Choose D</button></div>
+          </div>
+        </div>
+
+        <div class="opt" data-opt="E">
+          <div class="letter">E</div>
+          <div class="content">
+            <div class="title"><h3>A standalone SDK review console</h3><span class="chip">effort: weeks</span></div>
+            <p class="sum">A Python Agent SDK app that runs agents itself, intercepts <code>AskUserQuestion</code> in <code>canUseTool</code>, uses <code>defer</code> to park questions from headless and workflow runs, and presents an inbox web UI. Interactive terminal sessions would not route through it.</p>
+            <div class="pros-cons">
+              <div><h4>Good, because</h4><ul><li>Only path that serves unattended runs, cron'd tasks and workflows, where nobody is at the terminal when the question is raised</li><li>Complete UI freedom; HTML option previews are already an SDK feature</li></ul></div>
+              <div><h4>Bad, because</h4><ul><li>Duplicates Claude Code's own session UI for the interactive case</li><li><code>defer</code> only works when Claude makes a single tool call in the turn, and only under <code>-p</code></li><li>Most engineering, and it changes how you launch agents</li></ul></div>
+            </div>
+            <div class="steelman"><b>Strongest case for</b>Your stated direction is "permanently hosted, reusable agents" serving multiple endeavors. In that world nobody is at a terminal, and the defer loop is the whole mechanism.</div>
+            <div class="actions"><span class="grounded">grounded in: hooks doc (defer) · SDK user-input doc · headless doc</span><button type="button" class="pick" data-opt="E" aria-pressed="false">Choose E</button></div>
+          </div>
+        </div>
+      </div>
+
+      <details class="reveal" id="reveal">
+        <summary><span>Reveal the recommendation</span><span class="hint" id="reveal-hint">hidden until you've read the options — it's a forcing function, not a trick</span></summary>
+        <div class="body">
+          <p><b>Recommended: D, built as C, with E's defer loop as a later slice.</b> Make <code>decision</code> a Redkiln item type as the destination, but build the capture, grounding and presentation as a portable plugin so that IQBG client repos and anything outside Redkiln get the same mechanism. Ship B's skills as the first slice of that plugin, adopt spec-kit's question rules and MADR 4 wholesale instead of inventing formats, and add the SDK defer loop only when headless runs start generating questions nobody sees.</p>
+          <p>The reasoning is about long-term survival, not features. Three things decide whether a decision practice is still alive in a year: every item has an owner and an expiry, the answer is written where the code lives at the moment of action, and someone measures whether items were acted on. A and B provide none of the three by themselves. C provides all three but leaves decisions outside your backlog. D puts them inside it, which is where your other hard-won process rules (single write path, review gates, kb intake) already apply. E is the right answer for a future you have described but not yet built.</p>
+          <div class="wrong"><b>Why this might be wrong</b>If eight in ten of your agent sessions are interactive and single-repo, A+B captures most of the value in a day, and the register would be maintained at the cost of the very attention it's meant to save. The Redkiln coupling also bets that the process engine is stable; if it's still moving weekly, hold D and let C run alone for a quarter. Finally, URL-mode elicitation is documented for auth flows — if it's clumsy as a review-page launcher, the fallback is <code>AskUserQuestion</code> cards plus a read-only review page, which is less interactive than you asked for.</div>
+          <div class="pre"><b>Pre-mortem · it's March 2027 and Weigh-In is dead — why?</b>The classifier hook surfaced eleven items a session, four were real, and by week three you stopped opening the review page (the Coverity/Tricorder cliff). The fix is upstream: an explicit <code>[HITL]</code> marker convention in CLAUDE.md so agents register their own questions with high precision, the "not useful" button wired to per-category suppression from day one, and a hard cap of five presented items per sitting.</div>
+          <p class="fn">Confidence: moderate-high on "C or D beats A/B/E alone"; moderate on "D over C" — it depends on Q2 and Q3 below, which only you can answer.</p>
+        </div>
+      </details>
+
+      <div class="record">
+        <label for="d1-note">Record your decision · D-0001</label>
+        <div class="row"><span class="saved" id="d1-status">No decision recorded yet. Pick an option above, add a note if you like, and record it.</span></div>
+        <textarea id="d1-note" placeholder="Optional: rationale, constraints, or what you'd change about the recommendation."></textarea>
+        <div class="row">
+          <button type="button" class="primary" id="d1-save" disabled>Record decision</button>
+          <button type="button" class="ghost" id="d1-defer">Defer — I need more information</button>
+          <button type="button" class="ghost" id="d1-dismiss">Not my call / already decided</button>
+        </div>
+        <div class="ystmt" id="d1-ystmt" hidden></div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<!-- ============ PRIOR ART ============ -->
+<section id="prior-art">
+  <div class="eyebrow">Section 2 · What already exists, as of September 2026</div>
+  <h2>Prior art: everyone asks, nobody keeps a register</h2>
+  <div class="prose">
+    <p>Every major agent has converged on a structured "ask the human" tool with nearly the same schema: Claude Code's <code>AskUserQuestion</code> (1–4 questions, 2–4 options, 12-character header, "(Recommended)" first, always an "Other"), Codex's <code>request_user_input</code> (1–3 questions, 2–3 options, a one-sentence trade-off per option, gated to plan mode by default), Cline and Roo's <code>ask_followup_question</code>, HumanLayer's <code>request_human_input</code> with <code>urgency</code> and <code>format</code>. That part of the problem is solved and worth adopting, not rebuilding.</p>
+    <p>What no one has built is the thing you actually asked for: a persistent, cross-session register of questions the agent guessed at or deferred, with status, owner, evidence, and a path back into the repo's decision record. The closest artefacts are spec-local — spec-kit's <code>## Clarifications</code> block, compound-engineering's plan-time triage that forces each open question into either a decision or an explicit assumption, BMAD's <code>[ASSUMPTION]</code> tags with blocker-vs-deferred triage, and HumanLayer's rule that a final plan may contain no open questions. Session viewers (a dozen of them) render <code>~/.claude/projects</code> transcripts; only <code>adr-gen</code> mines them for decisions, and it is a one-star project parsing a format Anthropic documents as unstable.</p>
+  </div>
+  <div class="tablewrap wide" style="margin-top:14px">
+    <table>
+      <thead><tr><th>Candidate</th><th>Captures questions</th><th>Grounds / recommends</th><th>Presents</th><th>Records</th><th>Persists across sessions</th><th>Adopt for Claude Code?</th></tr></thead>
+      <tbody>
+        <tr><td>spec-kit /speckit.clarify</td><td>Taxonomy scan of a spec; ranks by impact × uncertainty; ≤5 per session</td><td>Recommendation + reason + "why it matters" per question</td><td>One multiple-choice question at a time</td><td><code>## Clarifications</code> block plus edits to affected sections; Deferred list</td><td class="p">Per spec file</td><td class="y">Yes — steal the question rules verbatim</td></tr>
+        <tr><td>compound-engineering ce-plan</td><td>Reads brainstorm "Open Questions"; Phase 0.5 triage</td><td>Parallel research; asks only when it materially affects architecture, scope, sequencing or risk</td><td>AskUserQuestion</td><td>Plan file with stable IDs, Assumptions and Open Questions sections</td><td class="p">Per plan</td><td class="y">Yes, as a pattern</td></tr>
+        <tr><td>BMAD bmad-prd</td><td><code>[ASSUMPTION]</code> tags; blocker vs non-blocker triage with owner and revisit condition</td><td>Elicitation menu (pre-mortem, red team, inversion…)</td><td>Numbered menus</td><td>PRD + decision-log.md</td><td class="p">Per document</td><td class="p">Heavy ceremony; borrow the triage rule</td></tr>
+        <tr><td>jonocbell/agent-decision-log</td><td>Agent's own decisions; conflicts with prior ones</td><td>Y-statement rationale</td><td>Chat</td><td>DECISIONS.md, superseded not edited</td><td class="y">Yes, read-write loop</td><td class="p">Tiny; pattern only</td></tr>
+        <tr><td>dinogit/adr-gen</td><td>Post-hoc from transcript JSONL + git diff</td><td><code>--if-architectural</code> filter</td><td>CLI</td><td>MADR in docs/adr + index</td><td class="y">Yes</td><td class="n">No — fragile substrate, 1 star</td></tr>
+        <tr><td>HumanLayer SDK / 12-factor #7</td><td>Agent tool call with context, urgency, format</td><td>—</td><td>Slack, email, CLI</td><td>human_response event with user + timestamp</td><td class="y">Thread state</td><td class="p">Model the question object on it</td></tr>
+        <tr><td>LangGraph / OpenAI SDK / MS Agent Framework / Managed Agents</td><td>Interrupt or approval primitives</td><td>—</td><td>App-defined</td><td>Run state or events</td><td class="y">Checkpoints</td><td class="p">Pattern only; Claude Code's <code>defer</code> is the equivalent</td></tr>
+        <tr><td>MADR 4 / Y-statements / log4brains / Backstage ADR</td><td>Human</td><td>Drivers, options, pros/cons, Confirmation section</td><td>Markdown / static site</td><td>ADR files</td><td class="y">Yes</td><td class="y">Yes — record format</td></tr>
+        <tr><td>Session viewers (ccsv, claude-lens, claude-code-log…)</td><td>None — render transcripts</td><td>—</td><td>Web / TUI</td><td>—</td><td>—</td><td class="n">Only as parsing reference</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:10px">Seven patterns recur across the survivors: recommendation-first with an escape hatch; rank by impact and cap the count; one question per turn with per-option consequences; answer → write-back → contradiction removal; explicit triage into blocker / assumption / deferred / out-of-scope; ground in evidence before asking; reversibility as an attribute. Only HumanLayer (<code>urgency</code>) and Inngest (timeout as a third outcome) put "how long can this wait" in the question object; no coding-agent tool does.</p>
+</section>
+
+<!-- ============ LESSONS ============ -->
+<section id="lessons">
+  <div class="eyebrow">Section 3 · Failure modes, with the evidence behind each</div>
+  <h2>Why these things die, and the principles that follow</h2>
+  <div class="prose">
+    <p>There is no documented postmortem of an abandoned "extract open questions from agent transcripts" tool, so the grounded analogues are the nearest neighbours: self-admitted technical debt mining, static-analysis triage at Google and Coverity, ADR adoption studies, approval-fatigue research, and the CHI/CSCW literature on humans over-relying on AI recommendations. They agree with each other more than you'd expect.</p>
+  </div>
+  <div class="principles">
+    <div class="pr"><h4>1 · Ask only at one-way doors</h4><p>Classify every candidate by reversibility × blast radius before it can become a prompt. Two-way doors get auto-decided with a logged default and an undo path — never a question.</p><div class="ev">Bezos 2015 letter · Claude Code auto mode and Cursor v3.6 both gate prompts on irreversible/destructive/external · Gilbert &amp; Ebert 2002: reversible choices lower satisfaction too</div></div>
+    <div class="pr"><h4>2 · Every surfaced item spends credibility</h4><p>Target ≥60% action rate and ≤10% "not useful". Wire a dismiss-with-reason button to per-category suppression from day one. Fewer, better items beats coverage.</p><div class="ev">Tricorder: 10% effective-false-positive bar, analyzers auto-disabled · Coverity: trust collapses past ~30% FP and "the first three reports matter inordinately" · AI review bots muted at 2–3% action rates</div></div>
+    <div class="pr"><h4>3 · Explore before asking</h4><p>An item is only a question if the answer is not recoverable from the repo, tests, docs or git history. The triage pass attempts resolution first and attaches what it found.</p><div class="ev">Ambig-SWE (ICLR 2026): Claude models reached equal information gain with ~50% fewer questions by exploring first; implementation-detail questions add little</div></div>
+    <div class="pr"><h4>4 · Decouple "is this a real decision?" from the agent doing the work</h4><p>A separate classifier with a binary needs-human output and a required rationale, evaluated on a labelled set for both false positives and false negatives.</p><div class="ev">"Ask or Assume?" intent-agent scaffold: 69.4% resolve rate with well-calibrated asking · Ambig-SWE: agents told to ask over-ask and lose accuracy on well-specified tasks</div></div>
+    <div class="pr"><h4>5 · Use disagreement as the ambiguity detector</h4><p>Sample several candidate resolutions; agreement → auto-resolve with a logged default; disagreement → candidate item. Don't trust the model's self-report of ambiguity.</p><div class="ev">ClarifyGPT (FSE 2024): +10 points Pass@1 from code-consistency detection · most models cannot distinguish specified from underspecified tasks</div></div>
+    <div class="pr"><h4>6 · Options and evidence first; recommendation on demand</h4><p>Reveal the recommendation after a provisional pick or on request. Accept that people rate forcing functions lower; make the step skippable for two-way doors.</p><div class="ev">Buçinca et al. CSCW 2021: cognitive forcing functions cut overreliance and were least liked · Bansal et al. CHI 2021: explanations raised acceptance regardless of correctness · Fogliato FAccT 2022: concurrent display anchors experts</div></div>
+    <div class="pr"><h4>7 · Every claim verifiable in seconds, or left out</h4><p>Each trade-off links to a file:line, test, ADR or benchmark. Unverifiable trade-offs are labelled speculation.</p><div class="ev">Vasconcelos CSCW 2023: explanations help only when they lower verification cost; a salient one reached ~0% overreliance · Coverity: "a not-understood report is labelled false"</div></div>
+    <div class="pr"><h4>8 · Steelman the losers; say why the pick is wrong</h4><p>A mandatory "why this might be wrong" section from a separate pass with a fixed disagreement stance — but not an always-contrarian judge.</p><div class="ev">Lord, Lepper &amp; Preston 1984 "consider the opposite" · Chiang IUI 2024 LLM devil's advocate improved appropriate reliance · Smit ICML 2024: always-disagree personas reduced accuracy until tuned</div></div>
+    <div class="pr"><h4>9 · Neutralise framing and order before the model picks</h4><p>Strip the human's leaning and the prior agent's choice from the prompt; permute option order and majority-vote; judge with a different model family; length-normalise descriptions.</p><div class="ev">Sharma ICLR 2024: sycophancy shifts answers up to 27 points · tag-question study: ±32 points from "…right?" · Zheng ICLR 2024: position bias survives chain-of-thought</div></div>
+    <div class="pr"><h4>10 · Batch to breakpoints, cap the sitting</h4><p>Queue items and deliver at task boundaries (plan complete, PR open, end of run) with a bounded delay for high-blast-radius items. About five substantive items or 45 minutes per sitting.</p><div class="ev">Iqbal &amp; Bailey CHI 2008: breakpoint delivery −20% frustration, −25% reaction time · Cisco/SmartBear review study: effectiveness collapses past 60–90 min · the "hungry judge" decision-fatigue effect is largely an ordering artefact — design for attention, not counts</div></div>
+    <div class="pr"><h4>11 · Record where the code lives, one screen, supersede never edit</h4><p>The record is a side-effect of the click: context, options, rejected-because, decider, door type, evidence, link to the enacting change. Keep a curated "current decisions" view separate from the append-only log.</p><div class="ev">Buchgeher 2023: >50% of ADR repos stall at 1–5 records · ICSA 2026: 63% opened already accepted · Kaplan-Moss: RFCs without a decision step default to "no"</div></div>
+    <div class="pr"><h4>12 · Owner, trigger, expiry — or it rots</h4><p>No open item without an assignee and a resolve-by event. Auto-default unclaimed items and log the default as a decision.</p><div class="ev">SATD studies: TODOs live 18–173 days median, 20–50% removed by accident, none by process · Coverity alerts fixed in 4 lines but waited a median 96 days</div></div>
+    <div class="pr"><h4>13 · Silence is a valid output</h4><p>"No human decisions required" is a success, and the eval rewards correct silence.</p><div class="ev">Ambig-SWE over-asking penalty · habituation halves attention by the second exposure (Anderson CHI 2015, fMRI)</div></div>
+    <div class="pr"><h4>14 · Measure decisions changed, not items extracted</h4><p>Dashboard: action rate, dismissals by reason, override rate of the recommendation, time-to-decide, post-hoc reversals. A falling action rate is an incident.</p><div class="ev">Tricorder: "defects corrected, not the number presented" · Atlassian HULA: 82% plan approval but 8% end-to-end — measure the funnel</div></div>
+  </div>
+</section>
+
+<!-- ============ BUILDING BLOCKS ============ -->
+<section id="blocks">
+  <div class="eyebrow">Section 4 · Verified against code.claude.com docs on 2026-09-12</div>
+  <h2>What Claude Code gives us to build with</h2>
+  <div class="blocks">
+    <div class="blk"><h4>Stop · SubagentStop hooks</h4><p>Receive <code>last_assistant_message</code>, <code>stop_hook_active</code>, <code>transcript_path</code>. Can block and continue the turn (exit 2 or <code>decision: "block"</code>), or inject <code>additionalContext</code>. Eight consecutive blocks cap.</p><p class="lim">Transcript file may lag; use <code>last_assistant_message</code> for the current turn.</p></div>
+    <div class="blk"><h4>Prompt and agent hook types</h4><p><code>type: "prompt"</code> sends the hook input to a fast model for a single-turn JSON decision (30 s default). <code>type: "agent"</code> spawns a subagent that can Read/Grep before deciding (60 s; experimental). Cheap always-on classification.</p></div>
+    <div class="blk"><h4>PreToolUse · defer</h4><p><code>permissionDecision: "defer"</code> exits a <code>-p</code> run with <code>stop_reason: "tool_deferred"</code> and <code>deferred_tool_use</code> {id, name, input}; resume with <code>--resume</code> and answer via <code>updatedInput</code>. No timeout; session kept 30 days by default.</p><p class="lim">Only under <code>-p</code>; only when the turn has a single tool call.</p></div>
+    <div class="blk"><h4>AskUserQuestion</h4><p>1–4 questions, 2–4 options each, header ≤12 chars, multiSelect, "(Recommended)" first, always an Other. Runs without a permission gate; optional <code>askUserQuestionTimeout</code>.</p><p class="lim">Removed from every subagent unconditionally; denied in <code>dontAsk</code> and with <code>--permission-prompts none</code>.</p></div>
+    <div class="blk"><h4>Agent SDK canUseTool</h4><p>Both approvals and <code>AskUserQuestion</code> route to the callback; the app returns <code>updatedInput.answers</code>. TypeScript can request HTML option previews via <code>toolConfig.askUserQuestion.previewFormat</code>.</p><p class="lim">Python needs streaming mode plus a keep-alive hook.</p></div>
+    <div class="blk"><h4>MCP elicitation</h4><p>A server can raise a form-mode request with a JSON schema or a URL-mode request; Claude Code shows a dialog. <code>Elicitation</code>/<code>ElicitationResult</code> hooks can intercept or log. <code>_meta["anthropic/requiresUserInteraction"]</code> forces a prompt on every call of a tool.</p><p class="lim">URL mode is documented with auth as the example.</p></div>
+    <div class="blk"><h4>Skills</h4><p>Commands are merged into skills. Frontmatter includes <code>disable-model-invocation</code>, <code>user-invocable</code>, <code>allowed-tools</code>, <code>context: fork</code> + <code>agent</code>, <code>hooks</code> (registered when invoked, live for the session), <code>paths</code>, <code>arguments</code>.</p></div>
+    <div class="blk"><h4>Subagents</h4><p><code>tools</code>, <code>model</code>, <code>permissionMode</code>, <code>hooks</code>, <code>background</code>, <code>isolation: worktree</code>, <code>memory</code>. Good for grounding in parallel.</p><p class="lim">Cannot ask the user; return findings to the main conversation.</p></div>
+    <div class="blk"><h4>Plugins</h4><p>Bundle skills, commands, agents, workflows, hooks, MCP and LSP servers, output styles, themes, background <code>monitors/</code>, settings, and <code>bin/</code>. Distributed through marketplaces.</p></div>
+    <div class="blk"><h4>Headless and structured output</h4><p><code>claude -p --output-format json --json-schema</code> validates a structured result; <code>stream-json</code> exposes subagent messages via <code>parent_tool_use_id</code>. <code>--bare</code> for reproducible scripted runs.</p></div>
+    <div class="blk"><h4>Transcripts</h4><p>JSONL at <code>~/.claude/projects/&lt;project&gt;/&lt;session&gt;.jsonl</code>; 30-day retention.</p><p class="lim">Format is internal and changes between versions — build on hooks and <code>-p --resume</code>, not on parsing.</p></div>
+    <div class="blk"><h4>Already shipped, overlapping</h4><p>Plan mode's clarifying questions; the <code>feature-dev</code> plugin's mandatory clarify phase; TaskCreated/TaskCompleted hooks; <code>plansDirectory</code> (plans persist as files).</p><p class="lim">No decision registry, no approval state machine, no decision-record artefact type.</p></div>
+  </div>
+</section>
+
+<!-- ============ DESIGN ============ -->
+<section id="design">
+  <div class="eyebrow">Section 5 · The proposal, whichever shape you choose</div>
+  <h2>Proposed design: six stages, one human gate</h2>
+  <p class="prose">The pipeline is the same under C, D or E; the shapes differ in where the register lives and which surfaces present. The only stage that needs a person is the fifth. Everything before it exists to make sure that when you are asked, the question is real, the options are grounded, and you can verify the reasoning in seconds.</p>
+  <div class="pipewrap">
+  <div class="pipe">
+    <div class="stage"><div class="n">1</div><h4>Capture</h4><p>Three channels, in order of precision.</p><div class="mech">explicit: <code>[HITL]</code> marker or <code>register_decision</code> tool, required by CLAUDE.md<br>implicit: Stop/SubagentStop prompt-hook classifier on <code>last_assistant_message</code>; PostToolUse on Write/Edit of <code>.bklg/**</code>, <code>.kb/**</code>, <code>docs/**</code><br>backfill: <code>/hitl-scan &lt;path|session&gt;</code></div></div>
+    <div class="stage"><div class="n">2</div><h4>Triage</h4><p>No human. Try to make the question go away.</p><div class="mech">recover-from-repo pass (Explore agent)<br>consistency sampling (N resolutions agree → auto-decide, log default)<br>dedupe vs last 3–5 <code>.kb</code> decisions<br>door + blast-radius classification</div><div class="gate">two-way doors never reach a human</div></div>
+    <div class="stage"><div class="n">3</div><h4>Ground</h4><p>Forked skill or subagent, batched, off the main context.</p><div class="mech">evidence with file:line and ADR ids<br>options incl. do-nothing; steelman each<br>web research where the repo is silent<br>permuted-order vote; cross-family judge<br>pre-mortem + "why this might be wrong"</div></div>
+    <div class="stage"><div class="n">4</div><h4>Queue</h4><p>Batch to a breakpoint; cap the sitting.</p><div class="mech">register row: owner, resolve-by, expiry<br>deliver at Stop-when-idle, plan accepted, PR opened<br>≤5 items per sitting; bounded delay for high blast radius<br><code>monitors/</code> nudge: "3 need you"</div></div>
+    <div class="stage human"><div class="n">5</div><h4>Decide</h4><p>The one human gate.</p><div class="mech">interactive: <code>/decide</code> → AskUserQuestion cards<br>rich: local review page via URL elicitation, or a Cowork artifact like this one<br>headless: SDK <code>defer</code> loop<br>recommendation revealed on demand; dismiss-with-reason</div><div class="gate">answers flow back via updatedInput / additionalContext</div></div>
+    <div class="stage"><div class="n">6</div><h4>Record &amp; learn</h4><p>The click is the record.</p><div class="mech">MADR 4 + Y-statement → <code>.kb</code> atom via <code>redkiln</code> / kb-ingest, or <code>docs/adr</code> elsewhere<br>link enacting PR; supersede, never edit<br>metrics: action rate, override rate, time-to-decide, reversals; auto-suppress noisy categories</div></div>
+  </div>
+  </div>
+
+  <h3 style="margin-top:30px">The item schema — what makes a question decidable</h3>
+  <p class="prose">This is the field set no existing agent question-tool carries. It borrows spec-kit's question rules, RAID's "impact if false", the Rust RFC's resolve-by buckets, ATAM's definition of a risk, and HumanLayer's urgency.</p>
+  <pre class="schema"><span class="k">id</span>: D-0042                       <span class="c"># stamped by the CLI under D; by the registry under C</span>
+<span class="k">question</span>: "Should the migration audit log be append-only at the storage layer?"   <span class="c"># full interrogative, ends in ?</span>
+<span class="k">why_it_matters</span>: one sentence
+<span class="k">door</span>: one-way | two-way          <span class="c"># two-way → auto-decided, never presented</span>
+<span class="k">blast_radius</span>: file | module | system | external
+<span class="k">resolve_by</span>: before-merge | before-release | out-of-scope     <span class="c"># Rust RFC buckets</span>
+<span class="k">impact_if_wrong</span>: one sentence
+<span class="k">source</span>: { session_id, turn, artifact_path, quote }
+<span class="k">evidence</span>: [ file:line, adr:.kb/decisions/…, test:…, url:… ]   <span class="c"># each verifiable in seconds</span>
+<span class="k">prior_decisions</span>: [ ids that constrain this one ]
+<span class="k">options</span>:
+  - { <span class="k">label</span>, summary, good[], bad[], grounded_in[], steelman }   <span class="c"># status-quo option always present</span>
+<span class="k">recommendation</span>: { option, rationale, confidence, why_this_might_be_wrong, premortem }
+<span class="k">status</span>: candidate | triaged | grounded | queued | decided | deferred | superseded | dismissed
+<span class="k">dismiss_reason</span>: not-useful | already-decided | not-my-call | recoverable-from-repo
+<span class="k">owner</span>, <span class="k">expires</span>, <span class="k">decider</span>, <span class="k">decided_at</span>, <span class="k">record</span>: .kb/decisions/0042-audit-log-append-only.md</pre>
+
+  <h3 style="margin-top:30px">Three design choices worth stating plainly</h3>
+  <div class="prose">
+    <p><b>Make the agent do the capture.</b> Mining transcripts with a classifier is the fallback, not the primary channel. A CLAUDE.md rule that says "when you assume, defer, or cannot decide, emit a <code>[HITL]</code> block with these fields" produces items with high precision because the agent knows what it didn't know. The classifier catches what the agent forgot to declare, and its precision is tracked separately so it can be tightened or switched off.</p>
+    <p><b>Two-way doors are decided, logged, and never shown.</b> This is the single biggest lever on volume. A two-way-door item becomes a one-line entry in the decision log with the default taken and a revisit trigger; if it later turns out to matter, it's superseded like any other decision.</p>
+    <p><b>The recommendation is earned, not asserted.</b> The grounding pass prompts the model with the human's leaning stripped out, permutes option order across samples, and asks a second model family to judge. What you see is the majority pick plus the strongest reason it's wrong. That is more expensive per item than a single completion, which is another reason the earlier stages exist to keep the count small.</p>
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section id="roadmap">
+  <div class="eyebrow">Section 6 · Sequenced to learn before you commit</div>
+  <h2>Roadmap</h2>
+  <p class="prose">Estimates are pinned to the lower bound, per your usual pace. Each phase produces a number — the action rate — that tells you whether the next phase is worth building.</p>
+  <div class="phases">
+    <div class="ph"><div class="n">Phase 1 · Seed</div><h4>Plugin skeleton and the habit</h4><ul><li>Plugin repo with <code>skills/hitl-scan</code>, <code>skills/decide</code>, <code>skills/record</code></li><li>CLAUDE.md capture convention: the <code>[HITL]</code> block, required for every assumption or deferral</li><li>Stop/SubagentStop <code>prompt</code> hook → <code>.weighin/inbox.jsonl</code> with dismiss-with-reason</li><li><code>/decide</code> uses AskUserQuestion; recommendation appended only when asked</li><li><code>/record</code> writes MADR 4 with a Y-statement to <code>.kb/_intake</code> (Redkiln) or <code>docs/adr</code></li><li>Adopt spec-kit's question rules verbatim as the skill's rubric</li></ul><div class="est">est. one weekend · exit metric: action rate over two weeks of real sessions</div></div>
+    <div class="ph"><div class="n">Phase 2 · Ground and present</div><h4>Triage, grounding, the review page</h4><ul><li><code>agents/triage</code>: recover-from-repo, consistency sampling, door classification, dedupe vs <code>.kb</code></li><li><code>agents/ground</code>: evidence, options with steelmen, permuted vote, pre-mortem, "why wrong"</li><li>Registry MCP server (SQLite): <code>register</code>, <code>list_pending</code>, <code>decide</code>, <code>dismiss</code>; serves the local review page; URL-mode elicitation from <code>/decide --page</code></li><li>Metrics: action rate by capture channel and category, override rate, time-to-decide; auto-suppress under 60%</li><li>Background monitor: "N items need you" at breakpoints</li></ul><div class="est">est. two to three weekends · exit metric: override rate of the recommendation, and whether you open the page unprompted</div></div>
+    <div class="ph"><div class="n">Phase 3 · Integrate and extend</div><h4>Redkiln item type, headless loop</h4><ul><li><code>decision</code> item type with its own process; <code>redkiln new decision</code> is the only writer of state</li><li>kb-ingest lands decided items as <code>.kb</code> decision atoms; closeout harvests them</li><li>Companion dashboard "Needs you" column</li><li>SDK defer loop for <code>-p</code>, cron'd and workflow runs: questions park in the registry and resume on answer</li><li>Cross-family judge (a second model family, or Codex CLI as second opinion) for one-way doors only</li></ul><div class="est">est. two weekends after Phase 2 stabilises · exit metric: post-hoc reversals, and items decided per week from headless runs</div></div>
+  </div>
+  <p class="prose" style="margin-top:18px"><b>Adopt, don't build:</b> spec-kit's clarify question rules; MADR 4 and Y-statements as the record format; HumanLayer's question object as the wire shape; Tricorder's "effective false positive" definition as the metric. <b>Don't adopt:</b> transcript-mining tools; multi-agent debate for the recommendation (majority vote over permuted samples does the work); ten-section decision templates.</p>
+</section>
+
+<!-- ============ OPEN ============ -->
+<section id="open">
+  <div class="eyebrow">Section 7 · Questions the research could not answer</div>
+  <h2>Still needs you</h2>
+  <p class="prose">Four items the grounding pass could not resolve from the evidence, presented as the tool would present two-way-door questions when it is unsure of the default: quick picks, recorded when clicked, changeable later.</p>
+  <div class="qs">
+    <div class="q" data-q="Q1"><div class="head"><span class="chip mono">Q1</span><span class="chip twoway">two-way door</span><h4>How much of your agent work runs unattended (headless, cron, workflows) versus at a terminal?</h4></div><p>Decides whether the SDK defer loop belongs in Phase 1 or Phase 3. Below a quarter, it can wait.</p><div class="picks"><button type="button" data-q="Q1" data-a="Mostly interactive">Mostly interactive</button><button type="button" data-q="Q1" data-a="About half and half">About half and half</button><button type="button" data-q="Q1" data-a="Mostly unattended">Mostly unattended</button></div><span class="saved" data-status="Q1"></span></div>
+    <div class="q" data-q="Q2"><div class="head"><span class="chip mono">Q2</span><span class="chip twoway">two-way door</span><h4>Where should records land outside Redkiln repos?</h4></div><p>Inside Redkiln the answer is <code>.kb</code> decision atoms. IQBG client repos need somewhere: <code>docs/adr</code> (MADR, Backstage-readable) or a Weigh-In-owned folder.</p><div class="picks"><button type="button" data-q="Q2" data-a="docs/adr (MADR)">docs/adr (MADR)</button><button type="button" data-q="Q2" data-a=".weighin/decisions">.weighin/decisions</button><button type="button" data-q="Q2" data-a="Same .kb layout everywhere">Same .kb layout everywhere</button></div><span class="saved" data-status="Q2"></span></div>
+    <div class="q" data-q="Q3"><div class="head"><span class="chip mono">Q3</span><span class="chip twoway">two-way door</span><h4>Is a second model family acceptable as the judge for one-way-door recommendations?</h4></div><p>The evidence on self-preference and position bias says yes; your cost and data-handling constraints may say otherwise.</p><div class="picks"><button type="button" data-q="Q3" data-a="Yes, any provider">Yes, any provider</button><button type="button" data-q="Q3" data-a="Only local models (Ollama)">Only local models</button><button type="button" data-q="Q3" data-a="Anthropic models only">Anthropic models only</button></div><span class="saved" data-status="Q3"></span></div>
+    <div class="q" data-q="Q4"><div class="head"><span class="chip mono">Q4</span><span class="chip twoway">two-way door</span><h4>Does "Weigh-In" stay as the name?</h4></div><p>It's a working codename chosen for what the items are: things that need someone to weigh in. Your other tools have one-word names.</p><div class="picks"><button type="button" data-q="Q4" data-a="Keep Weigh-In">Keep Weigh-In</button><button type="button" data-q="Q4" data-a="Rename later">Rename later</button></div><span class="saved" data-status="Q4"></span></div>
+  </div>
+</section>
+
+<!-- ============ SOURCES ============ -->
+<section id="sources">
+  <div class="eyebrow">Section 8 · Primary sources used in this brief</div>
+  <h2>Sources</h2>
+  <div class="sources">
+    <ol>
+      <li><a href="https://code.claude.com/docs/en/hooks">Claude Code · Hooks reference</a> (events, prompt/agent hook types, Stop payload, defer, Elicitation)</li>
+      <li><a href="https://code.claude.com/docs/en/sub-agents">Claude Code · Subagents</a> (AskUserQuestion removed from subagents)</li>
+      <li><a href="https://code.claude.com/docs/en/skills">Claude Code · Skills</a> (frontmatter, context: fork, hooks, commands merged)</li>
+      <li><a href="https://code.claude.com/docs/en/plugins-reference">Claude Code · Plugins reference</a> (components, monitors, bin)</li>
+      <li><a href="https://code.claude.com/docs/en/headless">Claude Code · Run programmatically</a> (json-schema output, --permission-prompts none, stream-json)</li>
+      <li><a href="https://code.claude.com/docs/en/agent-sdk/user-input">Agent SDK · Handle approvals and user input</a> (canUseTool, answers, previews, limits)</li>
+      <li><a href="https://code.claude.com/docs/en/sessions">Claude Code · Manage sessions</a> (transcript location, format instability, retention)</li>
+      <li><a href="https://github.com/github/spec-kit/blob/main/templates/commands/clarify.md">spec-kit · clarify command template</a></li>
+      <li><a href="https://github.com/EveryInc/compound-engineering-plugin/blob/main/skills/ce-plan/SKILL.md">compound-engineering · ce-plan</a></li>
+      <li><a href="https://github.com/bmad-code-org/bmad-method/blob/main/src/bmm-skills/2-plan-workflows/bmad-prd/SKILL.md">BMAD · bmad-prd</a></li>
+      <li><a href="https://github.com/obra/superpowers/blob/main/skills/brainstorming/SKILL.md">superpowers · brainstorming</a></li>
+      <li><a href="https://github.com/anthropics/claude-code/blob/main/plugins/feature-dev/commands/feature-dev.md">anthropics/claude-code · feature-dev plugin</a></li>
+      <li><a href="https://github.com/humanlayer/12-factor-agents/blob/main/content/factor-07-contact-humans-with-tools.md">12-factor agents · Factor 7</a></li>
+      <li><a href="https://github.com/humanlayer/humanlayer/blob/main/.claude/commands/create_plan.md">HumanLayer · create_plan command</a></li>
+      <li><a href="https://github.com/dinogit/adr-gen">dinogit/adr-gen</a> · <a href="https://github.com/jonocbell/agent-decision-log">jonocbell/agent-decision-log</a></li>
+      <li><a href="https://github.com/openai/codex/blob/main/codex-rs/core/src/tools/spec.rs">Codex · request_user_input spec</a></li>
+      <li><a href="https://docs.langchain.com/oss/python/langgraph/interrupts">LangGraph · interrupts</a> · <a href="https://openai.github.io/openai-agents-python/human_in_the_loop/">OpenAI Agents SDK · HITL</a> · <a href="https://www.inngest.com/docs/ai-patterns/human-in-the-loop">Inngest · HITL</a></li>
+      <li><a href="https://adr.github.io/madr/decisions/adr-template.html">MADR 4 template</a> · <a href="https://ozimmer.ch/practices/2020/04/27/ArchitectureDecisionMaking.html">Zimmermann · Y-statements</a> · <a href="https://github.com/rust-lang/rfcs/blob/master/0000-template.md">Rust RFC template</a></li>
+      <li><a href="https://www.sec.gov/Archives/edgar/data/1018724/000119312516530910/d168744dex991.htm">Amazon 2015 shareholder letter</a> (one-way / two-way doors)</li>
+      <li><a href="https://arxiv.org/abs/2502.13069">Vijayvargiya et al. · Ambig-SWE (ICLR 2026)</a></li>
+      <li><a href="https://arxiv.org/html/2603.26233v2">Ask or Assume? (2026)</a> · <a href="https://dl.acm.org/doi/10.1145/3660810">Mu et al. · ClarifyGPT (FSE 2024)</a></li>
+      <li><a href="https://arxiv.org/abs/2411.12924">Atlassian · HULA (ICSE-SEIP 2025)</a></li>
+      <li><a href="https://aiweb.cs.washington.edu/ai/pubs/bansal-chi21.pdf">Bansal et al. · Does the whole exceed its parts? (CHI 2021)</a></li>
+      <li><a href="https://dl.acm.org/doi/10.1145/3449287">Buçinca et al. · To trust or to think (CSCW 2021)</a></li>
+      <li><a href="https://doi.org/10.1145/3579605">Vasconcelos et al. · Explanations can reduce overreliance (CSCW 2023)</a></li>
+      <li><a href="https://facctconference.org/static/pdfs_2022/facct22-3533193.pdf">Fogliato et al. · Who goes first? (FAccT 2022)</a></li>
+      <li><a href="https://mingyin.org/paper/IUI-24/devil.pdf">Chiang et al. · LLM devil's advocate (IUI 2024)</a></li>
+      <li><a href="https://arxiv.org/html/2310.13548v4">Sharma et al. · Towards understanding sycophancy (ICLR 2024)</a></li>
+      <li><a href="https://arxiv.org/abs/2309.03882">Zheng et al. · LLMs are not robust multiple-choice selectors (ICLR 2024)</a></li>
+      <li><a href="https://proceedings.mlr.press/v235/smit24a.html">Smit et al. · Should we be going MAD? (ICML 2024)</a></li>
+      <li><a href="https://doi.org/10.1109/access.2023.3287654">Buchgeher et al. · ADRs in OSS (IEEE Access 2023)</a> · <a href="https://conf.researchr.org/details/icsa-2026/icsa-2026-papers/34/Architecture-Decision-Records-Adoption-Impact-and-Developer-Engagement-in-Open-Sou">ICSA 2026 ADR study</a></li>
+      <li><a href="https://jacobian.org/2023/dec/1/against-rfcs/">Kaplan-Moss · Against RFCs</a> · <a href="https://shipthenfix.com/adrs-nobody-reads">ADRs nobody reads</a></li>
+      <li><a href="https://cacm.acm.org/research/lessons-from-building-static-analysis-tools-at-google/">Sadowski et al. · Lessons from Tricorder (CACM 2018)</a> · <a href="https://cacm.acm.org/research/a-few-billion-lines-of-code-later/">Bessey et al. · Coverity (CACM 2010)</a></li>
+      <li><a href="https://doi.org/10.1109/icsme.2017.8">Maldonado et al. · SATD removal (ICSME 2017)</a> · <a href="https://doi.org/10.1145/3196398.3196423">Zampetti et al. · SATD removal (MSR 2018)</a></li>
+      <li><a href="https://interruptions.net/literature/Iqbal-CHI08.pdf">Iqbal &amp; Bailey · Breakpoint notifications (CHI 2008)</a></li>
+      <li><a href="https://dl.acm.org/doi/10.1145/2702123.2702322">Anderson et al. · Habituation to warnings (CHI 2015)</a></li>
+      <li><a href="https://hbr.org/2007/09/performing-a-project-premortem">Klein · Performing a project premortem (HBR 2007)</a></li>
+      <li><a href="https://code.claude.com/docs/en/permission-modes">Claude Code · Permission modes</a> · <a href="https://cursor.com/docs/agent/security/run-modes">Cursor · Run modes</a></li>
+    </ol>
+  </div>
+  <p class="fn" style="margin-top:14px">Not verified this session and therefore not relied on: Windsurf's plan.md "Open Questions" section (blog only), Antigravity's internal prompt fields (leaked-prompt repo), the "70% of AI action items never completed" figure (marketing), Copilot Workspace shutdown reasons.</p>
+</section>
+
+</main>
+</div>
+</div>
+
+<script>
+(function(){
+  var state = { choice:null, saved:false };
+  var picks = document.querySelectorAll('button.pick');
+  var opts = document.querySelectorAll('.opt');
+  var saveBtn = document.getElementById('d1-save');
+  var status = document.getElementById('d1-status');
+  var note = document.getElementById('d1-note');
+  var ystmt = document.getElementById('d1-ystmt');
+  var reveal = document.getElementById('reveal');
+  var hint = document.getElementById('reveal-hint');
+  var dbp = null;
+  var dbReady = (window.claude && typeof window.claude.use === 'function') ? window.claude.use('db') : Promise.resolve(null);
+
+  var labels = {
+    A:'adopt existing pieces as-is', B:'a prompt-only skill pack', C:'a Claude Code plugin with hooks, agents and a registry server',
+    D:'a Redkiln-native decision item type built on the plugin core', E:'a standalone SDK review console'
+  };
+  var neglected = function(k){ return Object.keys(labels).filter(function(x){return x!==k}).map(function(x){return x}).join(', '); };
+
+  function select(k){
+    state.choice = k;
+    opts.forEach(function(o){ o.classList.toggle('selected', o.getAttribute('data-opt')===k); });
+    picks.forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-opt')===k ? 'true':'false'); b.textContent = (b.getAttribute('data-opt')===k ? 'Chosen ' : 'Choose ') + b.getAttribute('data-opt'); });
+    saveBtn.disabled = false;
+    if(!reveal.open){ hint.textContent = 'you have a provisional pick — the recommendation is now yours to compare against'; }
+    status.textContent = 'Provisional pick: ' + k + '. Not recorded yet.';
+    status.className = 'saved';
+  }
+  picks.forEach(function(b){ b.addEventListener('click', function(){ select(b.getAttribute('data-opt')); }); });
+
+  reveal.addEventListener('toggle', function(){
+    if(reveal.open){
+      state.revealAfterPick = !!state.choice;
+      hint.textContent = state.choice ? 'revealed after your provisional pick of ' + state.choice : 'revealed before a pick — noted';
+      document.querySelector('.opt[data-opt="D"]').classList.add('recommended');
+    }
+  });
+
+  function yStatement(k, text){
+    var d = new Date().toISOString().slice(0,10);
+    return 'D-0001 · decided ' + d + ' by Ryan\n' +
+      'In the context of reviewing HITL items buried in Claude Code output and agent artifacts,\n' +
+      'facing the need for consistent, grounded, long-term-quality decisions,\n' +
+      'we decided for ' + k + ' (' + labels[k] + ')\n' +
+      'and neglected ' + neglected(k) + ',\n' +
+      'to achieve a register with owners, expiry, write-back and measurement,\n' +
+      'accepting that ' + (k==='A'?'nothing captures from console output and no register exists.':k==='B'?'capture is manual and presentation is limited to four options.':k==='C'?'decisions live beside, not inside, the Redkiln backlog.':k==='D'?'the mechanism is coupled to Redkiln\'s process engine.':'interactive sessions do not route through it.') +
+      (text ? '\nRationale: ' + text : '') +
+      '\nRecommendation was ' + (reveal.open ? 'revealed' : 'not revealed') + ' before recording' + (state.revealAfterPick ? ' (after a provisional pick)' : '') + '.';
+  }
+
+  function write(path, data, statusEl, okMsg){
+    return dbReady.then(function(db){
+      if(!db){ statusEl.textContent = okMsg + ' — kept in this page only (shared storage not available in this view).'; statusEl.className='saved warn'; return; }
+      return db.doc(path).set(data).then(function(){ statusEl.textContent = okMsg + ' — saved; Claude can read this back.'; statusEl.className='saved ok'; })
+        .catch(function(e){ statusEl.textContent = okMsg + ' — could not save (' + (e && e.code ? e.code : 'error') + ').'; statusEl.className='saved warn'; });
+    });
+  }
+
+  saveBtn.addEventListener('click', function(){
+    if(!state.choice) return;
+    var text = note.value.trim();
+    var y = yStatement(state.choice, text);
+    ystmt.textContent = y; ystmt.hidden = false;
+    saveBtn.textContent = 'Recorded';
+    write('decisions/D-0001', { id:'D-0001', status:'decided', choice: state.choice, label: labels[state.choice], note: text, recommendationRevealed: reveal.open, decidedAt: new Date().toISOString(), yStatement: y }, status, 'Decision recorded: ' + state.choice);
+  });
+  document.getElementById('d1-defer').addEventListener('click', function(){
+    ystmt.hidden = true;
+    write('decisions/D-0001', { id:'D-0001', status:'deferred', note: note.value.trim(), deferredAt: new Date().toISOString() }, status, 'Deferred');
+  });
+  document.getElementById('d1-dismiss').addEventListener('click', function(){
+    ystmt.hidden = true;
+    write('decisions/D-0001', { id:'D-0001', status:'dismissed', dismissReason:'not-my-call-or-already-decided', note: note.value.trim(), dismissedAt: new Date().toISOString() }, status, 'Dismissed');
+  });
+
+  // open questions
+  document.querySelectorAll('.q .picks button').forEach(function(b){
+    b.addEventListener('click', function(){
+      var q = b.getAttribute('data-q'), a = b.getAttribute('data-a');
+      var group = b.parentElement.querySelectorAll('button');
+      group.forEach(function(x){ x.setAttribute('aria-pressed', x===b ? 'true':'false'); });
+      var st = document.querySelector('.saved[data-status="'+q+'"]');
+      write('decisions/'+q, { id:q, status:'decided', answer:a, decidedAt:new Date().toISOString() }, st, 'Answered: ' + a);
+    });
+  });
+
+  // restore prior answers, if any
+  dbReady.then(function(db){
+    if(!db) return;
+    ['D-0001','Q1','Q2','Q3','Q4'].forEach(function(id){
+      db.doc('decisions/'+id).get().then(function(snap){
+        if(!snap.exists) return;
+        var d = snap.data();
+        if(id==='D-0001'){
+          if(d.status==='decided' && d.choice){ select(d.choice); status.textContent='Recorded earlier: '+d.choice+' ('+String(d.decidedAt).slice(0,10)+').'; status.className='saved ok'; saveBtn.textContent='Re-record'; if(d.yStatement){ ystmt.textContent=d.yStatement; ystmt.hidden=false; } if(d.note) note.value=d.note; }
+          else if(d.status==='deferred'){ status.textContent='Deferred earlier ('+String(d.deferredAt).slice(0,10)+').'; status.className='saved warn'; }
+          else if(d.status==='dismissed'){ status.textContent='Dismissed earlier.'; status.className='saved warn'; }
+        } else {
+          var st = document.querySelector('.saved[data-status="'+id+'"]');
+          var btns = document.querySelectorAll('.q[data-q="'+id+'"] .picks button');
+          btns.forEach(function(x){ x.setAttribute('aria-pressed', x.getAttribute('data-a')===d.answer ? 'true':'false'); });
+          if(st){ st.textContent='Answered earlier: '+d.answer; st.className='saved ok'; }
+        }
+      }).catch(function(){});
+    });
+  });
+
+  // nav highlighting
+  var links = document.querySelectorAll('nav.rail a');
+  var secs = Array.prototype.map.call(links, function(a){ return document.querySelector(a.getAttribute('href')); });
+  if('IntersectionObserver' in window){
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(en){ if(en.isIntersecting){ links.forEach(function(a){ a.classList.toggle('active', a.getAttribute('href')==='#'+en.target.id); }); } });
+    }, { rootMargin:'-20% 0px -70% 0px' });
+    secs.forEach(function(s){ if(s) io.observe(s); });
+  }
+})();
+</script>
+
+</body></html>

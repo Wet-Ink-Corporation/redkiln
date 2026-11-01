@@ -1,0 +1,33 @@
+[package]
+name = "weighin"
+description = "Weigh-In CLI: the single writer of the decision ledger."
+version = "1.2.0"                # the plugin's own version (AGENTS.md, Versions and tags)
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors = ["Ryan Britton <ryan.britton@wet-ink.net>"]
+repository.workspace = true
+# Internal (D-0007): never published to crates.io.
+publish.workspace = true
+
+[[bin]]
+name = "weighin"
+path = "src/main.rs"
+
+[dependencies]
+weighin-core.workspace = true
+happenstance-core.workspace = true
+happenstance-sqlite.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+time.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+happenstance-core = { version = "0.3.2", features = ["serde", "memory"] }
+
+[lints]
+workspace = true

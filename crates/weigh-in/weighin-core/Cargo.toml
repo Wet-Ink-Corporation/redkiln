@@ -1,0 +1,20 @@
+[package]
+name = "weighin-core"
+description = "Weigh-In ledger domain: events, item IDs, markers, projection and atom rendering. No I/O."
+version = "1.2.0"                # the plugin's own version (AGENTS.md, Versions and tags)
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors = ["Ryan Britton <ryan.britton@wet-ink.net>"]
+repository.workspace = true
+# Internal (D-0007): never published to crates.io.
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

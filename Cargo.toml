@@ -14,7 +14,7 @@ resolver = "3"
 # sits in one of these places and that its edges point the allowed way. Cargo refuses a glob that
 # matches nothing or a folder without a manifest, so the first crate of each layer adds its
 # `crates/<layer>/*` glob here, and tools are listed one by one (tools/ also holds scripts).
-members = ["tools/xtask"]
+members = ["crates/weigh-in/*", "tools/xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -33,6 +33,19 @@ publish = false                # members inherit it (publish.workspace = true); 
 serde = { version = "1.0.219", default-features = false, features = ["std", "derive"] }
 serde_json = { version = "1.0.140", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
+
+# Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
+# 1.2.0's requirements. happenstance stays at 0.3.2 until redkiln-core takes the store on =0.4.5
+# (step 2, SPEC ST-04); tokio, sha2, clap and time are M1-B.
+weighin-core = { path = "crates/weigh-in/weighin-core" }
+happenstance-core = { version = "0.3.2", features = ["serde"] }
+happenstance-sqlite = "0.3.2"
+tokio = { version = "1", default-features = false, features = ["rt"] }
+sha2 = "0.10"
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+tempfile = "3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"                                  # H-01
