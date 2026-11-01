@@ -4,10 +4,10 @@
 //! `crates/kits/`, a plugin's crates under `crates/<plugin>/` (its contract crate is the one named
 //! `*-contract`), and dev tools under `tools/`.
 //!
-//! Core uses only Core; kits and contract crates use only Core; a plugin's crates use Core, kits,
-//! any plugin's contract crate and their own plugin's crates; tools use Core, kits and contracts.
-//! Dev and build dependencies are held to the same rules. Only binaries may use anyhow, and no
-//! member is publishable.
+//! Core uses only Core, and inside Core only `redkiln-core` is used; kits and contract crates use
+//! only Core; a plugin's crates use Core, kits, any plugin's contract crate and their own plugin's
+//! crates; tools use Core, kits and contracts. Dev and build dependencies are held to the same
+//! rules. Only binaries may use anyhow, and no member is publishable.
 
 use std::ffi::OsStr;
 use std::fmt;
@@ -26,6 +26,9 @@ const PLUGINS: [&str; 7] = [
     "loop",
     "backlog",
 ];
+
+/// The Core crate the other Core crates may depend on; nothing else inside Core is depended on.
+const CORE_HUB: &str = "redkiln-core";
 
 /// A crate whose name ends with this is its plugin's contract crate.
 const CONTRACT_SUFFIX: &str = "-contract";
@@ -124,6 +127,9 @@ impl fmt::Display for Violation<'_> {
 /// The layer a member belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Layer<'a> {
+    /// `redkiln-core`, the one Core crate other Core crates may use.
+    CoreHub,
+    /// Any other Core crate.
     Core,
     Kit,
     Contract,
@@ -135,6 +141,7 @@ impl<'a> Layer<'a> {
     fn of(package: &'a Package) -> Option<Self> {
         let mut parts = package.dir.split('/');
         let layer = match (parts.next(), parts.next(), parts.next()) {
+            (Some("crates"), Some("core"), Some(_)) if package.name == CORE_HUB => Self::CoreHub,
             (Some("crates"), Some("core"), Some(_)) => Self::Core,
             (Some("crates"), Some("kits"), Some(_)) => Self::Kit,
             (Some("crates"), Some(plugin), Some(_)) if PLUGINS.contains(&plugin) => {
@@ -153,11 +160,14 @@ impl<'a> Layer<'a> {
 
 /// Whether a member in layer `from` may depend on a member in layer `to`.
 ///
-/// Core uses only Core; kits and contract crates use only Core; a plugin's crates use Core, kits,
-/// any plugin's contract crate and their own plugin's crates; tools use Core, kits and contracts.
+/// Inside Core only `redkiln-core` is used, and it uses no other Core crate; kits and contract
+/// crates use only Core; a plugin's crates use Core, kits, any plugin's contract crate and their
+/// own plugin's crates; tools use Core, kits and contracts.
 fn may_depend_on(from: Layer<'_>, to: Layer<'_>) -> bool {
     match (from, to) {
-        (_, Layer::Core) | (Layer::Plugin(_) | Layer::Tool, Layer::Kit | Layer::Contract) => true,
+        (Layer::CoreHub | Layer::Core, Layer::Core) | (Layer::CoreHub, Layer::CoreHub) => false,
+        (_, Layer::CoreHub | Layer::Core)
+        | (Layer::Plugin(_) | Layer::Tool, Layer::Kit | Layer::Contract) => true,
         (Layer::Plugin(own), Layer::Plugin(other)) => own == other,
         _ => false,
     }

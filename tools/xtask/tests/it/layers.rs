@@ -151,6 +151,91 @@ fn rejects_core_depending_on_a_kit() {
     );
 }
 
+/// `fully_wired` plus a second Core leaf, `redkiln-capacity`, and a member of every other layer
+/// (kit, contract, plugin crate, tool) using a Core leaf.
+fn with_two_core_leaves() -> Vec<Package> {
+    let leaf_users = [
+        library(
+            "redkiln-capacity",
+            "crates/core/redkiln-capacity",
+            &[("redkiln-core", Kind::Normal)],
+        ),
+        library(
+            "redkiln-guard",
+            "crates/kits/redkiln-guard",
+            &[("redkiln-calibrate", Kind::Normal)],
+        ),
+        library(
+            "review-contract",
+            "crates/review/review-contract",
+            &[("redkiln-calibrate", Kind::Normal)],
+        ),
+        library(
+            "weighin-core",
+            "crates/weigh-in/weighin-core",
+            &[("redkiln-capacity", Kind::Normal)],
+        ),
+        binary("xtask", "tools/xtask", &[("redkiln-calibrate", Kind::Dev)]),
+    ];
+    leaf_users.into_iter().fold(fully_wired(), with)
+}
+
+#[test]
+fn accepts_core_leaves_on_the_hub_and_kits_on_any_core_crate() {
+    let workspace = with_two_core_leaves();
+
+    assert_eq!(
+        check(&workspace),
+        Vec::new(),
+        "Core leaves may use redkiln-core, and kits any Core crate"
+    );
+}
+
+#[test]
+fn rejects_a_core_crate_depending_on_another_core_leaf() {
+    let workspace = with(
+        with_two_core_leaves(),
+        library(
+            "redkiln-calibrate",
+            "crates/core/redkiln-calibrate",
+            &[
+                ("redkiln-core", Kind::Normal),
+                ("redkiln-capacity", Kind::Normal),
+            ],
+        ),
+    );
+
+    assert_eq!(
+        check(&workspace),
+        vec![Violation::ForbiddenEdge {
+            from: "redkiln-calibrate",
+            to: "redkiln-capacity"
+        }],
+        "inside Core, only redkiln-core may be depended on"
+    );
+}
+
+#[test]
+fn rejects_the_core_hub_depending_on_a_core_leaf() {
+    let workspace = with(
+        fully_wired(),
+        library(
+            "redkiln-core",
+            "crates/core/redkiln-core",
+            &[("redkiln-calibrate", Kind::Dev)],
+        ),
+    );
+
+    assert_eq!(
+        check(&workspace),
+        vec![Violation::ForbiddenEdge {
+            from: "redkiln-core",
+            to: "redkiln-calibrate"
+        }],
+        "redkiln-core depends on no other Core crate, even for tests"
+    );
+}
+
 #[test]
 fn rejects_a_contract_depending_on_a_kit() {
     let workspace = with(
