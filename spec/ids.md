@@ -28,7 +28,7 @@ Ten hex characters keep the chance of two clones minting the same id below one i
 
 **ID-06 (one-way, OW-7).** A worktree id is `wt-` and the first 12 hex characters of the sha256 of the worktree's normalised top-level path: the absolute path `git rev-parse --show-toplevel` prints, with `/` separators and no trailing slash, ASCII-lowercased on Windows and macOS. Every per-worktree projection keys on it.
 
-Today the two ledgers spell the worktree two ways: anneal writes the normalised path, weigh-in only its last directory name, which two clones can share (pressure test, Scenarios). The SPEC takes anneal's normalisation and hashes it, so a committed journal never carries a local absolute path.
+Today the two ledgers spell the worktree two ways: anneal writes the normalised path, weigh-in only its last directory name, which two clones can share (pressure test, Scenarios). The SPEC takes anneal's normalisation and hashes it, so a journal never carries a local absolute path.
 
 ## Digests
 
