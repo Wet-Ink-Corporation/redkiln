@@ -1,6 +1,6 @@
 # redkiln
 
-redkiln is one monorepo for the Redkiln suite: separately installable Claude Code plugins (`rk-*`) over three shared layers, Core, kits and contract crates, in one Cargo workspace. The end state is `references/docs/blueprint.md`; the order things arrive in is `references/docs/migration-plan.md`. This file is the workspace charter temper reads, and the rules here are checked, not only written.
+redkiln is one monorepo for the Redkiln suite: separately installable Claude Code plugins (`rk-*`) over three shared layers, Core, kits and contract crates, in one Cargo workspace. The end state is `references/docs/blueprint.md`; the order things arrive in is `references/docs/migration-plan.md`, and where that order stands now, with each move's runbook, is `docs/plan/`. This file is the workspace charter temper reads, and the rules here are checked, not only written.
 
 ## Layout
 
@@ -17,6 +17,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `plugins/<plugin>/` | Manifest, skills, agents, hooks, `libexec/` launcher copies and builds; `plugins/redkiln/` is the bundle | with each move |
 | `deploy/review/` | Review's workflow templates, App manifest and fetch-by-digest action | move 3 |
 | `docs/<plugin>/`, `.kb/` | Imported records (series kept) and the one knowledge base | with each move |
+| `docs/plan/` | The live plan: gate status, what later decisions changed in the frozen migration plan, and the runbook of the next move | 2026-11-01 |
 | `docs/guide/` | The field guide: guardrails, patterns, gotchas and prior art distilled from the source repositories; read the chapters a change touches, cite guardrails by id | 2026-11-01 |
 | `references/` | The frozen planning handover | done |
 
