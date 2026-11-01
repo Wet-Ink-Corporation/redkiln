@@ -11,6 +11,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   The Cowork fetch script is `libexec/weighin-cowork-fetch.sh`.
 - The launcher is the suite's shared one. With no build to run, its SessionStart line reads
   "weighin is off: …" instead of "Weigh-In: capture is off: …".
+- The launcher now passes the hook's event name on (`weighin hook SessionStart`), which weighin
+  0.5.0 and later accept; a weighin older than 0.5.0 on `PATH` refuses hook calls. Its guard
+  against running itself through `PATH` is `REDKILN_LAUNCHER`, no longer `WEIGHIN_LAUNCHER`.
 
 ## 1.2.0 — 2026-11-01
 
