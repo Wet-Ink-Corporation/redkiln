@@ -243,7 +243,7 @@ jobs:
         shell: bash
         run: |
           for manifest in plugins/*/.claude-plugin/plugin.json; do
-            npx --yes @anthropic-ai/claude-code@2.1.286 plugin validate --strict "$manifest"
+            npx --yes @anthropic-ai/claude-code@2.1.316 plugin validate --strict "$manifest"
           done
 
   typescript:
@@ -293,7 +293,7 @@ jobs:
         run: sh tools/launcher/weighin-cowork-fetch-check.sh
       - name: Mod (validate --strict, claude plugin test, strict tsc)
         env:
-          CLAUDE: npx --yes @anthropic-ai/claude-code@2.1.286
+          CLAUDE: npx --yes @anthropic-ai/claude-code@2.1.316
           TSC: npx --yes -p typescript@6.0.2 tsc
         run: bash tools/weigh-in/mod-check/mod-check.sh
 
