@@ -53,7 +53,7 @@ These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event car
 | OW-10 | The approval record | One `core.approval_recorded` type bound to a subject (kind, method, hash) | AP-01 |
 | OW-11 | The decision request record | The fields in DR-02, as one shape for every plugin's human gate (Weigh-In call A) | DR-02 |
 | OW-12 | Journal line format | One stored envelope per line, with its `origin` | JR-02 |
-| OW-13 | Where journals live | Append-only refs `refs/redkiln/journal/<name>`, one per session journal, pushed directly or, from Claude Code cloud, through an inbox branch and a relay workflow; import reads every source | JR-07 |
+| OW-13 | Where journals live | Append-only refs `refs/redkiln/journal/<name>`, one per journal (JR-06), pushed directly or, from Claude Code cloud, through an inbox branch and a relay workflow; import reads every source | JR-07 |
 | OW-14 | Hash method names and digest forms | `sha256`, `git-commit`, `git-tree`, `patch-id`, `rust-fingerprint`, written `<method>:<hex>` | ID-09 |
 | OW-15 | Content-hash id derivations | Each id kind's domain string and input fields; Weigh-In's captured-item input kept as today | ID-04, DR-03 |
 
