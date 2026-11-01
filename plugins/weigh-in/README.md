@@ -1,5 +1,11 @@
 # Weigh-In
 
+> **Moved into redkiln (Move 1).** This is weigh-in 1.2.0's README as imported. The plugin now
+> installs as `rk-weigh-in` and the mod as `rk-weigh-in-mod`; paths below that name `plugin/`,
+> `plugin-mod/`, `scripts/` or `tests/` are weigh-in's layout, which `docs/plan/move-1-weigh-in.md`
+> (Where the files land) maps to this repository. Build and packaging steps return as
+> `cargo xtask` tasks before 2.0.0, and this README is rewritten then.
+
 A decision ledger for agent sessions. Agents mark what they assumed, deferred or could not
 decide; hooks capture those marks and the open questions they write into documents; `/weigh-in`
 filters them hard and settles the ones that need you in one sitting, at the end of the chat

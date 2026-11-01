@@ -190,7 +190,10 @@ pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsSt
     std::fs::create_dir_all(&bin_dir).unwrap();
     let launcher = bin_dir.join("weighin");
     std::fs::copy(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugin/libexec/weighin"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/weigh-in/libexec/weighin"
+        ),
         &launcher,
     )
     .unwrap();

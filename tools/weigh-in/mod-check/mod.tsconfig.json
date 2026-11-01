@@ -6,5 +6,5 @@
     "noEmit": true, "skipLibCheck": true,
     "jsx": "react", "jsxFactory": "h", "jsxFragmentFactory": "Fragment"
   },
-  "include": ["mod-types", "../plugin-mod/hooks", "../plugin-mod/types"]
+  "include": ["mod-types", "../../../plugins/weigh-in-mod/hooks", "../../../plugins/weigh-in-mod/types"]
 }

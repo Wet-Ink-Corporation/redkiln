@@ -8,7 +8,7 @@ import type { On, RenderSurface } from 'claude-code'
 const SURFACES = ['terminal', 'desktop'] as const
 
 const BAND = {
-  plugin: 'weigh-mod',
+  plugin: 'rk-weigh-in-mod',
   component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
@@ -59,7 +59,7 @@ const OPEN_RAW = JSON.stringify([
 const OFF_LINE = "this repo's board mode is `off`: the board shows nothing here (`weighin init --board local` changes the mode)"
 
 const PANE = {
-  plugin: 'weigh-mod',
+  plugin: 'rk-weigh-in-mod',
   component: 'Pane',
   requestId: 'weigh-in-board',
   props: { title: 'Weigh-In board', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} },
@@ -882,16 +882,16 @@ test('pane: a second press while an answer is being written is ignored, not sent
   const w = writing(on, () => OK('decided wi-aaaaa1 → A'), { wait: argv => (argv.includes('apply') ? clock.sleep(50) : undefined) })
   await start($)
   const { ui } = await openPane($, 'terminal')
-  const first = $.ui.press({ plugin: 'weigh-mod', key: 'choose:wi-aaaaa1:A' })
+  const first = $.ui.press({ plugin: 'rk-weigh-in-mod', key: 'choose:wi-aaaaa1:A' })
   await clock.settle()
-  const second = $.ui.press({ plugin: 'weigh-mod', key: 'choose:wi-aaaaa1:B' })
+  const second = $.ui.press({ plugin: 'rk-weigh-in-mod', key: 'choose:wi-aaaaa1:B' })
   await clock.settle()
   await clock.advance(50)
   await Promise.all([first, second])
   expect(applied(w)).toEqual([{ item_id: 'wi-aaaaa1', action: 'choose', option: 'A', card_rev: 2 }])
   expect(await texts(ui)).toContain('✓ decided wi-aaaaa1 → A')
   // Once settled, a press writes again.
-  const third = $.ui.press({ plugin: 'weigh-mod', key: 'choose:wi-aaaaa1:B' })
+  const third = $.ui.press({ plugin: 'rk-weigh-in-mod', key: 'choose:wi-aaaaa1:B' })
   await clock.settle()
   await clock.advance(50)
   await third

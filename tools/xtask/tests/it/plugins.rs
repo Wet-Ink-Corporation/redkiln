@@ -338,6 +338,65 @@ fn only_a_shipped_binary_is_a_build() {
 }
 
 #[test]
+fn a_cowork_bootstrap_for_a_shipped_binary_passes() {
+    // M1-D: one `libexec/<binary>-cowork-fetch.sh` per binary the plugin ships, which a skill
+    // reads and sends to Cowork's device shell.
+    assert_eq!(
+        with(file("libexec/weighin-cowork-fetch.sh")),
+        vec![],
+        "the bootstrap of a shipped binary is allowed"
+    );
+}
+
+#[test]
+fn any_other_script_in_libexec_fails() {
+    for path in [
+        "libexec/bench-cowork-fetch.sh",
+        "libexec/cowork-fetch.sh",
+        "libexec/-cowork-fetch.sh",
+        "libexec/weighin-install.sh",
+        "libexec/weighin-cowork-fetch.ps1",
+        "libexec/x86_64-unknown-linux-musl/weighin-cowork-fetch.sh",
+    ] {
+        assert_eq!(
+            with(file(path)),
+            vec![Violation::Unlisted {
+                plugin: "rk-weigh-in".to_owned(),
+                path: path.to_owned()
+            }],
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn a_skill_naming_the_bootstrap_of_a_shipped_binary_passes() {
+    assert_eq!(
+        with(text(
+            "skills/weigh-in/cowork.md",
+            "Read `${CLAUDE_PLUGIN_ROOT}/libexec/weighin-cowork-fetch.sh` and send its text."
+        )),
+        vec![],
+        "naming the bootstrap names its binary"
+    );
+}
+
+#[test]
+fn a_skill_naming_the_bootstrap_of_an_unshipped_binary_fails() {
+    assert_eq!(
+        with(text(
+            "skills/weigh-in/cowork.md",
+            "Read `libexec/bench-cowork-fetch.sh`."
+        )),
+        vec![Violation::UnknownBinary {
+            plugin: "rk-weigh-in".to_owned(),
+            path: "skills/weigh-in/cowork.md".to_owned(),
+            binary: "bench".to_owned()
+        }]
+    );
+}
+
+#[test]
 fn skill_data_naming_an_unknown_binary_fails() {
     assert_eq!(
         with(text(

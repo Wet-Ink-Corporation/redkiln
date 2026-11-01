@@ -6,6 +6,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Weigh-In now lives in the redkiln monorepo (Move 1). The plugin installs as `rk-weigh-in` and
+  the mod as `rk-weigh-in-mod`; the skill is still `/weigh-in` and the binary still `weighin`.
+  The Cowork fetch script is `libexec/weighin-cowork-fetch.sh`.
+- The launcher is the suite's shared one. With no build to run, its SessionStart line reads
+  "weighin is off: …" instead of "Weigh-In: capture is off: …".
+
 ## 1.2.0 — 2026-11-01
 
 - `weighin init` refuses a class other than `own` or `client` and a board other than

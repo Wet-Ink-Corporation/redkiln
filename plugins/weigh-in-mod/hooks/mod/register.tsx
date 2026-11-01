@@ -18,8 +18,8 @@ import { BOARD_PANE, drawPane, isPaneOpen, openBoard, refreshPane } from './pane
 
 export { BOARD_PANE }
 
-const view = atom({ plugin: 'weigh-mod', key: 'view' } as const, null)
-const anchored = atom({ plugin: 'weigh-mod', key: 'anchored' } as const, null)
+const view = atom({ plugin: 'rk-weigh-in-mod', key: 'view' } as const, null)
+const anchored = atom({ plugin: 'rk-weigh-in-mod', key: 'anchored' } as const, null)
 /** What Sit runs: the skill's own sitting, `/weigh-in`. */
 const SIT = 'weigh-in'
 /** Surfaces that draw the band. */

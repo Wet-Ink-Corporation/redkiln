@@ -1,33 +1,32 @@
 #!/bin/sh
-# Weigh-In launcher: runs the prebuilt binary for this platform from libexec/<target>/.
-# Not bin/: Claude Code puts a plugin's bin/ on PATH, and claude.ai rejects hosted plugins that ship
-# one. Hooks start this launcher by path with no shell (exec form, B-16), so it must stay
-# executable; on Windows the same path resolves to libexec/weighin.exe instead. The skill runs it
-# with sh.
-# Falls back to a `weighin` on PATH (cargo install --path crates/weighin). Hooks never fail a session.
+# The suite's shared plugin launcher (AGENTS.md, Plugin rules). Each plugin ships a copy as
+# plugins/<plugin>/libexec/<binary>, beside libexec/<binary>.cmd, and the copy's own file name is
+# the binary it runs. It runs the prebuilt build for this platform from libexec/<target>/.
+#
+# Not bin/: Claude Code puts a plugin's bin/ on PATH, and claude.ai rejects hosted plugins that
+# ship one. Hooks start the launcher by path in exec form, so it stays executable; on Windows the
+# same path resolves to libexec/<binary>.cmd.
+#
+# Order: the newest build among this platform's targets (a stale native build must not shadow a
+# fresh cross-build), then a <binary> on PATH other than this launcher, then nothing.
+# With nothing to run, a hook call (`<binary> hook <event> ...`) exits 0, guards included, so a
+# missing install never blocks a session; on SessionStart it says so in a systemMessage (not in
+# Cowork, which runs no plugin hooks of its own). Any other call exits 127 with a message.
+# Once a build runs, its exit code is the launcher's, so a failing guard still blocks.
 dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# hooks.json names the SessionStart event (`hook SessionStart`) so that this script, which cannot
-# parse the hook's JSON, knows when to say capture is off. The binary reads the event from stdin,
-# so the name is dropped before it runs: a weighin older than 0.5.0 would refuse the extra argument.
-event=""
-if [ "${1:-}" = "hook" ] && [ $# -ge 2 ]; then
-  event=$2
-  set -- hook
-fi
+name=$(basename -- "$0")
 ext=""
 case "$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)" in
-  Linux-x86_64)            targets="x86_64-unknown-linux-musl x86_64-unknown-linux-gnu" ;;
+  Linux-x86_64)              targets="x86_64-unknown-linux-musl x86_64-unknown-linux-gnu" ;;
   Linux-aarch64|Linux-arm64) targets="aarch64-unknown-linux-musl aarch64-unknown-linux-gnu" ;;
-  Darwin-arm64)            targets="aarch64-apple-darwin" ;;
-  Darwin-x86_64)           targets="x86_64-apple-darwin" ;;
+  Darwin-arm64)              targets="aarch64-apple-darwin" ;;
+  Darwin-x86_64)             targets="x86_64-apple-darwin" ;;
   MINGW*|MSYS*|CYGWIN*|Windows_NT*) targets="x86_64-pc-windows-msvc x86_64-pc-windows-gnu"; ext=".exe" ;;
-  *)                       targets="" ;;
+  *)                         targets="" ;;
 esac
-# The first target listed wins unless a later one is a newer build: a stale native build must
-# not shadow a fresh cross-build (they share one ledger, and versions differ in journal mode).
 pick=""
 for t in $targets; do
-  bin="$dir/$t/weighin$ext"
+  bin="$dir/$t/$name$ext"
   [ -f "$bin" ] || continue
   if [ -z "$pick" ] || [ "$bin" -nt "$pick" ]; then
     pick="$bin"
@@ -37,38 +36,33 @@ if [ -n "$pick" ]; then
   [ -x "$pick" ] || chmod +x "$pick" 2>/dev/null
   exec "$pick" "$@"
 fi
-# Fall back to an installed weighin, but never to this launcher itself (it may be on PATH).
-if [ -z "${WEIGHIN_LAUNCHER:-}" ]; then
-  found=$(command -v weighin 2>/dev/null || true)
-  if [ -n "$found" ] && [ "$found" != "$dir/weighin" ]; then
-    WEIGHIN_LAUNCHER=1 exec "$found" "$@"
-  fi
-fi
-# No build for any platform beside this launcher: the development tree, which carries no
-# binaries, synced (a claude.ai organization sync of the weigh-in repository) or checked out
-# without a build (B-18). Releases ship the builds.
-why="this plugin has no weighin binary for $(uname -s 2>/dev/null)-$(uname -m 2>/dev/null); build one with scripts/build-plugin-bins.sh or install a release that ships it."
-nobuild=1
-for b in "$dir"/*/weighin "$dir"/*/weighin.exe "$dir/weighin.exe"; do
-  if [ -f "$b" ]; then
-    nobuild=""
+# A <binary> on PATH, skipping every PATH entry that is this directory (compared resolved).
+# REDKILN_LAUNCHER stops recursion through a copy of this launcher found elsewhere on PATH.
+if [ -z "${REDKILN_LAUNCHER:-}" ]; then
+  self=$(CDPATH= cd -- "$dir" 2>/dev/null && pwd -P)
+  found=""
+  saved_ifs=$IFS
+  IFS=:
+  set -f
+  for entry in $PATH; do
+    [ -n "$entry" ] || entry=.
+    [ -f "$entry/$name" ] && [ -x "$entry/$name" ] || continue
+    [ "$(CDPATH= cd -- "$entry" 2>/dev/null && pwd -P)" != "$self" ] || continue
+    found="$entry/$name"
     break
+  done
+  set +f
+  IFS=$saved_ifs
+  if [ -n "$found" ]; then
+    REDKILN_LAUNCHER=1 exec "$found" "$@"
   fi
-done
-if [ -n "$nobuild" ]; then
-  why="this copy has no binaries: it is the development tree, synced or checked out without a build. Install from the marketplace branch or the weigh-in-plugin release repo, or build with scripts/build-plugin-bins.sh."
 fi
+why="no $name build for $(uname -s 2>/dev/null)-$(uname -m 2>/dev/null) in this plugin's libexec and none on PATH"
 if [ "${1:-}" = "hook" ]; then
-  # Hooks never fail a session. SessionStart says why capture is off, as a message shown to the
-  # user; Cowork captures through the sitting's sweep, not hooks, so it says nothing there (B-04).
-  if [ "$event" = "SessionStart" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" != "remote_cowork" ]; then
-    printf '{"systemMessage":"Weigh-In: capture is off: %s"}\n' "$why"
+  if [ "${2:-}" = "SessionStart" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" != "remote_cowork" ]; then
+    printf '{"systemMessage":"%s is off: %s. Install a release that ships one."}\n' "$name" "$why"
   fi
   exit 0
 fi
-if [ -n "$nobuild" ]; then
-  echo "weighin: $why ($dir)" >&2
-else
-  echo "weighin: no binary for $(uname -s)-$(uname -m) under $dir; build one with scripts/build-plugin-bins.sh or cargo install --path crates/weighin" >&2
-fi
+echo "$name: $why ($dir)" >&2
 exit 127

@@ -1,10 +1,10 @@
 #!/bin/sh
-# Checks plugin/libexec/cowork-fetch.sh, the script the skill sends to Cowork's device shell
+# Checks plugins/weigh-in/libexec/weighin-cowork-fetch.sh, the script the skill sends to Cowork's device shell
 # (D-0021), against a fake $HOME with connected folders under mnt/ and a stand-in curl.
 # Each case runs the script as package-plugin.sh would stamp it. Needs sh and sha256sum only.
 set -eu
-root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-script="$root/plugin/libexec/cowork-fetch.sh"
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+script="$root/plugins/weigh-in/libexec/weighin-cowork-fetch.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failed=0
@@ -12,10 +12,10 @@ failed=0
 fail() { echo "FAIL: $*" >&2; failed=1; }
 
 # The repository copy holds exactly one stamp, and it is the dev one.
-[ "$(grep -c 'V=[^;]*; S=[^;]*;' "$script")" = 1 ] || fail "cowork-fetch.sh must hold exactly one 'V=…; S=…;'"
-grep -q 'V=dev; S=none;' "$script" || fail "the repository copy of cowork-fetch.sh must stay 'V=dev; S=none;'"
-if grep -q 'sha256sum -c' "$root/plugin/skills/weigh-in/SKILL.md"; then
-  fail "SKILL.md still carries the fetch script inline; it must Read cowork-fetch.sh"
+[ "$(grep -c 'V=[^;]*; S=[^;]*;' "$script")" = 1 ] || fail "weighin-cowork-fetch.sh must hold exactly one 'V=…; S=…;'"
+grep -q 'V=dev; S=none;' "$script" || fail "the repository copy of weighin-cowork-fetch.sh must stay 'V=dev; S=none;'"
+if grep -q 'sha256sum -c' "$root/plugins/weigh-in/skills/weigh-in/SKILL.md"; then
+  fail "SKILL.md still carries the fetch script inline; it must Read weighin-cowork-fetch.sh"
 fi
 
 # A stand-in weighin that reports version $1.

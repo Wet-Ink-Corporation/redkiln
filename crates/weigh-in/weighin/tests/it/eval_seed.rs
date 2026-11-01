@@ -322,7 +322,7 @@ fn scorer_counts_each_outcome() -> Res<()> {
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn real_seed_meets_the_precision_bar() -> Res<()> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/seed.jsonl");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/weigh-in/seed.jsonl");
     let items = parse(&std::fs::read_to_string(&path)?)?;
     assert!(
         items.len() >= 20,
@@ -350,7 +350,8 @@ fn real_seed_meets_the_precision_bar() -> Res<()> {
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn scripted_seed_scores_as_recorded() -> Res<()> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../eval/seed-scripted.jsonl");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/weigh-in/seed-scripted.jsonl");
     let items = parse(&std::fs::read_to_string(&path)?)?;
 
     let s = score(&items)?;

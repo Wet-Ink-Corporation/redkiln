@@ -554,7 +554,7 @@ fn launcher_session_start_without_a_binary_says_capture_is_off() {
         out["systemMessage"]
             .as_str()
             .unwrap()
-            .contains("capture is off"),
+            .contains("weighin is off"),
         "{out}"
     );
 }
@@ -562,7 +562,8 @@ fn launcher_session_start_without_a_binary_says_capture_is_off() {
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_command_names_a_copy_with_no_binaries() {
-    // No build for any platform: the development tree, synced or copied as is (B-18).
+    // No build for any platform: the development tree, synced or copied as is (B-18). The suite's
+    // shared launcher names the missing build the same way whatever else the copy holds.
     let (_tmp, launcher, path) = isolated_launcher();
 
     let run = run_within(
@@ -575,10 +576,7 @@ fn launcher_command_names_a_copy_with_no_binaries() {
 
     assert_eq!(run.status.code(), Some(127));
     let err = String::from_utf8_lossy(&run.stderr);
-    assert!(
-        err.starts_with("weighin: this copy has no binaries:"),
-        "{err}"
-    );
+    assert!(err.starts_with("weighin: no weighin build for "), "{err}");
 }
 
 #[test]
@@ -600,7 +598,7 @@ fn launcher_session_start_names_a_copy_with_no_binaries() -> Result<(), Box<dyn 
     let out: Value = serde_json::from_slice(&start.stdout)?;
     let message = out["systemMessage"].as_str().ok_or("no systemMessage")?;
     assert!(
-        message.starts_with("Weigh-In: capture is off: this copy has no binaries:"),
+        message.starts_with("weighin is off: no weighin build for "),
         "{out}"
     );
     Ok(())
@@ -626,7 +624,7 @@ fn launcher_with_only_another_platforms_build_names_the_platform()
 
     assert_eq!(run.status.code(), Some(127));
     let err = String::from_utf8_lossy(&run.stderr);
-    assert!(err.starts_with("weighin: no binary for "), "{err}");
+    assert!(err.starts_with("weighin: no weighin build for "), "{err}");
     Ok(())
 }
 
@@ -649,7 +647,7 @@ fn launcher_session_start_in_cowork_without_a_binary_is_silent() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
+fn launcher_passes_session_start_to_the_binary() {
     let Some((target, ext)) = launcher_target() else {
         return;
     };
@@ -658,7 +656,10 @@ fn launcher_passes_session_start_to_the_binary_without_the_event_name() {
     std::fs::create_dir_all(plugin.join(target)).unwrap();
     let launcher = plugin.join("weighin");
     std::fs::copy(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../plugin/libexec/weighin"),
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/weigh-in/libexec/weighin"
+        ),
         &launcher,
     )
     .unwrap();
@@ -702,7 +703,7 @@ fn cmd_launcher_runs_the_newer_build() {
     std::fs::copy(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../plugin/libexec/weighin.cmd"
+            "/../../../plugins/weigh-in/libexec/weighin.cmd"
         ),
         &launcher,
     )

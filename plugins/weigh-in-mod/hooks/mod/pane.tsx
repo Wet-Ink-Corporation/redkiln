@@ -22,13 +22,13 @@ const WRITE_TIMEOUT_MS = 30_000
 /** `open --json` lists `--top` items (12 by default); the pane lists every raw one. */
 const ALL = '1000000'
 
-export const pane = atom({ plugin: 'weigh-mod', key: 'pane' } as const, null)
-export const tab = atom({ plugin: 'weigh-mod', key: 'tab' } as const, 'needs')
-const selected = atom({ plugin: 'weigh-mod', key: 'selected' } as const, null)
-const form = atom({ plugin: 'weigh-mod', key: 'form' } as const, null)
-const drafts = atom({ plugin: 'weigh-mod', key: 'drafts' } as const, {})
-const receipt = atom({ plugin: 'weigh-mod', key: 'receipt' } as const, null)
-const busy = atom({ plugin: 'weigh-mod', key: 'busy' } as const, null)
+export const pane = atom({ plugin: 'rk-weigh-in-mod', key: 'pane' } as const, null)
+export const tab = atom({ plugin: 'rk-weigh-in-mod', key: 'tab' } as const, 'needs')
+const selected = atom({ plugin: 'rk-weigh-in-mod', key: 'selected' } as const, null)
+const form = atom({ plugin: 'rk-weigh-in-mod', key: 'form' } as const, null)
+const drafts = atom({ plugin: 'rk-weigh-in-mod', key: 'drafts' } as const, {})
+const receipt = atom({ plugin: 'rk-weigh-in-mod', key: 'receipt' } as const, null)
+const busy = atom({ plugin: 'rk-weigh-in-mod', key: 'busy' } as const, null)
 
 /** The reasons a dismissal takes (`board::validate_answer`). */
 export const DISMISS_REASONS = ['not-useful', 'already-decided', 'recoverable', 'duplicate', 'moot'] as const
