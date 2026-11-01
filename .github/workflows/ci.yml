@@ -138,6 +138,8 @@ jobs:
         run: cargo hack check --locked --workspace --feature-powerset
       - run: cargo nextest run --locked --workspace --all-features --no-tests=fail
       - run: cargo test --locked --doc --workspace --all-features
+      - name: SPEC fixtures (ID-09 patch-id recipe)
+        run: sh spec/fixtures/patch-id/check.sh
       - name: Docs build (rustdoc lints are checked by Lint (temper))
         run: cargo doc --locked --workspace --no-deps --all-features
       - run: cargo deny --locked check
