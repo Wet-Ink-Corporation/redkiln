@@ -5,8 +5,9 @@
 //! `<binary> hook ...`, skills, agents and commands that tell the model which command to run,
 //! launcher copies, builds and, for a binary that runs in Cowork, one fetch script its skill
 //! sends to the device shell (`libexec/<binary>-cowork-fetch.sh`, M1-D). Anything else in
-//! `plugins/<plugin>/` is functionality that belongs in the CLI, and fails the check. A mod plugin (its `hooks.json` lists `modules`) carries its
-//! module and types instead of skills, agents or commands.
+//! `plugins/<plugin>/` is functionality that belongs in the CLI, and fails the check. A mod
+//! plugin (its `hooks.json` lists `modules`) carries its module and types instead of skills,
+//! agents or commands.
 
 mod read;
 
@@ -404,10 +405,14 @@ fn named_binaries(text: &str) -> Vec<&str> {
             .unwrap_or(after.len());
         let (name, rest) = after.split_at(end);
         // A bootstrap, `libexec/<binary>-cowork-fetch.sh` with nothing of a file name after it,
-        // names the binary it serves.
-        let whole_bootstrap = rest
-            .strip_prefix(".sh")
-            .is_some_and(|tail| !tail.starts_with(|c: char| is_binary_char(c) || c == '.'));
+        // names the binary it serves. A `.` continues the name only when a name character
+        // follows it (`.sh.bak`), not when it ends a sentence.
+        let whole_bootstrap = rest.strip_prefix(".sh").is_some_and(|tail| {
+            !tail
+                .strip_prefix('.')
+                .unwrap_or(tail)
+                .starts_with(is_binary_char)
+        });
         let name = after
             .get(..end + ".sh".len())
             .filter(|_| whole_bootstrap)

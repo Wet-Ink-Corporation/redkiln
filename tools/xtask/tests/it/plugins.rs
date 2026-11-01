@@ -382,6 +382,20 @@ fn a_skill_naming_the_bootstrap_of_a_shipped_binary_passes() {
 }
 
 #[test]
+fn a_sentence_ending_with_the_bootstrap_names_its_binary() {
+    for prose in [
+        "Read libexec/weighin-cowork-fetch.sh.",
+        "Read libexec/weighin-cowork-fetch.sh. Then send it.",
+    ] {
+        assert_eq!(
+            with(text("skills/weigh-in/cowork.md", prose)),
+            vec![],
+            "{prose}"
+        );
+    }
+}
+
+#[test]
 fn a_name_that_only_starts_like_a_bootstrap_is_not_one() {
     for name in ["weighin-cowork-fetch.shx", "weighin-cowork-fetch.sh.bak"] {
         assert_eq!(
