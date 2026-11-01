@@ -382,6 +382,24 @@ fn a_skill_naming_the_bootstrap_of_a_shipped_binary_passes() {
 }
 
 #[test]
+fn a_name_that_only_starts_like_a_bootstrap_is_not_one() {
+    for name in ["weighin-cowork-fetch.shx", "weighin-cowork-fetch.sh.bak"] {
+        assert_eq!(
+            with(text(
+                "skills/weigh-in/cowork.md",
+                &format!("Read `libexec/{name}`.")
+            )),
+            vec![Violation::UnknownBinary {
+                plugin: "rk-weigh-in".to_owned(),
+                path: "skills/weigh-in/cowork.md".to_owned(),
+                binary: "weighin-cowork-fetch".to_owned()
+            }],
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn a_skill_naming_the_bootstrap_of_an_unshipped_binary_fails() {
     assert_eq!(
         with(text(

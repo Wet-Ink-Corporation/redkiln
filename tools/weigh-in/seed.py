@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Draft and review eval seed items (eval/seed.jsonl, #22; decided in wi-100d6d).
+"""Draft and review eval seed items (evals/weigh-in/seed.jsonl, #22; decided in wi-100d6d).
 
-    python3 scripts/seed.py save <transcript.jsonl> --source <session id> [--repo <owner/name>]
-    python3 scripts/seed.py review
-    python3 scripts/seed.py selftest
+    python3 tools/weigh-in/seed.py save <transcript.jsonl> --source <session id> [--repo <owner/name>]
+    python3 tools/weigh-in/seed.py review
+    python3 tools/weigh-in/seed.py selftest
 
 `save` drafts one item per end-of-turn assistant message in a Claude Code transcript
 (~/.claude/projects/<project>/<session>.jsonl): `capture` when the message carries a `weigh-in`
 block, `skip` otherwise, all `by: claude-draft`. It skips messages the seed already holds and
 prints what it added. Read the drafts before committing: relabel prose calls the message made
 without a block as `capture`, and redact client names, emails, tokens and personal data
-(eval/README.md).
+(evals/weigh-in/README.md).
 
 `review` walks the `claude-draft` items one at a time and records the label you give as
 `by: ryan`.
@@ -28,7 +28,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-SEED = Path(__file__).resolve().parent.parent / "eval" / "seed.jsonl"
+SEED = Path(__file__).resolve().parents[2] / "evals" / "weigh-in" / "seed.jsonl"
 BLOCK = re.compile(r"```weigh-in\n(.*?)```", re.DOTALL)
 
 

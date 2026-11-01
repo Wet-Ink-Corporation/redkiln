@@ -3,9 +3,9 @@
 //!
 //! A plugin is a thin integration of its binary into the harness: manifests, hooks that run
 //! `<binary> hook ...`, skills, agents and commands that tell the model which command to run,
-//! launcher copies, builds and, for a binary that runs in Cowork, one fetch script its skill sends
-//! to the device shell (`libexec/<binary>-cowork-fetch.sh`, M1-D). Anything else in `plugins/<plugin>/` is functionality that belongs
-//! in the CLI, and fails the check. A mod plugin (its `hooks.json` lists `modules`) carries its
+//! launcher copies, builds and, for a binary that runs in Cowork, one fetch script its skill
+//! sends to the device shell (`libexec/<binary>-cowork-fetch.sh`, M1-D). Anything else in
+//! `plugins/<plugin>/` is functionality that belongs in the CLI, and fails the check. A mod plugin (its `hooks.json` lists `modules`) carries its
 //! module and types instead of skills, agents or commands.
 
 mod read;
@@ -144,8 +144,8 @@ impl fmt::Display for Violation {
             }
             Self::Unlisted { plugin, path } => write!(
                 f,
-                "{plugin}/{path}: not a manifest, hook entry, skill, agent, command, launcher \
-                 or build; functionality belongs in the CLI"
+                "{plugin}/{path}: not a manifest, hook entry, skill, agent, command, launcher, \
+                 build or Cowork bootstrap; functionality belongs in the CLI"
             ),
             Self::NotRegularFile { plugin, path } => {
                 write!(f, "{plugin}/{path}: not a regular file")
@@ -403,9 +403,14 @@ fn named_binaries(text: &str) -> Vec<&str> {
             .find(|c: char| !is_binary_char(c))
             .unwrap_or(after.len());
         let (name, rest) = after.split_at(end);
-        // A bootstrap, `libexec/<binary>-cowork-fetch.sh`, names the binary it serves.
+        // A bootstrap, `libexec/<binary>-cowork-fetch.sh` with nothing of a file name after it,
+        // names the binary it serves.
+        let whole_bootstrap = rest
+            .strip_prefix(".sh")
+            .is_some_and(|tail| !tail.starts_with(|c: char| is_binary_char(c) || c == '.'));
         let name = after
             .get(..end + ".sh".len())
+            .filter(|_| whole_bootstrap)
             .and_then(bootstrap_binary)
             .unwrap_or(name);
         if !name.is_empty() && !rest.starts_with('/') && !names.contains(&name) {
