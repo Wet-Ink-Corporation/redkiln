@@ -1,0 +1,74 @@
+#!/bin/sh
+# Weigh-In launcher: runs the prebuilt binary for this platform from libexec/<target>/.
+# Not bin/: Claude Code puts a plugin's bin/ on PATH, and claude.ai rejects hosted plugins that ship
+# one. Hooks start this launcher by path with no shell (exec form, B-16), so it must stay
+# executable; on Windows the same path resolves to libexec/weighin.exe instead. The skill runs it
+# with sh.
+# Falls back to a `weighin` on PATH (cargo install --path crates/weighin). Hooks never fail a session.
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# hooks.json names the SessionStart event (`hook SessionStart`) so that this script, which cannot
+# parse the hook's JSON, knows when to say capture is off. The binary reads the event from stdin,
+# so the name is dropped before it runs: a weighin older than 0.5.0 would refuse the extra argument.
+event=""
+if [ "${1:-}" = "hook" ] && [ $# -ge 2 ]; then
+  event=$2
+  set -- hook
+fi
+ext=""
+case "$(uname -s 2>/dev/null)-$(uname -m 2>/dev/null)" in
+  Linux-x86_64)            targets="x86_64-unknown-linux-musl x86_64-unknown-linux-gnu" ;;
+  Linux-aarch64|Linux-arm64) targets="aarch64-unknown-linux-musl aarch64-unknown-linux-gnu" ;;
+  Darwin-arm64)            targets="aarch64-apple-darwin" ;;
+  Darwin-x86_64)           targets="x86_64-apple-darwin" ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT*) targets="x86_64-pc-windows-msvc x86_64-pc-windows-gnu"; ext=".exe" ;;
+  *)                       targets="" ;;
+esac
+# The first target listed wins unless a later one is a newer build: a stale native build must
+# not shadow a fresh cross-build (they share one ledger, and versions differ in journal mode).
+pick=""
+for t in $targets; do
+  bin="$dir/$t/weighin$ext"
+  [ -f "$bin" ] || continue
+  if [ -z "$pick" ] || [ "$bin" -nt "$pick" ]; then
+    pick="$bin"
+  fi
+done
+if [ -n "$pick" ]; then
+  [ -x "$pick" ] || chmod +x "$pick" 2>/dev/null
+  exec "$pick" "$@"
+fi
+# Fall back to an installed weighin, but never to this launcher itself (it may be on PATH).
+if [ -z "${WEIGHIN_LAUNCHER:-}" ]; then
+  found=$(command -v weighin 2>/dev/null || true)
+  if [ -n "$found" ] && [ "$found" != "$dir/weighin" ]; then
+    WEIGHIN_LAUNCHER=1 exec "$found" "$@"
+  fi
+fi
+# No build for any platform beside this launcher: the development tree, which carries no
+# binaries, synced (a claude.ai organization sync of the weigh-in repository) or checked out
+# without a build (B-18). Releases ship the builds.
+why="this plugin has no weighin binary for $(uname -s 2>/dev/null)-$(uname -m 2>/dev/null); build one with scripts/build-plugin-bins.sh or install a release that ships it."
+nobuild=1
+for b in "$dir"/*/weighin "$dir"/*/weighin.exe "$dir/weighin.exe"; do
+  if [ -f "$b" ]; then
+    nobuild=""
+    break
+  fi
+done
+if [ -n "$nobuild" ]; then
+  why="this copy has no binaries: it is the development tree, synced or checked out without a build. Install from the marketplace branch or the weigh-in-plugin release repo, or build with scripts/build-plugin-bins.sh."
+fi
+if [ "${1:-}" = "hook" ]; then
+  # Hooks never fail a session. SessionStart says why capture is off, as a message shown to the
+  # user; Cowork captures through the sitting's sweep, not hooks, so it says nothing there (B-04).
+  if [ "$event" = "SessionStart" ] && [ "${CLAUDE_CODE_ENTRYPOINT:-}" != "remote_cowork" ]; then
+    printf '{"systemMessage":"Weigh-In: capture is off: %s"}\n' "$why"
+  fi
+  exit 0
+fi
+if [ -n "$nobuild" ]; then
+  echo "weighin: $why ($dir)" >&2
+else
+  echo "weighin: no binary for $(uname -s)-$(uname -m) under $dir; build one with scripts/build-plugin-bins.sh or cargo install --path crates/weighin" >&2
+fi
+exit 127

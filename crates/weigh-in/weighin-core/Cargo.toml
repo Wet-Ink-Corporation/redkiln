@@ -1,0 +1,20 @@
+[package]
+name = "weighin-core"
+description = "Weigh-In ledger domain: events, item IDs, markers, projection and atom rendering. No I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+# Internal (D-0007): never published to crates.io.
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

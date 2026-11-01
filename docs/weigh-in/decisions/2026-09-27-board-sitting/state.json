@@ -1,0 +1,910 @@
+{
+ "schema": 1,
+ "scope": {
+  "repo": "weigh-in design",
+  "session": "Claude session · 2026-09-26 · Weigh-In research",
+  "source": "reports/HITL decision ledger skill.md",
+  "generated_at": "2026-09-27T04:40:00Z",
+  "board_mode": "artifact"
+ },
+ "items": [],
+ "defaults": [
+  {
+   "id": "wi-c3e8d0",
+   "question": "Registry MCP server, or a CLI over JSONL files?",
+   "taken": "CLI over JSONL; no MCP server",
+   "alt": "SQLite registry MCP server (12 Sept brief, Phase 2)",
+   "reason": "A JSONL fold is enough below a few hundred items, beads' storage change broke its tooling, and the Artifact board already spans clients without an MCP app.",
+   "cause": "two-way"
+  },
+  {
+   "id": "wi-9d4c62",
+   "question": "Capture with a model classifier on every Stop, or with agent markers?",
+   "taken": "Agent-emitted markers read by command hooks, zero model tokens",
+   "alt": "Prompt hook classifier on every Stop",
+   "reason": "Prompt hooks call a model on every firing; Codex's automatic recaps drew complaints about hidden cost and mislabelled status.",
+   "cause": "two-way"
+  },
+  {
+   "id": "wi-06e5bb",
+   "question": "Hide every recommendation behind a reveal, or pre-select it when earned?",
+   "taken": "Pre-select only when earned; options first for one-way or unstable items",
+   "alt": "Reveal on demand for every item (12 Sept brief, principle 6)",
+   "reason": "Pre-selected defaults stay strong whether disclosed or not, a bare verdict drew the lowest agreement, and options-first display costs about seven times the decision time.",
+   "cause": "two-way"
+  }
+ ],
+ "settled": [
+  {
+   "id": "D-0001",
+   "question": "What shape should the HITL review mechanism take?",
+   "answer": "Redkiln-native decision item type, built on a portable Claude Code plugin core",
+   "decided_at": "2026-09-12",
+   "provenance": "user-directed"
+  },
+  {
+   "id": "Q1",
+   "question": "How much of your agent work runs unattended?",
+   "answer": "About half and half",
+   "decided_at": "2026-09-12",
+   "provenance": "user-directed"
+  },
+  {
+   "id": "Q2",
+   "question": "Where do records land outside Redkiln repos?",
+   "answer": "Same .kb layout everywhere",
+   "decided_at": "2026-09-12",
+   "provenance": "user-directed"
+  },
+  {
+   "id": "Q3",
+   "question": "Which models may judge one-way recommendations?",
+   "answer": "Anthropic models only",
+   "decided_at": "2026-09-12",
+   "provenance": "user-directed"
+  },
+  {
+   "id": "Q4",
+   "question": "Does Weigh-In stay as the name?",
+   "answer": "Keep Weigh-In",
+   "decided_at": "2026-09-12",
+   "provenance": "user-directed"
+  }
+ ],
+ "decided": [
+  {
+   "id": "wi-b4c1d8",
+   "rank": 1,
+   "question": "Which runtime should the standalone Weigh-In CLI use, now that redkiln-rs is its eventual home?",
+   "why": "The CLI is the single writer of the ledger and the piece redkiln-rs will absorb. Writing it in redkiln-rs's language decides whether integration adopts code or re-implements it.",
+   "door": "two-way",
+   "door_note": "A small CLI can be rewritten, but every week on the wrong runtime adds code that is thrown away at integration.",
+   "blast": "system",
+   "authority": "authority",
+   "resolve_by": "before slice 1 starts (it is the first line of code)",
+   "blocks": [
+    "wi-6e2a47"
+   ],
+   "reopens": "wi-5f0a19",
+   "reopen_note": "redkiln has a newer version (redkiln-rs), written in Rust, which is still in active development. This will be the eventual home of the weigh-in system - but it needs to be able to stand on it's own until redkiln-rs is ready to receive it",
+   "timing": "Decide now. Slice 1 cannot start without it, and the only unknown (whether a prebuilt binary runs in each surface) is a 20-minute spike that the recommendation already schedules.",
+   "source": {
+    "path": "board · Decided for you · wi-5f0a19",
+    "quote": "Node 20 or later, one dependency-free file"
+   },
+   "evidence": [
+    {
+     "src": "your reopen note",
+     "text": "redkiln-rs will be the eventual home of Weigh-In; Weigh-In must stand on its own until then."
+    },
+    {
+     "src": "redkiln-rs/Cargo.toml:21,25",
+     "text": "Rust, edition 2024, rust-version 1.98.1, pinned exactly in rust-toolchain.toml."
+    },
+    {
+     "src": "operator-surface-proposal.md §12.1, §12.3",
+     "text": "happenstance 0.3.2 (your DCB event store, MSRV 1.97.1) is proposed as redkiln-rs's tier-2 store adapter, with git staying the tier-1 authority."
+    },
+    {
+     "src": "ADR-0077",
+     "text": "redkiln-rs reads git through gix and shells out for every git write, the same split a Weigh-In CLI needs."
+    },
+    {
+     "src": "plugin platform support",
+     "text": "Cowork cannot install a plugin's bin/ executables; a binary inside a skill folder run through Bash is unverified."
+    },
+    {
+     "src": "ADR-0164",
+     "text": "Your box runs core.autocrlf=true; redkiln-rs forces LF in every checkout, so whatever writes ledger files must write LF."
+    }
+   ],
+   "options": [
+    {
+     "id": "A",
+     "title": "Rust crate and CLI on redkiln-rs's toolchain",
+     "summary": "A weighin-core crate plus a weighin binary, pinned to Rust 1.98.1, edition 2024, events stored through happenstance. Prebuilt binaries for Windows x64 and Linux x64 ship in the plugin. Cowork, which has no repo, keeps its ledger in the board's store and needs no binary.",
+     "holds_if": "a prebuilt binary runs from the plugin folder on Windows and in Claude Code cloud sessions (20-minute spike)",
+     "if_wrong": "you maintain release builds for two targets for a small tool; the core crate is still what redkiln-rs adopts"
+    },
+    {
+     "id": "B",
+     "title": "Node single file now, port to Rust at integration",
+     "summary": "The original default: one dependency-free Node file, run the same way everywhere Node runs.",
+     "holds_if": "the data contract, not the code, is what carries into redkiln-rs",
+     "if_wrong": "about 1,500 lines written twice, and two implementations of the ID and fold rules while both are live"
+    },
+    {
+     "id": "C",
+     "title": "Rust core compiled to WebAssembly behind a Node shim",
+     "summary": "One .wasm artifact runs wherever Node runs; the same crate links natively into redkiln-rs.",
+     "holds_if": "the shared logic is pure: git and process calls stay in the shim",
+     "if_wrong": "git, rg and file watching live in JavaScript anyway, splitting the logic you meant to share; node:wasi is still experimental"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "Code redkiln-rs can adopt",
+     "values": {
+      "A": "The crate",
+      "B": "None",
+      "C": "The core"
+     }
+    },
+    {
+     "name": "Runs in Cowork",
+     "values": {
+      "A": "Board store, no binary",
+      "B": "Yes, via Node",
+      "C": "Yes, via Node"
+     }
+    },
+    {
+     "name": "Build and release work",
+     "values": {
+      "A": "Two targets",
+      "B": "None",
+      "C": "One wasm plus shim"
+     }
+    },
+    {
+     "name": "Same stack as redkiln-rs",
+     "values": {
+      "A": "Yes",
+      "B": "No",
+      "C": "Partly"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "A",
+    "flip": "The spike shows a prebuilt binary will not run from a plugin in Claude Code cloud sessions or on your Windows install. Then B, keeping the event schema identical so the port is mechanical.",
+    "tradeoff": "You are trading release plumbing for two targets for code that redkiln-rs adopts rather than rewrites.",
+    "why_wrong": "redkiln-rs's own ports may change shape before integration. A crate written now against happenstance may still need an adapter, so adopting the crate could shrink to adopting its data.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "recommended",
+   "decision": {
+    "option": "A",
+    "decided_at": "2026-09-27T04:28:36Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-27T04:40:00Z",
+    "ledger_note": ""
+   }
+  },
+  {
+   "id": "wi-6e2a47",
+   "rank": 2,
+   "question": "Where should Weigh-In keep its live ledger so that moving into redkiln-rs later adds no source-control friction?",
+   "why": "redkiln-rs keeps git as the authority for decisions and a derived store outside the working tree. A Weigh-In ledger committed as files would be a second shape that redkiln-rs has to import or ignore.",
+   "door": "two-way",
+   "door_note": "Ledger files already pushed to your repos stay in history; everything else can move.",
+   "blast": "system",
+   "authority": "authority",
+   "resolve_by": "before slice 1 starts",
+   "blocked_by": [
+    "wi-b4c1d8"
+   ],
+   "reopens": "wi-81b7aa",
+   "reopen_note": "redkiln-rs works slightly differently in terms of it's approach to git. weigh-in needs to stand on it's own until redkiln-rs is ready to integrate it - but we should anticipate that merge and ensure that we do not create friction from a source control perspective",
+   "supersedes": "wi-a93f02 (commit event files in your repos), on the redkiln-rs evidence below",
+   "timing": "Decide now. Every session run before this is settled writes ledger files in whichever shape slice 1 ships.",
+   "source": {
+    "path": "board · Decided for you · wi-81b7aa",
+    "quote": "One event file per session, ordered by lamport, timestamp and event id"
+   },
+   "evidence": [
+    {
+     "src": "crates/rk-store/src/conn.rs:72",
+     "text": "redkiln-rs keeps one store per repository at <git-common-dir>/redkiln/store.sqlite3, shared by every worktree and never committed."
+    },
+    {
+     "src": "ADR-0018",
+     "text": "Rows are keyed by SHA or tree hash, never branch or path; rebase and amend emit rewrite events; only the run-owned worktree writes."
+    },
+    {
+     "src": "ADR-0105 cl. 3-4",
+     "text": "An answer is recorded as a trailer commit on the run's branch, with the tree hash taken from a temporary index (untracked files excluded)."
+    },
+    {
+     "src": "operator-surface-proposal.md §12.3",
+     "text": "git stays the tier-1 authority; the store is derived and rebuildable. F19 rebuilt 174 of 174 records from git."
+    },
+    {
+     "src": "ADR-0129",
+     "text": "In Phase 1 only a CLI answer reconciles; a web view is not an answer channel. Board answers must therefore be applied by the CLI, as Weigh-In already does."
+    },
+    {
+     "src": "settled · wi-a93f02",
+     "text": "You chose C: commit event files in your repos, keep them local in client repos. This card would supersede the committing half."
+    }
+   ],
+   "excerpt": {
+    "path": "crates/rk-store/src/conn.rs",
+    "start": 72,
+    "lines": [
+     "/// Where the store lives: `<git-common-dir>/redkiln/`.",
+     "///",
+     "/// **One store per repository** (AC-178). Resolved from the common dir, which on arm a's **go** is",
+     "/// what gix reports from any worktree — so opening from a linked worktree yields the main",
+     "/// repository's store rather than a second one beside it.",
+     "#[must_use]",
+     "pub fn store_dir(common_dir: &Path) -> PathBuf {",
+     "    common_dir.join(\"redkiln\")",
+     "}"
+    ]
+   },
+   "options": [
+    {
+     "id": "A",
+     "title": "Mirror redkiln-rs: git for decisions, a common-dir store for open items",
+     "summary": "Open items live in <git-common-dir>/weighin/, shared by every worktree and never committed. Decisions reach git as .kb/_intake atoms plus a Weigh-In trailer on the enacting commit. Your repos mirror open items to the board for other machines.",
+     "holds_if": "you never need undecided items from a fresh clone of a client repo",
+     "if_wrong": "open items in client repos stay on one machine, as wi-7c21e4 already accepts; a lost clone loses open items not yet decided"
+    },
+    {
+     "id": "B",
+     "title": "Keep committed per-session event files (wi-a93f02 as decided)",
+     "summary": "Event files under .kb/_ledger/events in your repos; write an importer into redkiln-rs's store at integration.",
+     "holds_if": "redkiln-rs is happy to import and then ignore those files",
+     "if_wrong": "your repos carry ledger history redkiln-rs never reads, and two ledgers drift apart while both run"
+    },
+    {
+     "id": "C",
+     "title": "Commit open items as open_question atoms; no store",
+     "summary": "Every open item is an atom in .kb/_intake from the moment it is raised; git holds everything.",
+     "holds_if": "open items change status rarely",
+     "if_wrong": "each triage, defer and default becomes a commit, and kb-ingest's handling of frequently changing open_question atoms is still unverified"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "Same shape as redkiln-rs",
+     "values": {
+      "A": "Yes",
+      "B": "No",
+      "C": "No"
+     }
+    },
+    {
+     "name": "Ledger files in repo history",
+     "values": {
+      "A": "Decisions only",
+      "B": "Every event",
+      "C": "Every open item"
+     }
+    },
+    {
+     "name": "Worktrees see each other's items",
+     "values": {
+      "A": "Natively",
+      "B": "By scanning worktrees",
+      "C": "After merge"
+     }
+    },
+    {
+     "name": "Open items on another machine",
+     "values": {
+      "A": "Via the board, your repos",
+      "B": "Via git",
+      "C": "Via git"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "A",
+    "flip": "You want open items visible to other people or to CI in a shared repo. Then keep A and add a committed export on demand.",
+    "tradeoff": "You are trading open items in git history for a ledger with the same shape redkiln-rs will absorb.",
+    "why_wrong": "A trusts the board for cross-machine continuity. If the board is off for a repo (client repos), a cloud session there starts with no open items, which is a real regression from B for client work.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "recommended",
+   "decision": {
+    "option": "A",
+    "decided_at": "2026-09-27T04:29:07Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-27T04:40:00Z",
+    "ledger_note": ""
+   }
+  },
+  {
+   "id": "wi-7c21e4",
+   "rank": 1,
+   "question": "May Weigh-In publish ledger items from IQBG client repos to a claude.ai Artifact board?",
+   "why": "Board items quote client code, requirements and your deliberations. The board keeps them on claude.ai, visible to your organisation, long after the session that raised them.",
+   "door": "one-way",
+   "door_note": "Published excerpts can be deleted but not un-seen; a breach of client terms cannot be undone.",
+   "blast": "external",
+   "authority": "authority",
+   "resolve_by": "before slice 2 (the board) ships",
+   "blocks": [
+    "wi-a93f02"
+   ],
+   "timing": "Decide now. The fact that would flip this (each client's terms on Anthropic as a subprocessor) is knowable per engagement today; waiting will not reveal it.",
+   "source": {
+    "path": "reports/HITL decision ledger skill.md:534",
+    "quote": "May ledger items from IQBG client repos be published to a claude.ai Artifact board?"
+   },
+   "evidence": [
+    {
+     "src": "docs › artifacts",
+     "text": "Artifacts need a claude.ai login and the Anthropic API (not Bedrock, Vertex or Foundry), and are unavailable in CMEK, HIPAA or ZDR organisations."
+    },
+    {
+     "src": "runtime › db",
+     "text": "A board with a db store is organisation-internal and cannot be shared publicly. Any viewer can write the store, so answers read back are treated as untrusted."
+    },
+    {
+     "src": "session fact",
+     "text": "Claude Code already sends the code in context to Anthropic during a session. The board adds persistence and an org-visible surface, not new processing."
+    },
+    {
+     "src": "settled · Q2",
+     "text": "Records land in the same .kb layout everywhere, so the ledger stays in the repo whatever the board mode."
+    }
+   ],
+   "options": [
+    {
+     "id": "A",
+     "title": "Per-repo board mode; client repos default to local",
+     "summary": "board: artifact | local | off in .kb/_ledger/config.json. Wet Ink and Redkiln repos use the Artifact board; client repos use the local page and in-chat cards until you switch one.",
+     "holds_if": "you can say at init whether a repo belongs to a client",
+     "if_wrong": "one extra setting per repo; a client repo you would have allowed runs without the board until switched"
+    },
+    {
+     "id": "B",
+     "title": "Artifact board in every repo",
+     "summary": "One surface everywhere, including client repos, reachable from Cowork, the desktop app and your phone.",
+     "holds_if": "every client's terms already allow Anthropic to process and store excerpts of their code",
+     "if_wrong": "client excerpts persisted on claude.ai against their terms, beyond recall from anyone who viewed them"
+    },
+    {
+     "id": "C",
+     "title": "No hosted board anywhere",
+     "summary": "Local review page and in-chat cards only, in every repo including your own.",
+     "holds_if": "you never need the board from Cowork, away from your machine, or on your phone",
+     "if_wrong": "you lose the only surface that spans Claude Code and Cowork, for your own repos too"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "Client data stays off claude.ai",
+     "values": {
+      "A": "Yes, by default",
+      "B": "No",
+      "C": "Yes"
+     }
+    },
+    {
+     "name": "Board from Cowork and phone",
+     "values": {
+      "A": "Your repos",
+      "B": "Every repo",
+      "C": "None"
+     }
+    },
+    {
+     "name": "Setup per repo",
+     "values": {
+      "A": "One setting",
+      "B": "None",
+      "C": "None"
+     }
+    },
+    {
+     "name": "Undo if wrong",
+     "values": {
+      "A": "Switch the setting",
+      "B": "Not for what was published",
+      "C": "Switch later"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "A",
+    "flip": "IQBG's standard client terms name Anthropic as an approved subprocessor for code excerpts. Then B for those clients.",
+    "tradeoff": "You are trading one uniform surface for a per-repo setting.",
+    "why_wrong": "If every IQBG engagement already runs Claude Code under terms that cover Anthropic, the board's extra exposure is persistence and org visibility only, and the per-repo friction buys little.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "options-first",
+   "decision": {
+    "option": "A",
+    "decided_at": "2026-09-26T17:55:55Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-26T18:40:00Z",
+    "ledger_note": ""
+   }
+  },
+  {
+   "id": "wi-a93f02",
+   "rank": 2,
+   "question": "Should the ledger's event files (.kb/_ledger/events) be committed to git?",
+   "why": "Committed events travel with branches, pull requests and machines. They also put raw agent deliberation into repo history, which a client may not want in theirs.",
+   "door": "two-way",
+   "door_note": "You can stop committing at any time, but files already pushed stay in history.",
+   "blast": "system",
+   "authority": "authority",
+   "resolve_by": "before slice 1 ships (weighin init needs a default)",
+   "blocked_by": [
+    "wi-7c21e4"
+   ],
+   "timing": "Decide now. init needs a default, and a per-repo override keeps it cheap to revisit.",
+   "source": {
+    "path": "reports/HITL decision ledger skill.md:535",
+    "quote": "Commit .kb/_ledger/events in every repo?"
+   },
+   "evidence": [
+    {
+     "src": "src/store/telemetry.ts:4",
+     "text": "Redkiln already commits append-only JSONL telemetry, one partition per actor@worktree."
+    },
+    {
+     "src": "src/schema/config.ts:27",
+     "text": "auto_stage_telemetry: Redkiln stages those partitions with git add by default."
+    },
+    {
+     "src": "design",
+     "text": "The repo view folds events across git worktree list, so open items are visible across worktrees whether or not events are committed."
+    },
+    {
+     "src": "surfaces",
+     "text": "Claude Code cloud sessions clone from the remote; an uncommitted ledger does not exist there."
+    }
+   ],
+   "excerpt": {
+    "path": "src/store/telemetry.ts",
+    "start": 1,
+    "lines": [
+     "/**",
+     " * Telemetry sink (spec §4.5, §7, §8, §11).",
+     " *",
+     " * Events are append-only JSONL, one object per line, written to a per-actor /",
+     " * per-worktree partition `${telemetry_dir}/${actor}@${worktree}.jsonl`. Every",
+     " * record is validated against the `Event` schema before it is appended, so the",
+     " * on-disk log always round-trips through the schema.",
+     " */"
+    ]
+   },
+   "options": [
+    {
+     "id": "A",
+     "title": "Commit by default; opt out per repo",
+     "summary": "Every repo commits its event files; a repo that must not carry agent metadata excludes them with .git/info/exclude.",
+     "holds_if": "most repos you work in tolerate agent metadata in history",
+     "if_wrong": "an opted-in client repo carries ledger files in pushed history; removing them needs a history rewrite"
+    },
+    {
+     "id": "B",
+     "title": "Never commit; only decided atoms reach git",
+     "summary": "Event files stay local and gitignored everywhere; the curated .kb atoms are the only committed record.",
+     "holds_if": "you work from one machine and never need open items in a cloud session or on a PR",
+     "if_wrong": "open items vanish on other machines and in cloud sessions; a lost clone loses the open ledger"
+    },
+    {
+     "id": "C",
+     "title": "Commit in your repos; client repos local by default",
+     "summary": "The same repo class that sets the board mode sets this: your repos commit events, client repos keep them local unless you opt in.",
+     "holds_if": "one own/client flag at init describes your repos well enough",
+     "if_wrong": "client repos lose open items in cloud sessions and across machines until you opt in"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "Open items follow you across machines",
+     "values": {
+      "A": "Everywhere",
+      "B": "Nowhere",
+      "C": "Your repos"
+     }
+    },
+    {
+     "name": "Raw deliberation in client history",
+     "values": {
+      "A": "Unless opted out",
+      "B": "Never",
+      "C": "Only if opted in"
+     }
+    },
+    {
+     "name": "Settings to reason about",
+     "values": {
+      "A": "One per exception",
+      "B": "None",
+      "C": "One flag, shared with the board"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "C",
+    "flip": "Your client engagements treat decision records as a deliverable they want in their repos. Then A.",
+    "tradeoff": "You are trading cloud-session continuity in client repos for keeping raw deliberation out of client history.",
+    "why_wrong": "The decided atoms already land in client repos. If clients are fine with those, the raw events add little extra exposure and C costs you continuity for nothing.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "recommended",
+   "decision": {
+    "option": "C",
+    "decided_at": "2026-09-26T17:56:46Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-26T18:40:00Z",
+    "ledger_note": "Still in force: client repos keep their ledger local. Superseded: 'commit event files in your repos'; open items now live under the git common dir in every repo, and decisions reach git as atoms.",
+    "superseded_in_part_by": "wi-6e2a47"
+   }
+  },
+  {
+   "id": "wi-4d8b6a",
+   "rank": 3,
+   "question": "May unattended runs decide two-way, judgment-bound questions themselves and report them in a digest?",
+   "why": "About half your agent work runs unattended. Without a rule, those runs either stall on every question or make silent assumptions, which are the buried questions this skill exists to surface.",
+   "door": "two-way",
+   "door_note": "Any default can be reopened from the digest; reopening supersedes it.",
+   "blast": "system",
+   "authority": "authority",
+   "resolve_by": "before slice 1 ships",
+   "timing": "Decide now. Nothing arrives by waiting; the digest's override rate will show later whether to tighten.",
+   "source": {
+    "path": "reports/HITL decision ledger skill.md:536",
+    "quote": "May unattended runs auto-decide two-way, judgment-bound items and report them in the digest?"
+   },
+   "evidence": [
+    {
+     "src": "settled · Q1",
+     "text": "Your agent work is about half interactive, half unattended."
+    },
+    {
+     "src": "ce-sweep SKILL.md",
+     "text": "\"With no usable blocking-question tool, behave as non-interactive\"; only authority-bound items are escalated to the human."
+    },
+    {
+     "src": "docs › sdk user input",
+     "text": "AskUserQuestion is unavailable to subagents and in claude -p runs."
+    },
+    {
+     "src": "Amazon 2015 letter",
+     "text": "Two-way-door decisions \"can and should be made quickly by high judgment individuals or small groups\"."
+    }
+   ],
+   "options": [
+    {
+     "id": "A",
+     "title": "Yes for two-way items; one-way items block",
+     "summary": "Unattended runs take a logged default on two-way, judgment-bound items and list it in the digest. One-way items are marked did: blocked and the run continues with independent work.",
+     "holds_if": "runs classify door type correctly most of the time",
+     "if_wrong": "a misclassified one-way item gets a default; the digest shows it and a reopen supersedes it"
+    },
+    {
+     "id": "B",
+     "title": "No; every item waits for you",
+     "summary": "Unattended runs park each question until you answer, using the SDK defer loop.",
+     "holds_if": "unattended runs can wait hours for you",
+     "if_wrong": "runs stall, and the slice 3 defer loop becomes a prerequisite for slice 1"
+    },
+    {
+     "id": "C",
+     "title": "Yes for every item, one-way included",
+     "summary": "Unattended runs decide everything and report it all in the digest.",
+     "holds_if": "you are willing to review one-way calls after the fact",
+     "if_wrong": "an irreversible choice is made with nobody asked",
+     "fails_must": "One-way doors always get a human (principle 1 of the 12 September brief)"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "Unattended runs keep moving",
+     "values": {
+      "A": "Yes",
+      "B": "No",
+      "C": "Yes"
+     }
+    },
+    {
+     "name": "One-way calls made without you",
+     "values": {
+      "A": "Never",
+      "B": "Never",
+      "C": "Yes"
+     }
+    },
+    {
+     "name": "Build needed first",
+     "values": {
+      "A": "Slice 1",
+      "B": "Slice 3 defer loop",
+      "C": "Slice 1"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "A",
+    "flip": "The slice 1 eval shows the unattended door classifier calling one-way items two-way more than about 1 in 20 times. Then B for those repos until it improves.",
+    "tradeoff": "You are trading a small chance of a misclassified default for runs that finish.",
+    "why_wrong": "Door classification is the weak link. If the unattended run misjudges one-way items often, A drifts into C by accident; the slice 1 eval must measure that miss rate before you rely on it.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "recommended",
+   "decision": {
+    "option": "A",
+    "decided_at": "2026-09-26T18:13:44Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-26T18:40:00Z",
+    "ledger_note": "(your note about a key in .secrets; answered in chat)"
+   }
+  },
+  {
+   "id": "wi-e15c77",
+   "rank": 4,
+   "question": "Should Redkiln's .kb contract reserve .kb/_ledger/ and accept Weigh-In's intake keys in slice 1?",
+   "why": "Decides whether every repo has one .kb footprint from day one, and whether the later native decision type is a mapping or a migration.",
+   "door": "two-way",
+   "door_note": "A contract note and a kb-ingest change; both can be revised.",
+   "blast": "module",
+   "authority": "authority",
+   "resolve_by": "before slice 1 ships",
+   "timing": "Decide now. Waiting for slice 3 adds a migration of every ledger written in the meantime.",
+   "source": {
+    "path": "reports/HITL decision ledger skill.md:537",
+    "quote": "Reserve .kb/_ledger/ in Redkiln's .kb contract and teach validate --kb and kb-ingest the Weigh-In intake keys?"
+   },
+   "evidence": [
+    {
+     "src": "src/store/validate-kb.ts:84",
+     "text": "validate --kb already skips _-prefixed directories, so .kb/_ledger/ is invisible to atom validation today."
+    },
+    {
+     "src": "src/schema/kb.ts:61",
+     "text": "KbFrontmatter is .passthrough(), so Weigh-In keys such as weighin_item, door and flip_condition survive validation without a schema change."
+    },
+    {
+     "src": "src/schema/kb.ts:8",
+     "text": "The schema comment already names tracks and resolution_ref as keys seen on open_question atoms."
+    },
+    {
+     "src": "settled · Q2",
+     "text": "Same .kb layout everywhere."
+    },
+    {
+     "src": "gap",
+     "text": "How kb-ingest handles open_question atoms whose status changes often is unverified."
+    }
+   ],
+   "excerpt": {
+    "path": "src/store/validate-kb.ts",
+    "start": 79,
+    "lines": [
+     "function collectAtomFiles(kbDir: string): string[] {",
+     "  const files: string[] = [];",
+     "  const walk = (dir: string): void => {",
+     "    for (const ent of readdirSync(dir, { withFileTypes: true })) {",
+     "      if (ent.isDirectory()) {",
+     "        if (ent.name.startsWith(\"_\")) continue;",
+     "        walk(join(dir, ent.name));"
+    ]
+   },
+   "options": [
+    {
+     "id": "A",
+     "title": "Yes: reserve it and teach kb-ingest now",
+     "summary": "Document .kb/_ledger/ as reserved in the .kb README and teach kb-ingest the intake keys in slice 1.",
+     "holds_if": "the key names survive slice 1 use without much churn",
+     "if_wrong": "a key rename touches the README and kb-ingest, not stored atoms (passthrough keeps them valid)"
+    },
+    {
+     "id": "B",
+     "title": "Own .weighin/ folder until slice 3",
+     "summary": "Keep the ledger outside .kb until the native decision type lands, then move it.",
+     "holds_if": "Redkiln's .kb contract is still changing week to week",
+     "if_wrong": "two footprints per repo, and a migration of every ledger at slice 3"
+    },
+    {
+     "id": "C",
+     "title": "Leave it unspecified until slice 3",
+     "summary": "Write to .kb/_ledger/ without documenting it; settle the contract with the native type.",
+     "holds_if": "nothing in slice 1 depends on the contract",
+     "if_wrong": "slice 1 writes to an undocumented path that a later kb-ingest may reject",
+     "evasion": "Revisit later, with no trigger, default or owner"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "One .kb footprint from day one",
+     "values": {
+      "A": "Yes",
+      "B": "No",
+      "C": "Yes, undocumented"
+     }
+    },
+    {
+     "name": "Work in slice 1",
+     "values": {
+      "A": "About 2 h",
+      "B": "None",
+      "C": "None"
+     }
+    },
+    {
+     "name": "Migration at slice 3",
+     "values": {
+      "A": "None",
+      "B": "Every ledger",
+      "C": "Possible"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "A",
+    "flip": "kb-ingest turns out to re-ingest an open_question atom on every status change. Then keep open questions in the ledger only and reserve just _ledger/.",
+    "tradeoff": "You are trading about two hours in slice 1 for no migration later.",
+    "why_wrong": "The kb-ingest behaviour for frequently changing open_question atoms is unchecked. If it floods _intake, the reservation still stands but the open_question half of the plan needs rework.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "recommended",
+   "decision": {
+    "option": "A",
+    "decided_at": "2026-09-26T18:14:39Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-26T18:40:00Z",
+    "ledger_note": ""
+   }
+  },
+  {
+   "id": "wi-2b90f3",
+   "rank": 5,
+   "question": "Should Weigh-In run reliance drills, occasionally marking a deliberately weaker option as recommended, to check that you still review?",
+   "why": "You expect to accept the recommendation most of the time. Pre-selected defaults are strong and disclosure does not weaken them, so an unmeasured rubber stamp is the main way this skill could make your decisions worse.",
+   "door": "two-way",
+   "door_note": "Drills can be switched off at any sitting.",
+   "blast": "module",
+   "authority": "authority",
+   "resolve_by": "before slice 2 metrics ship",
+   "timing": "Decide now. Nothing will arrive to change this except your own override rate, which every option already measures.",
+   "source": {
+    "path": "reports/HITL decision ledger skill.md:538",
+    "quote": "Opt in to reliance drills?"
+   },
+   "evidence": [
+    {
+     "src": "Jachimowicz 2019",
+     "text": "Defaults shift choices with an overall effect of d = 0.68 across 58 studies; perceived endorsement is one of the moderators."
+    },
+    {
+     "src": "Bruns 2018",
+     "text": "Disclosing a default does not weaken it."
+    },
+    {
+     "src": "Vaccaro 2024",
+     "text": "Human–AI teams did worse than the better of the two on decision tasks (g = −0.23, 106 studies)."
+    },
+    {
+     "src": "Ma 2025",
+     "text": "Options-first deliberative display raised accuracy from 52.4% to 59.8% but median time per decision from 33 s to 236 s."
+    }
+   ],
+   "options": [
+    {
+     "id": "A",
+     "title": "Yes, two-way items only, 1 in 30 for 60 days",
+     "summary": "A drill marks a weaker option as recommended on a two-way item and is disclosed before the sitting writes anything back.",
+     "holds_if": "one extra careful look per 30 items is worth a measured check on your review habit",
+     "if_wrong": "mild annoyance; a missed drill is reverted before write-back, so nothing wrong is recorded"
+    },
+    {
+     "id": "B",
+     "title": "No drills; watch override rate and time-to-decide",
+     "summary": "Trust the metrics every sitting already records.",
+     "holds_if": "override rate and time-to-decide are enough signal that you still review",
+     "if_wrong": "a rubber-stamp habit goes unseen, because a low override rate looks the same as good recommendations"
+    },
+    {
+     "id": "C",
+     "title": "Never pre-select; options first on every item",
+     "summary": "Show options and evidence before any recommendation, on every item.",
+     "holds_if": "you accept roughly seven times longer per decision",
+     "if_wrong": "every sitting slows down, and the habit of running /weigh-in erodes"
+    }
+   ],
+   "criteria": [
+    {
+     "name": "Detects rubber-stamping",
+     "values": {
+      "A": "Yes",
+      "B": "No",
+      "C": "Prevents it"
+     }
+    },
+    {
+     "name": "Time per sitting",
+     "values": {
+      "A": "Same, plus rare drills",
+      "B": "Same",
+      "C": "About 7x"
+     }
+    },
+    {
+     "name": "Risk to recorded decisions",
+     "values": {
+      "A": "None",
+      "B": "None",
+      "C": "None"
+     }
+    }
+   ],
+   "recommendation": {
+    "option": "A",
+    "flip": "Your override rate in the first 60 items is above about 15%. That already shows active review, so B.",
+    "tradeoff": "You are trading a rare moment of friction for evidence that your acceptances are real reviews.",
+    "why_wrong": "The evidence for drills is one study in a different setting. For a single expert reviewing his own architecture, a drill may feel like noise and cost more trust in the tool than it earns.",
+    "stability": {
+     "agree": 4,
+     "of": 4,
+     "samples": "Opus pick plus 3 Sonnet samples, each with the option order permuted and the recommendation removed",
+     "note": "All samples judged options written by the same author, so this checks order and framing bias, not authorship bias."
+    }
+   },
+   "present": "recommended",
+   "decision": {
+    "option": "A",
+    "decided_at": "2026-09-26T18:16:08Z",
+    "provenance": "user-approved",
+    "matched_recommendation": true,
+    "applied_at": "2026-09-26T18:40:00Z",
+    "ledger_note": ""
+   }
+  }
+ ]
+}

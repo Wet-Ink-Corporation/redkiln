@@ -1,0 +1,10 @@
+{
+  "name": "weigh",
+  "version": "1.2.0",
+  "description": "Weigh-In (/weigh-in): decision ledger for agent sessions: captures the questions, assumptions and deferred calls agents leave behind, filters them, and settles the ones that need you in one sitting, with .kb decision atoms as the record.",
+  "author": { "name": "Ryan Britton", "email": "ryan.britton@wet-ink.net" },
+  "homepage": "https://github.com/Wet-Ink-Corporation/weigh-in",
+  "repository": "https://github.com/Wet-Ink-Corporation/weigh-in",
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["decisions", "hitl", "adr", "kb", "redkiln"]
+}

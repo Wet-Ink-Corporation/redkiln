@@ -1,0 +1,11 @@
+{
+  "name": "weigh-mod",
+  "version": "1.2.0",
+  "description": "Weigh-In's Claude Code mod: the ledger band above the prompt, the local board pane and /wi. Claude Code only; install it beside weigh, which carries /weigh-in and the capture hooks.",
+  "author": { "name": "Ryan Britton", "email": "ryan.britton@wet-ink.net" },
+  "homepage": "https://github.com/Wet-Ink-Corporation/weigh-in",
+  "repository": "https://github.com/Wet-Ink-Corporation/weigh-in",
+  "license": "MIT OR Apache-2.0",
+  "types": "./types/index.d.ts",
+  "keywords": ["decisions", "hitl", "mod", "redkiln"]
+}

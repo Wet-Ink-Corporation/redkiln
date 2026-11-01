@@ -1,0 +1,25 @@
+{
+  "repo_class": "own",
+  "owner": "ryan",
+  "board": {
+    "mode": "artifact",
+    "url": null
+  },
+  "caps": {
+    "chat_cards": 4,
+    "board_focus": 5,
+    "context_chars": 2400
+  },
+  "scan": {
+    "markdown": true,
+    "todos": true,
+    "exclude": [
+      "target/",
+      "node_modules/",
+      ".git/",
+      ".kb/",
+      "dist/",
+      "vendor/"
+    ]
+  }
+}

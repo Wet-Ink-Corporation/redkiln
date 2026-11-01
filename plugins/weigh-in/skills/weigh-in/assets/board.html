@@ -1,0 +1,694 @@
+<title>Weigh-In Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --ground:#EDF1F0; --paper:#FFFFFF; --paper-2:#E3EAE8; --paper-3:#F5F8F7;
+    --ink:#14201E; --ink-2:#384845; --muted:#5C6D69; --line:#CED8D5; --line-2:#B7C4C0;
+    --accent:#0D6A64; --accent-ink:#FFFFFF; --accent-soft:#D7ECE9;
+    --copper:#AE531A; --copper-soft:#F7E5D8;
+    --oneway:#A3372A; --oneway-soft:#F6DFDA; --twoway:#2B7549; --twoway-soft:#DAEFE1;
+    --amber:#8B6405; --amber-soft:#F6EACA;
+    --code-bg:#F2F5F4;
+    --shadow:0 1px 2px rgba(20,32,30,.06),0 6px 20px rgba(20,32,30,.06);
+    --display:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif;
+    --body:"Instrument Sans","Segoe UI",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme:dark;
+      --ground:#0E1413; --paper:#151D1B; --paper-2:#1C2725; --paper-3:#18211F;
+      --ink:#E4ECE9; --ink-2:#C0CCC8; --muted:#8FA09B; --line:#283432; --line-2:#37443F;
+      --accent:#4DB3AA; --accent-ink:#0E1413; --accent-soft:#16312E;
+      --copper:#E0894C; --copper-soft:#352216;
+      --oneway:#E26F5E; --oneway-soft:#3A1D19; --twoway:#5CBE86; --twoway-soft:#15301F;
+      --amber:#D8AF48; --amber-soft:#31280F;
+      --code-bg:#111917;
+      --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --ground:#0E1413; --paper:#151D1B; --paper-2:#1C2725; --paper-3:#18211F;
+    --ink:#E4ECE9; --ink-2:#C0CCC8; --muted:#8FA09B; --line:#283432; --line-2:#37443F;
+    --accent:#4DB3AA; --accent-ink:#0E1413; --accent-soft:#16312E;
+    --copper:#E0894C; --copper-soft:#352216;
+    --oneway:#E26F5E; --oneway-soft:#3A1D19; --twoway:#5CBE86; --twoway-soft:#15301F;
+    --amber:#D8AF48; --amber-soft:#31280F;
+    --code-bg:#111917;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 20px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;padding-inline:clamp(16px,3vw,32px);padding-block:0 64px}
+  h1,h2,h3{font-family:var(--display);margin:0;line-height:1.15;text-wrap:balance}
+  p{margin:0}
+  button,select,input,textarea{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--copper);outline-offset:2px}
+  .mono{font-family:var(--mono);font-size:.86em}
+  .wrap{max-width:1280px;margin:0 auto}
+
+  /* header */
+  header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 24px;padding-block:28px 18px;border-bottom:1px solid var(--line)}
+  .brand{display:grid;gap:4px}
+  .brand h1{font-size:30px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:10px}
+  .brand h1 svg{flex:none}
+  .scope{font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 14px}
+  .scope b{color:var(--ink-2);font-weight:600}
+  .health{display:grid;grid-template-columns:repeat(4,minmax(112px,1fr));gap:8px}
+  .tile{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px 12px;display:grid;gap:1px;min-width:0}
+  .tile .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .tile .v{font-family:var(--display);font-weight:800;font-size:20px;font-variant-numeric:tabular-nums}
+  .tile .s{font-size:11.5px;color:var(--muted)}
+
+  /* layout */
+  .shell{display:grid;grid-template-columns:320px minmax(0,1fr);gap:24px;padding-top:22px;align-items:start}
+  aside.queue{position:sticky;top:calc(env(safe-area-inset-top,0px) + 16px);display:grid;gap:18px;max-height:calc(100vh - 32px);overflow:auto;padding-bottom:8px}
+  .qgroup{display:grid;gap:6px}
+  .qhead{display:flex;justify-content:space-between;align-items:baseline;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600;padding-inline:2px}
+  .qhead .n{font-family:var(--mono);letter-spacing:0}
+  .qitem{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;text-align:left;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 12px;cursor:pointer;width:100%}
+  .qitem:hover{border-color:var(--line-2)}
+  .qitem[aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .qitem .rank{font-family:var(--mono);font-size:12px;color:var(--muted);grid-row:span 2;padding-top:1px;font-variant-numeric:tabular-nums}
+  .qitem .qq{font-size:14px;line-height:1.35;color:var(--ink)}
+  .qitem .qm{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .qitem.muted .qq{color:var(--ink-2)}
+  .qhint{font-size:12px;color:var(--muted);padding-inline:2px}
+
+  /* chips */
+  .chip{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11.5px;line-height:1.2;padding:3px 8px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-2);background:var(--paper);white-space:nowrap}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+  .chip.oneway{color:var(--oneway);border-color:var(--oneway);background:var(--oneway-soft)}
+  .chip.twoway{color:var(--twoway);border-color:var(--twoway);background:var(--twoway-soft)}
+  .chip.amber{color:var(--amber);border-color:var(--amber);background:var(--amber-soft)}
+  .chip.accent{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .chip.copper{color:var(--copper);border-color:var(--copper);background:var(--copper-soft)}
+  .chip.plain{border-color:transparent;background:transparent;padding-inline:0}
+
+  /* focus card */
+  main.focus{min-width:0}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+  .card-head{padding:20px 24px 16px;display:grid;gap:12px;border-bottom:1px solid var(--line)}
+  .meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .card-head h2{font-size:clamp(21px,2.3vw,26px);font-weight:800;letter-spacing:-.01em}
+  .why{color:var(--ink-2);max-width:72ch}
+  .timing{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:baseline;background:var(--paper-3);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 24px;font-size:14px}
+  .timing .lab{font-size:11px;letter-spacing:.07em;text-transform:uppercase;font-weight:600;color:var(--twoway)}
+  .section{padding:18px 24px;display:grid;gap:12px;border-bottom:1px solid var(--line)}
+  .section:last-child{border-bottom:0}
+  .slab{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .ctx{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  .ctx.single{grid-template-columns:minmax(0,1fr)}
+  ul.ev{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+  ul.ev li{display:grid;gap:2px;font-size:14px;line-height:1.45}
+  ul.ev .src{font-family:var(--mono);font-size:11.5px;color:var(--accent);user-select:all}
+  .excerpt{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--code-bg)}
+  .excerpt .path{display:flex;justify-content:space-between;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--muted);padding:6px 10px;border-bottom:1px solid var(--line);background:var(--paper-3)}
+  .excerpt .path span{user-select:all;color:var(--ink-2)}
+  .excerpt pre{margin:0;padding:8px 0;overflow-x:auto;font-family:var(--mono);font-size:12.5px;line-height:1.55}
+  .excerpt code{display:grid}
+  .excerpt .ln{display:grid;grid-template-columns:3.2em max-content;gap:10px;padding-right:12px}
+  .excerpt .ln i{font-style:normal;color:var(--muted);text-align:right;user-select:none;font-variant-numeric:tabular-nums}
+  .excerpt .ln.hl{background:var(--accent-soft)}
+
+  /* options */
+  .opts{display:grid;gap:10px}
+  .opt{display:grid;grid-template-columns:40px minmax(0,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--paper)}
+  .opt .letter{display:flex;justify-content:center;padding-top:14px;font-family:var(--display);font-weight:800;font-size:18px;color:var(--ink-2);background:var(--paper-2);border-right:1px solid var(--line)}
+  .opt .body{padding:12px 14px;display:grid;gap:6px}
+  .opt .t{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+  .opt .t h3{font-size:17px;font-weight:600;font-family:var(--display)}
+  .opt .sum{color:var(--ink-2);font-size:14px}
+  .opt dl{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:3px 10px;font-size:13.5px}
+  .opt dt{color:var(--muted);font-weight:600}
+  .opt dd{margin:0;color:var(--ink-2)}
+  .opt .flag{font-size:13px;padding:5px 9px;border-radius:6px}
+  .opt .flag.must{color:var(--oneway);background:var(--oneway-soft)}
+  .opt .flag.evade{color:var(--amber);background:var(--amber-soft)}
+  .opt .act{display:flex;justify-content:flex-end}
+  .opt.picked{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .opt.picked .letter{background:var(--accent);color:var(--accent-ink)}
+  .opt.rec{border-color:var(--copper)}
+  .opt.rec.picked{border-color:var(--accent)}
+  .opt.ineligible .t h3,.opt.ineligible .sum{text-decoration:line-through;text-decoration-color:var(--oneway);color:var(--muted)}
+  .opt.ineligible .letter{color:var(--muted)}
+
+  button.btn{border:1px solid var(--line-2);background:var(--paper);border-radius:7px;padding:7px 13px;font-weight:600;font-size:14px;cursor:pointer}
+  button.btn:hover:not([disabled]){border-color:var(--accent);color:var(--accent)}
+  button.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  button.btn.primary:hover:not([disabled]){filter:brightness(1.08);color:var(--accent-ink)}
+  button.btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  button.btn.ghost{background:transparent}
+  button.btn[disabled]{opacity:.5;cursor:default}
+
+  /* criteria */
+  .tw{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-size:13.5px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  thead th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--paper-3)}
+  td:first-child{color:var(--ink-2);font-weight:600;min-width:12em}
+  td.recc{background:var(--copper-soft)}
+  td.inel{text-decoration:line-through;color:var(--muted)}
+
+  /* recommendation */
+  details.rec{border:1px solid var(--copper);border-radius:10px;background:var(--copper-soft)}
+  details.rec summary{cursor:pointer;list-style:none;padding:12px 16px;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:space-between}
+  details.rec summary::-webkit-details-marker{display:none}
+  details.rec summary .h{font-family:var(--display);font-weight:800;font-size:16px}
+  details.rec summary .hint{font-size:12.5px;color:var(--muted)}
+  details.rec .rb{padding:0 16px 14px;display:grid;gap:10px;font-size:14px}
+  details.rec .row{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:10px}
+  details.rec .row .k{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding-top:2px}
+  details.rec .wrong{border-left:3px solid var(--oneway);padding:6px 10px;background:var(--paper);border-radius:0 6px 6px 0}
+
+  /* record */
+  .record{display:grid;gap:10px}
+  .record textarea,.record input,.record select{width:100%;border:1px solid var(--line-2);border-radius:7px;background:var(--paper);padding:8px 10px;font-size:14px}
+  .record textarea{min-height:64px;resize:vertical}
+  .record label{font-size:12px;color:var(--muted);font-weight:600;display:grid;gap:4px}
+  .btnrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .sub{display:grid;gap:8px;border:1px dashed var(--line-2);border-radius:8px;padding:12px}
+  .sub .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .status{font-size:13px;color:var(--muted)}
+  .status.ok{color:var(--twoway)}
+  .status.warn{color:var(--amber)}
+  .status.err{color:var(--oneway)}
+  .receipt{font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;background:var(--paper-3);border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:var(--ink-2)}
+  .kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--ink-2)}
+  .src-line{font-size:12.5px;color:var(--muted)}
+  .reopen{border-left:3px solid var(--amber);background:var(--amber-soft);border-radius:0 6px 6px 0;padding:8px 12px;display:grid;gap:4px;max-width:78ch}
+  .reopen p{font-size:14px;color:var(--ink)}
+  .flag-line{font-size:13px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .src-line .mono{user-select:all}
+
+  .empty{background:var(--paper);border:1px dashed var(--line-2);border-radius:12px;padding:28px;display:grid;gap:8px;max-width:64ch}
+  .empty h2{font-size:20px}
+  .small{font-size:13px;color:var(--muted)}
+
+  @media (max-width:960px){
+    .shell{grid-template-columns:1fr}
+    aside.queue{position:static;max-height:none}
+    .health{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+  }
+  @media (max-width:720px){
+    .ctx{grid-template-columns:1fr}
+    .sub .grid2{grid-template-columns:1fr}
+    details.rec .row{grid-template-columns:1fr;gap:2px}
+    .card-head,.section{padding-inline:16px}
+    .timing{padding-inline:16px}
+  }
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1><svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M14 4v19M6 23h16M5 9h18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M5 9l-3 7h6zM23 9l-3 7h6z" fill="none" stroke="var(--copper)" stroke-width="2" stroke-linejoin="round"/></svg>Weigh-In</h1>
+      <div class="scope" id="scope"><span>Loading the ledger…</span></div>
+    </div>
+    <div class="health" id="health" aria-label="Board health"></div>
+  </header>
+
+  <div class="shell">
+    <aside class="queue" id="queue" aria-label="Items"></aside>
+    <main class="focus" id="focus"></main>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var C = window.claude;
+  function use(name){ try { return (C && typeof C.use === "function") ? C.use(name) : Promise.resolve(null); } catch(e){ return Promise.resolve(null); } }
+
+  var st = { db:null, user:null, canEdit:false, uid:null, state:null, stateErr:null, answers:{}, sel:null, ready:false,
+             pick:{}, revealed:{}, openedAt:{}, revealedBeforePick:{}, mode:{}, msg:{} };
+
+  /* ---------- tiny DOM helper (textContent only) ---------- */
+  function h(tag, attrs){
+    var el = document.createElement(tag);
+    if (attrs) for (var k in attrs){
+      var v = attrs[k];
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "text") el.textContent = v;
+      else if (k.slice(0,2) === "on") el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (var i = 2; i < arguments.length; i++){
+      var c = arguments[i];
+      if (c == null || c === false) continue;
+      if (Array.isArray(c)) c.forEach(function(x){ if (x != null && x !== false) el.appendChild(typeof x === "string" ? document.createTextNode(x) : x); });
+      else el.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    }
+    return el;
+  }
+  function clear(el){ while (el.firstChild) el.removeChild(el.firstChild); }
+  function str(v){ return typeof v === "string" ? v : (v == null ? "" : String(v)); }
+  function arr(v){ return Array.isArray(v) ? v : []; }
+
+  /* ---------- model ---------- */
+  function items(){ return st.state ? arr(st.state.items).slice().sort(function(a,b){ return (a.rank||99)-(b.rank||99); }) : []; }
+  function defaults(){ return st.state ? arr(st.state.defaults) : []; }
+  function settled(){ return st.state ? arr(st.state.settled) : []; }
+  function decided(){ return st.state ? arr(st.state.decided) : []; }
+  function all(){ return items().map(function(x){return {kind:"item", d:x};})
+                    .concat(decided().map(function(x){return {kind:"decided", d:x};}))
+                    .concat(defaults().map(function(x){return {kind:"default", d:x};}))
+                    .concat(settled().map(function(x){return {kind:"settled", d:x};})); }
+  function find(id){ var a = all(); for (var i=0;i<a.length;i++) if (a[i].d.id === id) return a[i]; return null; }
+  function optById(it, id){ var o = arr(it.options); for (var i=0;i<o.length;i++) if (o[i].id === id) return o[i]; return null; }
+  function recOf(it){ return it.recommendation || {}; }
+  function answer(id){ return st.answers[id] || null; }
+  function doorChip(door){
+    if (door === "one-way") return h("span",{class:"chip oneway"},h("span",{class:"dot"}),"one-way");
+    if (door === "two-way") return h("span",{class:"chip twoway"},h("span",{class:"dot"}),"two-way");
+    return h("span",{class:"chip"},str(door));
+  }
+  function answerLabel(a, it){
+    if (!a) return null;
+    if (a.action === "choose"){ var o = it ? optById(it, a.option) : null; return "chose " + str(a.option) + (o ? " · " + str(o.title) : ""); }
+    if (a.action === "defer") return "deferred to " + str(a.defer && a.defer.trigger);
+    if (a.action === "dismiss") return "dismissed · " + str(a.reason);
+    if (a.action === "not-my-call") return "not my call · " + str(a.who);
+    if (a.action === "reopen") return "reopen requested";
+    return str(a.action);
+  }
+
+  /* ---------- header ---------- */
+  function renderHeader(){
+    var sc = document.getElementById("scope"); clear(sc);
+    if (!st.state){
+      sc.appendChild(h("span",{text: st.ready ? "No ledger has been synced to this board yet." : "Loading the ledger…"}));
+    } else {
+      var s = st.state.scope || {};
+      sc.appendChild(h("span",null,"repo ", h("b",{text:str(s.repo)})));
+      sc.appendChild(h("span",{text:str(s.session)}));
+      if (s.generated_at) sc.appendChild(h("span",{text:"synced " + str(s.generated_at).replace("T"," ").slice(0,16) + " UTC"}));
+    }
+    var hl = document.getElementById("health"); clear(hl);
+    var its = items().concat(decided()), presented = its.length;
+    var ans = its.map(function(i){ return answer(i.id); }).filter(Boolean);
+    var acted = ans.filter(function(a){ return a.action === "choose" || (a.action === "defer" && a.defer && a.defer.trigger) || a.action === "not-my-call"; }).length;
+    var notUseful = ans.filter(function(a){ return a.action === "dismiss" && a.reason === "not-useful"; }).length;
+    var chosen = ans.filter(function(a){ return a.action === "choose" && a.recommended; });
+    var overrides = chosen.filter(function(a){ return a.option !== a.recommended; }).length;
+    var secs = ans.map(function(a){ return a.seconds_to_decide; }).filter(function(x){ return typeof x === "number" && x >= 0; }).sort(function(a,b){return a-b;});
+    var med = secs.length ? secs[Math.floor((secs.length-1)/2)] : null;
+    function pct(n,d){ return d ? Math.round(100*n/d) + "%" : "—"; }
+    function fmtS(s){ if (s == null) return "—"; return s < 90 ? s + " s" : Math.round(s/60) + " min"; }
+    [
+      {k:"Action rate", v:pct(acted, presented), s: ans.length + " of " + presented + " answered · target ≥60%"},
+      {k:"Not useful", v:pct(notUseful, presented), s:"target ≤10%"},
+      {k:"Override rate", v:pct(overrides, chosen.length), s: chosen.length + " choice" + (chosen.length===1?"":"s") + " vs recommendation"},
+      {k:"Time to decide", v:fmtS(med), s:"median, from opening a card"}
+    ].forEach(function(t){ hl.appendChild(h("div",{class:"tile"},h("span",{class:"k",text:t.k}),h("span",{class:"v",text:t.v}),h("span",{class:"s",text:t.s}))); });
+  }
+
+  /* ---------- queue ---------- */
+  function renderQueue(){
+    var q = document.getElementById("queue"); clear(q);
+    if (!st.state) return;
+    function group(title, list, kind, hint){
+      var g = h("section",{class:"qgroup","aria-label":title});
+      g.appendChild(h("div",{class:"qhead"},h("span",{text:title}),h("span",{class:"n",text:String(list.length)})));
+      if (hint) g.appendChild(h("p",{class:"qhint",text:hint}));
+      list.forEach(function(d, i){
+        var a = answer(d.id);
+        var m = h("span",{class:"qm"});
+        if (kind === "item"){ m.appendChild(doorChip(d.door)); m.appendChild(h("span",{class:"chip plain mono",text:d.id})); if (a) m.appendChild(h("span",{class:"chip accent",text:"answered"})); }
+        if (kind === "default"){ m.appendChild(h("span",{class:"chip twoway",text:"default taken"})); if (a && a.action === "reopen") m.appendChild(h("span",{class:"chip amber",text:"reopen"})); }
+        if (kind === "settled"){ m.appendChild(h("span",{class:"chip plain mono",text:d.id + " · " + str(d.decided_at)})); }
+        if (kind === "decided"){ m.appendChild(h("span",{class:"chip accent",text:"chose " + str(d.decision && d.decision.option)})); m.appendChild(h("span",{class:"chip plain mono",text:d.id})); if (d.decision && d.decision.supersede_proposed_by) m.appendChild(h("span",{class:"chip amber",text:"supersede proposed"})); if (d.decision && d.decision.superseded_in_part_by) m.appendChild(h("span",{class:"chip amber",text:"partly superseded"})); }
+        var b = h("button",{class:"qitem" + (kind !== "item" ? " muted" : ""),type:"button","aria-current": st.sel === d.id ? "true" : "false",
+          onclick:function(){ select(d.id); }},
+          h("span",{class:"rank",text: kind === "item" ? String(d.rank || i+1) : (kind === "default" ? "·" : "✓")}),
+          h("span",{class:"qq",text:str(d.question)}), m);
+        g.appendChild(b);
+      });
+      q.appendChild(g);
+    }
+    group("Needs you", items(), "item", null);
+    if (decided().length) group("Decided", decided(), "decided", "Your answers, applied to the ledger.");
+    var dTotal = st.state && typeof st.state.defaults_total === "number" ? st.state.defaults_total : defaults().length;
+    group("Decided for you", defaults(), "default", "Two-way calls taken with a logged default. Reopen any of them." +
+      (dTotal > defaults().length ? " Showing the newest " + defaults().length + " of " + dTotal + "; /weigh-in digest has the rest." : ""));
+    group("Settled", settled(), "settled", "Your earlier decisions. Never re-asked.");
+    q.appendChild(h("p",{class:"qhint"},"Keys: ",h("span",{class:"kbd",text:"j"})," ",h("span",{class:"kbd",text:"k"})," move · ",h("span",{class:"kbd",text:"1"}),"–",h("span",{class:"kbd",text:"4"})," pick an option"));
+  }
+
+  /* ---------- focus ---------- */
+  function renderFocus(){
+    var f = document.getElementById("focus"); clear(f);
+    if (!st.ready){ f.appendChild(h("div",{class:"empty"},h("h2",{text:"Loading…"}))); return; }
+    if (!st.db){
+      f.appendChild(h("div",{class:"empty"},
+        h("h2",{text:"This view can't reach the ledger"}),
+        h("p",{text:"The board reads its items from the artifact's own store. Open it in Claude, signed in to the organisation that owns it, to see and decide items."})));
+      return;
+    }
+    if (!st.state){
+      f.appendChild(h("div",{class:"empty"},
+        h("h2",{text: st.stateErr ? "The ledger couldn't be read" : "Nothing synced yet"}),
+        h("p",{text: st.stateErr ? ("The store returned " + st.stateErr + ". Reload the page to try again.") : "Run /weigh-in board in a session to push the ledger here."})));
+      return;
+    }
+    var e = find(st.sel) || (items()[0] ? {kind:"item", d:items()[0]} : null);
+    if (!e){ f.appendChild(h("div",{class:"empty"},h("h2",{text:"No decisions need you"}),h("p",{text:"Every open item was settled, recoverable from the repo, or defaulted."}))); return; }
+    st.sel = e.d.id;
+    if (e.kind === "item") f.appendChild(itemCard(e.d));
+    else if (e.kind === "default") f.appendChild(defaultCard(e.d));
+    else if (e.kind === "decided") f.appendChild(decidedCard(e.d));
+    else f.appendChild(settledCard(e.d));
+  }
+
+  function itemCard(it){
+    if (!st.openedAt[it.id]) st.openedAt[it.id] = Date.now();
+    var rec = recOf(it), a = answer(it.id);
+    var optionsFirst = it.present === "options-first";
+    var picked = st.pick[it.id] || (a && a.action === "choose" ? a.option : null);
+    var showRec = !optionsFirst || st.revealed[it.id] || !!picked || !!a;
+
+    var meta = h("div",{class:"meta"},
+      h("span",{class:"chip mono",text:it.id}), doorChip(it.door),
+      h("span",{class:"chip",text:"blast: " + str(it.blast)}),
+      it.authority === "authority" ? h("span",{class:"chip",text:"needs your authority"}) : null,
+      h("span",{class:"chip amber",text:"resolve " + str(it.resolve_by)}),
+      arr(it.blocks).length ? h("span",{class:"chip",text:"blocks " + arr(it.blocks).join(", ")}) : null,
+      arr(it.blocked_by).length ? h("span",{class:"chip",text:"after " + arr(it.blocked_by).join(", ")}) : null,
+      a ? h("span",{class:"chip accent",text:answerLabel(a, it)}) : null);
+
+    var head = h("div",{class:"card-head"}, meta, h("h2",{id:"q-" + it.id,text:str(it.question)}), h("p",{class:"why",text:str(it.why)}),
+      it.door_note ? h("p",{class:"small",text:"Door: " + str(it.door_note)}) : null,
+      it.reopen_note ? h("div",{class:"reopen"},h("span",{class:"slab",text:"Reopened from " + str(it.reopens) + " · your note"}),h("p",{text:str(it.reopen_note)})) : null,
+      it.supersedes ? h("p",{class:"flag-line"},h("span",{class:"chip amber",text:"supersede proposal"})," Would replace ",h("span",{class:"mono",text:str(it.supersedes)})) : null,
+      it.source ? h("p",{class:"src-line"},"Raised in ",h("span",{class:"mono",text:str(it.source.path)}),it.source.quote ? " · “" + str(it.source.quote) + "”" : "") : null);
+
+    var timing = h("div",{class:"timing"},h("span",{class:"lab",text:"Timing"}),h("span",{text:str(it.timing)}));
+
+    /* context */
+    var ev = h("ul",{class:"ev"}, arr(it.evidence).map(function(x){ return h("li",null,h("span",{class:"src",text:str(x.src)}),h("span",{text:str(x.text)})); }));
+    var ctxKids = [h("div",null,ev)];
+    if (it.excerpt && arr(it.excerpt.lines).length){
+      var start = it.excerpt.start || 1;
+      var code = h("code",null, arr(it.excerpt.lines).map(function(line, i){ return h("span",{class:"ln"},h("i",{text:String(start+i)}),h("span",{text:str(line)})); }));
+      ctxKids.push(h("div",{class:"excerpt"},
+        h("div",{class:"path"},h("span",{text:str(it.excerpt.path) + ":" + start + "-" + (start + it.excerpt.lines.length - 1)}),h("em",{text:"excerpt"})),
+        h("pre",null,code)));
+    }
+    var ctx = h("div",{class:"section"},h("div",{class:"slab",text:"Context and evidence"}),h("div",{class:"ctx" + (ctxKids.length === 1 ? " single" : "")},ctxKids));
+
+    /* options */
+    var opts = h("div",{class:"opts"}, arr(it.options).map(function(o, i){
+      var inel = !!o.fails_must;
+      var isRec = showRec && rec.option === o.id;
+      var cls = "opt" + (picked === o.id ? " picked" : "") + (isRec ? " rec" : "") + (inel ? " ineligible" : "");
+      return h("div",{class:cls},
+        h("div",{class:"letter",text:str(o.id)}),
+        h("div",{class:"body"},
+          h("div",{class:"t"},h("h3",{text:str(o.title)}), isRec ? h("span",{class:"chip copper",text:"Recommended"}) : null),
+          h("p",{class:"sum",text:str(o.summary)}),
+          h("dl",null,h("dt",{text:"Holds if"}),h("dd",{text:str(o.holds_if)}),h("dt",{text:"If wrong"}),h("dd",{text:str(o.if_wrong)})),
+          inel ? h("p",{class:"flag must",text:"Fails a MUST: " + str(o.fails_must)}) : null,
+          o.evasion ? h("p",{class:"flag evade",text:"Evasion check: " + str(o.evasion)}) : null,
+          h("div",{class:"act"}, inel ? h("span",{class:"small",text:"Not eligible"}) :
+            h("button",{class:"btn",type:"button","aria-pressed": picked === o.id ? "true" : "false", disabled: !st.canEdit,
+              onclick:function(){ pickOption(it, o.id); }}, picked === o.id ? "Picked " + o.id : "Pick " + o.id))));
+    }));
+    var optSec = h("div",{class:"section"},
+      h("div",{class:"slab",text: optionsFirst ? "Options · one-way door, so options come before the recommendation" : "Options"}), opts);
+
+    /* criteria */
+    var crit = arr(it.criteria);
+    var critSec = null;
+    if (crit.length){
+      var ids = arr(it.options).map(function(o){ return o.id; });
+      var inelIds = arr(it.options).filter(function(o){ return o.fails_must; }).map(function(o){ return o.id; });
+      critSec = h("div",{class:"section"},h("div",{class:"slab",text:"How the options compare"}),
+        h("div",{class:"tw"},h("table",null,
+          h("thead",null,h("tr",null,h("th",{text:"Criterion"}), ids.map(function(id){ return h("th",{text:id}); }))),
+          h("tbody",null, crit.map(function(c){ return h("tr",null,h("td",{text:str(c.name)}), ids.map(function(id){
+            var cls = (showRec && rec.option === id ? "recc" : "") + (inelIds.indexOf(id) >= 0 ? " inel" : "");
+            return h("td",{class:cls || null,text:str((c.values||{})[id])}); })); })))));
+    }
+
+    /* recommendation */
+    var ro = optById(it, rec.option) || {};
+    var sb = rec.stability || {};
+    var details = h("details",{class:"rec"});
+    if (showRec) details.open = true;
+    details.addEventListener("toggle", function(){ if (details.open && !st.revealed[it.id]){ st.revealed[it.id] = true; if (!st.pick[it.id]) st.revealedBeforePick[it.id] = true; renderFocusOnly(); } });
+    details.appendChild(h("summary",null,
+      h("span",{class:"h",text: showRec ? ("Recommended: " + str(rec.option) + " · " + str(ro.title)) : "Recommendation held back"}),
+      h("span",{class:"hint",text: showRec ? ((sb.agree != null ? sb.agree + " of " + sb.of + " runs agree" : "")) : "Pick an option first, or open this to see it now"})));
+    if (showRec){
+      details.appendChild(h("div",{class:"rb"},
+        h("div",{class:"row"},h("span",{class:"k",text:"Unless"}),h("span",{text:str(rec.flip)})),
+        h("div",{class:"row"},h("span",{class:"k",text:"Trade-off"}),h("span",{text:str(rec.tradeoff)})),
+        h("div",{class:"row"},h("span",{class:"k",text:"Stability"}),h("span",{text:(sb.agree != null ? sb.agree + " of " + sb.of + ". " : "") + str(sb.samples) + ". " + str(sb.note)})),
+        h("div",{class:"wrong"},h("strong",{text:"Why this might be wrong. "}),str(rec.why_wrong))));
+    }
+    var recSec = h("div",{class:"section"}, details);
+
+    return h("article",{class:"card","aria-labelledby":"q-" + it.id}, head, timing, ctx, optSec, critSec, recSec, recordSection(it));
+  }
+
+  function recordSection(it){
+    var a = answer(it.id), rec = recOf(it);
+    var mode = st.mode[it.id] || "choose";
+    var picked = st.pick[it.id] || (a && a.action === "choose" ? a.option : null);
+    var sec = h("div",{class:"section record"});
+    sec.appendChild(h("div",{class:"slab",text:"Record"}));
+    if (!st.canEdit){
+      sec.appendChild(h("p",{class:"small",text:"You can read this board but not record answers. Ask its owner for edit access."}));
+      if (a) sec.appendChild(h("div",{class:"receipt",text:receipt(it, a)}));
+      return sec;
+    }
+    var note = h("textarea",{id:"note-" + it.id,placeholder:"Rationale or constraint (optional). It becomes part of the decision record."});
+    note.value = (st.msg[it.id] && st.msg[it.id].draft) || (a && a.note) || "";
+    note.addEventListener("input", function(){ st.msg[it.id] = st.msg[it.id] || {}; st.msg[it.id].draft = note.value; });
+    sec.appendChild(h("label",{for:"note-" + it.id},"Note",note));
+
+    var row = h("div",{class:"btnrow"},
+      h("button",{class:"btn primary",type:"button",disabled: !picked,onclick:function(){ save(it,{action:"choose", option:picked, note:note.value.trim()}); }},
+        picked ? (a && a.action === "choose" && a.option === picked ? "Re-record " + picked : "Record " + picked) : "Pick an option to record"),
+      h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "defer" ? "true" : "false",onclick:function(){ toggleMode(it.id,"defer"); }},"Defer…"),
+      h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "dismiss" ? "true" : "false",onclick:function(){ toggleMode(it.id,"dismiss"); }},"Dismiss…"),
+      h("button",{class:"btn ghost",type:"button","aria-pressed": mode === "other" ? "true" : "false",onclick:function(){ toggleMode(it.id,"other"); }},"Not my call…"),
+      h("button",{class:"btn ghost",type:"button",disabled: mode === "dismiss" || mode === "other" || (mode === "choose" && !picked),
+        title: mode === "dismiss" || mode === "other" ? "Copy as prompt covers choosing and deferring; record this one with the button below." : (mode === "choose" && !picked ? "Pick an option first; the prompt records only an option you picked." : null),
+        onclick:function(){ copyPrompt(it, picked, note.value.trim()); }},"Copy as prompt"));
+    sec.appendChild(row);
+
+    if (mode === "defer"){
+      var trig = h("input",{id:"trig-" + it.id,type:"text",placeholder:"e.g. after the client's DPA review"});
+      var by = h("input",{id:"by-" + it.id,type:"text",placeholder:"e.g. before slice 2 ships, or 2026-10-15"});
+      var def = h("select",{id:"def-" + it.id}, arr(it.options).filter(function(o){ return !o.fails_must; }).map(function(o){ var op = h("option",{value:o.id,text:o.id + " · " + str(o.title)}); if (o.id === rec.option) op.selected = true; return op; }));
+      sec.appendChild(h("div",{class:"sub"},
+        h("p",{class:"small",text:"A deferral needs the fact you are waiting for and a default that applies if nobody acts. This card's timing check says: " + str(it.timing)}),
+        h("div",{class:"grid2"},h("label",{for:"trig-" + it.id},"Waiting for",trig),h("label",{for:"by-" + it.id},"Resolve by",by)),
+        h("label",{for:"def-" + it.id},"Default if unresolved",def),
+        h("div",{class:"btnrow"},h("button",{class:"btn primary",type:"button",onclick:function(){
+          if (!trig.value.trim() || !by.value.trim()){ setMsg(it.id,"warn","Name what you are waiting for and when it must be settled."); return; }
+          save(it,{action:"defer", note:note.value.trim(), defer:{trigger:trig.value.trim(), resolve_by:by.value.trim(), default:def.value}}); }},"Record deferral"))));
+    }
+    if (mode === "dismiss"){
+      var reasons = [["not-useful","Not useful: not a real decision"],["already-decided","Already decided elsewhere"],["recoverable","The repo already answers it"],["duplicate","Duplicate of another item"],["moot","Moot: the code or plan changed"]];
+      var rs = h("select",{id:"rs-" + it.id}, reasons.map(function(r){ return h("option",{value:r[0],text:r[1]}); }));
+      sec.appendChild(h("div",{class:"sub"},h("label",{for:"rs-" + it.id},"Reason",rs),
+        h("div",{class:"btnrow"},h("button",{class:"btn primary",type:"button",onclick:function(){ save(it,{action:"dismiss", reason:rs.value, note:note.value.trim()}); }},"Record dismissal"))));
+    }
+    if (mode === "other"){
+      var who = h("input",{id:"who-" + it.id,type:"text",placeholder:"Who decides this? e.g. the legal team, the client's product owner"});
+      sec.appendChild(h("div",{class:"sub"},h("label",{for:"who-" + it.id},"Decider",who),
+        h("div",{class:"btnrow"},h("button",{class:"btn primary",type:"button",onclick:function(){
+          if (!who.value.trim()){ setMsg(it.id,"warn","Name who should decide."); return; }
+          save(it,{action:"not-my-call", who:who.value.trim(), note:note.value.trim()}); }},"Record hand-off"))));
+    }
+    var m = st.msg[it.id];
+    if (m && m.text) sec.appendChild(h("p",{class:"status " + (m.kind||""),role:"status",text:m.text}));
+    else if (a) sec.appendChild(h("p",{class:"status ok",text:"Recorded " + str(a.decided_at).slice(0,16).replace("T"," ") + " UTC. The next /weigh-in sitting applies it to the ledger."}));
+    if (a) sec.appendChild(h("div",{class:"receipt",text:receipt(it, a)}));
+    return sec;
+  }
+
+  function receipt(it, a){
+    var o = optById(it, a.option), others = arr(it.options).filter(function(x){ return x.id !== a.option; });
+    var lines = [it.id + " · " + str(a.action) + " · " + str(a.decided_at).slice(0,10)];
+    if (a.action === "choose" && o){
+      lines.push("Question: " + str(it.question));
+      lines.push("For:       " + o.id + " · " + str(o.title));
+      lines.push("Neglected: " + others.map(function(x){ return x.id + " · " + str(x.title); }).join("; "));
+      lines.push("Accepting: " + str(o.if_wrong));
+      if (a.option === recOf(it).option) lines.push("Unless:    " + str(recOf(it).flip));
+      else lines.push("Override of recommendation " + str(recOf(it).option));
+    } else if (a.action === "defer" && a.defer){
+      lines.push("Waiting for: " + str(a.defer.trigger)); lines.push("Resolve by:  " + str(a.defer.resolve_by)); lines.push("Default:     " + str(a.defer.default));
+    } else if (a.action === "dismiss"){ lines.push("Reason: " + str(a.reason)); }
+    else if (a.action === "not-my-call"){ lines.push("Decider: " + str(a.who)); }
+    if (a.note) lines.push("Note: " + str(a.note));
+    return lines.join("\n");
+  }
+
+  function decidedCard(it){
+    var dec = it.decision || {};
+    var a = answer(it.id) || {action:"choose", option:dec.option, decided_at:dec.decided_at, note:"", recommended:recOf(it).option};
+    var o = optById(it, dec.option) || {};
+    return h("article",{class:"card"},
+      h("div",{class:"card-head"},
+        h("div",{class:"meta"},h("span",{class:"chip mono",text:it.id}),doorChip(it.door),
+          h("span",{class:"chip accent",text:"decided · " + str(dec.provenance)}),
+          dec.matched_recommendation ? h("span",{class:"chip copper",text:"matched recommendation"}) : h("span",{class:"chip amber",text:"override"}),
+          dec.supersede_proposed_by ? h("span",{class:"chip amber",text:"supersede proposed by " + str(dec.supersede_proposed_by)}) : null,
+          dec.superseded_in_part_by ? h("span",{class:"chip amber",text:"partly superseded by " + str(dec.superseded_in_part_by)}) : null),
+        h("h2",{text:str(it.question)})),
+      h("div",{class:"section"},
+        h("div",{class:"slab",text:"You chose"}),
+        h("p",{style:"font-size:18px;font-weight:600",text:str(dec.option) + " · " + str(o.title)}),
+        h("p",{class:"why",text:str(o.summary)}),
+        h("div",{class:"receipt",text:receipt(it, a)}),
+        h("p",{class:"status ok",text:"Applied to the ledger " + str(dec.applied_at).slice(0,16).replace("T"," ") + " UTC."}),
+        dec.ledger_note ? h("p",{class:"small",text:str(dec.ledger_note)}) : null,
+        dec.supersede_proposed_by ? h("p",{class:"small",text:"New evidence reached this decision. " + str(dec.supersede_proposed_by) + " in Needs you proposes replacing part of it; until you answer that card, this decision stands."}) : null));
+  }
+
+  function defaultCard(d){
+    var a = answer(d.id);
+    var note = h("textarea",{id:"note-" + d.id,placeholder:"Why reopen? (optional)"});
+    return h("article",{class:"card"},
+      h("div",{class:"card-head"},
+        h("div",{class:"meta"},h("span",{class:"chip mono",text:d.id}),doorChip("two-way"),h("span",{class:"chip twoway",text:"default taken · " + str(d.cause)}),
+          a && a.action === "reopen" ? h("span",{class:"chip amber",text:"reopen requested"}) : null),
+        h("h2",{text:str(d.question)})),
+      h("div",{class:"section"},
+        h("div",{class:"slab",text:"Taken"}),h("p",{style:"font-size:17px;font-weight:600",text:str(d.taken)}),
+        h("div",{class:"slab",text:"Instead of"}),h("p",{text:str(d.alt)}),
+        h("div",{class:"slab",text:"Why"}),h("p",{class:"why",text:str(d.reason)})),
+      h("div",{class:"section record"},
+        st.canEdit ? [h("label",{for:"note-" + d.id},"Note",note),
+          h("div",{class:"btnrow"},h("button",{class:"btn",type:"button",onclick:function(){ saveRaw(d.id,{action:"reopen", note:note.value.trim()}); }}, a && a.action === "reopen" ? "Reopen requested" : "Reopen as a question"))]
+          : h("p",{class:"small",text:"Read-only view."}),
+        st.msg[d.id] && st.msg[d.id].text ? h("p",{class:"status " + (st.msg[d.id].kind||""),text:st.msg[d.id].text}) : null,
+        h("p",{class:"small",text:"Reopening turns this into a card at the next sitting. Leaving it keeps the default, which stays logged in the ledger."})));
+  }
+
+  function settledCard(d){
+    return h("article",{class:"card"},
+      h("div",{class:"card-head"},
+        h("div",{class:"meta"},h("span",{class:"chip mono",text:d.id}),h("span",{class:"chip accent",text:"settled · " + str(d.provenance)}),h("span",{class:"chip",text:str(d.decided_at)})),
+        h("h2",{text:str(d.question)})),
+      h("div",{class:"section"},h("div",{class:"slab",text:"Your answer"}),h("p",{style:"font-size:18px;font-weight:600",text:str(d.answer)}),
+        h("p",{class:"small",text:"Settled decisions are applied, never re-asked. Changing one takes new evidence and a superseding decision."})));
+  }
+
+  /* ---------- actions ---------- */
+  function select(id){
+    st.sel = id;
+    try { if (/^[A-Za-z0-9._~-]+$/.test(id)) history.replaceState(null, "", "#" + id); } catch(e){}
+    renderQueue(); renderFocus();
+    var f = document.getElementById("focus"); if (f && window.innerWidth < 960) f.scrollIntoView({block:"start"});
+  }
+  function pickOption(it, oid){ st.pick[it.id] = oid; renderFocusOnly(); }
+  function toggleMode(id, m){ st.mode[id] = (st.mode[id] === m) ? "choose" : m; if (st.msg[id]) st.msg[id].text = ""; renderFocusOnly(); }
+  function setMsg(id, kind, text){ st.msg[id] = st.msg[id] || {}; st.msg[id].kind = kind; st.msg[id].text = text; renderFocusOnly(); }
+  function renderFocusOnly(){ var y = window.scrollY; renderFocus(); window.scrollTo(0, y); }
+
+  function save(it, body){
+    var rec = recOf(it);
+    body.item_id = it.id;
+    if (it.card_rev != null) body.card_rev = it.card_rev;
+    body.recommended = rec.option || null;
+    body.matched_recommendation = body.action === "choose" ? body.option === rec.option : null;
+    body.recommendation_seen_before_pick = !!st.revealedBeforePick[it.id] || it.present !== "options-first";
+    body.seconds_to_decide = st.openedAt[it.id] ? Math.round((Date.now() - st.openedAt[it.id]) / 1000) : null;
+    saveRaw(it.id, body);
+  }
+  function saveRaw(id, body){
+    if (!st.db){ setMsg(id,"err","The store isn't available in this view, so nothing was saved."); return; }
+    body.schema = 1; body.decided_at = new Date().toISOString(); if (st.uid) body.decider_id = st.uid;
+    if (!body.item_id) body.item_id = id;
+    setMsg(id,"", "Saving…");
+    st.db.doc("answers/" + id).set(body).then(function(){
+      st.mode[id] = "choose"; if (st.msg[id]) st.msg[id].draft = "";
+      setMsg(id,"ok","Saved. The next /weigh-in sitting applies it to the ledger.");
+    }).catch(function(e){
+      var c = e && e.code;
+      var t = c === "invalid_argument" ? "You don't have permission to record on this board." :
+              c === "quota_exceeded" ? "The board's store is full. Run /weigh-in board to prune it." :
+              c === "resource_exhausted" ? "Too many saves at once. Wait a moment and try again." :
+              "Couldn't save (" + (c || "error") + "). Try again, or use Copy as prompt.";
+      setMsg(id,"err",t);
+    });
+  }
+  function copyPrompt(it, picked, note){
+    // Plain language for the next sitting, which maps it to `weighin decide` or `weighin defer`
+    // (the "Waiting for" field is the trigger, as a saved deferral records it).
+    var mode = st.mode[it.id] || "choose", txt;
+    function one(s){ return String(s || "").replace(/\s+/g," ").trim(); }
+    var tail = note ? " (note: " + one(note) + ")" : "";
+    if (mode === "defer"){
+      // Mirrors "Record deferral": a trigger and a resolve-by are required, and the default is the
+      // one shown in the form, never filled in from the recommendation.
+      var tr = document.getElementById("trig-" + it.id), by = document.getElementById("by-" + it.id), df = document.getElementById("def-" + it.id);
+      var trv = one(tr ? tr.value : ""), byv = one(by ? by.value : ""), dfv = df ? df.value : "";
+      if (!trv || !byv){ setMsg(it.id,"warn","Name what you are waiting for and when it must be settled."); return; }
+      txt = "/weigh-in defer " + it.id + " — trigger: " + trv + "; resolve by: " + byv + "; default: " + dfv + tail;
+    } else if (mode === "dismiss" || mode === "other"){
+      setMsg(it.id,"warn","Copy as prompt covers choosing and deferring; record this one with the button below."); return;
+    } else {
+      // Mirrors "Record": only an option the owner picked (or already recorded) is copied; the
+      // recommendation is never filled in for them.
+      if (!picked){ setMsg(it.id,"warn","Pick an option to record."); return; }
+      txt = "/weigh-in decide " + it.id + ": " + picked + tail;
+    }
+    function done(ok){ setMsg(it.id, ok ? "ok" : "warn", ok ? "Copied: " + txt : "Copy blocked here. Select and copy: " + txt); }
+    try { navigator.clipboard.writeText(txt).then(function(){ done(true); }, function(){ done(false); }); } catch(e){ done(false); }
+  }
+
+  document.addEventListener("keydown", function(ev){
+    var t = ev.target && ev.target.tagName;
+    if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT" || ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    var list = all(); if (!list.length) return;
+    var idx = -1; for (var i=0;i<list.length;i++) if (list[i].d.id === st.sel) idx = i;
+    if (ev.key === "j"){ select(list[Math.min(list.length-1, idx+1)].d.id); ev.preventDefault(); }
+    else if (ev.key === "k"){ select(list[Math.max(0, idx-1)].d.id); ev.preventDefault(); }
+    else if (/^[1-4]$/.test(ev.key) && st.canEdit){
+      var e = find(st.sel); if (!e || e.kind !== "item") return;
+      var o = arr(e.d.options)[Number(ev.key)-1]; if (o && !o.fails_must){ pickOption(e.d, o.id); ev.preventDefault(); }
+    }
+  });
+
+  function renderAll(){ renderHeader(); renderQueue(); renderFocus(); }
+
+  /* ---------- boot ---------- */
+  var hash = (location.hash || "").replace(/^#/, "");
+  if (hash) st.sel = hash;
+  window.addEventListener("hashchange", function(){ var id = (location.hash || "").replace(/^#/, ""); if (id && id !== st.sel && find(id)) { st.sel = id; renderQueue(); renderFocus(); } });
+  renderAll();
+  Promise.all([use("db"), use("user")]).then(function(r){
+    st.db = r[0]; st.user = r[1];
+    if (!st.user) return;
+    var u = st.user;
+    return Promise.all([
+      Promise.resolve().then(function(){ return u.canEdit(); }).then(function(v){ st.canEdit = !!v; }, function(){ st.canEdit = false; }),
+      Promise.resolve().then(function(){ return u.id(); }).then(function(v){ st.uid = v || null; }, function(){ st.uid = null; })
+    ]);
+  }).then(function(){
+    st.ready = true;
+    if (!st.db){ renderAll(); return; }
+    st.db.doc("board/state").onSnapshot(function(snap){
+      st.state = snap.exists ? snap.data() : null; st.stateErr = null;
+      if (st.state && !find(st.sel)) st.sel = items()[0] ? items()[0].id : null;
+      renderAll();
+    }, function(e){ st.stateErr = (e && e.code) || "an error"; renderAll(); });
+    st.db.collection("answers").onSnapshot(function(snap){
+      var m = {}; snap.docs.forEach(function(d){ if (d.exists) m[d.id] = d.data(); });
+      st.answers = m; renderAll();
+    }, function(){ /* answers are optional to render */ });
+    renderAll();
+  });
+})();
+</script>
