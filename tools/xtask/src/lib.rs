@@ -2,3 +2,4 @@
 //! never shipped in a plugin.
 
 pub mod layers;
+pub mod plugins;

@@ -124,6 +124,8 @@ jobs:
           node .claude/temper/temper.mjs baseline --check --locked "${args[@]}"
       - name: Layer rules (cargo xtask layers)
         run: cargo xtask layers
+      - name: Plugin rules (cargo xtask plugins)
+        run: cargo xtask plugins
       - name: Each crate builds on its own (ARC-16)
         shell: bash
         run: >-
@@ -190,6 +192,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-28
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Plugin rules (cargo xtask plugins)
+        run: cargo xtask plugins
       - name: No plugin ships a bin/ (claude.ai rejects it)
         shell: bash
         run: |
