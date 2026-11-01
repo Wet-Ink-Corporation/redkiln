@@ -106,8 +106,8 @@ Naming a skill the plugin lacks sends the model to `Unknown skill`. Indexes are 
 
 ## Open problems
 
-- **Surface routing lives in untested skill prose.** Every surface fix added a branch to Weigh-In's `SKILL.md`; D-0021 (a tested fetch script and a SessionStart `route:` line) is designed, not built (weigh-in #171).
-- **macOS and Linux desktop installs, and the Cowork download path, are unverified** (weigh-in `docs/roadmap.md`, Known gaps).
+- **Surface routing lives in untested skill prose.** Every surface fix added a branch to Weigh-In's `SKILL.md`; D-0021 moved the Cowork route into a tested fetch script (`libexec/cowork-fetch.sh`, weigh-in 1.2.0, #171); the rest of the routing is still prose.
+- **macOS and Linux desktop installs are unverified** (weigh-in `docs/roadmap.md`, Known gaps). The Cowork download path was confirmed in a Cowork sitting before weigh-in 1.2.0 (D-0021).
 - **Windows never downloads** in anneal's `.cmd` launcher (anneal `plugin/libexec/anneal.cmd:1-11`).
 
 ## Prior art
