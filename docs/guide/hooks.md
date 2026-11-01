@@ -1,6 +1,6 @@
 # Hooks
 
-Every `rk-*` plugin reaches Claude Code through hooks that call its binary. Four repositories have run hooks in production for a month or more; this chapter is what they agree on, and where they learned it. The SPEC already fixes the core of the hook contract in CLI-09 to CLI-11 (`spec/cli.md`): exec form by path, hooks fail open but still exit 2 on usage errors, a guard denies with a deny decision and exit 0 (exit 2 only when it cannot write one), and no build lets every hook through. Where this chapter and the SPEC differ, the SPEC wins; HK-1 to HK-8 add what it does not yet say, and are candidate text for the fuller hook section that arrives with Move 2.
+Every `rk-*` plugin reaches Claude Code through hooks that call its binary. Four repositories have run hooks in production for a month or more; this chapter is what they agree on, and where they learned it. The SPEC already fixes the core of the hook contract in CLI-09 to CLI-11 (`spec/cli.md`): exec form by path, hooks fail open but still exit 2 on usage errors, a guard denies with a deny decision and exit 0 (exit 2 only when it cannot write one), and no build lets every hook through. Where this chapter and the SPEC differ, the SPEC wins; HK-1 to HK-8 add what it does not yet say, and are candidate text for the fuller hook section that arrives with Move 2. CLI-13 adds that all of this is Claude Code's protocol, read and written in one harness adapter per binary (`AGENTS.md`, CLI first, harness second).
 
 ## Guardrails
 
