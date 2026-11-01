@@ -1,6 +1,6 @@
 # Trust levels
 
-An event's `actor` is text its writer asserts. Anything that can run a binary can write it: the agent through Bash, a hook, or a contributor who commits a journal. Loop's unattended agent runs with the same rights as the hooks, so nothing in the actor stops it recording its own approval, and a fork pull request can carry a forged journal into CI. Approvals are bound to content (design rule 9); trust levels say who can be believed to have given them (pressure test, Trust: who said so).
+An event's `actor` is text its writer asserts. Anything that can run a binary can write it: the agent through Bash, a hook, or a contributor who writes or commits a journal. Loop's unattended agent runs with the same rights as the hooks, so nothing in the actor stops it recording its own approval, and a fork pull request can carry a forged journal into CI. Approvals are bound to content (design rule 9); trust levels say who can be believed to have given them (pressure test, Trust: who said so).
 
 ## The levels
 
