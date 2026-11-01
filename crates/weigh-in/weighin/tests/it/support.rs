@@ -183,7 +183,10 @@ pub(crate) fn launcher_target() -> Option<(&'static str, &'static str)> {
 }
 
 /// A copy of the `sh` launcher in a scratch `bin` directory with no binary beside it, and a
-/// `PATH` that finds it first.
+/// `PATH` that finds it first and holds no other `weighin`. The shared launcher falls back to
+/// any `weighin` on `PATH` other than itself, and on Windows cargo puts its output directory,
+/// with the `weighin.exe` under test, on the test's `PATH` (Git Bash's `[ -f weighin ]` matches
+/// `weighin.exe`), so those entries are left out.
 pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsString) {
     let tmp = tempfile::tempdir().unwrap();
     let bin_dir = tmp.path().join("bin");
@@ -198,8 +201,9 @@ pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsSt
     )
     .unwrap();
     let parent = std::env::var_os("PATH").unwrap_or_default();
-    let path = std::env::join_paths(std::iter::once(bin_dir).chain(std::env::split_paths(&parent)))
-        .unwrap();
+    let others = std::env::split_paths(&parent)
+        .filter(|entry| !entry.join("weighin").exists() && !entry.join("weighin.exe").exists());
+    let path = std::env::join_paths(std::iter::once(bin_dir).chain(others)).unwrap();
     (tmp, launcher, path)
 }
 

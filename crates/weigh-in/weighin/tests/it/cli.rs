@@ -539,7 +539,7 @@ fn launcher_hook_without_a_binary_never_fails_and_is_silent() {
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_session_start_without_a_binary_says_weighin_is_off() {
     let (_tmp, launcher, path) = isolated_launcher();
-    // SessionStart says capture is off, in a message shown to the user, and still exits 0.
+    // SessionStart says weighin is off, in a message shown to the user, and still exits 0.
     let start = run_within(
         Command::new("sh")
             .arg(&launcher)
