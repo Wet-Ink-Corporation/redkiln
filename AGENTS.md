@@ -17,6 +17,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `plugins/<plugin>/` | Manifest, skills, agents, hooks, `libexec/` launcher copies and builds; `plugins/redkiln/` is the bundle | with each move |
 | `deploy/review/` | Review's workflow templates, App manifest and fetch-by-digest action | move 3 |
 | `docs/<plugin>/`, `.kb/` | Imported records (series kept) and the one knowledge base | with each move |
+| `docs/guide/` | The field guide: guardrails, patterns, gotchas and prior art distilled from the source repositories; read the chapters a change touches, cite guardrails by id | 2026-11-01 |
 | `references/` | The frozen planning handover | done |
 
 ## Crate map
