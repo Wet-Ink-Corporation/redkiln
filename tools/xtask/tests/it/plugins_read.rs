@@ -3,11 +3,9 @@
 use std::fs;
 use std::io;
 use std::num::TryFromIntError;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use xtask::plugins::{
-    MAX_DEPTH, MAX_FILES, MAX_TEXT, Plugin, ReadError, Violation, check, read_plugins,
-};
+use xtask::plugins::{MAX_DEPTH, MAX_FILES, MAX_TEXT, Plugin, ReadError, read_plugins};
 
 use crate::support::{many, scratch, tree};
 
@@ -153,58 +151,67 @@ fn a_folder_with_too_many_entries_is_refused() {
     );
 }
 
+/// Symlink cases; only unix lets a test create a symlink without extra rights.
 #[cfg(unix)]
-fn symlink(target: &Path, link: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, link)
-}
+mod symlinks {
+    use std::fs;
+    use std::io;
+    use std::path::Path;
 
-#[cfg(unix)]
-#[test]
-fn a_symlinked_plugins_folder_is_refused() {
-    let real = plugins_root("root-real").expect("a plugins folder");
-    let link = scratch("root-link")
-        .expect("a scratch directory")
-        .join("plugins");
-    symlink(&real, &link).expect("create the symlink");
-    let found = read_plugins(&link);
-    assert!(
-        matches!(found, Err(ReadError::RootNotFolder { .. })),
-        "{found:?}"
-    );
-}
+    use xtask::plugins::{ReadError, Violation, check, read_plugins};
 
-#[cfg(unix)]
-#[test]
-fn a_symlinked_plugin_is_not_a_folder() {
-    let real = plugins_root("plugin-real")
-        .expect("a plugins folder")
-        .join("rk-weigh-in");
-    let root = scratch("plugin-link").expect("a scratch directory");
-    symlink(&real, &root.join("rk-linked")).expect("create the symlink");
-    let plugins = read_plugins(&root).expect("read the tree");
-    assert_eq!(
-        check(&plugins),
-        vec![Violation::NotAFolder {
-            plugin: "rk-linked".to_owned()
-        }]
-    );
-}
+    use super::plugins_root;
+    use crate::support::{scratch, tree};
 
-#[cfg(unix)]
-#[test]
-fn a_symlinked_folder_inside_a_plugin_is_not_followed() {
-    let outside = scratch("folder-link-outside").expect("a scratch directory");
-    tree(&outside, &[("skill/SKILL.md", "libexec/bench")]).expect("write the target");
-    let root = plugins_root("folder-link").expect("a plugins folder");
-    fs::create_dir_all(root.join("rk-weigh-in/skills")).expect("create skills/");
-    symlink(&outside.join("skill"), &root.join("rk-weigh-in/skills/x"))
-        .expect("create the symlink");
-    let plugins = read_plugins(&root).expect("read the tree");
-    assert_eq!(
-        check(&plugins),
-        vec![Violation::NotRegularFile {
-            plugin: "rk-weigh-in".to_owned(),
-            path: "skills/x".to_owned()
-        }]
-    );
+    fn symlink(target: &Path, link: &Path) -> io::Result<()> {
+        std::os::unix::fs::symlink(target, link)
+    }
+
+    #[test]
+    fn a_symlinked_plugins_folder_is_refused() {
+        let real = plugins_root("root-real").expect("a plugins folder");
+        let link = scratch("root-link")
+            .expect("a scratch directory")
+            .join("plugins");
+        symlink(&real, &link).expect("create the symlink");
+        let found = read_plugins(&link);
+        assert!(
+            matches!(found, Err(ReadError::RootNotFolder { .. })),
+            "{found:?}"
+        );
+    }
+
+    #[test]
+    fn a_symlinked_plugin_is_not_a_folder() {
+        let real = plugins_root("plugin-real")
+            .expect("a plugins folder")
+            .join("rk-weigh-in");
+        let root = scratch("plugin-link").expect("a scratch directory");
+        symlink(&real, &root.join("rk-linked")).expect("create the symlink");
+        let plugins = read_plugins(&root).expect("read the tree");
+        assert_eq!(
+            check(&plugins),
+            vec![Violation::NotAFolder {
+                plugin: "rk-linked".to_owned()
+            }]
+        );
+    }
+
+    #[test]
+    fn a_symlinked_folder_inside_a_plugin_is_not_followed() {
+        let outside = scratch("folder-link-outside").expect("a scratch directory");
+        tree(&outside, &[("skill/SKILL.md", "libexec/bench")]).expect("write the target");
+        let root = plugins_root("folder-link").expect("a plugins folder");
+        fs::create_dir_all(root.join("rk-weigh-in/skills")).expect("create skills/");
+        symlink(&outside.join("skill"), &root.join("rk-weigh-in/skills/x"))
+            .expect("create the symlink");
+        let plugins = read_plugins(&root).expect("read the tree");
+        assert_eq!(
+            check(&plugins),
+            vec![Violation::NotRegularFile {
+                plugin: "rk-weigh-in".to_owned(),
+                path: "skills/x".to_owned()
+            }]
+        );
+    }
 }
