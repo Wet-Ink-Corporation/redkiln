@@ -1,6 +1,6 @@
 # CLI contracts
 
-Each product is a full CLI first (the harness-agnostic proposal), and siblings reach each other's domains through typed contracts, events or `--json` (blueprint design rules 4 and 6). The SPEC's `cli.md` fixes the result envelope and exit codes. This chapter is the behaviour those contracts need.
+Each product is a full CLI first (`AGENTS.md`, CLI first, harness second), and siblings reach each other's domains through typed contracts, events or `--json` (blueprint design rules 4 and 6). The SPEC's `cli.md` fixes the result envelope and exit codes. This chapter is the behaviour those contracts need.
 
 ## Guardrails
 

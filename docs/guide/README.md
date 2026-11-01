@@ -87,7 +87,7 @@ None of these overrides a decision. Each is a place where the evidence gathered 
 
 ## Related work in this project
 
-- The **harness-agnostic rule** (thread "Keep redkiln harness-agnostic", merged as PR #10: `AGENTS.md`, CLI first, harness second; `cargo xtask plugins`; SPEC CLI-13) covers CLI first, a thin plugin layer and harness protocol in one adapter. This guide's [Plugins and surfaces](plugins-and-surfaces.md) and [Headless agents](headless-agents.md) chapters assume that direction and do not repeat it; where they name a check on `plugins/`, it belongs in `cargo xtask plugins`.
+- The **harness-agnostic rule** (thread "Keep redkiln harness-agnostic", merged as PR #10: `AGENTS.md`, CLI first, harness second; `cargo xtask plugins`; SPEC CLI-13) covers CLI first, a thin plugin layer, harness protocol in one adapter, and models run behind a port whose first adapter is `claude -p`. This guide's [Plugins and surfaces](plugins-and-surfaces.md) and [Headless agents](headless-agents.md) chapters assume that direction and do not repeat it; where they name a check on `plugins/`, it belongs in `cargo xtask plugins`.
 - The **refs spike** (OW-13, redkiln PR #9) settled where journals live; [State and storage](state-and-storage.md) cites it rather than re-arguing it.
 - The **org-sync spike** (wi-f041fb) settled packaging for claude.ai; [Plugins and surfaces](plugins-and-surfaces.md) builds on its findings.
 - The **October audits** (`references/strategy/audit/`) describe each repository's architecture. The field notes here start where they stop.
