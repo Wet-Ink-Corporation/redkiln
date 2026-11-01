@@ -7,7 +7,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | Path | Holds | Arrives |
 |---|---|---|
 | `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/` | One workspace, toolchain 1.98.1, temper 1.4.0's lint and supply-chain policy | phase 0 |
-| `tools/xtask/` | `cargo xtask <task>`: repository tasks, starting with `layers` (the structural test below) | phase 0 |
+| `tools/xtask/` | `cargo xtask <task>`: repository tasks: `layers` and `plugins`, the structural tests below | phase 0 |
 | `tools/launcher/` | The shared plugin launcher (sh and `.cmd`) and its tests | phase 0 |
 | `tools/labels/`, `.github/labels.yml` | The suite label manifest (Backlog call A, wi-cef669), its check and an idempotent apply script | phase 0 |
 | `spec/` | Core SPEC, schemas, conformance fixtures | SPEC v1 draft, phase 0 |
@@ -23,7 +23,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 
 | Crate | Layer | Purpose | Depends on |
 |---|---|---|---|
-| `tools/xtask` | tool | `cargo xtask layers` and later packaging, version and changelog tasks; never shipped | serde, serde_json, thiserror |
+| `tools/xtask` | tool | `cargo xtask layers`, `cargo xtask plugins` and later packaging, version and changelog tasks; never shipped | serde, serde_json, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
 
@@ -39,6 +39,18 @@ Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer als
 - Dev and build dependencies follow the same rules. Only crates with a binary target use `anyhow` outside their dev-dependencies (H-09), and no crate is publishable (`publish = false`; turning it on is H-16).
 
 Beside the check, CI builds every crate alone (`cargo check -p`). Loop brings its stricter rules (no tokio in the kernel, git through one wrapper, no egress in kernel tests) when it moves, and they join the check then.
+
+## CLI first, harness second
+
+Every Redkiln product is a complete Rust CLI. Its plugin is a thin integration of that CLI into one harness's lifecycle, today Claude Code's, and could be rewritten for another harness or model without touching a crate. This keeps the suite open to other harnesses and models (Ryan, 2026-11-01).
+
+- **The CLI does the work.** Every capability is a command with a `--json` envelope (`spec/cli.md`). When a skill, hook, agent, command or mod needs something done, it calls the CLI.
+- **The plugin only connects.** `plugins/<plugin>/` holds its manifest, `hooks/hooks.json` entries that run `${CLAUDE_PLUGIN_ROOT}/libexec/<binary> hook ...`, skills, agents and commands that tell the model which command to run, launcher copies and builds. No scripts, no policy data, no prompt or agent hooks. A mod lives in its own plugin, renders `status --json` and never enforces.
+- **Programs decide what a program can decide.** Validation, caps, budgets, state transitions and any filter with a mechanical test are the CLI's. A prompt carries only judgement and how to talk to the person, and names only commands the CLI has.
+- **Harness protocol stays at the edge.** Hook payloads and responses, transcript formats, `CLAUDE_*` variables and exit 2 as "block" are read and written in one adapter module per binary, never in domain or application crates. The CLI takes what it needs as flags (`--session`, `--dir`). When a second binary brings the same code (Bench, Move 2), it becomes a kit (an H-16 crate-boundary call then).
+- **Models run behind a port.** Whatever runs a model (`redkiln-dispatch`, Loop, Review) does so through a port whose first adapter is `claude -p`, as assay's `ModelRunner` already does.
+
+`cargo xtask plugins` (`tools/xtask/src/plugins.rs`) checks `plugins/` and fails on: a file outside that allowlist (manifest, root `README.md`, `CHANGELOG.md` and licences, `hooks/hooks.json`, `skills/<skill>/` Markdown, JSON, HTML and text, `agents/*.md`, `commands/*.md`, `libexec/<binary>[.cmd]`, `libexec/<target>/*`; a mod plugin, whose `hooks.json` lists `modules`, adds `hooks/mod/` and `types/` TypeScript and JSON instead of skills, agents and commands); a symlink; a hook that is not a command hook running `${CLAUDE_PLUGIN_ROOT}/libexec/<binary>` with a launcher copy and `hook` as its first argument; and a skill, agent or command naming `libexec/<binary>` for a binary the plugin does not ship. CI runs it, and its tests pin each rule. Two checks join it with Move 1, when `weighin` brings the first binary and hook code: every subcommand a prompt names exists, and harness protocol appears only in the adapter module.
 
 ## Plugin rules
 
@@ -58,6 +70,7 @@ Every import follows the migration plan's eight steps: one merge commit whose se
 | Format | `cargo fmt --all` |
 | Lint | `node .claude/temper/temper.mjs baseline --check`: clippy, rustdoc and temper's scan. With no baseline it is as strict as `-D warnings`; each move re-baselines its legacy findings at their new paths (migration call E) |
 | Layer rules | `cargo xtask layers` |
+| Plugin rules | `cargo xtask plugins` |
 | Test | `cargo nextest run --workspace` (or `cargo test --workspace`), plus `cargo test --doc --workspace` |
 | Docs | `cargo doc --workspace --no-deps` (rustdoc lints are part of Lint) |
 | Supply chain | `cargo deny check` |
@@ -101,3 +114,4 @@ Pre-approved dependencies are listed in `.claude/temper.json`; any other is an H
 | 2026-10-31 | Event identity across imports (ST-04, ID-02, JR-11) uses happenstance's ingest port from a happenstance release, not a `[patch]`; Core pins the first release that publishes it (0.4.3 has it only under `cfg(test)`) | H-16 | Ryan (decision card) |
 | 2026-10-31 | Core edges go through `redkiln-core` only: the other Core crates may depend on it and on no other Core crate, and it depends on none (`cargo xtask layers` checks it). This replaces the blueprint's "Core crates depend on nothing internal" (`references/docs/blueprint.md`, dependency rules), which contradicts its own capacity backend on the log | ARC-02, H-16 | Ryan (decision card) |
 | 2026-10-31 | The `redkiln` bundle ships on the Claude Code marketplace only, never in the claude.ai release repository; each `rk-*` plugin stands alone there, declares a dependency only where it cannot work without another, and checks compatibility at run time, since claude.ai neither installs a bundle's members nor enforces version ranges (org-sync spike, wi-f041fb) | Blueprint 11 | Ryan |
+| 2026-11-01 | CLI first, harness second: each product is a complete Rust CLI and its plugin a thin harness integration (charter section above); `cargo xtask plugins` checks `plugins/`, and SPEC CLI-13 keeps hook semantics in a per-harness adapter. No new dependency | ARC-02, H-16 | Ryan (decision card, thread "Keep redkiln harness-agnostic") |
