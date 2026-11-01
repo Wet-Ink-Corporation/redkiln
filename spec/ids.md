@@ -45,8 +45,21 @@ Today the two ledgers spell the worktree two ways: anneal writes the normalised 
 | `sha256` | A file's bytes | `sha256:<64 hex>` | Yes | Yes |
 | `git-commit` | A commit | `git-commit:<40 or 64 hex>` | No | No |
 | `git-tree` | The worktree's tree: the current index plus tracked modifications, untracked files excluded, written on a temporary index (Loop ADR-0105 clause 4, weigh-in `git.rs`) | `git-tree:<40 or 64 hex>` | No | No |
-| `patch-id` | `git patch-id --verbatim` of `git diff <base>...<commit>`, recorded with its base | `patch-id:<40 or 64 hex>` | Yes, when the rebase is clean | Yes |
+| `patch-id` | `git patch-id --verbatim` of the pinned diff below, from `<base>...<commit>`, recorded with its base | `patch-id:<40 or 64 hex>` | Yes, when the rebase is clean | Yes |
 | `rust-fingerprint` | Redkiln Rust's change fingerprint over Rust pathspecs, byte-identical with temper 1.x | `rust-fingerprint:<hex>` | Only when the base changed no Rust file | Only when the base changed no Rust file |
+
+The `patch-id` diff is pinned so that its id depends only on the change, never on the user's git configuration (colour, renames, prefixes, context, diff algorithm, path quoting, order file, external diff and textconv drivers):
+
+```sh
+git -c core.quotePath=true -c diff.suppressBlankEmpty=false \
+  diff --no-color --no-ext-diff --no-textconv --no-renames --no-relative \
+  --ignore-submodules=none --submodule=short --binary -U3 \
+  --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic \
+  --src-prefix=a/ --dst-prefix=b/ -O/dev/null <base>...<commit> \
+| git patch-id --verbatim
+```
+
+`--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles, and since git 2.39 implies `--stable`, so file order does not matter. The id is the first field of patch-id's output. `spec/fixtures/patch-id/check.sh` takes it under an empty and a hostile configuration and checks both against its recorded id; CI runs it. A change to this recipe changes what every recorded `patch-id` means, so it is a new method name, never an edit (OW-14).
 
 The `git-tree` temporary index lives on the local temporary disk, never beside the store, since git replaces it by rename and Cowork refuses deletes.
 

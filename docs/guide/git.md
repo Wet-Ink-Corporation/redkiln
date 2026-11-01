@@ -37,9 +37,9 @@ Use git's own rules (`interpret-trailers --parse`, or `%(trailers)`), limited to
 
 ### GT-6 Patch-id keeps a verdict fresh across a rebase, and nothing else
 
-A verdict recorded for one head stays fresh for another when `git patch-id --verbatim` over a fully pinned diff matches, each taken against its own merge base, so a clean rebase or squash keeps it. Pin the diff so the id depends only on content: `--no-color --no-ext-diff --no-textconv --no-renames --ignore-submodules=none --binary -U3 --src-prefix=a/ --dst-prefix=b/ <base>...<head>`. `--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles.
+A verdict recorded for one head stays fresh for another when `git patch-id --verbatim` over a fully pinned diff matches, each taken against its own merge base, so a clean rebase or squash keeps it. Pin the diff so the id depends only on content, with SPEC ID-09's recipe: anneal's flags (`--no-color --no-ext-diff --no-textconv --no-renames --ignore-submodules=none --binary -U3 --src-prefix=a/ --dst-prefix=b/`) plus the ones that close the rest of git's configuration (`--no-relative --submodule=short --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic -O/dev/null`, `core.quotePath=true`, `diff.suppressBlankEmpty=false`). `--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles.
 
-- **Evidence.** anneal `docs/verdict.md:128-143`, `crates/anneal-cli/src/pr_diff.rs`, `@cdc9787`; SPEC ID-09 (`patch-id` hash method), which today names a plain `git diff <base>...<commit>` with no pinned flags; see [Tension T10](README.md#tensions-with-the-plan).
+- **Evidence.** anneal `docs/verdict.md:128-143`, `crates/anneal-cli/src/pr_diff.rs`, `@cdc9787`; SPEC ID-09 (`patch-id` hash method, flags pinned 2026-11-01, fixture `spec/fixtures/patch-id/`); [Tension T10](README.md#tensions-with-the-plan), resolved.
 
 ### GT-7 Worktree ownership comes from the store, never from the cwd
 
