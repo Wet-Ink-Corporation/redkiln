@@ -56,7 +56,7 @@ A Stop gate runs only when the turn changed what it gates. It reads the last `St
 
 A refusal says what to do instead and that a retry will be refused again. A deny that only says no gets retried.
 
-- **Why.** Workflow subagents retried denied `git apply` patches (28 of 42 interim denials); the read-only reviewer tried to apply patches 13 times. Naming Edit/Write, or commit-then-cherry-pick, stopped it.
+- **Why.** Workflow subagents retried denied `git apply` patches (28 of 42 interim denials came from Workflow subagents, 19 of them patch retries); the read-only reviewer tried to apply patches 13 times. Naming Edit/Write, or commit-then-cherry-pick, stopped it.
 - **Evidence.** temper #140, `@e33efa4`, `CHANGELOG.md:39`.
 
 ### HK-9 Gate every checkout an agent touches, not the cwd

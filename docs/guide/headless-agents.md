@@ -1,6 +1,6 @@
 # Headless agents
 
-Review runs reviewers with `claude -p`, Loop runs every stage that way, and the blueprint's `redkiln-dispatch` kit will own the supervisor. assay and redkiln-rs each built a hardened runner independently; they agree on almost everything, and between them they met every trap below by observation. The harness-agnostic proposal puts the model runner behind a port; these guardrails are what the Claude adapter behind that port has to do.
+Review runs reviewers with `claude -p`, Loop runs every stage that way, and the blueprint's `redkiln-dispatch` kit will own the supervisor. assay and redkiln-rs each built a hardened runner independently; they agree on almost everything, and between them they met every trap below by observation. The harness-agnostic proposal suggested a model runner behind a port (not yet adopted; the merged rule in `AGENTS.md`, CLI first, harness second, covers the plugin edge only); these guardrails are what the Claude adapter behind that port has to do.
 
 ## Guardrails
 

@@ -60,7 +60,7 @@ A default (a file-extension list, a template section a gate parses, a language a
 
 ## Patterns worth copying
 
-- **Exit codes as a closed set the SPEC owns**, with "wrote a report" separate from "the report says no" (weigh-in `ci-check`; SPEC `cli.md`).
+- **Exit codes the SPEC fixes where they are shared** (0, 2, 64, 70, 74; CLI-05), each command documenting the rest, with "wrote a report" separate from "the report says no" (weigh-in `ci-check`; SPEC `cli.md`).
 - **Answers from a UI are untrusted input**, validated against the card revision they were read from; a stale revision is refused, a partial batch fails the command after applying the rest, and a timed-out write says "may have been applied" and re-reads (weigh-in B-30, B-32, `crates/weighin-core/src/board.rs`).
 - **Dated, version-keyed tables** for anything that depends on an external tool's version, refused when the version has no row ([HA-7](headless-agents.md#ha-7-pin-the-cli-version-key-version-sensitive-argv-by-it-and-refuse-an-unknown-pin)).
 - **A "do" or "don't" code block in documentation is compiled or must fire the diagnostic it claims** (temper `tests/doc_examples.py`); every rule id cited anywhere exists (temper `tests/registry.py`). The SPEC's requirement ids deserve the same check.

@@ -53,7 +53,7 @@ Every worktree must resolve the same lock, so shared locks and id reservations r
 
 ### SS-8 One write path, and the read happens inside the lock
 
-Validate, stamp, canonical key order, take the lock, read the current body inside it, serialise, fsync a temporary file, rename. Reading inside the lock is the fix; "the lock alone never was".
+Validate, stamp, canonical key order, take the lock, read the current body inside it, serialise, fsync a temporary file, rename. Reading inside the lock is the fix; "The lock alone never fixed it" (redkiln-old `test/store-write.test.ts:19`).
 
 - **Evidence.** redkiln-old `CHANGELOG.md:2880-2885` (nine bare `writeFileSync` sites replaced).
 
@@ -62,7 +62,7 @@ Validate, stamp, canonical key order, take the lock, read the current body insid
 After a failed conditional write, the write may or may not have landed. Read back before resending; a same-content result is success, a different one is a conflict.
 
 - **Why.** An assay state update could be applied twice because the adapter assumed a failed PUT wrote nothing. anneal's `plan approve` reads back a lost race: same hash is "already approved" (exit 0), another is a conflict (exit 3).
-- **Evidence.** assay wi-67ab73, `crates/assay-forge/src/github/ledger_refs.rs:50-56`; anneal `crates/anneal-cli/AGENTS.md:187,194`.
+- **Evidence.** assay wi-67ab73, `crates/assay-forge/src/github/ledger.rs` (the `PUT contents` path); anneal `crates/anneal-cli/AGENTS.md:187,194`.
 
 ### SS-10 A budget is re-checked after every wait
 
@@ -86,7 +86,7 @@ A check made before a long wait is stale after it. Admission, reservation and re
 - **Loop asserts WAL**, refuses other modes and refuses network filesystems; the load half of R-SQLITE has never run (redkiln-rs `crates/rk-store/src/conn.rs:186-200`). See [Tension T8](README.md#tensions-with-the-plan).
 - **A tracked config file with a per-machine value points every clone at one target**: weigh-in's published board URL in `.kb/_ledger/config.json` would make every cloud container overwrite the same board (weigh-in B-20).
 - **The board's single state document overflowed at about 700 items** (Artifact `db` documents hold 262,144 bytes) (weigh-in #19).
-- **Same-second timestamps tie**; the Node writer moved to milliseconds after 2 of 9 runs went red (redkiln-old `CHANGELOG.md:2880-2885`). Order by store position, not time.
+- **Same-second timestamps tie**; the Node writer moved to milliseconds after its parity guard went red in 2 of 9 runs (redkiln-old `references/audit/LAP-COMPLETION.md:86,124`). Order by store position, not time.
 - **The `node:sqlite` builtin was experimental and loaded eagerly**, breaking every command including `--version` where unavailable (redkiln-old A6-04).
 - **A hash chain that covers 9% of a ledger guarantees nothing** (redkiln-old A7-11).
 

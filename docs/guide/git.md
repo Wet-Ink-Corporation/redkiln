@@ -27,7 +27,7 @@ Map outcomes from exit codes and porcelain output. Where only a message distingu
 
 Use git's own rules (`interpret-trailers --parse`, or `%(trailers)`), limited to the commit's final trailer block. A squash merge puts trailers mid-body, so a reader that must see them across squash merges reads every message line, deliberately and with a test.
 
-- **Evidence.** redkiln-rs #18; weigh-in `crates/weighin/src/ci.rs` (`ci-check` reads trailers on every line); redkiln `main` allows merge commits only, which keeps each PR's trailers where they were written (wi-e3e5af).
+- **Evidence.** redkiln-rs #18; weigh-in `crates/weighin/src/ci/trailer.rs` (`ci-check` reads trailers on every line); redkiln `main` allows merge commits only, which keeps each PR's trailers where they were written (wi-e3e5af).
 
 ### GT-5 Compare-and-set only where the platform really provides it
 
@@ -51,7 +51,7 @@ A function that writes to a worktree takes an ownership token minted from the st
 
 Treat PR objects as data: `GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL=/dev/null`, `core.hooksPath=/dev/null`, `https` only, fsck on fetch, `attr.tree` set to the empty tree (a bare repository otherwise reads HEAD's `.gitattributes`, and `-diff` turns numstat counts into `-` even with `--text`), `--no-ext-diff --no-textconv`, every process its own group. A checkout handed to a gate is verified against the fetched tree: kinds, execute bit, bytes and symlink targets.
 
-- **Evidence.** assay `docs/architecture/03-contracts.md` §9, decisions log ST-7 and ST-8.
+- **Evidence.** assay `docs/architecture/03-contracts.md` §9, decisions log, #60 ST-7 and ST-8.
 
 ### GT-9 Fixture repositories are hermetic
 

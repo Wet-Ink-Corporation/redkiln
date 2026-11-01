@@ -46,7 +46,7 @@ A new check that fails only new or changed code is minor; one that fails untouch
 
 Keep the required check's name independent of the runner, keep local gates runnable as the evidence of record, and make "minutes ran out" a documented mode, not an emergency migration.
 
-- **Why.** Actions billing blocked assay's CI on 20 October, from 17:58; an emergency move to another runner provider ended when its free minutes ran out and was reverted; weigh-in made the same round trip. Making the repositories public is what made minutes free.
+- **Why.** Actions billing blocked assay's CI on 19 and 20 October (stopped from 17:58 on the 19th, and a re-run still refused on the 20th); an emergency move to another runner provider ended when its free minutes ran out and was reverted; weigh-in made the same round trip. Making the repositories public is what made minutes free.
 - **Evidence.** assay `docs/handoff-2026-10-19.md`, decision 0006; weigh-in B-33, PRs #154, #157, #159.
 
 ## Patterns worth copying

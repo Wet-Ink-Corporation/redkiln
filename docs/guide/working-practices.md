@@ -54,7 +54,7 @@ A stage closes when its checks pass **and** a refuting round finds no blocker or
 
 Root `AGENTS.md` and `CLAUDE.md` load on every session and count against context; Codex truncates the combined chain at 32 KiB, cutting the deepest (crate) charter first. Keep root charters to the rules an agent cannot discover, move decision logs to `docs/<plugin>/decisions.md` with a pointer, and repeat the H-rules only as a pointer where the hooks enforce them.
 
-- **Evidence.** prior-art/agents.md §6 (Claude Code memory docs: under 200 lines per file, imports counted; Codex `project_doc_max_bytes`). See [Tension T6](README.md#tensions-with-the-plan).
+- **Evidence.** prior-art/agents.md §6 (Codex `project_doc_max_bytes`, 32 KiB; Claude Code's memory docs advise under 200 lines per file, imports counted, which redkiln and assay meet today while assay's root charter is already about 30 KB). See [Tension T6](README.md#tensions-with-the-plan).
 
 ### WP-9 An artifact with no reader is not produced
 

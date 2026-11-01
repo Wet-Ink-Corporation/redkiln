@@ -1,6 +1,6 @@
 # Plugins and surfaces
 
-A plugin is a thin shell: manifest, hooks, skills, agents, a launcher and its binaries. The harness-agnostic proposal (thread "Keep redkiln harness-agnostic") argues why it stays thin; this chapter is about what the shell must get right to load at all, on every surface where a person meets it. The org-sync spike (`redkiln-v1/org-sync-spike/README.md`, wi-f041fb) is the companion record for claude.ai.
+A plugin is a thin shell: manifest, hooks, skills, agents, a launcher and its binaries. `AGENTS.md`, CLI first, harness second (checked by `cargo xtask plugins`) says why it stays thin; this chapter is about what the shell must get right to load at all, on every surface where a person meets it. The org-sync spike (`redkiln-v1/org-sync-spike/README.md`, wi-f041fb) is the companion record for claude.ai.
 
 ## The surfaces
 
@@ -20,7 +20,7 @@ Evidence: weigh-in B-04, D-0002, D-0018, B-34, B-35, B-12, CHANGELOG 1.1.1 to 1.
 
 ### PS-1 No `bin/` in a plugin; binaries live in `libexec/<target>/` behind a launcher
 
-claude.ai rejects a hosted plugin with a top-level `bin/`, because Claude Code puts it on PATH outside the approval surface. Packaging refuses `bin/` twice: when the zip is built and when the marketplace tree is built. `libexec/` takes an allowlist (the launchers `<binary>` and `<binary>.cmd`, `<target>/<binary>[.exe]`, and the root `<binary>.exe` that Windows exec-form hooks need, [HK-3](hooks.md#hk-3-hooks-are-exec-form-and-call-one-binary-by-path)), not whatever a job downloaded.
+claude.ai rejects a hosted plugin with a top-level `bin/`, because Claude Code puts it on PATH outside the approval surface. Packaging refuses `bin/` twice: when the zip is built and when the marketplace tree is built. `libexec/` takes an allowlist (the launchers `<binary>` and `<binary>.cmd`, `<target>/<binary>[.exe]`, and the root `<binary>.exe` that Windows exec-form hooks would need, which `cargo xtask plugins` does not allow yet, [Tension T9](README.md#tensions-with-the-plan), [HK-3](hooks.md#hk-3-hooks-are-exec-form-and-call-one-binary-by-path)), not whatever a job downloaded.
 
 - **Why.** A rerun of weigh-in's release job downloaded every artifact of the run into `libexec/`, including a failed attempt's assets; the zip came out at 32 MB instead of 13.
 - **Evidence.** weigh-in B-03, B-15, `scripts/marketplace-branch.sh`; redkiln `AGENTS.md`, Plugin rules.
@@ -98,7 +98,7 @@ Naming a skill the plugin lacks sends the model to `Unknown skill`. Indexes are 
 - **Plugins do not reach cloud sessions through `.claude/settings.json`**, and installing from SessionStart loads only at the next start; the environment setup script is the route (temper `docs/troubleshooting.md:42-58`; weigh-in B-12).
 - **A session started before a synced plugin arrived does not have it**, and the first session after an update runs the old hooks (weigh-in #113; org-sync spike).
 - **Auto-update is off for non-official marketplaces** until the user turns it on (weigh-in CHANGELOG 0.4.1).
-- **Plugin mods are behind a per-account rollout switch**: temper's lens did not load on the owner's Windows machine while it did on Linux at the same version (temper `docs/history/evals.md:117-122`).
+- **Plugin mods are behind a per-account rollout switch**: temper's lens did not load on the owner's Windows machine while it did on Linux at the same version (temper `docs/history/evals.md:77-82`).
 - **A root `CLAUDE.md` is rejected when the repository root is the plugin root** (`claude plugin validate --strict`); in the monorepo the rule applies to each `plugins/<name>/` (temper `AGENTS.md`).
 - **A workspace that looks like the plugin repository confuses `${CLAUDE_PLUGIN_ROOT}` readers**: an eval copy named `plugin/` was treated as anneal's own repository (anneal `@82bb54c`).
 - **A plugin cannot declare that it needs another plugin's MCP server**; commands granted its tools broke on installs without it (redkiln-old `AGENTS.md:158-165`).
