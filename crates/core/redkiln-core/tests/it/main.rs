@@ -5,6 +5,8 @@ mod envelope;
 #[cfg(test)]
 mod legacy;
 #[cfg(test)]
+mod location;
+#[cfg(test)]
 mod store;
 #[cfg(test)]
 mod support;

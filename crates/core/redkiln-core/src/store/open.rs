@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use happenstance_sqlite::event_store::SqliteEventStore;
-use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode};
+use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags};
 
 use super::header::{self, Found, Header};
 use super::{OpenError, Step};
@@ -200,15 +200,39 @@ fn check_stamp(found: i64) -> Result<(), OpenError> {
     }
 }
 
+/// A connection with no busy wait to a store [`open`] has opened, under TRUNCATE: for Core's own
+/// statements on happenstance's tables, which happenstance's connection cannot run (the side
+/// store's prune, EV-14).
+///
+/// It never creates the file: one that is gone since is an error, not a new empty database. A
+/// stale `-wal` beside the store is set aside first, as [`open`] does, so SQLite never deletes it
+/// on connect (ST-05). The caller checks, inside its own transaction, that the file is still
+/// the store its handle opened.
+pub(super) fn raw_connection(path: &Path) -> Result<Connection, OpenError> {
+    set_aside(path, "-wal")?;
+    let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
+        | OpenFlags::SQLITE_OPEN_URI
+        | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = Connection::open_with_flags(path, flags).map_err(at(Step::Connect))?;
+    configure(&conn, Duration::ZERO)?;
+    use_truncate(&conn, Duration::ZERO)?;
+    Ok(conn)
+}
+
 /// A connection that has written nothing: the busy timeout, durability and foreign keys are
 /// per connection and never touch the file.
 fn connect(path: &Path, busy: Duration) -> Result<Connection, OpenError> {
     let conn = Connection::open(path).map_err(at(Step::Connect))?;
+    configure(&conn, busy)?;
+    Ok(conn)
+}
+
+/// The busy timeout, durability and foreign keys of a store connection.
+fn configure(conn: &Connection, busy: Duration) -> Result<(), OpenError> {
     conn.busy_timeout(busy).map_err(at(Step::Configure))?;
     // FULL, not NORMAL: under a rollback journal NORMAL can lose the last commit on power loss.
     conn.execute_batch("PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;")
-        .map_err(at(Step::Configure))?;
-    Ok(conn)
+        .map_err(at(Step::Configure))
 }
 
 fn inspect(conn: &Connection) -> Result<Contents, OpenError> {
@@ -578,6 +602,41 @@ mod tests {
         let created = open(&path, Duration::ZERO, Mode::Create).expect("created");
         let reopened = open(&path, Duration::ZERO, Mode::Existing).expect("opened");
         assert_eq!(reopened.store_id(), created.store_id());
+    }
+
+    #[test]
+    fn a_raw_connection_never_creates_its_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3.telemetry");
+        let err = raw_connection(&path).expect_err("no file");
+        assert!(
+            matches!(
+                err,
+                OpenError::Sqlite {
+                    step: Step::Connect,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+        assert!(names(dir.path()).is_empty(), "nothing created");
+    }
+
+    #[test]
+    fn a_raw_connection_sets_a_stale_wal_aside_rather_than_let_sqlite_delete_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        drop(open(&path, Duration::ZERO, Mode::Create).expect("created"));
+        std::fs::write(sibling(&path, "-wal"), b"stale").expect("a stale wal");
+        let conn = raw_connection(&path).expect("connected");
+        drop(conn);
+        let kept: Vec<Vec<u8>> = std::fs::read_dir(dir.path())
+            .expect("list")
+            .map(|e| e.expect("entry"))
+            .filter(|e| e.file_name().to_string_lossy().contains("-wal.orphaned-"))
+            .map(|e| std::fs::read(e.path()).expect("read"))
+            .collect();
+        assert_eq!(kept, [b"stale".to_vec()], "set aside, not deleted");
     }
 
     #[test]

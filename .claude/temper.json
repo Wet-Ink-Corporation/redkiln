@@ -27,7 +27,8 @@
     "tokio",
     "sha2",
     "clap",
-    "time"
+    "time",
+    "toml"
   ],
   "manifests": {
     "ownLints": []

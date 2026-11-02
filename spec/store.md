@@ -29,6 +29,8 @@ The per-plugin overrides (`WEIGHIN_STORE`, `ANNEAL_STORE`, `--store` on each CLI
 - A binary never opens the store through `SqliteEventStore::open`, which switches the file to WAL. Core opens its own connection, sets the journal mode, and, for a new file, copies happenstance's schema from a template built on the local temporary disk, inside one `BEGIN IMMEDIATE` so that two processes creating the store cannot both write a schema (weigh-in `store.rs`).
 - A file found in WAL is converted to TRUNCATE on open, retrying until the busy timeout while another connection holds it. A stale `-wal` file beside a TRUNCATE store is renamed aside, never deleted and never replayed (weigh-in's rule; anneal refuses such files instead, which the SPEC does not keep, because Loop's store and weigh-in 0.1.x ledgers are WAL today).
 - Nothing in Core deletes a file beside the store. Files are set aside by renaming.
+- Core's openers serialise on an advisory whole-file lock on `events.sqlite3.lock`, a file created beside the store on its first open and never deleted. The lock is held from reading the file's header to handing the connection over, and waited for at most the busy timeout, so a second first open never sets aside the live `-journal` of a creation in progress. It is created only once the header has passed ST-07's refusals, so a refused file gets nothing beside it. A file system without whole-file locks opens unlocked, as SQLite alone would.
+- Telemetry (EV-14) lives in a side store, `events.sqlite3.telemetry`, beside the store: a store of its own under these same rules, with its own `-journal` and `.lock`. Rows past the retention window are deleted from it, never from the store, and no file is deleted.
 
 R-SQLITE (eight concurrent writers, hooks included, on Linux and Windows) has not run yet. If it fails under TRUNCATE, Loop keeps its tier-2 events in its own WAL file and exports a journal into the log instead (Blueprint call 1); the rules here do not change.
 
@@ -67,7 +69,7 @@ The version is read from the file's 100-byte header before SQLite opens it, so a
 
 **ST-13.** A missing file, a missing key, or a file that does not parse means `client`, so a forgotten config never publishes (pressure-test recommendation 11). A `client` repository never exports journals, pushes a ref, publishes a board, or projects items to GitHub (Blueprint design rule 10). Core enforces this: the export and publish paths ask Core for the class and get `client` unless the file says `own`.
 
-weigh-in's `.kb/_ledger/config.json` `repo_class` becomes this key at the rename at the door. weigh-in defaults a missing config to `own`; the suite default is the stricter one.
+weigh-in's `.kb/_ledger/config.json` `repo_class` becomes this key at the rename at the door. weigh-in defaults a missing config to `own`; the suite default is the stricter one. For the 2.x line, Core reads that file's `repo_class` below `suite.toml` when `suite.toml` sets none (no file, or no key), and tells the caller it did so; a `suite.toml` that is there but does not parse, or gives another value, is `client` without the fallback (migration plan M1-F).
 
 ## Projections
 
