@@ -399,8 +399,12 @@ version = "0.1.0"
 dependencies = [
  "happenstance-core",
  "happenstance-sqlite",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
+ "time",
  "tokio",
 ]
 

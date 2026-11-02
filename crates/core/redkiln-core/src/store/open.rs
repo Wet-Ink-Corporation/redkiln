@@ -25,7 +25,8 @@ const CORE_META: &str =
 /// The `core_meta` key holding the path the store was created or last re-minted at.
 const PATH_KEY: &str = "path";
 
-/// The pause between attempts to switch a WAL store to TRUNCATE while another connection holds it.
+/// The pause between attempts while another process holds what an open needs: the open lock
+/// (`take_lock`), or a WAL store's connection while it is switched to TRUNCATE (`use_truncate`).
 const RETRY_PAUSE: Duration = Duration::from_millis(20);
 
 /// The suffix of the open lock, `<store>.lock`: a file created once beside a store and never
