@@ -82,7 +82,9 @@ pub use fields::{Actor, ActorName, Field, FieldError, SPEC_VERSION, Timestamp, W
 pub use name::{MAX_TYPE_BYTES, NameError, Namespace, TypeName};
 pub use read::{Decoded, Skip, Unusable, decode, decode_all};
 
-pub(crate) use name::is_dotted_name;
+pub(crate) use name::{is_dotted_name, namespace_of};
+pub(crate) use read::read_untyped;
+pub(crate) use wire::trust_json;
 
 /// The largest envelope, serialised (EV-16): 64 KiB.
 pub const MAX_ENVELOPE_BYTES: usize = 64 * 1024;
@@ -162,6 +164,13 @@ pub enum EnvelopeError {
     /// happenstance refused the event.
     #[error("happenstance refused the event")]
     Event(#[source] StoreError),
+    /// More caller tags than a journal line holds, 64 (JR-02): the event could be exported but
+    /// never imported.
+    #[error("{count} caller tags, more than a journal line holds")]
+    TooManyTags {
+        /// How many were given.
+        count: usize,
+    },
 }
 
 /// Who wrote an envelope and on whose say: its `actor`, `trust` and `writer` (EV-01), the three
@@ -244,7 +253,8 @@ impl<P: Payload> Envelope<P> {
     ///
     /// # Errors
     /// [`EnvelopeError::Class`] for a telemetry type; otherwise as [`Envelope::encode`], and
-    /// [`EnvelopeError::Tag`] for a tag outside Core's registry or one Core sets.
+    /// [`EnvelopeError::Tag`] for a tag outside Core's registry or one Core sets, and
+    /// [`EnvelopeError::TooManyTags`] past the 64 caller tags a journal line holds.
     pub fn to_event(&self, tags: impl IntoIterator<Item = Tag>) -> Result<NewEvent, EnvelopeError> {
         match P::CLASS {
             Class::Durable => self.new_event(tags),
@@ -323,6 +333,10 @@ impl<P: Payload> Envelope<P> {
         for tag in tags {
             crate::store::check_caller_tag(&tag).map_err(EnvelopeError::Tag)?;
             event = event.with_tag(tag);
+        }
+        let count = event.caller_tags();
+        if count > crate::store::MAX_CALLER_TAGS {
+            return Err(EnvelopeError::TooManyTags { count });
         }
         Ok(event)
     }
@@ -477,6 +491,18 @@ mod tests {
                 "{key:?}"
             );
         }
+    }
+
+    #[test]
+    fn more_caller_tags_than_a_journal_line_carries_are_refused() {
+        let tasks = |n: usize| (0..n).map(|i| Tag::core(CoreKey::Task, &i.to_string()));
+        let fits: Vec<Tag> = tasks(64).collect::<Result<_, _>>().expect("valid tags");
+        assert!(spec_example().to_event(fits).is_ok(), "64 fit");
+        let over: Vec<Tag> = tasks(65).collect::<Result<_, _>>().expect("valid tags");
+        assert!(matches!(
+            spec_example().to_event(over),
+            Err(EnvelopeError::TooManyTags { count: 65 })
+        ));
     }
 
     #[test]

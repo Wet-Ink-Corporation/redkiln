@@ -3,6 +3,8 @@
 #[cfg(test)]
 mod envelope;
 #[cfg(test)]
+mod journal;
+#[cfg(test)]
 mod legacy;
 #[cfg(test)]
 mod location;

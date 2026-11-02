@@ -5,7 +5,7 @@
 //! reader thread is needed and a full pipe can never stall git: the deadline is the only wait.
 //! git runs under `LC_ALL=C`, so its messages are untranslated and [`discover`] can tell "not a
 //! git repository" from every other failure, and without the variables that would steer it to
-//! another repository ([`STEERING`]).
+//! another repository ([`STEERING`]) or add configuration ([`CONFIG`]).
 //!
 //! Only the child is killed at the deadline. On Windows the `git.exe` on `PATH` may be Git for
 //! Windows' launcher, whose own child, the real git, outlives the kill; it holds only its copies
@@ -46,6 +46,21 @@ const STEERING: [&str; 6] = [
     "GIT_DISCOVERY_ACROSS_FILESYSTEM",
 ];
 
+/// git's variables that add configuration on top of its files: `git -c`'s, which git hands to
+/// its children, and `GIT_CONFIG_COUNT`'s. Without a count git reads no `GIT_CONFIG_KEY_<n>` or
+/// `GIT_CONFIG_VALUE_<n>`, so those are inert once it is removed and need not be named (the
+/// library reads no process state, so it could not list them).
+const CONFIG: [&str; 2] = ["GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT"];
+
+/// `git` without the variables that steer it to another repository ([`STEERING`]) or add
+/// configuration ([`CONFIG`]): every git call Core makes runs through this.
+pub(crate) fn isolated(mut git: Command) -> Command {
+    for name in STEERING.iter().chain(&CONFIG) {
+        git.env_remove(name);
+    }
+    git
+}
+
 /// Why git could not answer.
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
@@ -82,10 +97,10 @@ pub enum GitError {
 }
 
 /// What a finished git left.
-struct Captured {
-    status: ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
+pub(crate) struct Captured {
+    pub(crate) status: ExitStatus,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
 }
 
 /// A git repository's directories, as git names them (absolute).
@@ -107,14 +122,8 @@ pub(crate) fn discover(cwd: &Path, timeout: Duration) -> Result<Option<GitDirs>,
 
 /// [`discover`] through `git`, a `Command` for git that may carry the caller's environment (the
 /// tests' seam: they set git's variables on it, as a git hook would on the process).
-fn discover_with(
-    mut git: Command,
-    cwd: &Path,
-    timeout: Duration,
-) -> Result<Option<GitDirs>, GitError> {
-    for name in STEERING {
-        git.env_remove(name);
-    }
+fn discover_with(git: Command, cwd: &Path, timeout: Duration) -> Result<Option<GitDirs>, GitError> {
+    let git = isolated(git);
     let args = [
         "rev-parse",
         "--path-format=absolute",
@@ -150,27 +159,52 @@ pub(crate) fn normalise(path: &Path) -> PathBuf {
 }
 
 /// Runs `command` with `args` in `cwd`, killing it once `timeout` has passed.
-fn run(
+pub(crate) fn run(
     mut command: Command,
     args: &[&OsStr],
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Captured, GitError> {
+    command.args(args);
+    let mut spooled = run_spooled(command, cwd, timeout, None)?;
+    Ok(Captured {
+        status: spooled.status,
+        stdout: read_back(&mut spooled.stdout)?,
+        stderr: spooled.stderr,
+    })
+}
+
+/// What a finished git left, its stdout still in its spool file, rewound and uncapped: for an
+/// output too large to hold in memory (a diff), which the caller hands on as a file.
+pub(crate) struct Spooled {
+    pub(crate) status: ExitStatus,
+    pub(crate) stdout: File,
+    pub(crate) stderr: Vec<u8>,
+}
+
+/// [`run`] of `command`, its arguments already given, with `stdin` read from a file when given,
+/// and stdout left in its spool.
+pub(crate) fn run_spooled(
+    mut command: Command,
+    cwd: &Path,
+    timeout: Duration,
+    stdin: Option<File>,
+) -> Result<Spooled, GitError> {
     let mut stdout = tempfile::tempfile().map_err(GitError::Io)?;
     let mut stderr = tempfile::tempfile().map_err(GitError::Io)?;
     let mut child = command
-        .args(args)
         .current_dir(cwd)
         .env("LC_ALL", "C")
-        .stdin(Stdio::null())
+        .stdin(stdin.map_or_else(Stdio::null, Stdio::from))
         .stdout(Stdio::from(stdout.try_clone().map_err(GitError::Io)?))
         .stderr(Stdio::from(stderr.try_clone().map_err(GitError::Io)?))
         .spawn()
         .map_err(GitError::Spawn)?;
     let status = wait(&mut child, timeout)?;
-    Ok(Captured {
+    stdout.seek(SeekFrom::Start(0)).map_err(GitError::Io)?;
+    Ok(Spooled {
         status,
-        stdout: read_back(&mut stdout)?,
+        stdout,
         stderr: read_back(&mut stderr)?,
     })
 }
@@ -203,7 +237,7 @@ fn wait(child: &mut Child, timeout: Duration) -> Result<ExitStatus, GitError> {
 }
 
 /// The whole of a spool file, refused past [`MAX_OUTPUT_BYTES`].
-fn read_back(file: &mut File) -> Result<Vec<u8>, GitError> {
+pub(crate) fn read_back(file: &mut File) -> Result<Vec<u8>, GitError> {
     file.seek(SeekFrom::Start(0)).map_err(GitError::Io)?;
     let mut bytes = Vec::new();
     file.take(MAX_OUTPUT_BYTES.saturating_add(1))
@@ -327,6 +361,29 @@ mod tests {
                 here_git,
                 "{name}"
             );
+        }
+    }
+
+    #[test]
+    fn configuration_the_caller_inherited_never_reaches_git() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (here, _) = init(dir.path(), "here");
+        let parameters = [("GIT_CONFIG_PARAMETERS", "'redkiln.probe'='set'")];
+        let counted = [
+            ("GIT_CONFIG_COUNT", "1"),
+            ("GIT_CONFIG_KEY_0", "redkiln.probe"),
+            ("GIT_CONFIG_VALUE_0", "set"),
+        ];
+        let args = ["config", "--get", "redkiln.probe"].map(OsStr::new);
+        for variables in [&parameters[..], &counted[..]] {
+            let mut seen = Command::new("git");
+            seen.envs(variables.iter().copied());
+            let control = run(seen, &args, &here, Duration::from_secs(10)).expect("ran");
+            assert_eq!(control.stdout, b"set\n", "{variables:?}: git reads it");
+            let mut command = Command::new("git");
+            command.envs(variables.iter().copied());
+            let got = run(isolated(command), &args, &here, Duration::from_secs(10)).expect("ran");
+            assert_eq!(got.status.code(), Some(1), "{variables:?}: unset for git");
         }
     }
 

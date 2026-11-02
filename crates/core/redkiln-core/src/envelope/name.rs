@@ -144,6 +144,16 @@ impl fmt::Display for TypeName {
     }
 }
 
+/// The namespace of `text` when it fits EV-03's type grammar, registered or not:
+/// `<namespace>.<name>` of at most [`MAX_TYPE_BYTES`], the namespace one `[a-z][a-z0-9_]*`
+/// segment. What a journal reader keeps whether or not this build knows the type (JR-10): a
+/// later SPEC minor may register the namespace.
+pub(crate) fn namespace_of(text: &str) -> Option<&str> {
+    let (namespace, name) = text.split_once('.')?;
+    (text.len() <= MAX_TYPE_BYTES && is_dotted_name(namespace) && is_dotted_name(name))
+        .then_some(namespace)
+}
+
 /// `[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*`: EV-03's names, and the part of a namespaced tag key
 /// after its namespace (EV-12).
 pub(crate) fn is_dotted_name(text: &str) -> bool {

@@ -28,7 +28,9 @@
 //! tokio runtime context, [`Store::open`] and every method return [`StoreError::InsideRuntime`]
 //! rather than let tokio panic; async code runs the store on a plain thread.
 
+mod aside;
 mod header;
+mod ingest;
 mod open;
 mod retention;
 mod tag;
@@ -44,15 +46,17 @@ use happenstance_core::{
     QueryItem, ReadOptions, SendEventStore, SequencePosition, StoreId, Tags, collect,
 };
 use happenstance_sqlite::event_store::{SqliteEventStore, SqliteEventStoreError};
+use happenstance_sqlite::happenstance_sync::IngestError;
 use happenstance_sqlite::rusqlite;
 
 pub use open::STORE_SCHEMA;
 pub use tag::{CoreKey, Tag, TagError};
 pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 
+pub(crate) use aside::sibling;
 pub(crate) use header::{Found, read as read_header};
-pub(crate) use open::sibling;
-pub(crate) use tag::check_caller_tag;
+pub(crate) use ingest::{Foreign, Ingest};
+pub(crate) use tag::{MAX_CALLER_TAGS, check_caller_tag, check_line_tag, is_core_set};
 
 /// How long a writer waits for another's lock (ST-09).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,6 +155,10 @@ pub enum OpenError {
     /// the store.
     #[error("another process is opening the store; timed out waiting for it")]
     LockBusy,
+    /// Another program (not a Core opener) holds a write transaction on a file with no store
+    /// yet: its journal beside the file is live, so it keeps its name and bytes.
+    #[error("another program is writing the file; its journal was left in place")]
+    WriterBusy,
     /// The temporary directory for the schema template could not be created or removed.
     #[error("creating or removing the schema template's temporary directory")]
     TempDir(#[source] std::io::Error),
@@ -210,6 +218,9 @@ pub enum Step {
     Commit,
     /// Deleting telemetry past its window from the side store (EV-14).
     Prune,
+    /// Checking SQLite's locks on a file with a journal beside it, around setting the journal
+    /// aside: a read-only read lock, then the write lock with the journal renamed.
+    Probe,
 }
 
 impl fmt::Display for Step {
@@ -227,6 +238,7 @@ impl fmt::Display for Step {
             Self::Begin => "beginning a write transaction",
             Self::Commit => "committing",
             Self::Prune => "deleting telemetry past its window",
+            Self::Probe => "checking for a writer holding the file",
         })
     }
 }
@@ -258,6 +270,10 @@ pub enum StoreError {
     /// happenstance could not read the store.
     #[error("reading the store")]
     Read(#[source] SqliteEventStoreError),
+    /// happenstance refused to store events under their own identities (an import): a store
+    /// limit, a busy lock past the timeout, I/O. Nothing of the batch was written.
+    #[error("storing imported events")]
+    Ingest(#[source] IngestError<SqliteEventStoreError>),
     /// Telemetry past its window could not be deleted from the side store for a reason other
     /// than a busy lock (EV-14). The event was not written.
     #[error("pruning the telemetry store {}", path.display())]
@@ -267,6 +283,13 @@ pub enum StoreError {
         /// What went wrong.
         #[source]
         source: OpenError,
+    },
+    /// An event carries more caller tags (Core's own not counted) than a journal line holds,
+    /// 64 (JR-02), so it could be exported but never imported. Nothing was written.
+    #[error("an event carries {count} caller tags, more than a journal line holds")]
+    TooManyCallerTags {
+        /// How many it carries.
+        count: usize,
     },
     /// The file at the store's path now has another identity than the one this store opened:
     /// it was replaced or restored since. Telemetry is not written beside it.
@@ -304,6 +327,11 @@ impl NewEvent {
     pub fn with_tag(mut self, tag: Tag) -> Self {
         self.tags.push(tag);
         self
+    }
+
+    /// How many of its tags are not ones Core sets from the envelope.
+    pub(crate) fn caller_tags(&self) -> usize {
+        self.tags.iter().filter(|tag| !is_core_set(tag)).count()
     }
 
     fn into_event(self) -> Event {
@@ -518,13 +546,21 @@ impl Store {
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Query`] for a condition happenstance cannot
     /// query; [`StoreError::Append`] when happenstance refuses the append (no events, a store
-    /// limit, a busy lock past the timeout, I/O). A matched condition is
+    /// limit, a busy lock past the timeout, I/O); [`StoreError::TooManyCallerTags`] for an event
+    /// with more caller tags than a journal line holds. A matched condition is
     /// [`Appended::Conflict`], not an error.
     pub fn append(
         &self,
         events: Vec<NewEvent>,
         condition: Option<&Condition>,
     ) -> Result<Appended, StoreError> {
+        if let Some(count) = events
+            .iter()
+            .map(NewEvent::caller_tags)
+            .find(|count| *count > MAX_CALLER_TAGS)
+        {
+            return Err(StoreError::TooManyCallerTags { count });
+        }
         let condition = condition.map(Condition::to_append_condition).transpose()?;
         let events: Vec<Event> = events.into_iter().map(NewEvent::into_event).collect();
         match self

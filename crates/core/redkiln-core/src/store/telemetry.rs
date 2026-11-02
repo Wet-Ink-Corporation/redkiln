@@ -224,7 +224,7 @@ fn busy_append(refused: &AppendError<SqliteEventStoreError>) -> bool {
 /// An open refused on a busy lock: the open lock held, or a busy code from SQLite.
 pub(super) fn busy_open(refused: &OpenError) -> bool {
     match refused {
-        OpenError::LockBusy => true,
+        OpenError::LockBusy | OpenError::WriterBusy => true,
         OpenError::Sqlite { source, .. } => busy_code(source),
         OpenError::Store(SqliteEventStoreError::Sqlite(error)) => busy_code(error),
         _ => false,
