@@ -50,7 +50,7 @@ A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes
 
 ## Who may set a level
 
-**TR-05.** No CLI argument, environment variable, stdin field or config key raises an event above `asserted`. TR-10's `agent_accounts` only ever lowers a level, and a change to it that would stop lowering one takes effect only with the owner's approval (TR-10). Only the code paths in TR-03 and TR-04 set `witnessed` or `attested`, and a binary that writes on behalf of another (through a contract crate) writes `asserted`.
+**TR-05.** No CLI argument, environment variable, stdin field or config key raises an event above `asserted`. Only the code paths in TR-03 and TR-04 set `witnessed` or `attested`, and a binary that writes on behalf of another (through a contract crate) writes `asserted`.
 
 **TR-06.** Every imported event is stored as `asserted`, whatever its journal line says; the line's level is kept in `trust.claimed` (JR-12). A gate that needs `attested` may accept an imported event by verifying its `ref` against the source itself, at read time. A `witnessed` claim cannot be re-verified away from the machine that witnessed it, so it stays `asserted` there.
 
@@ -60,13 +60,10 @@ A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes
 
 **TR-09.** `redkiln-guard`'s shared rule pack denies an agent's Bash call that would write an event whose actor is `human:*` (a `decide` or `approve` subcommand, a raw `append`). This closes the cheapest forgery; trust levels close the rest.
 
-**TR-10.** A GitHub account an agent also acts as cannot tell the owner from the agent: when agents run on the owner's account, a review or comment "by" it may be the agent's (field guide T5, HD-5). So:
+**TR-10.** While agents act as the owner's GitHub account (assay decision 0005), GitHub cannot tell the owner from an agent: a review or comment "by" that account may be the agent's (field guide T5, HD-5). So in SPEC 1.0, a `github-review`, and a comment command recorded through `github-app`, are written `asserted` whoever wrote them, keeping their `via` and `by`. Neither satisfies a gate. A check run the Review App posts under its own identity is unaffected.
 
-- An answer from a `github-review`, or a comment command recorded through `github-app`, whose author is an account in `agent_accounts` (ST-12), is written `asserted`, keeping its `via` and `by`. Accounts match by numeric user id, never by login, so a rename changes nothing and case does not matter.
-- An entry with `until` still covers every answer given before that time. Entries are closed, never removed, so a later check judges an old answer by the list as it stood when the answer was given.
-- When `agent_accounts` is missing, the file does not parse, or the key is malformed (not an array of tables with an integer `id`, a repeated `id`, an `until` that is not a time), every account counts as shared and both surfaces give `asserted`.
-- The list is read from the tip of the repository's default branch as GitHub serves it, never from a local checkout, a pull request's base ref or any other branch. The check runs where the level is set (TR-05) and again where an imported `ref` is re-verified (TR-06).
-- A change that would lower fewer answers (an entry removed or given an `until`, the key set to `[]`, the key or file deleted) takes effect only once the owner approves it at `witnessed` or higher, through a `core.approval_recorded` whose subject is the `sha256` of the new file (AP-01). Until then the last approved list applies; adding an account needs no approval.
-- A check run the Review App posts under its own identity is unaffected. A `signed-commit` stays `attested` only while its key is out of the agents' reach (no agent session on the owner's machine with the key loaded); a key the agents can use is as shared as the account, and keeping it out of reach is the owner's part.
+A human approval comes from a surface the agent cannot drive: a decision card answered by a member's tap, the board, the mod pane, an `AskUserQuestion` answer recorded by its hook, or a signed commit. The owner's part is to keep these out of the agents' reach:
+- the signing key: no agent session on the owner's machine with it loaded;
+- the agents' GitHub tokens: no administration or key-management permission, so they cannot add a signing key, change the default branch, or relax the rulesets `ledger-cas` relies on.
 
-While the owner's account is shared, a human approval comes from a surface the agent cannot drive: a decision card answered by a member's tap, the board, the mod pane, an `AskUserQuestion` answer recorded by its hook, or a signed commit (Ryan, 2026-11-02).
+Giving `github-review` and comment commands back their levels needs agents with an identity of their own. That is a later SPEC change, by the owner's decision, which names the accounts that are agents' by numeric user id (Ryan, 2026-11-02).
