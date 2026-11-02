@@ -1,7 +1,7 @@
 # Crate charter: `redkiln-core`
 
 ## Purpose
-The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and, as Move 1 step 2 continues (#17), the envelope, ids, location, config and journal codec the SPEC defines. Today it holds the store's location (ST-01 to ST-03) and the store (ST-04 to ST-11), `suite.toml` (ST-12, ST-13), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), and a read-only reader for old weighin ledgers.
+The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and, as Move 1 step 2 continues (#17), the envelope, ids, location, config and journal codec the SPEC defines. Today it holds the store's location (ST-01 to ST-03) and the store (ST-04 to ST-11), `suite.toml` (ST-12, ST-13), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), subjects and their hashes (ID-09, ID-10), journal lines, the export checkpoint and the import (JR-01 to JR-06, JR-08 to JR-14; the refs of JR-07 come with step 7), and a read-only reader for old weighin ledgers.
 
 ## Layer
 Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, and other Core crates may depend only on it.
@@ -19,6 +19,8 @@ Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, an
 - `trust`: `Trust`, `Level`, `Via`, `TrustError`.
 - `ids`: `parse_store_id`, `parse_event_ref`, `ContentId`, `IdPrefix`, `AtomKind`, `HexLen`, `content_input`, `SessionId`, `WorktreeId`, `Host`, `Digest`, `IdError`.
 - `canonical`: `canonical_json`, `digest`, `digest_of`, `CanonicalError`, `MAX_DEPTH`.
+- `subject`: `Subject`, `Method`, `SubjectError`, `sha256_file`, `git_commit`, `git_tree`, `patch_id`, `PatchId`, `NoPatchId`.
+- `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `LineError`, `JournalName`, and their limits.
 - `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
 - At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
 
@@ -39,13 +41,15 @@ Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError
 - Location and config read no harness protocol or process state: the working directory, `$REDKILN_STORE`'s value and the home directory are arguments. git runs only when the flag and the variable did not choose, under `LC_ALL=C` without the `GIT_DIR` family, with a timeout and output capped; only git's discovery finding no repository is the folder step. Locating creates nothing.
 - `suite.toml` is read up to 64 KiB; anything it cannot give is `client` (ST-13). The legacy `config.json` `repo_class` is a fallback only when `suite.toml` sets none (M1-F). Problems and fallbacks are returned `Warning`s, never printed.
 - The library reads no clock: a `Timestamp` comes from the caller's `SystemTime` or text.
+- patch-id is ID-09's pinned recipe only: git 2.39 or later, the pinned flags and `-c` values, the diff variables unset, and no id for a shallow boundary, other than one merge base, or an empty change. A failure is a `NoPatchId` naming why, never a fallback id.
+- Only an import writes an event under a foreign identity (the crate-internal `Store::ingest`), always at `asserted` with the line's level in `claimed`; it only reads its source. A checkpoint only appends complete lines; the one cut is a torn last line (JR-03, JR-05).
 - The canonical digest is RFC 8785 over a JSON value; an integer beyond +-2^53 is refused, never rounded (I-JSON, which RFC 8785 requires).
 
 ## Errors
 `OpenError` (why a file could not be opened), `StoreError` (an operation on an open store), `LocateError` and `GitError` (where the store is), `LegacyError` (reading an old ledger), `EnvelopeError` (an envelope not built), `TagError`, `TrustError`, `IdError`, `NameError`, `FieldError` and `CanonicalError`. Refusals are their own variants, so a caller can name them. `Skip` and `Unusable` are a lenient read's outcomes, not failures.
 
 ## Test strategy
-Unit tests beside the code for the header, the transaction helper, tags and their registry, trust, ids, names, envelope fields, writing and reading (the SPEC's EV-01 example byte for byte), and RFC 8785's own vectors, `suite.toml` and git's deadline and cap; integration tests in one binary, `tests/it/`, against real files and real git repositories (subdirectories, a linked worktree, a broken `.git`, no repository): new, concurrent, WAL, refused and copied stores, conditioned appends, envelopes stored and read back with foreign and unusable events among them, telemetry dropped under a held write lock, a read lock at commit and a held open lock, and kept to its window, and the old-ledger fixtures in `tests/fixtures/` (written by weighin 0.2.2 and 1.2.0 binaries built from weigh-in's tags; the 0.1.x one is the 0.2.2 ledger under WAL, as happenstance's own open left 0.1.x ledgers, since 0.1.x predates weigh-in's history). The one test that moves the process's working directory is its own binary, `tests/working_dir.rs`.
+Unit tests beside the code for the header, the transaction helper, tags and their registry, trust, ids, names, envelope fields, writing and reading (the SPEC's EV-01 example byte for byte), and RFC 8785's own vectors, `suite.toml` and git's deadline and cap; integration tests in one binary, `tests/it/`, against real files and real git repositories (subdirectories, a linked worktree, a broken `.git`, no repository): new, concurrent, WAL, refused and copied stores, conditioned appends, envelopes stored and read back with foreign and unusable events among them, telemetry dropped under a held write lock, a read lock at commit and a held open lock, and kept to its window, and the old-ledger fixtures in `tests/fixtures/` (written by weighin 0.2.2 and 1.2.0 binaries built from weigh-in's tags; the 0.1.x one is the 0.2.2 ledger under WAL, as happenstance's own open left 0.1.x ledgers, since 0.1.x predates weigh-in's history). The one test that moves the process's working directory is its own binary, `tests/working_dir.rs`; the git-heavy subject tests are `tests/subject.rs`, since a child forked while another thread holds `<store>.lock` keeps it.
 
 ## Do not
 - Open the store through `SqliteEventStore::open` (it switches the file to WAL).

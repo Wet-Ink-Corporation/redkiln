@@ -23,6 +23,7 @@ pub mod canonical;
 pub mod envelope;
 mod git;
 pub mod ids;
+pub mod journal;
 pub mod legacy;
 pub mod location;
 pub mod store;

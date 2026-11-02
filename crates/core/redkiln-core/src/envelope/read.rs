@@ -5,7 +5,7 @@ use serde_json::Value;
 use super::fields::{self, Field, FieldError};
 use super::strict::Strict;
 use super::wire::{EnvelopeIn, TrustIn};
-use super::{Actor, Envelope, MAX_ENVELOPE_BYTES, Payload, Timestamp, Writer};
+use super::{Actor, Envelope, MAX_ENVELOPE_BYTES, Payload, Timestamp, TypeName, Writer};
 use crate::ids::{IdError, SessionId, WorktreeId, parse_event_ref};
 use crate::store::Stored;
 use crate::trust::{Trust, TrustError};
@@ -113,19 +113,7 @@ pub fn decode_all<'a, P: Payload>(stored: impl IntoIterator<Item = &'a Stored>) 
 }
 
 fn read_known<P: Payload>(stored: &Stored) -> Result<Envelope<P>, Unusable> {
-    let len = stored.data.len();
-    if len > MAX_ENVELOPE_BYTES {
-        return Err(Unusable::TooLarge { len });
-    }
-    // Strictly, so a repeated key is unusable rather than read last-wins; and an object first,
-    // so serde never reads an array into the envelope's fields.
-    let Strict(value) = serde_json::from_slice(&stored.data).map_err(Unusable::Json)?;
-    let Value::Object(object) = value else {
-        return Err(Unusable::Json(serde::de::Error::custom(
-            "an envelope is a JSON object",
-        )));
-    };
-    let wire: EnvelopeIn = serde_json::from_value(Value::Object(object)).map_err(Unusable::Json)?;
+    let wire = parse_wire(&stored.data)?;
     if wire.event_type != stored.event_type {
         return Err(Unusable::TypeMismatch {
             stored: stored.event_type.clone(),
@@ -133,7 +121,73 @@ fn read_known<P: Payload>(stored: &Stored) -> Result<Envelope<P>, Unusable> {
         });
     }
     let version = read_version::<P>(wire.version)?;
-    let envelope = Envelope {
+    let untyped = read_fields(wire)?;
+    let data = read_payload::<P>(version, untyped.data).map_err(Unusable::Payload)?;
+    Ok(Envelope {
+        ts: untyped.ts,
+        actor: untyped.actor,
+        trust: untyped.trust,
+        writer: untyped.writer,
+        session: untyped.session,
+        worktree: untyped.worktree,
+        branch: untyped.branch,
+        head: untyped.head,
+        origin: untyped.origin,
+        cites: untyped.cites,
+        data,
+    })
+}
+
+/// An envelope of any type, every key checked as a typed read checks it, its `data` left as
+/// JSON: what an import or export checks of a line whose type this build may not know. Its type
+/// and version are returned beside it, the type parsed (a registered namespace, EV-03).
+pub(crate) fn read_untyped(bytes: &[u8]) -> Result<(TypeName, u64, Envelope<Value>), Unusable> {
+    let wire = parse_wire(bytes)?;
+    // `NameError` says which part is wrong; a read reports only that the type is unusable.
+    let Ok(name) = TypeName::parse(&wire.event_type) else {
+        return Err(Unusable::Field(FieldError {
+            field: Field::Type,
+            reason: "must be a registered <namespace>.<name> of at most 64 bytes",
+        }));
+    };
+    if wire.version == 0 {
+        return Err(Unusable::Field(FieldError {
+            field: Field::Version,
+            reason: "must be an integer from 1",
+        }));
+    }
+    let version = wire.version;
+    let envelope = read_fields(wire)?;
+    if !envelope.data.is_object() {
+        return Err(Unusable::Field(FieldError {
+            field: Field::Data,
+            reason: "must be a JSON object",
+        }));
+    }
+    Ok((name, version, envelope))
+}
+
+/// `bytes` as an envelope's JSON shape: at most [`MAX_ENVELOPE_BYTES`], an object naming no key
+/// twice at any depth, with EV-01's required keys.
+fn parse_wire(bytes: &[u8]) -> Result<EnvelopeIn, Unusable> {
+    let len = bytes.len();
+    if len > MAX_ENVELOPE_BYTES {
+        return Err(Unusable::TooLarge { len });
+    }
+    // Strictly, so a repeated key is unusable rather than read last-wins; and an object first,
+    // so serde never reads an array into the envelope's fields.
+    let Strict(value) = serde_json::from_slice(bytes).map_err(Unusable::Json)?;
+    let Value::Object(object) = value else {
+        return Err(Unusable::Json(serde::de::Error::custom(
+            "an envelope is a JSON object",
+        )));
+    };
+    serde_json::from_value(Value::Object(object)).map_err(Unusable::Json)
+}
+
+/// The envelope's keys, each under its rule, its `data` as read.
+fn read_fields(wire: EnvelopeIn) -> Result<Envelope<Value>, Unusable> {
+    Ok(Envelope {
         ts: Timestamp::parse(&wire.ts).map_err(Unusable::Field)?,
         actor: Actor::parse(&wire.actor).map_err(Unusable::Field)?,
         trust: read_trust(wire.trust).map_err(Unusable::Trust)?,
@@ -155,9 +209,8 @@ fn read_known<P: Payload>(stored: &Stored) -> Result<Envelope<P>, Unusable> {
                 field: Field::Cites,
                 source,
             })?,
-        data: read_payload::<P>(version, wire.data).map_err(Unusable::Payload)?,
-    };
-    Ok(envelope)
+        data: wire.data,
+    })
 }
 
 /// The envelope's version when `P` reads it: from 1, and no newer than [`Payload::VERSION`].

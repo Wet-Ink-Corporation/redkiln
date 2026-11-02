@@ -83,6 +83,8 @@ pub use name::{MAX_TYPE_BYTES, NameError, Namespace, TypeName};
 pub use read::{Decoded, Skip, Unusable, decode, decode_all};
 
 pub(crate) use name::is_dotted_name;
+pub(crate) use read::read_untyped;
+pub(crate) use wire::trust_json;
 
 /// The largest envelope, serialised (EV-16): 64 KiB.
 pub const MAX_ENVELOPE_BYTES: usize = 64 * 1024;

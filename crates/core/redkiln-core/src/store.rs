@@ -30,6 +30,7 @@
 
 mod aside;
 mod header;
+mod ingest;
 mod open;
 mod retention;
 mod tag;
@@ -45,6 +46,7 @@ use happenstance_core::{
     QueryItem, ReadOptions, SendEventStore, SequencePosition, StoreId, Tags, collect,
 };
 use happenstance_sqlite::event_store::{SqliteEventStore, SqliteEventStoreError};
+use happenstance_sqlite::happenstance_sync::IngestError;
 use happenstance_sqlite::rusqlite;
 
 pub use open::STORE_SCHEMA;
@@ -53,6 +55,7 @@ pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 
 pub(crate) use aside::sibling;
 pub(crate) use header::{Found, read as read_header};
+pub(crate) use ingest::{Foreign, Ingest};
 pub(crate) use tag::check_caller_tag;
 
 /// How long a writer waits for another's lock (ST-09).
@@ -267,6 +270,10 @@ pub enum StoreError {
     /// happenstance could not read the store.
     #[error("reading the store")]
     Read(#[source] SqliteEventStoreError),
+    /// happenstance refused to store events under their own identities (an import): a store
+    /// limit, a busy lock past the timeout, I/O. Nothing of the batch was written.
+    #[error("storing imported events")]
+    Ingest(#[source] IngestError<SqliteEventStoreError>),
     /// Telemetry past its window could not be deleted from the side store for a reason other
     /// than a busy lock (EV-14). The event was not written.
     #[error("pruning the telemetry store {}", path.display())]

@@ -65,6 +65,23 @@ struct TrustOut<'a> {
     claimed: Option<&'static str>,
 }
 
+impl<'a> TrustOut<'a> {
+    fn new(trust: &'a crate::trust::Trust) -> Self {
+        Self {
+            level: trust.level().as_str(),
+            via: trust.via().map(crate::trust::Via::as_str),
+            by: trust.by(),
+            reference: trust.reference(),
+            claimed: trust.claimed().map(crate::trust::Level::as_str),
+        }
+    }
+}
+
+/// `trust` as an envelope writes it (TR-01), for an import's rewrite of a line's `trust`.
+pub(crate) fn trust_json(trust: &crate::trust::Trust) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&TrustOut::new(trust))
+}
+
 #[derive(Debug, Serialize)]
 struct WriterOut<'a> {
     binary: &'a str,
@@ -81,13 +98,7 @@ impl<'a> EnvelopeOut<'a> {
             version,
             ts: envelope.ts.as_str(),
             actor: envelope.actor.to_string(),
-            trust: TrustOut {
-                level: trust.level().as_str(),
-                via: trust.via().map(crate::trust::Via::as_str),
-                by: trust.by(),
-                reference: trust.reference(),
-                claimed: trust.claimed().map(crate::trust::Level::as_str),
-            },
+            trust: TrustOut::new(trust),
             writer: WriterOut {
                 binary: envelope.writer.binary(),
                 version: envelope.writer.version(),

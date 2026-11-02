@@ -140,6 +140,14 @@ impl Timestamp {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Milliseconds since the Unix epoch, negative before it. A `Timestamp` always parses, and
+    /// years 0000 to 9999 fit an `i64` of milliseconds, so the fallback 0 is never taken.
+    pub(crate) fn unix_millis(&self) -> i64 {
+        parse_utc(&self.0)
+            .and_then(|at| i64::try_from(at.unix_timestamp_nanos().div_euclid(1_000_000)).ok())
+            .unwrap_or(0)
+    }
 }
 
 impl fmt::Display for Timestamp {
