@@ -9,7 +9,8 @@
 //!
 //! [`Envelope::to_event`] and [`Envelope::to_telemetry`] build nothing unless every rule holds:
 //! a registered type in the grammar within 64 bytes, a version from 1, a valid `ts`, actor,
-//! trust and writer, a `data` that is a JSON object, at most [`MAX_ENVELOPE_BYTES`] in all, and
+//! trust and writer, a `data` that is a JSON object with no NaN or infinite float, at most
+//! [`MAX_ENVELOPE_BYTES`] in all, and
 //! tags in Core's registry. Core adds the `plugin`, `trust`, `session` and `worktree` tags itself
 //! (EV-12).
 //!
@@ -17,7 +18,8 @@
 //!
 //! [`decode`] skips another type ([`Skip::Foreign`]), ignores unknown keys, reads `null` as
 //! absent, and reports a known type it cannot use ([`Skip::Unusable`]) without failing the
-//! read; [`decode_all`] counts both.
+//! read; [`decode_all`] counts both. An envelope naming a key twice is unusable, never read
+//! last-wins.
 //!
 //! # Example
 //!
@@ -60,8 +62,10 @@
 //! ```
 
 mod fields;
+mod finite;
 mod name;
 mod read;
+mod strict;
 mod wire;
 
 use happenstance_core::EventId;
@@ -139,6 +143,10 @@ pub enum EnvelopeError {
     /// The payload does not serialise to a JSON object (EV-01).
     #[error("the payload must serialise to a JSON object")]
     DataNotObject,
+    /// The payload holds a NaN or an infinity, which JSON cannot hold: `serde_json` would write
+    /// `null`, and the event would read back unusable.
+    #[error("the payload holds a NaN or infinite float, which JSON cannot hold")]
+    NonFinite,
     /// The payload or the envelope could not be serialised.
     #[error("serialising the envelope")]
     Json(#[source] serde_json::Error),
@@ -281,6 +289,13 @@ impl<P: Payload> Envelope<P> {
         // The payload is written as its type serialises it, keys in its own order; a JSON
         // value would sort them.
         let data = serde_json::to_vec(&self.data).map_err(EnvelopeError::Json)?;
+        finite::check(&self.data).map_err(|found| match found {
+            finite::Found::NonFinite => EnvelopeError::NonFinite,
+            // The payload's `Serialize` failed this time where it succeeded for serde_json.
+            finite::Found::Custom(message) => {
+                EnvelopeError::Json(serde::ser::Error::custom(message))
+            }
+        })?;
         if data.first() != Some(&b'{') {
             return Err(EnvelopeError::DataNotObject);
         }
@@ -521,6 +536,46 @@ mod tests {
             minimal(Bare("x".to_owned())).encode(),
             Err(EnvelopeError::DataNotObject)
         ));
+    }
+
+    #[derive(Debug, Serialize, serde::Deserialize)]
+    struct Measured {
+        ratio: f64,
+        samples: Vec<Option<f32>>,
+    }
+
+    impl Payload for Measured {
+        const TYPE: &'static str = "core.measured";
+        const VERSION: u32 = 1;
+        const CLASS: Class = Class::Telemetry;
+    }
+
+    #[test]
+    fn a_non_finite_float_is_refused_not_written_as_null() {
+        let finite = minimal(Measured {
+            ratio: 0.5,
+            samples: vec![Some(1.5), None],
+        });
+        finite.to_telemetry([]).expect("finite floats are written");
+        for ratio in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let refused = minimal(Measured {
+                ratio,
+                samples: Vec::new(),
+            })
+            .encode();
+            assert!(
+                matches!(refused, Err(EnvelopeError::NonFinite)),
+                "{ratio}: {refused:?}"
+            );
+        }
+        let nested = minimal(Measured {
+            ratio: 0.5,
+            samples: vec![None, Some(f32::NAN)],
+        });
+        assert!(
+            matches!(nested.to_telemetry([]), Err(EnvelopeError::NonFinite)),
+            "found at any depth"
+        );
     }
 
     #[derive(Debug, Serialize, serde::Deserialize)]

@@ -415,6 +415,12 @@ fn a_store_copied_to_another_path_gets_a_new_identity_and_keeps_its_events() {
 }
 
 #[test]
+fn a_path_with_no_absolute_form_is_refused_before_anything_is_opened() {
+    let err = refusal(Path::new(""));
+    assert!(matches!(err, OpenError::AbsolutePath(_)), "{err:?}");
+}
+
+#[test]
 fn the_store_refuses_to_run_inside_an_async_runtime() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("events.sqlite3");

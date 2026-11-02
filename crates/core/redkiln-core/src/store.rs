@@ -81,10 +81,13 @@ pub enum OpenError {
     /// The file's header could not be read.
     #[error("reading the store file's header")]
     Header(#[source] std::io::Error),
-    /// The store's canonical (or, for the telemetry connection, absolute) path could not be
-    /// found.
+    /// The store's canonical path could not be found.
     #[error("finding the store's canonical path")]
     Canonicalize(#[source] std::io::Error),
+    /// The store's path has no absolute form (it is empty, or the working directory is gone),
+    /// which the telemetry connection opens at.
+    #[error("finding the store's absolute path")]
+    AbsolutePath(#[source] std::io::Error),
     /// SQLite failed at `step`.
     #[error("SQLite failed while {step}")]
     Sqlite {
@@ -135,6 +138,10 @@ pub enum OpenError {
         #[source]
         source: std::io::Error,
     },
+    /// No store at the path (the file is missing, empty or a database never stamped), where
+    /// the open needed one: the telemetry connection never creates the store it writes to.
+    #[error("there is no store at the path; it was not created")]
+    NoStore,
     /// The open lock beside the store (`<store>.lock`) could not be created or taken.
     #[error("taking the store's open lock")]
     Lock(#[source] std::io::Error),
@@ -456,13 +463,16 @@ impl Store {
     /// a store ([`OpenError::NotAStore`]), each left as it was.
     pub fn open(path: &Path, wait: Wait) -> Result<Self, StoreError> {
         refuse_inside_runtime()?;
-        let opened = open::open(path, wait.timeout()).and_then(|inner| {
-            let runtime = Driver::new().map_err(OpenError::Runtime)?;
-            // Absolute, so the telemetry connection opens the same file whatever the working
-            // directory becomes; not canonicalised, so Windows keeps the form SQLite was given.
-            let absolute = std::path::absolute(path).map_err(OpenError::Canonicalize)?;
-            Ok((inner, runtime, absolute))
-        });
+        // Absolute, so the telemetry connection opens the same file whatever the working
+        // directory becomes; not canonicalised, so Windows keeps the form SQLite was given.
+        // Found first, so a path with no absolute form opens nothing.
+        let opened = std::path::absolute(path)
+            .map_err(OpenError::AbsolutePath)
+            .and_then(|absolute| {
+                let inner = open::open(path, wait.timeout(), open::Mode::Create)?;
+                let runtime = Driver::new().map_err(OpenError::Runtime)?;
+                Ok((inner, runtime, absolute))
+            });
         match opened {
             Ok((inner, runtime, path)) => Ok(Self {
                 inner,

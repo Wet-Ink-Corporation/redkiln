@@ -54,30 +54,50 @@ const fn at(step: Step) -> impl FnOnce(rusqlite::Error) -> OpenError {
     move |source| OpenError::Sqlite { step, source }
 }
 
-/// Opens (creating when absent) the store at `path` and hands its connection to happenstance.
+/// Whether an open may create the store.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Mode {
+    /// Creates the store, and its directory, when there is none: [`super::Store::open`].
+    Create,
+    /// Opens only a store that exists, refusing a missing or empty file, or a database never
+    /// stamped, with [`OpenError::NoStore`] before anything is created or set aside: the
+    /// telemetry connection, which must never stand up a new store where the opened one was.
+    Existing,
+}
+
+/// Opens the store at `path` and hands its connection to happenstance; under [`Mode::Create`]
+/// a missing or empty file becomes a new store.
 ///
-/// Until the file is known to be a store this build opens, or an empty database, nothing is
-/// written to it or beside it, so a refused file is left exactly as it was. A file stamped in
-/// Core's range (1000 to 1999) is taken to be a store: only Core writes that stamp (ST-06).
-pub(super) fn open(path: &Path, busy: Duration) -> Result<SqliteEventStore, OpenError> {
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+/// Until the file is known to be a store this build opens, or an empty database it may create,
+/// nothing is written to it or beside it, so a refused file is left exactly as it was. A file
+/// stamped in Core's range (1000 to 1999) is taken to be a store: only Core writes that stamp
+/// (ST-06).
+pub(super) fn open(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEventStore, OpenError> {
+    if mode == Mode::Create
+        && let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty())
+    {
         std::fs::create_dir_all(dir).map_err(OpenError::CreateDir)?;
     }
     // Refused first, so that no lock file is created beside a file this build will not open.
-    preview(path)?;
+    refuse_found(&header::read(path)?, mode)?;
     let lock = take_lock(path, busy)?;
-    let store = open_locked(path, busy)?;
+    let store = open_locked(path, busy, mode)?;
     // Closing the lock file releases its lock.
     drop(lock);
     Ok(store)
 }
 
-/// The refusals the header decides, before anything is created beside the file.
-fn preview(path: &Path) -> Result<(), OpenError> {
-    match header::read(path)? {
-        Found::NotSqlite => Err(OpenError::NotAStore),
-        Found::Sqlite(found) => refuse(&found),
-        Found::Missing | Found::Empty => Ok(()),
+/// The refusals the header decides, before anything is created beside the file: a file that is
+/// not SQLite, ST-07's refusals, and under [`Mode::Existing`] a file holding no store yet.
+fn refuse_found(found: &Found, mode: Mode) -> Result<(), OpenError> {
+    match (found, mode) {
+        (Found::NotSqlite, _) => Err(OpenError::NotAStore),
+        (Found::Sqlite(header), Mode::Existing) if header.user_version == 0 => {
+            refuse(header).and(Err(OpenError::NoStore))
+        }
+        (Found::Sqlite(header), _) => refuse(header),
+        (Found::Missing | Found::Empty, Mode::Existing) => Err(OpenError::NoStore),
+        (Found::Missing | Found::Empty, Mode::Create) => Ok(()),
     }
 }
 
@@ -109,11 +129,12 @@ fn take_lock(path: &Path, busy: Duration) -> Result<Option<File>, OpenError> {
 
 /// [`open`] under the open lock: the header is read again, since it may have changed while the
 /// lock was awaited.
-fn open_locked(path: &Path, busy: Duration) -> Result<SqliteEventStore, OpenError> {
-    match header::read(path)? {
+fn open_locked(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEventStore, OpenError> {
+    let found = header::read(path)?;
+    refuse_found(&found, mode)?;
+    match found {
         Found::NotSqlite => return Err(OpenError::NotAStore),
         Found::Sqlite(found) => {
-            refuse(&found)?;
             // A `-wal` beside a file that is not in WAL is stale, and SQLite would delete it on
             // connect, which Cowork refuses. A stamped store in WAL keeps it until converted.
             if !found.wal {
@@ -136,10 +157,11 @@ fn open_locked(path: &Path, busy: Duration) -> Result<SqliteEventStore, OpenErro
     // let through this writes nothing to it: a rollback journal mode is the connection's, and
     // only a stamped store in WAL (converted here) changes its header.
     use_truncate(&conn, busy)?;
-    match inspect(&conn)? {
-        Contents::Empty => create_schema(&conn, path)?,
-        Contents::Store => {}
-        Contents::Foreign => return Err(OpenError::NotAStore),
+    match (inspect(&conn)?, mode) {
+        (Contents::Empty, Mode::Create) => create_schema(&conn, path)?,
+        (Contents::Empty, Mode::Existing) => return Err(OpenError::NoStore),
+        (Contents::Store, _) => {}
+        (Contents::Foreign, _) => return Err(OpenError::NotAStore),
     }
     check_stamp(user_version(&conn)?)?;
     // TRUNCATE is in force, so no connection is using a WAL now; one left beside the store is
@@ -496,6 +518,66 @@ mod tests {
             check_stamp(-1),
             Err(OpenError::OldLedger { found: -1 })
         ));
+    }
+
+    fn names(dir: &Path) -> Vec<std::ffi::OsString> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .expect("list")
+            .map(|e| e.expect("entry").file_name())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn an_existing_only_open_of_a_missing_file_creates_nothing() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("gone").join("events.sqlite3");
+        let err = open(&path, Duration::ZERO, Mode::Existing).expect_err("no store");
+        assert!(matches!(err, OpenError::NoStore), "{err:?}");
+        assert!(names(dir.path()).is_empty(), "not even its directory");
+    }
+
+    #[test]
+    fn an_existing_only_open_of_an_empty_file_or_database_leaves_it_as_it_was() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let empty = dir.path().join("empty.sqlite3");
+        std::fs::write(&empty, b"").expect("an empty file");
+        let unstamped = dir.path().join("unstamped.sqlite3");
+        let conn = Connection::open(&unstamped).expect("open");
+        // Writes a header: a database with no schema and no stamp.
+        conn.execute_batch("PRAGMA application_id = 7")
+            .expect("write the header");
+        drop(conn);
+        assert!(
+            std::fs::metadata(&unstamped).expect("stat").len() > 0,
+            "a header was written"
+        );
+        let before: Vec<_> = [&empty, &unstamped]
+            .map(|p| std::fs::read(p).expect("read"))
+            .into();
+        for path in [&empty, &unstamped] {
+            let err = open(path, Duration::ZERO, Mode::Existing).expect_err("no store");
+            assert!(matches!(err, OpenError::NoStore), "{path:?}: {err:?}");
+        }
+        let after: Vec<_> = [&empty, &unstamped]
+            .map(|p| std::fs::read(p).expect("read"))
+            .into();
+        assert_eq!(after, before, "neither file was written");
+        assert_eq!(
+            names(dir.path()),
+            ["empty.sqlite3", "unstamped.sqlite3"],
+            "no lock or journal beside them"
+        );
+    }
+
+    #[test]
+    fn an_existing_only_open_opens_an_existing_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        let created = open(&path, Duration::ZERO, Mode::Create).expect("created");
+        let reopened = open(&path, Duration::ZERO, Mode::Existing).expect("opened");
+        assert_eq!(reopened.store_id(), created.store_id());
     }
 
     #[test]

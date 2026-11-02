@@ -57,8 +57,9 @@ pub enum CanonicalError {
 /// `value` in RFC 8785's canonical form.
 ///
 /// # Errors
-/// [`CanonicalError::Integer`] for an integer beyond +-2^53; [`CanonicalError::TooDeep`] for
-/// nesting past [`MAX_DEPTH`].
+/// [`CanonicalError::Integer`] for an integer beyond +-2^53; [`CanonicalError::Number`] for a
+/// number whose `serde_json` text has no ECMAScript form here (no finite double has one);
+/// [`CanonicalError::TooDeep`] for nesting past [`MAX_DEPTH`].
 pub fn canonical_json(value: &Value) -> Result<String, CanonicalError> {
     let mut out = String::new();
     write_value(&mut out, value, 0)?;

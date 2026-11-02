@@ -1,8 +1,9 @@
 //! Lenient typed reads (SPEC EV-08 to EV-10).
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::fields::{self, Field, FieldError};
+use super::strict::Strict;
 use super::wire::{EnvelopeIn, TrustIn};
 use super::{Actor, Envelope, MAX_ENVELOPE_BYTES, Payload, Timestamp, Writer};
 use crate::ids::{IdError, SessionId, WorktreeId, parse_event_ref};
@@ -29,7 +30,8 @@ pub enum Unusable {
         /// The stored length.
         len: usize,
     },
-    /// The stored bytes are not an envelope: not a JSON object, or missing a required key.
+    /// The stored bytes are not an envelope: not a JSON object, an object naming a key twice at
+    /// any depth, or missing a required key.
     #[error("the stored bytes are not an envelope")]
     Json(#[source] serde_json::Error),
     /// The envelope's `type` is not the stored event's type.
@@ -115,9 +117,14 @@ fn read_known<P: Payload>(stored: &Stored) -> Result<Envelope<P>, Unusable> {
     if len > MAX_ENVELOPE_BYTES {
         return Err(Unusable::TooLarge { len });
     }
-    // An object first, so serde never reads an array into the envelope's fields.
-    let object: Map<String, Value> =
-        serde_json::from_slice(&stored.data).map_err(Unusable::Json)?;
+    // Strictly, so a repeated key is unusable rather than read last-wins; and an object first,
+    // so serde never reads an array into the envelope's fields.
+    let Strict(value) = serde_json::from_slice(&stored.data).map_err(Unusable::Json)?;
+    let Value::Object(object) = value else {
+        return Err(Unusable::Json(serde::de::Error::custom(
+            "an envelope is a JSON object",
+        )));
+    };
     let wire: EnvelopeIn = serde_json::from_value(Value::Object(object)).map_err(Unusable::Json)?;
     if wire.event_type != stored.event_type {
         return Err(Unusable::TypeMismatch {
@@ -355,6 +362,50 @@ mod tests {
                 matches!(read, Err(Skip::Unusable(Unusable::Json(_)))),
                 "{data:?}: {read:?}"
             );
+        }
+    }
+
+    #[test]
+    fn a_repeated_key_makes_the_event_unusable_not_read_last_wins() {
+        let edits = [
+            // A second `trust`, lower than the first: last-wins would read it as asserted.
+            (
+                "trust",
+                SPEC_EXAMPLE.replacen(
+                    r#""writer":"#,
+                    r#""trust":{"level":"asserted"},"writer":"#,
+                    1,
+                ),
+            ),
+            (
+                "type",
+                SPEC_EXAMPLE.replacen(
+                    r#""version":"#,
+                    r#""type":"weighin.item_decided","version":"#,
+                    1,
+                ),
+            ),
+            (
+                "trust.level",
+                SPEC_EXAMPLE.replacen(
+                    r#""level":"witnessed""#,
+                    r#""level":"witnessed","level":"asserted""#,
+                    1,
+                ),
+            ),
+        ];
+        for (key, text) in edits {
+            assert_ne!(text, SPEC_EXAMPLE, "{key}: the edit applied");
+            let read = decode::<ItemDecided>(&stored("weighin.item_decided", &text));
+            match read {
+                Err(Skip::Unusable(Unusable::Json(error))) => {
+                    assert!(
+                        error.to_string().contains("duplicate key"),
+                        "{key}: {error}"
+                    );
+                }
+                other => panic!("{key}: expected Unusable::Json, got {other:?}"),
+            }
         }
     }
 

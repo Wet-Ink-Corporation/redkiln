@@ -127,10 +127,12 @@ pub(crate) fn check_caller_tag(tag: &Tag) -> Result<(), TagError> {
         };
     }
     match key.split_once('.') {
-        Some((namespace, rest))
-            if namespace.parse::<Namespace>().is_ok() && is_dotted_name(rest) =>
-        {
-            Ok(())
+        Some((namespace, rest)) if namespace.parse::<Namespace>().is_ok() => {
+            if is_dotted_name(rest) {
+                Ok(())
+            } else {
+                Err(TagError::Key)
+            }
         }
         _ => Err(TagError::Unregistered),
     }
@@ -368,8 +370,10 @@ mod tests {
         );
         assert_eq!(
             check_caller_tag(&raw("weighin.Chan", "1")),
-            Err(TagError::Unregistered)
+            Err(TagError::Key),
+            "a registered namespace with a key outside the grammar"
         );
+        assert_eq!(check_caller_tag(&raw("weighin.", "1")), Err(TagError::Key));
         assert_eq!(
             check_caller_tag(&raw("pr", "x")),
             Err(TagError::Value { key: CoreKey::Pr })

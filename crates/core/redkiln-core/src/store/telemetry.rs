@@ -3,7 +3,8 @@
 //! A durable append waits up to the open's busy timeout on happenstance's connection. A
 //! telemetry event goes through a second connection to the same file, opened on the first
 //! telemetry write by Core's own open path with no busy wait at all: the open lock, the journal
-//! switch and the append each try once. Any busy answer on the way (the open lock held, SQLite's
+//! switch and the append each try once. That open only opens a store that exists, so a store
+//! file that vanished is never created again, nor anything set aside, by a telemetry write. Any busy answer on the way (the open lock held, SQLite's
 //! `SQLITE_BUSY` or `SQLITE_LOCKED` when beginning, writing or committing) drops the event and
 //! counts it; nothing retries. A busy `COMMIT` leaves SQLite's transaction open, and rusqlite
 //! rolls it back when happenstance's transaction is dropped, so a dropped event is never
@@ -44,7 +45,8 @@ impl Store {
     ///
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Open`] when the telemetry connection cannot
-    /// be opened for a reason other than a busy lock; [`StoreError::IdentityChanged`] when the
+    /// be opened for a reason other than a busy lock, [`OpenError::NoStore`] among them when the
+    /// store's file is gone; [`StoreError::IdentityChanged`] when the
     /// file at the store's path is no longer the store opened; [`StoreError::Append`] when
     /// happenstance refuses the append for a reason other than a busy lock.
     pub fn record_telemetry(&mut self, event: TelemetryEvent) -> Result<Recorded, StoreError> {
@@ -84,7 +86,7 @@ fn telemetry_handle<'a>(
     opened: StoreId,
 ) -> Result<Option<&'a SqliteEventStore>, StoreError> {
     if slot.is_none() {
-        match open::open(path, Duration::ZERO) {
+        match open::open(path, Duration::ZERO, open::Mode::Existing) {
             Ok(handle) if handle.store_id() == opened => *slot = Some(handle),
             Ok(handle) => {
                 return Err(StoreError::IdentityChanged {
