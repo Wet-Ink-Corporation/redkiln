@@ -20,6 +20,7 @@ Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError
 
 ## Invariants
 - The store runs under TRUNCATE, never WAL or DELETE. Nothing here deletes a file beside the store; files are set aside by renaming (ST-05).
+- Core's openers hold an advisory lock on `<store>.lock` (created on the first open, never deleted) from re-reading the header to handing the connection over, so a `-journal` or `-wal` set aside is never another opener's live one. A refused file gets no lock file; a file system without whole-file locks opens unlocked.
 - Only Core writes `PRAGMA user_version`. A store is created with its schema and the stamp `1000` in one `BEGIN IMMEDIATE`, so a Core store never reads 0 (ST-06).
 - A file this crate refuses (newer major, not a store, an old plugin ledger) is left byte for byte as it was: its header is read before SQLite opens it (ST-07).
 - An old plugin ledger (stamp below 1000) is never opened in place and never stamped: a 1.x binary beside 2.0 would refuse a stamped file. It is read from a copy on the temporary disk (ST-15, ST-16).

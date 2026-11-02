@@ -129,6 +129,13 @@ pub enum OpenError {
         #[source]
         source: std::io::Error,
     },
+    /// The open lock beside the store (`<store>.lock`) could not be created or taken.
+    #[error("taking the store's open lock")]
+    Lock(#[source] std::io::Error),
+    /// Another opener held the open lock for longer than the wait: it is creating or converting
+    /// the store.
+    #[error("another process is opening the store; timed out waiting for it")]
+    LockBusy,
     /// The temporary directory for the schema template could not be created or removed.
     #[error("creating or removing the schema template's temporary directory")]
     TempDir(#[source] std::io::Error),

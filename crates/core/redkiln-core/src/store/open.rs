@@ -1,6 +1,8 @@
 //! Opening a store file: one connection under TRUNCATE, the schema copied in from a template
 //! with its stamp, and the refusals of ST-07 decided before anything is written.
 
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -25,6 +27,12 @@ const PATH_KEY: &str = "path";
 
 /// The pause between attempts to switch a WAL store to TRUNCATE while another connection holds it.
 const RETRY_PAUSE: Duration = Duration::from_millis(20);
+
+/// The suffix of the open lock, `<store>.lock`: a file created once beside a store and never
+/// deleted (ST-05), whose lock every Core opener holds from reading the header to handing the
+/// connection over. While it is held, a `-journal` or `-wal` beside the store is no Core
+/// opener's own, so setting one aside never takes another creator's live journal.
+pub(crate) const LOCK_SUFFIX: &str = ".lock";
 
 /// How many names `set_aside` tries before giving up.
 const ASIDE_NAMES: u32 = 100;
@@ -54,6 +62,53 @@ pub(super) fn open(path: &Path, busy: Duration) -> Result<SqliteEventStore, Open
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(OpenError::CreateDir)?;
     }
+    // Refused first, so that no lock file is created beside a file this build will not open.
+    preview(path)?;
+    let lock = take_lock(path, busy)?;
+    let store = open_locked(path, busy)?;
+    // Closing the lock file releases its lock.
+    drop(lock);
+    Ok(store)
+}
+
+/// The refusals the header decides, before anything is created beside the file.
+fn preview(path: &Path) -> Result<(), OpenError> {
+    match header::read(path)? {
+        Found::NotSqlite => Err(OpenError::NotAStore),
+        Found::Sqlite(found) => refuse(&found),
+        Found::Missing | Found::Empty => Ok(()),
+    }
+}
+
+/// Takes the open lock, waiting at most `busy` for another opener to finish. A file system
+/// without whole-file locks opens unlocked, as SQLite alone would: the lock only keeps
+/// concurrent first creations from setting each other's journals aside.
+fn take_lock(path: &Path, busy: Duration) -> Result<Option<File>, OpenError> {
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(sibling(path, LOCK_SUFFIX))
+        .map_err(OpenError::Lock)?;
+    let deadline = Instant::now().checked_add(busy);
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(Some(file)),
+            Err(TryLockError::WouldBlock) if deadline.is_some_and(|d| Instant::now() < d) => {}
+            Err(TryLockError::WouldBlock) => return Err(OpenError::LockBusy),
+            Err(TryLockError::Error(e)) if e.kind() == io::ErrorKind::Unsupported => {
+                return Ok(None);
+            }
+            Err(TryLockError::Error(e)) => return Err(OpenError::Lock(e)),
+        }
+        std::thread::sleep(RETRY_PAUSE);
+    }
+}
+
+/// [`open`] under the open lock: the header is read again, since it may have changed while the
+/// lock was awaited.
+fn open_locked(path: &Path, busy: Duration) -> Result<SqliteEventStore, OpenError> {
     match header::read(path)? {
         Found::NotSqlite => return Err(OpenError::NotAStore),
         Found::Sqlite(found) => {
@@ -82,7 +137,7 @@ pub(super) fn open(path: &Path, busy: Duration) -> Result<SqliteEventStore, Open
     use_truncate(&conn, busy)?;
     match inspect(&conn)? {
         Contents::Empty => create_schema(&conn, path)?,
-        Contents::Store => check_stamp(user_version(&conn)?)?,
+        Contents::Store => {}
         Contents::Foreign => return Err(OpenError::NotAStore),
     }
     check_stamp(user_version(&conn)?)?;
@@ -207,7 +262,7 @@ fn set_aside(path: &Path, suffix: &str) -> Result<(), OpenError> {
     }
     Err(OpenError::SetAside {
         path: file,
-        source: std::io::Error::from(std::io::ErrorKind::AlreadyExists),
+        source: io::Error::from(io::ErrorKind::AlreadyExists),
     })
 }
 

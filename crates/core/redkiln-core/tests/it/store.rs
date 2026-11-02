@@ -110,6 +110,50 @@ fn concurrent_creators_share_one_schema_and_identity() {
         "one identity: {ids:?}"
     );
     assert_eq!(all(&open(&path)).len(), 6);
+    let orphans: Vec<_> = listing(dir.path())
+        .into_iter()
+        .filter(|n| n.contains(".orphaned-"))
+        .collect();
+    assert!(
+        orphans.is_empty(),
+        "no creator's live journal is set aside: {orphans:?}"
+    );
+}
+
+#[test]
+fn an_open_waits_for_a_creation_in_progress_and_leaves_its_journal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    // Another Core opener midway through creating the store: it holds the open lock, and its
+    // creation transaction has a live journal beside a file with no pages yet.
+    let lock = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(sibling(&path, ".lock"))
+        .expect("the lock file");
+    lock.lock().expect("hold the open lock");
+    let creator = Connection::open(&path).expect("connect");
+    creator
+        .execute_batch("PRAGMA journal_mode = truncate; BEGIN IMMEDIATE; CREATE TABLE t (x);")
+        .expect("a creation in progress");
+    let journal = sibling(&path, "-journal");
+    assert!(journal.exists(), "the creation has a live journal");
+
+    match Store::open(&path, Wait::Hook) {
+        Err(StoreError::Open {
+            source: OpenError::LockBusy,
+            ..
+        }) => {}
+        other => panic!("expected the open to wait for the lock, got {other:?}"),
+    }
+    assert!(journal.exists(), "the live journal keeps its name");
+    assert!(
+        !listing(dir.path()).iter().any(|n| n.contains(".orphaned-")),
+        "nothing is set aside while a creation is in progress"
+    );
+    creator.execute_batch("ROLLBACK").expect("roll back");
 }
 
 #[test]

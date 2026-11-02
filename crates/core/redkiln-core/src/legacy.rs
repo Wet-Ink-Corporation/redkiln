@@ -38,8 +38,9 @@ const RETRY_PAUSE: Duration = Duration::from_millis(50);
 /// How many events one read of the copy returns.
 const PAGE: usize = 512;
 
-/// The bytes of a WAL header that a checkpoint or a WAL reset changes: the checkpoint sequence
-/// and both salts (offsets 12 to 24).
+/// The WAL header's first 24 bytes, which the fingerprint keeps: magic, format version, page
+/// size, then the checkpoint sequence and both salts (offsets 12 to 24), which a checkpoint or
+/// a WAL reset changes.
 const WAL_HEADER_LEN: usize = 24;
 
 /// An old ledger as read: its identity, its stamp and every event, in position order.
@@ -101,6 +102,10 @@ pub enum LegacyError {
     /// Reading its events failed.
     #[error("reading the ledger's events")]
     Read(#[source] StoreError),
+    /// Called inside a tokio runtime context, where the reader's `block_on` cannot run. It is
+    /// refused before anything is copied.
+    #[error("the ledger reader cannot run inside an async runtime; call it from a blocking thread")]
+    InsideRuntime,
     /// The runtime that drives happenstance could not start.
     #[error("starting the async runtime")]
     Runtime(#[source] io::Error),
@@ -125,7 +130,8 @@ struct WalFingerprint {
 /// and every file beside it, are left as they were.
 ///
 /// # Errors
-/// [`LegacyError`]: a missing or non-SQLite file, a Core store, a ledger over
+/// [`LegacyError`]: a call inside a tokio runtime context ([`LegacyError::InsideRuntime`],
+/// before anything is copied), a missing or non-SQLite file, a Core store, a ledger over
 /// [`MAX_LEDGER_BYTES`], a hot journal, one that changed under every copy, or a copy SQLite or
 /// happenstance cannot read.
 pub fn read_ledger(path: &Path) -> Result<LegacyLedger, LegacyError> {
@@ -135,15 +141,18 @@ pub fn read_ledger(path: &Path) -> Result<LegacyLedger, LegacyError> {
 /// [`read_ledger`], calling `between` after each copy and before the source is looked at again,
 /// so a test can change the source while it is being copied.
 fn read_ledger_with(path: &Path, mut between: impl FnMut()) -> Result<LegacyLedger, LegacyError> {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return Err(LegacyError::InsideRuntime);
+    }
     let tmp = tempfile::tempdir().map_err(LegacyError::Io)?;
     let copy = tmp.path().join("ledger.sqlite3");
     let mut hot = 0;
     for attempt in 1..=ATTEMPTS {
         let before = fingerprint(path)?;
         if before.journal_empty {
-            take_copy(path, &copy, before)?;
+            let copied = take_copy(path, &copy, before)?;
             between();
-            if fingerprint(path)? == before {
+            if copied == Copied::Taken && fingerprint(path)? == before {
                 let ledger = read_copy(&copy)?;
                 tmp.close().map_err(LegacyError::Io)?;
                 return Ok(ledger);
@@ -219,17 +228,33 @@ fn wal_fingerprint(wal: &Path) -> Result<Option<WalFingerprint>, LegacyError> {
 
 /// Copies the ledger and its `-wal` (when there is one) beside `copy`, replacing an earlier
 /// attempt's files, reading at most [`MAX_LEDGER_BYTES`] in all.
-fn take_copy(path: &Path, copy: &Path, before: Fingerprint) -> Result<(), LegacyError> {
+fn take_copy(path: &Path, copy: &Path, before: Fingerprint) -> Result<Copied, LegacyError> {
     let mut budget = MAX_LEDGER_BYTES;
     copy_capped(path, copy, &mut budget)?;
     let copied_wal = sibling(copy, "-wal");
     if before.wal.is_some() {
-        copy_capped(&sibling(path, "-wal"), &copied_wal, &mut budget)?;
+        match copy_capped(&sibling(path, "-wal"), &copied_wal, &mut budget) {
+            Ok(()) => {}
+            // A WAL ledger's last connection removes its `-wal` as it closes.
+            Err(LegacyError::Io(gone)) if gone.kind() == io::ErrorKind::NotFound => {
+                return Ok(Copied::SourceChanged);
+            }
+            Err(other) => return Err(other),
+        }
     } else if copied_wal.try_exists().map_err(LegacyError::Io)? {
         // Our own temporary directory, never beside the ledger.
         fs::remove_file(&copied_wal).map_err(LegacyError::Io)?;
     }
-    Ok(())
+    Ok(Copied::Taken)
+}
+
+/// What one copy of the ledger came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Copied {
+    /// The files fingerprinted were copied; the fingerprint, taken again, says if they held still.
+    Taken,
+    /// A file fingerprinted was gone by the time it was copied: the source changed.
+    SourceChanged,
 }
 
 /// Copies `from` to `to`, spending its length from `budget`, and refuses a file that would
@@ -386,6 +411,39 @@ mod tests {
         let result = read_ledger_with(&path, || copies += 1);
         assert!(matches!(result, Err(LegacyError::HotJournal)), "{result:?}");
         assert_eq!(copies, 0, "no copy is taken beside a hot journal");
+    }
+
+    #[test]
+    fn a_wal_that_vanishes_before_the_copy_is_a_change_not_an_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = fixture("weighin-0.1.x.sqlite3", dir.path());
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch("PRAGMA wal_autocheckpoint = 0;")
+            .expect("no checkpoint");
+        commit_one(&conn);
+        let before = fingerprint(&path).expect("fingerprint");
+        assert!(before.wal.is_some(), "the commit is in the WAL");
+        // The last connection of a WAL ledger closing removes its `-wal`.
+        fs::rename(sibling(&path, "-wal"), dir.path().join("gone")).expect("rename");
+        let copy = tempfile::tempdir().expect("tempdir");
+        let taken = take_copy(&path, &copy.path().join("copy.sqlite3"), before);
+        assert!(matches!(taken, Ok(Copied::SourceChanged)), "{taken:?}");
+    }
+
+    #[test]
+    fn a_read_inside_an_async_runtime_is_refused_before_any_copy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = fixture("weighin-0.2.2.sqlite3", dir.path());
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime");
+        let mut copies = 0;
+        let result = runtime.block_on(async { read_ledger_with(&path, || copies += 1) });
+        assert!(
+            matches!(result, Err(LegacyError::InsideRuntime)),
+            "{result:?}"
+        );
+        assert_eq!(copies, 0, "nothing is copied inside a runtime");
     }
 
     #[test]
