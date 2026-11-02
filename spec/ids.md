@@ -48,21 +48,30 @@ Today the two ledgers spell the worktree two ways: anneal writes the normalised 
 | `patch-id` | `git patch-id --verbatim` of the pinned diff below, from `<base>...<commit>`, recorded with its base | `patch-id:<40 or 64 hex>` | Yes, when the rebase is clean | Yes |
 | `rust-fingerprint` | Redkiln Rust's change fingerprint over Rust pathspecs, byte-identical with temper 1.x | `rust-fingerprint:<hex>` | Only when the base changed no Rust file | Only when the base changed no Rust file |
 
-The `patch-id` diff is pinned so that its id depends only on the change: not on git configuration (colour, renames, prefixes, context, diff algorithm, indent heuristic, path quoting, submodule format, external diff and textconv drivers), not on attributes from any source (`core.attributesFile`, `.git/info/attributes`, a checked-out `.gitattributes`, `diff=` drivers, `binary`, `-diff`), and not on replace refs. It runs with `GIT_DIFF_OPTS` and `GIT_EXTERNAL_DIFF` unset, since the first overrides `-U`, and needs git 2.39 or later:
+The `patch-id` diff is pinned so that its id depends only on the change: not on git configuration (colour, renames, prefixes, context, diff algorithm, indent heuristic, path quoting, submodule format, external diff and textconv drivers), not on attributes from any source (`core.attributesFile`, `.git/info/attributes`, a checked-out `.gitattributes`, `diff=` drivers, `binary`, `-diff`), and not on replace refs or grafts. It runs with `GIT_DIFF_OPTS` and `GIT_EXTERNAL_DIFF` unset, since the first overrides `-U`, and `GIT_GRAFT_FILE` pointing at `/dev/null`, and needs git 2.39 or later:
 
 ```sh
-env -u GIT_DIFF_OPTS -u GIT_EXTERNAL_DIFF \
-git -c core.quotePath=true -c diff.suppressBlankEmpty=false -c core.useReplaceRefs=false \
-  diff --no-color --no-ext-diff --no-textconv --no-renames --no-relative \
-  --ignore-submodules=none --submodule=short --text --full-index -U3 \
-  --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic \
-  --src-prefix=a/ --dst-prefix=b/ -O/dev/null <base>...<commit> \
-| git patch-id --verbatim
+(
+  unset GIT_DIFF_OPTS GIT_EXTERNAL_DIFF
+  GIT_GRAFT_FILE=/dev/null; export GIT_GRAFT_FILE
+  git -c core.quotePath=true -c diff.suppressBlankEmpty=false -c core.useReplaceRefs=false \
+    diff --no-color --no-ext-diff --no-textconv --no-renames --no-relative \
+    --ignore-submodules=none --submodule=short --text --full-index -U3 \
+    --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic \
+    --src-prefix=a/ --dst-prefix=b/ -O/dev/null <base>...<commit>
+) | git patch-id --verbatim
 ```
 
-`--text` diffs every file as text, so no attribute can turn a file into "Binary files differ" (binary content still counts). `--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles, and since git 2.39 implies `--stable`, so file order does not matter. The id is the first field of patch-id's output. `--full-index` and `-O/dev/null` pin the diff's bytes for anyone who reads them; patch-id ignores both.
+`--text` diffs every file as text, so no attribute can turn a file into "Binary files differ" (binary content still counts). `--verbatim` keeps whitespace, which is code in Python, YAML and Makefiles, and since git 2.39 implies `--stable`, so file order does not matter. The id is the first field of patch-id's output. `--full-index`, `-O/dev/null` and the hunk headers' function context (`diff=cpp`, `xfuncname`) change only the diff's bytes; patch-id ignores all three, and the first two pin those bytes for anyone who reads them.
 
-`spec/fixtures/patch-id/check.sh` is the conformance fixture: a change sensitive to each pinned input, the id taken under each hostile setting, attribute file, environment variable and replace ref in turn, and a control per case showing that a plain `git diff` under it gives another id. CI runs it. A change to this recipe changes what every recorded `patch-id` means, so it is a new method name, never an edit (OW-14).
+There is an id only when all of these hold; otherwise the subject has none, and nothing is bound to `patch-id:` with an empty or partial hash:
+- `git merge-base --all <base> <commit>` names exactly one commit, the base `...` diffs against. A criss-cross history has no id.
+- `git diff` and `git patch-id` both exit 0. A diff that dies part way, on a missing object in a partial or shallow clone or a corrupt pack, prints the id of a smaller change, so an implementation checks each process's status rather than run the pipeline as written.
+- patch-id prints one line. An empty diff has no id.
+
+The id's length follows the repository's object format, 40 hex for SHA-1 and 64 for SHA-256, and ids from the two formats never compare equal. anneal's ids, taken with `--binary` and without `--text`, differ from these for any change with a binary file, so they are not `patch-id` subjects.
+
+`spec/fixtures/patch-id/check.sh` is the conformance fixture: a change sensitive to each pinned input, the id taken under each hostile setting, attribute file, environment variable, replace ref and graft in turn, with a control per case showing that a plain `git diff` under it gives another id, and a missing object that must give no id. CI runs it. A change to this recipe changes what every recorded `patch-id` means, so it is a new method name, never an edit (OW-14).
 
 The `git-tree` temporary index lives on the local temporary disk, never beside the store, since git replaces it by rename and Cowork refuses deletes.
 
