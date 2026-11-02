@@ -28,7 +28,8 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | Crate | Layer | Purpose | Depends on |
 |---|---|---|---|
 | `crates/weigh-in/weighin-core` | plugin (weigh-in) | The ledger vocabulary with no I/O: events, ids, markers, scanning, cards, projection, `.kb` atoms, board format | serde, serde_json, sha2, thiserror |
-| `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger: store, git, context packs, hooks, batch writes | weighin-core, happenstance-core, happenstance-sqlite (0.3.2 until `redkiln-core`), tokio (`rt`), clap, anyhow, time, tempfile, serde, serde_json |
+| `crates/core/redkiln-core` | Core (hub) | The suite's store: open under TRUNCATE, stamp 1000, refusals, conditioned appends (ST-04 to ST-11), and old ledgers read from a copy | happenstance-core, happenstance-sqlite (`=0.4.5`, `sync`), tokio (`rt`), tempfile, thiserror |
+| `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger: store, git, context packs, hooks, batch writes | weighin-core, happenstance-core, happenstance-sqlite (`=0.4.5` until it writes through `redkiln-core`), tokio (`rt`), clap, anyhow, time, tempfile, serde, serde_json |
 | `tools/xtask` | tool | `cargo xtask layers`, `cargo xtask plugins` and later packaging, version and changelog tasks; never shipped | serde, serde_json, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.

@@ -27,7 +27,7 @@ time.workspace = true
 tempfile.workspace = true
 
 [dev-dependencies]
-happenstance-core = { version = "0.3.2", features = ["serde", "memory"] }
+happenstance-core = { workspace = true, features = ["memory"] }
 
 [lints]
 workspace = true

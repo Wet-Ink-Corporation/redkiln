@@ -14,7 +14,7 @@ resolver = "3"
 # sits in one of these places and that its edges point the allowed way. Cargo refuses a glob that
 # matches nothing or a folder without a manifest, so the first crate of each layer adds its
 # `crates/<layer>/*` glob here, and tools are listed one by one (tools/ also holds scripts).
-members = ["crates/weigh-in/*", "tools/xtask"]
+members = ["crates/core/*", "crates/weigh-in/*", "tools/xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -34,12 +34,17 @@ serde = { version = "1.0.219", default-features = false, features = ["std", "der
 serde_json = { version = "1.0.140", default-features = false, features = ["std"] }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 
+# Core (SPEC ST-04): every happenstance crate is pinned at =0.4.5, with happenstance-sqlite's
+# `sync` feature, the first release whose ingest port keeps a caller's TRUNCATE connection
+# (docs/decisions.md, 2026-11-01). Only Core opens the store; weighin's own 1.x ledger code moves
+# onto Core in a later step of Move 1.
+redkiln-core = { path = "crates/core/redkiln-core" }
+happenstance-core = { version = "=0.4.5", features = ["serde"] }
+happenstance-sqlite = { version = "=0.4.5", features = ["sync"] }
+
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
-# 1.2.0's requirements. happenstance stays at 0.3.2 until redkiln-core takes the store on =0.4.5
-# (step 2, SPEC ST-04); tokio, sha2, clap and time are M1-B.
+# 1.2.0's requirements; tokio, sha2, clap and time are M1-B.
 weighin-core = { path = "crates/weigh-in/weighin-core" }
-happenstance-core = { version = "0.3.2", features = ["serde"] }
-happenstance-sqlite = "0.3.2"
 tokio = { version = "1", default-features = false, features = ["rt"] }
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }
