@@ -15,7 +15,10 @@ cd "$root"
 # characters keeps its own bytes in its chain.
 list=$(mktemp)
 trap 'rm -f "$list"' EXIT
-git -c core.quotePath=false ls-files -- 'AGENTS.md' '*/AGENTS.md' | grep -v '^references/' > "$list" || true
+trap 'exit 1' HUP INT TERM
+git -c core.quotePath=false ls-files -- 'AGENTS.md' '*/AGENTS.md' > "$list.all"
+grep -v '^references/' "$list.all" > "$list" || [ "$?" -eq 1 ]
+rm -f "$list.all"
 
 status=0
 while IFS= read -r charter; do

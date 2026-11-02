@@ -33,7 +33,7 @@ An approval names the hash of what was approved and the method that took it, and
 
 A human approval is recorded from a surface the agent cannot drive (a decision card answered in the app, a signed command) and records that surface. An approval that a model could have produced through the same CLI, account or file does not count as human.
 
-- **Why.** The agent's GitHub identity is the owner's daily account (assay decision 0005), so GitHub approvals cannot tell owner from agent. anneal denies `--actor human` from a model's Bash; `approver: human` in the Node Redkiln was opt-in to auto-approval, and the AI reviewer held a veto over whether the human gate ever fired.
+- **Why.** The agent's GitHub identity is the owner's daily account (assay decision 0005), so GitHub approvals cannot tell owner from agent; SPEC TR-10 makes a review or comment command from a login in `agent_logins` `asserted`. anneal denies `--actor human` from a model's Bash; `approver: human` in the Node Redkiln was opt-in to auto-approval, and the AI reviewer held a veto over whether the human gate ever fired.
 - **Evidence.** assay decision 0005, R3-01, #269; anneal wi-10f284; redkiln-old A3-03, B1-15. See [Tension T5](README.md#tensions-with-the-plan).
 
 ### HD-6 A verdict call bounds its walk
