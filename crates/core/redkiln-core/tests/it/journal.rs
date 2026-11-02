@@ -187,6 +187,8 @@ fn a_journal_another_writer_holds_is_reported_busy_and_the_others_are_written() 
     assert_eq!(outcome.busy, [a1], "the held journal is named");
     assert_eq!(outcome.appended, 2, "b2 and the sessionless journal");
     assert_eq!(outcome.journals.len(), 2, "{:?}", outcome.journals);
+    // Windows' whole-file lock keeps readers out too, so the check reads after the release.
+    drop(held);
     assert!(
         std::fs::read(journals.join("a1.jsonl"))
             .expect("read")
@@ -194,7 +196,6 @@ fn a_journal_another_writer_holds_is_reported_busy_and_the_others_are_written() 
         "nothing written under the lock"
     );
     assert_eq!(journal_lines(&journals.join("b2.jsonl")).len(), 1);
-    drop(held);
 
     let after = written(checkpoint(&store, RepoClass::Own, &journals, WAIT).expect("written"));
     assert_eq!(
