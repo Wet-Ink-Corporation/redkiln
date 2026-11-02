@@ -248,9 +248,9 @@ dependencies = [
 
 [[package]]
 name = "happenstance-core"
-version = "0.3.2"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4e10d4c6b51d0691f9750e00e929df10ae71039b9fe1c2cf4c3e3d9f65ad24e"
+checksum = "d43add6b34cd7267ae9fb610b8d97e6e2ab562e771789fe2493eaafd52a6c7d3"
 dependencies = [
  "base64",
  "bytes",
@@ -262,15 +262,28 @@ dependencies = [
 
 [[package]]
 name = "happenstance-sqlite"
-version = "0.3.2"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09d6b52e9d700763225a843547c57e4c7f4bd1047923ad090aef1a860445ca05"
+checksum = "0e6276d2bb172fa245aabf6db8deb7a71b2b7b5b65e05f2f7e1e492a5ed36542"
 dependencies = [
  "futures-core",
  "happenstance-core",
+ "happenstance-sync",
  "rusqlite",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "happenstance-sync"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c797161c59d9b94a45aaf76a7c48c63f5c9dc71520158664eef59ffa0aef8a0a"
+dependencies = [
+ "happenstance-core",
+ "serde",
+ "thiserror",
+ "trait-variant",
 ]
 
 [[package]]
@@ -379,6 +392,17 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "redkiln-core"
+version = "0.1.0"
+dependencies = [
+ "happenstance-core",
+ "happenstance-sqlite",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
 
 [[package]]
 name = "rusqlite"

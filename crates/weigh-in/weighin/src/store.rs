@@ -170,7 +170,7 @@ impl Store {
                 let q = Query::from_item(
                     QueryItem::tagged(item_tags(id)?).map_err(|e| anyhow!("{e}"))?,
                 );
-                Some(AppendCondition::new(q).after_opt(SequencePosition::new(*pos)))
+                Some(AppendCondition::new(q).after_every_guard_opt(SequencePosition::new(*pos)))
             }
         };
         match self
