@@ -41,6 +41,9 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 redkiln-core = { path = "crates/core/redkiln-core" }
 happenstance-core = { version = "=0.4.5", features = ["serde"] }
 happenstance-sqlite = { version = "=0.4.5", features = ["sync"] }
+# `.redkiln/suite.toml` (ST-12): parse only, with serde; bounded nesting kept (no `unbounded`).
+# Approved 2026-11-02 (docs/decisions.md).
+toml = { version = "0.9.12", default-features = false, features = ["std", "parse", "serde"] }
 
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
 # 1.2.0's requirements; tokio, sha2, clap and time are M1-B.

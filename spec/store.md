@@ -67,7 +67,7 @@ The version is read from the file's 100-byte header before SQLite opens it, so a
 
 **ST-13.** A missing file, a missing key, or a file that does not parse means `client`, so a forgotten config never publishes (pressure-test recommendation 11). A `client` repository never exports journals, pushes a ref, publishes a board, or projects items to GitHub (Blueprint design rule 10). Core enforces this: the export and publish paths ask Core for the class and get `client` unless the file says `own`.
 
-weigh-in's `.kb/_ledger/config.json` `repo_class` becomes this key at the rename at the door. weigh-in defaults a missing config to `own`; the suite default is the stricter one.
+weigh-in's `.kb/_ledger/config.json` `repo_class` becomes this key at the rename at the door. weigh-in defaults a missing config to `own`; the suite default is the stricter one. For the 2.x line, Core reads that file's `repo_class` below `suite.toml` when `suite.toml` sets none (no file, or no key), and tells the caller it did so; a `suite.toml` that is there but does not parse, or gives another value, is `client` without the fallback (migration plan M1-F).
 
 ## Projections
 
