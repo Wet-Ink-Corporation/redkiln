@@ -9,7 +9,7 @@ Review runs reviewers with `claude -p`, Loop runs every stage that way, and the 
 The child environment is a deliberate construction, and only the composition root reads the process environment. If a variable that would change billing or identity is present (`ANTHROPIC_API_KEY`, `_AUTH_TOKEN`, `_BASE_URL`, provider switches `CLAUDE_CODE_USE_*`, `GITHUB_TOKEN`/`GH_TOKEN`), construction fails with a typed error, even when the value is empty; it is never silently stripped. Names compare case-insensitively, as Windows does. `Debug` prints names, never values.
 
 - **Why.** In `-p` mode `ANTHROPIC_API_KEY` beats the OAuth token, so runs would bill at API rates unnoticed. `NODE_OPTIONS` loads code, `NODE_EXTRA_CA_CERTS` behind a proxy can intercept the token, and `CLAUDE_CODE_PLUGIN_DIRS` loads mods. A user-scope `ANTHROPIC_FOUNDRY_API_KEY` once turned redkiln-rs's suite red.
-- **The open choice.** assay builds from nothing (an allowlist against a pinned CLI); redkiln-rs inherits everything minus the denylist, because Claude Code reads undocumented variables (proxy, locale, TERM) and an allowlist broke it. See [Tension T1](README.md#tensions-with-the-plan).
+- **The choice (Ryan, 2026-11-02: allowlist in CI, inherit-minus-denylist on a developer machine, one denylist).** assay builds from nothing (an allowlist against a pinned CLI); redkiln-rs inherits everything minus the denylist, because Claude Code reads undocumented variables (proxy, locale, TERM) and an allowlist broke it. See [Tension T1](README.md#tensions-with-the-plan).
 - **Evidence.** assay `crates/assay-runner/src/headless/env.rs`, decision 0007, #149; redkiln-rs `crates/rk-adapter-claude/src/env_denylist.rs`, #11.
 
 ### HA-2 Prove every flag from the child's own `system/init`
