@@ -141,7 +141,7 @@ pub fn read_ledger(path: &Path) -> Result<LegacyLedger, LegacyError> {
 /// [`read_ledger`], calling `between` after each copy and before the source is looked at again,
 /// so a test can change the source while it is being copied.
 fn read_ledger_with(path: &Path, mut between: impl FnMut()) -> Result<LegacyLedger, LegacyError> {
-    if tokio::runtime::Handle::try_current().is_ok() {
+    if crate::store::inside_runtime() {
         return Err(LegacyError::InsideRuntime);
     }
     let tmp = tempfile::tempdir().map_err(LegacyError::Io)?;

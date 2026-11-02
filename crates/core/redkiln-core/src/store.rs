@@ -17,7 +17,9 @@
 //! Every append is happenstance's own `BEGIN IMMEDIATE`, waiting at most [`Wait`]'s timeout
 //! for another writer's lock (ST-09). A [`Condition`] makes it first-writer-wins: of two writers
 //! racing on one condition exactly one appends, and the other gets [`Appended::Conflict`]
-//! (ST-10).
+//! (ST-10). A telemetry event ([`Store::record_telemetry`]) never waits: on a busy lock it is
+//! dropped and counted ([`Recorded::Dropped`], [`Store::telemetry_dropped`]), never retried
+//! (EV-14, ST-09).
 //!
 //! # Synchronous only
 //!
@@ -28,6 +30,7 @@
 mod header;
 mod open;
 mod tag;
+mod telemetry;
 
 use std::fmt;
 use std::num::NonZeroUsize;
@@ -42,10 +45,12 @@ use happenstance_sqlite::event_store::{SqliteEventStore, SqliteEventStoreError};
 use happenstance_sqlite::rusqlite;
 
 pub use open::STORE_SCHEMA;
-pub use tag::{Tag, TagError};
+pub use tag::{CoreKey, Tag, TagError};
+pub use telemetry::{Recorded, TelemetryEvent};
 
 pub(crate) use header::{Found, read as read_header};
 pub(crate) use open::sibling;
+pub(crate) use tag::check_caller_tag;
 
 /// How long a writer waits for another's lock (ST-09).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +84,10 @@ pub enum OpenError {
     /// The store's canonical path could not be found.
     #[error("finding the store's canonical path")]
     Canonicalize(#[source] std::io::Error),
+    /// The store's path has no absolute form (it is empty, or the working directory is gone),
+    /// which the telemetry connection opens at.
+    #[error("finding the store's absolute path")]
+    AbsolutePath(#[source] std::io::Error),
     /// SQLite failed at `step`.
     #[error("SQLite failed while {step}")]
     Sqlite {
@@ -129,6 +138,10 @@ pub enum OpenError {
         #[source]
         source: std::io::Error,
     },
+    /// No store at the path (the file is missing, empty or a database never stamped), where
+    /// the open needed one: the telemetry connection never creates the store it writes to.
+    #[error("there is no store at the path; it was not created")]
+    NoStore,
     /// The open lock beside the store (`<store>.lock`) could not be created or taken.
     #[error("taking the store's open lock")]
     Lock(#[source] std::io::Error),
@@ -240,6 +253,15 @@ pub enum StoreError {
     /// happenstance could not read the store.
     #[error("reading the store")]
     Read(#[source] SqliteEventStoreError),
+    /// The file at the store's path now has another identity than the one this store opened:
+    /// it was replaced or restored since. Telemetry is not written to it.
+    #[error("the store file now has identity {found}, not the {opened} this store opened")]
+    IdentityChanged {
+        /// The identity this store opened.
+        opened: StoreId,
+        /// The identity the file has now.
+        found: StoreId,
+    },
 }
 
 /// An event to append: its type, its payload bytes and its tags.
@@ -414,6 +436,12 @@ impl Stored {
 pub struct Store {
     inner: SqliteEventStore,
     runtime: Driver,
+    /// The store's absolute path, where the telemetry connection opens.
+    path: PathBuf,
+    /// The telemetry connection, with no busy wait; opened on the first telemetry write.
+    telemetry: Option<SqliteEventStore>,
+    /// Telemetry events dropped on a busy lock since the store was opened (ST-09).
+    dropped: u64,
 }
 
 impl fmt::Debug for Store {
@@ -435,10 +463,24 @@ impl Store {
     /// a store ([`OpenError::NotAStore`]), each left as it was.
     pub fn open(path: &Path, wait: Wait) -> Result<Self, StoreError> {
         refuse_inside_runtime()?;
-        let opened = open::open(path, wait.timeout())
-            .and_then(|inner| Ok((inner, Driver::new().map_err(OpenError::Runtime)?)));
+        // Absolute, so the telemetry connection opens the same file whatever the working
+        // directory becomes; not canonicalised, so Windows keeps the form SQLite was given.
+        // Found first, so a path with no absolute form opens nothing.
+        let opened = std::path::absolute(path)
+            .map_err(OpenError::AbsolutePath)
+            .and_then(|absolute| {
+                let inner = open::open(path, wait.timeout(), open::Mode::Create)?;
+                let runtime = Driver::new().map_err(OpenError::Runtime)?;
+                Ok((inner, runtime, absolute))
+            });
         match opened {
-            Ok((inner, runtime)) => Ok(Self { inner, runtime }),
+            Ok((inner, runtime, path)) => Ok(Self {
+                inner,
+                runtime,
+                path,
+                telemetry: None,
+                dropped: 0,
+            }),
             Err(source) => Err(StoreError::Open {
                 path: path.to_path_buf(),
                 source,
@@ -500,9 +542,15 @@ impl Store {
     }
 }
 
-/// Refuses to run inside a tokio runtime context, where a nested `block_on` panics.
+/// Whether this thread is in a tokio runtime context, where a nested `block_on` panics. The one
+/// check the store and the old-ledger reader share.
+pub(crate) fn inside_runtime() -> bool {
+    tokio::runtime::Handle::try_current().is_ok()
+}
+
+/// Refuses to run inside a tokio runtime context.
 fn refuse_inside_runtime() -> Result<(), StoreError> {
-    if tokio::runtime::Handle::try_current().is_ok() {
+    if inside_runtime() {
         Err(StoreError::InsideRuntime)
     } else {
         Ok(())
@@ -540,7 +588,7 @@ impl Drop for Driver {
         let Some(runtime) = self.runtime.take() else {
             return;
         };
-        if tokio::runtime::Handle::try_current().is_ok() {
+        if inside_runtime() {
             // The store only `block_on`s, so no task of its own is left to wait for.
             runtime.shutdown_background();
         } else {

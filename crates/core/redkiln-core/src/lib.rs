@@ -1,14 +1,24 @@
 //! Redkiln Core: the suite's one event store, as the SPEC (`spec/`) defines it.
 //!
 //! - [`store`] opens the store under a TRUNCATE journal, stamps and checks its schema version,
-//!   and appends events, conditioned where a write must not race (SPEC ST-04 to ST-11).
+//!   and appends events, conditioned where a write must not race (SPEC ST-04 to ST-11); a
+//!   telemetry write never waits on a busy lock (ST-09).
+//! - [`envelope`] builds events strictly and reads them leniently (EV-01 to EV-16), and
+//!   [`store::Tag`]'s registry holds Core's tag keys (EV-11, EV-12).
+//! - [`trust`] is the `trust` object every envelope carries (TR-01).
+//! - [`ids`] holds the SPEC's ids and digests (ID-01 to ID-07), and [`canonical`] the canonical
+//!   JSON digest (ID-08, RFC 8785).
 //! - [`legacy`] reads an old plugin ledger (weighin 0.1.x to 1.x) from a copy, never touching
 //!   the file itself, so the import (ST-15) can read it while a 1.x binary still uses it.
 //!
 //! Every operation is synchronous: a [`store::Store`] drives happenstance's async API on its
 //! own current-thread runtime, and refuses to run inside another runtime's context.
 
+pub mod canonical;
+pub mod envelope;
+pub mod ids;
 pub mod legacy;
 pub mod store;
+pub mod trust;
 
 pub use happenstance_core::{EventId, StoreId};
