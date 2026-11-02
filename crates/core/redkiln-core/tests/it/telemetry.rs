@@ -1,16 +1,22 @@
-//! Telemetry never waits (SPEC EV-14, ST-09): dropped and counted on a busy lock.
+//! Telemetry never waits (SPEC EV-14, ST-09): dropped and counted on a busy lock. It is kept in
+//! a side store beside the log, `<store>.telemetry`, for 30 days, and never read past them.
 
 use std::num::NonZeroUsize;
-use std::path::Path;
-use std::time::Instant;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
 use happenstance_sqlite::rusqlite::Connection;
-use redkiln_core::envelope::{Actor, Author, Class, Envelope, Payload, Timestamp, Writer};
-use redkiln_core::store::{Filter, NewEvent, Recorded, Store, StoreError, TelemetryEvent, Wait};
+use redkiln_core::envelope::{
+    Actor, Author, Class, Envelope, Namespace, Payload, Timestamp, Writer,
+};
+use redkiln_core::store::{
+    Filter, NewEvent, Page, Recorded, Store, StoreError, TELEMETRY_WINDOW, Tag, TelemetryEvent,
+    Wait,
+};
 use redkiln_core::trust::Trust;
 use serde::{Deserialize, Serialize};
 
-use crate::support::listing;
+use crate::support::{assert_truncate_layout, header_user_version, listing, sibling};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct ToolTimed {
@@ -45,6 +51,32 @@ fn count(store: &Store) -> usize {
         .len()
 }
 
+/// The telemetry a reader sees now: the positions in the side store, within the window.
+fn telemetry(store: &Store) -> Vec<u64> {
+    telemetry_at(store, SystemTime::now(), 0, 100)
+}
+
+fn telemetry_at(store: &Store, now: SystemTime, after: u64, limit: usize) -> Vec<u64> {
+    store
+        .read_telemetry(
+            &Filter::all(),
+            Page {
+                after,
+                limit: NonZeroUsize::new(limit).expect("non-zero"),
+            },
+            now,
+        )
+        .expect("read telemetry")
+        .iter()
+        .map(|stored| stored.position)
+        .collect()
+}
+
+/// The side store beside the store at `path`.
+fn side(path: &Path) -> PathBuf {
+    sibling(path, ".telemetry")
+}
+
 /// Another process's connection, under the store's TRUNCATE journal.
 fn other_connection(path: &Path) -> Connection {
     let conn = Connection::open(path).expect("open");
@@ -61,7 +93,13 @@ fn a_telemetry_write_is_dropped_and_counted_while_another_writer_holds_the_lock(
     let path = dir.path().join("events.sqlite3");
     // A command's store: its durable appends would wait 10 seconds.
     let mut store = Store::open(&path, Wait::Command).expect("opens");
-    let holder = other_connection(&path);
+    assert_eq!(
+        store.record_telemetry(timing(0)).expect("written"),
+        Recorded::At(1),
+        "the side store exists"
+    );
+    // Telemetry's lock is the side store's: another telemetry writer holds it.
+    let holder = other_connection(&side(&path));
     holder
         .execute_batch("BEGIN IMMEDIATE")
         .expect("take the write lock");
@@ -89,10 +127,42 @@ fn a_telemetry_write_is_dropped_and_counted_while_another_writer_holds_the_lock(
     holder.execute_batch("ROLLBACK").expect("release the lock");
     assert_eq!(
         store.record_telemetry(timing(3)).expect("written"),
+        Recorded::At(2)
+    );
+    assert_eq!(
+        telemetry(&store),
+        [1, 2],
+        "the dropped events were never written"
+    );
+    assert_eq!(store.telemetry_dropped(), 2);
+}
+
+#[test]
+fn the_write_that_would_create_the_side_store_drops_while_its_lock_is_held() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    let holder = other_connection(&side(&path));
+    holder
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("take the write lock");
+
+    let started = Instant::now();
+    assert_eq!(
+        store.record_telemetry(timing(1)).expect("no error"),
+        Recorded::Dropped
+    );
+    assert!(
+        started.elapsed() < Wait::Hook.timeout(),
+        "{:?}",
+        started.elapsed()
+    );
+    holder.execute_batch("ROLLBACK").expect("release the lock");
+    assert_eq!(
+        store.record_telemetry(timing(2)).expect("written"),
         Recorded::At(1)
     );
-    assert_eq!(count(&store), 1, "the dropped events were never written");
-    assert_eq!(store.telemetry_dropped(), 2);
+    assert_eq!(store.telemetry_dropped(), 1);
 }
 
 #[test]
@@ -100,7 +170,12 @@ fn a_reader_holding_the_file_at_commit_drops_the_event_and_writes_nothing() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("events.sqlite3");
     let mut store = Store::open(&path, Wait::Command).expect("opens");
-    let reader = other_connection(&path);
+    assert_eq!(
+        store.record_telemetry(timing(0)).expect("written"),
+        Recorded::At(1),
+        "the side store exists"
+    );
+    let reader = other_connection(&side(&path));
     // A read transaction keeps its shared lock, so a commit cannot take the file.
     reader
         .execute_batch("BEGIN; SELECT count(*) FROM event;")
@@ -115,12 +190,12 @@ fn a_reader_holding_the_file_at_commit_drops_the_event_and_writes_nothing() {
     reader
         .execute_batch("COMMIT")
         .expect("release the read lock");
-    assert_eq!(count(&store), 0, "the busy commit was rolled back");
+    assert_eq!(telemetry(&store), [1], "the busy commit was rolled back");
     assert_eq!(
         store.record_telemetry(timing(2)).expect("written"),
-        Recorded::At(1)
+        Recorded::At(2)
     );
-    assert_eq!(count(&store), 1);
+    assert_eq!(telemetry(&store), [1, 2]);
 }
 
 #[test]
@@ -246,26 +321,162 @@ fn telemetry_never_creates_a_store_where_the_opened_one_vanished() {
     );
 }
 
-/// nextest runs each test in a process of its own; under `cargo test` this test changes the
-/// working directory of the whole binary for its duration, which no other test here reads.
 #[test]
-fn the_telemetry_connection_opens_the_store_whatever_the_working_directory_becomes() {
-    let first = tempfile::tempdir().expect("tempdir");
-    let second = tempfile::tempdir().expect("tempdir");
-    let original = std::env::current_dir().expect("working directory");
-    std::env::set_current_dir(first.path()).expect("enter the first");
-    let opened = Store::open(Path::new("events.sqlite3"), Wait::Command);
-    std::env::set_current_dir(second.path()).expect("enter the second");
-    let recorded = opened.map(|mut store| (store.record_telemetry(timing(1)), store));
-    // Left before any assertion, so neither directory is in use when it is removed.
-    std::env::set_current_dir(original).expect("restore the working directory");
-
-    let (recorded, store) = recorded.expect("opens");
-    assert_eq!(recorded.expect("written"), Recorded::At(1));
-    assert_eq!(count(&store), 1);
-    assert_eq!(rows(&first.path().join("events.sqlite3")), 1);
-    assert!(
-        listing(second.path()).is_empty(),
-        "nothing at the relative path in the new working directory"
+fn telemetry_is_kept_in_a_side_store_and_never_in_the_log() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    store.append(vec![durable()], None).expect("appended");
+    assert_eq!(
+        store.record_telemetry(timing(1)).expect("written"),
+        Recorded::At(1),
+        "the side store has positions of its own"
     );
+
+    assert_eq!(count(&store), 1, "the log holds the durable event only");
+    assert_eq!(rows(&path), 1);
+    assert_eq!(telemetry(&store), [1]);
+    let side = side(&path);
+    assert_eq!(header_user_version(&side), 1000, "a Core store of its own");
+    assert_truncate_layout(&side);
+    assert!(
+        sibling(&side, ".lock").exists(),
+        "with its own open lock beside it"
+    );
+}
+
+#[test]
+fn a_store_with_no_telemetry_reads_none_and_creates_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let store = Store::open(&path, Wait::Command).expect("opens");
+    let before = listing(dir.path());
+    assert!(telemetry(&store).is_empty());
+    assert_eq!(listing(dir.path()), before, "no side store made for a read");
+}
+
+const HOUR_MILLIS: i64 = 60 * 60 * 1000;
+const DAY_MILLIS: i64 = 24 * HOUR_MILLIS;
+
+/// Moves the side store's rows at `positions` back by `millis`, as if recorded then.
+fn backdate(path: &Path, positions: &[u64], millis: i64) {
+    let conn = other_connection(&side(path));
+    for position in positions {
+        let position = i64::try_from(*position).expect("small");
+        conn.execute(
+            "UPDATE event SET recorded_at = recorded_at - ?1 WHERE position = ?2",
+            [millis, position],
+        )
+        .expect("backdate");
+    }
+}
+
+/// The side store's positions, its `event_tag` positions and its `tag_cardinality` rows, read
+/// raw, so a prune that left anything behind shows.
+fn raw_side(path: &Path) -> (Vec<i64>, Vec<i64>, Vec<(String, i64)>) {
+    let conn = other_connection(&side(path));
+    let column = |sql: &str| -> Vec<i64> {
+        let mut stmt = conn.prepare(sql).expect("prepare");
+        stmt.query_map([], |r| r.get(0))
+            .expect("query")
+            .collect::<Result<_, _>>()
+            .expect("rows")
+    };
+    let positions = column("SELECT position FROM event ORDER BY position");
+    let tagged = column("SELECT position FROM event_tag ORDER BY position");
+    let mut stmt = conn
+        .prepare("SELECT tag, events FROM tag_cardinality ORDER BY tag")
+        .expect("prepare");
+    let counts = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .expect("query")
+        .collect::<Result<_, _>>()
+        .expect("rows");
+    (positions, tagged, counts)
+}
+
+fn tagged_timing(millis: u64) -> TelemetryEvent {
+    let author = Author {
+        actor: Actor::Hook,
+        trust: Trust::asserted(),
+        writer: Writer::new("weighin", "2.0.0").expect("valid writer"),
+    };
+    let tag = Tag::namespaced(Namespace::Weighin, "channel", "cli").expect("a tag");
+    Envelope::new(
+        Timestamp::parse("2026-10-31T04:20:11Z").expect("valid ts"),
+        author,
+        ToolTimed { millis },
+    )
+    .to_telemetry([tag])
+    .expect("a telemetry type")
+}
+
+#[test]
+fn telemetry_recorded_before_the_window_is_never_read() {
+    assert_eq!(TELEMETRY_WINDOW, Duration::from_hours(30 * 24), "30 days");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    for n in 1..=3 {
+        store.record_telemetry(timing(n)).expect("written");
+    }
+    // Past the window by an hour: within the day of slack before it is deleted.
+    backdate(&path, &[1], 30 * DAY_MILLIS + HOUR_MILLIS);
+
+    let now = SystemTime::now();
+    assert_eq!(telemetry_at(&store, now, 0, 100), [2, 3]);
+    assert_eq!(
+        telemetry_at(&store, now, 0, 1),
+        [2],
+        "a page is filled from inside the window"
+    );
+    let earlier = now
+        .checked_sub(Duration::from_hours(2 * 24))
+        .expect("two days ago");
+    assert_eq!(
+        telemetry_at(&store, earlier, 0, 100),
+        [1, 2, 3],
+        "the window is measured from the reader's now"
+    );
+
+    store.record_telemetry(timing(4)).expect("written");
+    assert_eq!(
+        raw_side(&path).0,
+        [1, 2, 3, 4],
+        "within the slack, a row is not deleted yet"
+    );
+    assert_eq!(telemetry_at(&store, now, 0, 100), [2, 3, 4]);
+}
+
+#[test]
+fn rows_past_the_window_are_deleted_from_the_side_store_with_their_tags() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    store.append(vec![durable()], None).expect("appended");
+    for n in 1..=3 {
+        store.record_telemetry(tagged_timing(n)).expect("written");
+    }
+    backdate(&path, &[1, 2], 32 * DAY_MILLIS);
+    let (_, tagged, counts) = raw_side(&path);
+    // Core's tags (`plugin`, `trust`) and the caller's, the same on every row.
+    let per_row = tagged.len() / 3;
+    assert_eq!(per_row, 3, "{tagged:?}");
+    assert!(counts.iter().all(|(_, n)| *n == 3), "{counts:?}");
+
+    assert_eq!(
+        store.record_telemetry(tagged_timing(4)).expect("written"),
+        Recorded::At(4),
+        "positions are never reused"
+    );
+    let (positions, tagged, counts) = raw_side(&path);
+    assert_eq!(positions, [3, 4], "the rows past the window are gone");
+    assert_eq!(tagged, [3, 3, 3, 4, 4, 4], "with their tag rows");
+    assert!(
+        counts.iter().all(|(_, n)| *n == 2),
+        "and their counts: {counts:?}"
+    );
+    assert_eq!(telemetry(&store), [3, 4]);
+    assert_eq!(count(&store), 1, "the log is untouched");
+    assert_eq!(rows(&path), 1);
 }

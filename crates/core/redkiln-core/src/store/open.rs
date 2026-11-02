@@ -200,6 +200,15 @@ fn check_stamp(found: i64) -> Result<(), OpenError> {
     }
 }
 
+/// A connection with no busy wait to a store [`open`] has opened, under TRUNCATE: for Core's own
+/// statements on happenstance's tables, which happenstance's connection cannot run (the side
+/// store's prune, EV-14).
+pub(super) fn raw_connection(path: &Path) -> Result<Connection, OpenError> {
+    let conn = connect(path, Duration::ZERO)?;
+    use_truncate(&conn, Duration::ZERO)?;
+    Ok(conn)
+}
+
 /// A connection that has written nothing: the busy timeout, durability and foreign keys are
 /// per connection and never touch the file.
 fn connect(path: &Path, busy: Duration) -> Result<Connection, OpenError> {

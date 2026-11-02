@@ -19,7 +19,8 @@
 //! racing on one condition exactly one appends, and the other gets [`Appended::Conflict`]
 //! (ST-10). A telemetry event ([`Store::record_telemetry`]) never waits: on a busy lock it is
 //! dropped and counted ([`Recorded::Dropped`], [`Store::telemetry_dropped`]), never retried
-//! (EV-14, ST-09).
+//! (EV-14, ST-09). Telemetry is kept beside the log, in a side store of its own
+//! (`<store>.telemetry`), for [`TELEMETRY_WINDOW`], and read through [`Store::read_telemetry`].
 //!
 //! # Synchronous only
 //!
@@ -29,6 +30,7 @@
 
 mod header;
 mod open;
+mod retention;
 mod tag;
 mod telemetry;
 
@@ -46,7 +48,7 @@ use happenstance_sqlite::rusqlite;
 
 pub use open::STORE_SCHEMA;
 pub use tag::{CoreKey, Tag, TagError};
-pub use telemetry::{Recorded, TelemetryEvent};
+pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 
 pub(crate) use header::{Found, read as read_header};
 pub(crate) use open::sibling;
@@ -206,6 +208,8 @@ pub enum Step {
     Begin,
     /// Committing it.
     Commit,
+    /// Deleting telemetry past its window from the side store (EV-14).
+    Prune,
 }
 
 impl fmt::Display for Step {
@@ -222,6 +226,7 @@ impl fmt::Display for Step {
             Self::Identity => "keeping the store's identity",
             Self::Begin => "beginning a write transaction",
             Self::Commit => "committing",
+            Self::Prune => "deleting telemetry past its window",
         })
     }
 }
@@ -253,8 +258,18 @@ pub enum StoreError {
     /// happenstance could not read the store.
     #[error("reading the store")]
     Read(#[source] SqliteEventStoreError),
+    /// Telemetry past its window could not be deleted from the side store for a reason other
+    /// than a busy lock (EV-14). The event was not written.
+    #[error("pruning the telemetry store {}", path.display())]
+    Prune {
+        /// The side store.
+        path: PathBuf,
+        /// What went wrong.
+        #[source]
+        source: OpenError,
+    },
     /// The file at the store's path now has another identity than the one this store opened:
-    /// it was replaced or restored since. Telemetry is not written to it.
+    /// it was replaced or restored since. Telemetry is not written beside it.
     #[error("the store file now has identity {found}, not the {opened} this store opened")]
     IdentityChanged {
         /// The identity this store opened.
@@ -436,9 +451,12 @@ impl Stored {
 pub struct Store {
     inner: SqliteEventStore,
     runtime: Driver,
-    /// The store's absolute path, where the telemetry connection opens.
+    /// The store's absolute path; the telemetry side store sits beside it.
     path: PathBuf,
-    /// The telemetry connection, with no busy wait; opened on the first telemetry write.
+    /// The open's busy timeout, which a telemetry read waits too.
+    wait: Duration,
+    /// The side store's telemetry connection, with no busy wait; opened on the first telemetry
+    /// write.
     telemetry: Option<SqliteEventStore>,
     /// Telemetry events dropped on a busy lock since the store was opened (ST-09).
     dropped: u64,
@@ -478,6 +496,7 @@ impl Store {
                 inner,
                 runtime,
                 path,
+                wait: wait.timeout(),
                 telemetry: None,
                 dropped: 0,
             }),
@@ -529,17 +548,39 @@ impl Store {
         position: u64,
         limit: NonZeroUsize,
     ) -> Result<Vec<Stored>, StoreError> {
-        let Some(from) = position.checked_add(1).and_then(SequencePosition::new) else {
-            return Ok(Vec::new());
+        let page = Page {
+            after: position,
+            limit,
         };
-        let query = filter.to_query()?;
-        let options = ReadOptions::new().from(from).limit(limit.get());
-        let events = self
-            .runtime
-            .block_on(collect(self.inner.read(&query, options)))?
-            .map_err(StoreError::Read)?;
-        Ok(events.into_iter().map(Stored::from_sequenced).collect())
+        read_page(&self.runtime, &self.inner, filter, page)
     }
+}
+
+/// One page of a read: the events after a position, at most a limit of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Page {
+    /// The position the page starts after (exclusive); 0 is the whole store.
+    pub after: u64,
+    /// The most events the page holds.
+    pub limit: NonZeroUsize,
+}
+
+/// At most `page.limit` events of `store` matching `filter` after `page.after`, in store order.
+fn read_page(
+    runtime: &Driver,
+    store: &SqliteEventStore,
+    filter: &Filter,
+    page: Page,
+) -> Result<Vec<Stored>, StoreError> {
+    let Some(from) = page.after.checked_add(1).and_then(SequencePosition::new) else {
+        return Ok(Vec::new());
+    };
+    let query = filter.to_query()?;
+    let options = ReadOptions::new().from(from).limit(page.limit.get());
+    let events = runtime
+        .block_on(collect(store.read(&query, options)))?
+        .map_err(StoreError::Read)?;
+    Ok(events.into_iter().map(Stored::from_sequenced).collect())
 }
 
 /// Whether this thread is in a tokio runtime context, where a nested `block_on` panics. The one
