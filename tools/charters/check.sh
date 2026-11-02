@@ -13,9 +13,16 @@ cd "$root"
 
 # One charter per line, read whole, so a path with spaces or non-ASCII
 # characters keeps its own bytes in its chain.
+all=$(mktemp)
 list=$(mktemp)
-trap 'rm -f "$list"' EXIT
-git -c core.quotePath=false ls-files -- 'AGENTS.md' '*/AGENTS.md' | grep -v '^references/' > "$list" || true
+trap 'rm -f "$all" "$list"' EXIT
+trap 'exit 1' HUP INT TERM
+git -c core.quotePath=false ls-files -- 'AGENTS.md' '*/AGENTS.md' > "$all"
+grep -v '^references/' "$all" > "$list" || [ "$?" -eq 1 ]
+if ! grep -qx 'AGENTS.md' "$list"; then
+  echo "charters: no root AGENTS.md is tracked" >&2
+  exit 1
+fi
 
 status=0
 while IFS= read -r charter; do

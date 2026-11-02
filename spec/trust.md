@@ -17,7 +17,7 @@ Trust levels are in the first release because adding them later would leave ever
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `level` | string | `asserted`, `witnessed` or `attested` |
-| `via` | string, absent for `asserted` | The surface or mechanism (TR-03, TR-04) |
+| `via` | string | The surface or mechanism (TR-03, TR-04); absent on an `asserted` write through a CLI or hook, kept when TR-06 or TR-10 lowered the level |
 | `by` | string or absent | The identity the surface reports, such as a GitHub login, where it reports one |
 | `ref` | string or absent | Where the evidence is: a tool use id, a board submission id, a decision card's message id, a check run id, a ref and commit |
 | `claimed` | string or absent | On an imported event, the level its journal line carried (TR-06) |
@@ -32,9 +32,9 @@ Trust levels are in the first release because adding them later would leave ever
 | --- | --- | --- |
 | `ask-user-question` | An `AskUserQuestion` tool result | A hook, from its own hook input |
 | `board` | A board submission, validated as untrusted and checked against the card's revision | The plugin's board import |
-| `decision-card` | A Claude Projects decision card | The plugin's card import |
+| `decision-card` | A Claude Projects decision card answered by a member's tap; never an answer an agent recorded itself, such as closing its own card | The plugin's card import |
 | `mod-pane` | A click in the suite mod's pane | The mod |
-| `github-review` | A pull request review by a named user, read locally from GitHub | The plugin, with its own GitHub credentials |
+| `github-review` | A pull request review by a named user, read locally from GitHub; `asserted` in SPEC 1.0, since agents act as the owner's account (TR-10) | The plugin, with its own GitHub credentials |
 
 A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes `witnessed` only if the `PostToolUse` hook records it from the tool result. When the agent records the same answer with `weighin decide`, the event is `asserted`. A person typing a command in their own terminal is also `asserted`, since the binary cannot tell their shell from the agent's.
 
@@ -44,9 +44,9 @@ A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes
 
 | `via` | What it is | Verified by |
 | --- | --- | --- |
-| `github-app` | A check run, or a comment command a maintainer posted, read and recorded by the Review App | The App's check run on the commit |
-| `ledger-cas` | A compare-and-set on the ledger repository, made with its App or deploy key | The ref's commit in the ledger repository |
-| `signed-commit` | A commit signed by a key on the decider's GitHub account | The commit's verified signature |
+| `github-app` | A check run, or a comment command a maintainer posted (`asserted` in SPEC 1.0, TR-10), read and recorded by the Review App | The App's check run on the commit |
+| `ledger-cas` | A compare-and-set on the ledger repository, made with its App or deploy key, where the repository's rules let only that App or key push the ref; read from GitHub when verifying, since a commit does not show who pushed it | The ref's commit in the ledger repository |
+| `signed-commit` | A commit signed by a user key on the decider's GitHub account; never GitHub's own web-flow key, which signs any commit made through the web or the API with the account's token | The commit's verified signature |
 
 ## Who may set a level
 
@@ -59,3 +59,11 @@ A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes
 **TR-08.** A `client` repository has no attested channel, since nothing leaves the machine (ST-13). An unattended run in one stops at any gate that needs `attested`, the review gate included, until someone answers on the machine that holds the board.
 
 **TR-09.** `redkiln-guard`'s shared rule pack denies an agent's Bash call that would write an event whose actor is `human:*` (a `decide` or `approve` subcommand, a raw `append`). This closes the cheapest forgery; trust levels close the rest.
+
+**TR-10.** While agents act as the owner's GitHub account (assay decision 0005), GitHub cannot tell the owner from an agent: a review or comment "by" that account may be the agent's (field guide T5, HD-5). So in SPEC 1.0, a `github-review`, and a comment command recorded through `github-app`, are written `asserted` whoever wrote them, keeping their `via` and `by`. Neither satisfies a gate. A check run the Review App posts under its own identity is unaffected.
+
+A human approval comes from a surface the agent cannot drive: a decision card answered by a member's tap, the board, the mod pane, an `AskUserQuestion` answer recorded by its hook, or a signed commit. The owner's part is to keep these out of the agents' reach:
+- the signing key: no agent session on the owner's machine with it loaded;
+- the agents' GitHub tokens: no administration or key-management permission, so they cannot add a signing key, change the default branch, or relax the rulesets `ledger-cas` relies on.
+
+Giving `github-review` and comment commands back their levels needs agents with an identity of their own. That is a later SPEC change, by the owner's decision (Ryan, 2026-11-02). The PR #30 review recommends that change list the human-only accounts by numeric user id, accounts never signed in where an agent can reach, rather than the agents' accounts: a missing or empty human list trusts nobody, while an agent list is safe only when complete.
