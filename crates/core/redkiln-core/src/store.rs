@@ -28,6 +28,7 @@
 //! tokio runtime context, [`Store::open`] and every method return [`StoreError::InsideRuntime`]
 //! rather than let tokio panic; async code runs the store on a plain thread.
 
+mod aside;
 mod header;
 mod open;
 mod retention;
@@ -50,8 +51,8 @@ pub use open::STORE_SCHEMA;
 pub use tag::{CoreKey, Tag, TagError};
 pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 
+pub(crate) use aside::sibling;
 pub(crate) use header::{Found, read as read_header};
-pub(crate) use open::sibling;
 pub(crate) use tag::check_caller_tag;
 
 /// How long a writer waits for another's lock (ST-09).
@@ -151,6 +152,10 @@ pub enum OpenError {
     /// the store.
     #[error("another process is opening the store; timed out waiting for it")]
     LockBusy,
+    /// Another program (not a Core opener) holds a write transaction on a file with no store
+    /// yet: its journal beside the file is live, so it was neither set aside nor rolled back.
+    #[error("another program is writing the file; its journal was left in place")]
+    WriterBusy,
     /// The temporary directory for the schema template could not be created or removed.
     #[error("creating or removing the schema template's temporary directory")]
     TempDir(#[source] std::io::Error),
@@ -210,6 +215,9 @@ pub enum Step {
     Commit,
     /// Deleting telemetry past its window from the side store (EV-14).
     Prune,
+    /// Trying the write lock of a file with a journal beside it, before setting the journal
+    /// aside.
+    Probe,
 }
 
 impl fmt::Display for Step {
@@ -227,6 +235,7 @@ impl fmt::Display for Step {
             Self::Begin => "beginning a write transaction",
             Self::Commit => "committing",
             Self::Prune => "deleting telemetry past its window",
+            Self::Probe => "checking for a writer holding the file",
         })
     }
 }

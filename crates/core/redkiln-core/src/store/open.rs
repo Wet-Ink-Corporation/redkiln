@@ -3,12 +3,13 @@
 
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use happenstance_sqlite::event_store::SqliteEventStore;
 use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags};
 
+use super::aside::{set_aside, set_journal_aside, sibling};
 use super::header::{self, Found, Header};
 use super::{OpenError, Step};
 
@@ -34,9 +35,6 @@ const RETRY_PAUSE: Duration = Duration::from_millis(20);
 /// connection over. While it is held, a `-journal` or `-wal` beside the store is no Core
 /// opener's own, so setting one aside never takes another creator's live journal.
 pub(crate) const LOCK_SUFFIX: &str = ".lock";
-
-/// How many names `set_aside` tries before giving up.
-const ASIDE_NAMES: u32 = 100;
 
 /// What a file holds, looked at through a connection that has written nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,14 +140,15 @@ fn open_locked(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEventSto
             }
             if found.user_version == 0 {
                 // An empty database: a journal beside it is from a creation that never
-                // committed, and SQLite would delete it under its default mode.
-                set_aside(path, "-journal")?;
+                // committed, unless another program's writer holds it; SQLite would delete a
+                // stale one under its default mode.
+                set_journal_aside(path)?;
             }
         }
         Found::Missing | Found::Empty => {
             // SQLite deletes a `-wal` or a hot `-journal` beside a file with no pages.
             set_aside(path, "-wal")?;
-            set_aside(path, "-journal")?;
+            set_journal_aside(path)?;
         }
     }
     let conn = connect(path, busy)?;
@@ -204,11 +203,18 @@ fn check_stamp(found: i64) -> Result<(), OpenError> {
 /// statements on happenstance's tables, which happenstance's connection cannot run (the side
 /// store's prune, EV-14).
 ///
-/// It never creates the file: one that is gone since is an error, not a new empty database. A
-/// stale `-wal` beside the store is set aside first, as [`open`] does, so SQLite never deletes it
-/// on connect (ST-05). The caller checks, inside its own transaction, that the file is still
-/// the store its handle opened.
-pub(super) fn raw_connection(path: &Path) -> Result<Connection, OpenError> {
+/// It never creates the file: one that is gone since is an error, not a new empty database. The
+/// header is read first: a file in WAL (another program opened it so) gets no connection
+/// (`None`), and its `-wal`, live or not, stays where it is. Otherwise a stale `-wal` beside the
+/// store is set aside, as [`open`] does, so SQLite never deletes it on connect (ST-05). The
+/// caller checks, inside its own transaction, that the file is still the store its handle
+/// opened.
+pub(super) fn raw_connection(path: &Path) -> Result<Option<Connection>, OpenError> {
+    if let Found::Sqlite(found) = header::read(path)?
+        && found.wal
+    {
+        return Ok(None);
+    }
     set_aside(path, "-wal")?;
     let flags = OpenFlags::SQLITE_OPEN_READ_WRITE
         | OpenFlags::SQLITE_OPEN_URI
@@ -216,7 +222,7 @@ pub(super) fn raw_connection(path: &Path) -> Result<Connection, OpenError> {
     let conn = Connection::open_with_flags(path, flags).map_err(at(Step::Connect))?;
     configure(&conn, Duration::ZERO)?;
     use_truncate(&conn, Duration::ZERO)?;
-    Ok(conn)
+    Ok(Some(conn))
 }
 
 /// A connection that has written nothing: the busy timeout, durability and foreign keys are
@@ -271,46 +277,6 @@ fn use_truncate(conn: &Connection, busy: Duration) -> Result<(), OpenError> {
         }
         std::thread::sleep(RETRY_PAUSE);
     }
-}
-
-/// `<store><suffix>`: the journal and WAL files SQLite keeps beside a database.
-pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
-    let mut s = path.as_os_str().to_owned();
-    s.push(suffix);
-    PathBuf::from(s)
-}
-
-/// Renames `<store><suffix>` aside, to a name not taken yet; renaming is allowed where deleting
-/// is not (ST-05). Nothing happens when there is no such file.
-///
-/// * Before connecting to a file not in WAL: SQLite deletes a `-wal` it finds beside such a
-///   database, and a failed WAL creation in a Cowork folder leaves exactly that.
-/// * After switching to TRUNCATE: converting a WAL store where deletes are refused leaves its
-///   checkpointed `-wal` behind.
-fn set_aside(path: &Path, suffix: &str) -> Result<(), OpenError> {
-    let file = sibling(path, suffix);
-    // The error names the file that stayed; it is rebuilt only on failure.
-    let fail = |source| OpenError::SetAside {
-        path: sibling(path, suffix),
-        source,
-    };
-    if !file.try_exists().map_err(fail)? {
-        return Ok(());
-    }
-    // The clock only makes names readable; uniqueness comes from checking each candidate.
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
-    for n in 0..ASIDE_NAMES {
-        let aside = sibling(path, &format!("{suffix}.orphaned-{stamp}-{n}"));
-        if !aside.try_exists().map_err(fail)? {
-            return std::fs::rename(&file, &aside).map_err(fail);
-        }
-    }
-    Err(OpenError::SetAside {
-        path: file,
-        source: io::Error::from(io::ErrorKind::AlreadyExists),
-    })
 }
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i64, OpenError> {
@@ -640,25 +606,20 @@ mod tests {
     }
 
     #[test]
-    fn setting_aside_never_overwrites_an_earlier_orphan() {
+    fn a_raw_connection_to_a_file_in_wal_is_none_and_leaves_its_wal_in_place() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let store = dir.path().join("events.sqlite3");
-        for content in [&b"first"[..], b"second", b"third"] {
-            std::fs::write(sibling(&store, "-wal"), content).expect("write");
-            set_aside(&store, "-wal").expect("set aside");
-        }
-        let mut kept: Vec<Vec<u8>> = std::fs::read_dir(dir.path())
-            .expect("list")
-            .map(|e| std::fs::read(e.expect("entry").path()).expect("read"))
-            .collect();
-        kept.sort();
+        let path = dir.path().join("events.sqlite3.telemetry");
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x);")
+            .expect("a database in WAL");
+        drop(conn);
+        std::fs::write(sibling(&path, "-wal"), b"live").expect("a wal");
+        let conn = raw_connection(&path).expect("no failure");
+        assert!(conn.is_none(), "no connection to a file in WAL");
         assert_eq!(
-            kept,
-            vec![b"first".to_vec(), b"second".to_vec(), b"third".to_vec()]
-        );
-        assert!(
-            matches!(set_aside(&store, "-wal"), Ok(())),
-            "nothing to set aside"
+            std::fs::read(sibling(&path, "-wal")).expect("still there"),
+            b"live",
+            "its WAL is not set aside"
         );
     }
 }

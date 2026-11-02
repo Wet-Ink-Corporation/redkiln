@@ -4,7 +4,9 @@
 //! The window is the caller's clock: from [`TELEMETRY_WINDOW`] before `now` to [`SLACK`] after
 //! it ([`Window::at`]). A row dated past its end (a clock that ran ahead) is outside the window
 //! too, so no row's own date can stop the prune or move the window. The library reads no clock:
-//! `now` is the caller's, on writes as on reads.
+//! `now` is the caller's, on writes as on reads. A writer whose clock jumped back more than a
+//! day therefore sees every real row as dated ahead and deletes them: telemetry is disposable
+//! measurement, and a durable fact never lives here.
 //!
 //! The check runs before each telemetry append, on the telemetry connection: the first and the
 //! last rows' `recorded_at`. Rows are deleted when the first is older than the window's start by
@@ -117,9 +119,12 @@ async fn read_ends(handle: &SqliteEventStore) -> Result<Option<(i64, i64)>, Sqli
 }
 
 /// Deletes every row outside `window`, with its tag rows and counts, when the file is still the
-/// store `opened`; a file with another identity is left as it is.
+/// store `opened`; a file with another identity, or one in WAL (another program opened it so,
+/// and its `-wal` may be live), is left as it is.
 fn delete_outside(side: &Path, opened: StoreId, window: Window) -> Result<(), OpenError> {
-    let conn = open::raw_connection(side)?;
+    let Some(conn) = open::raw_connection(side)? else {
+        return Ok(());
+    };
     conn.execute_batch("BEGIN IMMEDIATE")
         .map_err(|source| OpenError::Sqlite {
             step: Step::Begin,

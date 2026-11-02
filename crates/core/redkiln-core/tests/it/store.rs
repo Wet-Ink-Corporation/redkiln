@@ -157,6 +157,77 @@ fn an_open_waits_for_a_creation_in_progress_and_leaves_its_journal() {
 }
 
 #[test]
+fn another_programs_creation_in_progress_is_busy_and_keeps_its_journal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    // A writer that is not Core (it takes no open lock), midway through its first transaction:
+    // the file has no pages yet, and its journal is live.
+    let writer = Connection::open(&path).expect("connect");
+    writer
+        .execute_batch("BEGIN IMMEDIATE; CREATE TABLE t (x);")
+        .expect("a creation in progress");
+    let journal = sibling(&path, "-journal");
+    let live = std::fs::read(&journal).expect("the creation has a live journal");
+    assert!(!live.is_empty(), "the journal has its header");
+
+    match Store::open(&path, Wait::Hook) {
+        Err(StoreError::Open {
+            source: OpenError::WriterBusy,
+            ..
+        }) => {}
+        other => panic!("expected the open to report the writer, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read(&journal).expect("still there"),
+        live,
+        "the live journal keeps its name and bytes"
+    );
+    assert_eq!(
+        std::fs::metadata(&path).expect("stat").len(),
+        0,
+        "nothing written"
+    );
+    writer.execute_batch("COMMIT").expect("the writer commits");
+    let tables: i64 = writer
+        .query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0))
+        .expect("count");
+    assert_eq!(tables, 1, "its transaction landed");
+}
+
+#[test]
+fn a_stale_journal_with_a_header_beside_an_empty_file_is_kept_aside() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let writer = Connection::open(&path).expect("connect");
+    writer
+        .execute_batch("BEGIN IMMEDIATE; CREATE TABLE t (x);")
+        .expect("a creation in progress");
+    let stale = std::fs::read(sibling(&path, "-journal")).expect("its journal");
+    writer.execute_batch("ROLLBACK").expect("roll back");
+    drop(writer);
+    // As a writer killed mid-creation leaves it.
+    std::fs::write(&path, b"").expect("an empty file");
+    std::fs::write(sibling(&path, "-journal"), &stale).expect("a stale journal");
+
+    let store = open(&path);
+    assert_eq!(
+        store.append(vec![raise("wi-a")], None).expect("append"),
+        Appended::At(1)
+    );
+    drop(store);
+    let kept: Vec<Vec<u8>> = listing(dir.path())
+        .into_iter()
+        .filter(|n| n.contains("-journal.orphaned-"))
+        .map(|n| std::fs::read(dir.path().join(n)).expect("read"))
+        .collect();
+    assert!(
+        kept.contains(&stale),
+        "its bytes are kept aside: {}",
+        kept.len()
+    );
+}
+
+#[test]
 fn conditions_make_the_first_writer_win() {
     let dir = tempfile::tempdir().expect("tempdir");
     let store = open(&dir.path().join("events.sqlite3"));
