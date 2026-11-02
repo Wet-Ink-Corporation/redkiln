@@ -34,7 +34,7 @@ Trust levels are in the first release because adding them later would leave ever
 | `board` | A board submission, validated as untrusted and checked against the card's revision | The plugin's board import |
 | `decision-card` | A Claude Projects decision card answered by a member's tap; never an answer an agent recorded itself, such as closing its own card | The plugin's card import |
 | `mod-pane` | A click in the suite mod's pane | The mod |
-| `github-review` | A pull request review by a named user, read locally from GitHub, unless TR-10 lowers it | The plugin, with its own GitHub credentials |
+| `github-review` | A pull request review by a named user, read locally from GitHub; `asserted` in SPEC 1.0, since agents act as the owner's account (TR-10) | The plugin, with its own GitHub credentials |
 
 A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes `witnessed` only if the `PostToolUse` hook records it from the tool result. When the agent records the same answer with `weighin decide`, the event is `asserted`. A person typing a command in their own terminal is also `asserted`, since the binary cannot tell their shell from the agent's.
 
@@ -44,7 +44,7 @@ A consequence for Weigh-In: an answer given on an `AskUserQuestion` card becomes
 
 | `via` | What it is | Verified by |
 | --- | --- | --- |
-| `github-app` | A check run, or a comment command a maintainer posted (unless TR-10 lowers it), read and recorded by the Review App | The App's check run on the commit |
+| `github-app` | A check run, or a comment command a maintainer posted (`asserted` in SPEC 1.0, TR-10), read and recorded by the Review App | The App's check run on the commit |
 | `ledger-cas` | A compare-and-set on the ledger repository, made with its App or deploy key, where the repository's rules let only that App or key push the ref; read from GitHub when verifying, since a commit does not show who pushed it | The ref's commit in the ledger repository |
 | `signed-commit` | A commit signed by a user key on the decider's GitHub account; never GitHub's own web-flow key, which signs any commit made through the web or the API with the account's token | The commit's verified signature |
 
@@ -66,4 +66,4 @@ A human approval comes from a surface the agent cannot drive: a decision card an
 - the signing key: no agent session on the owner's machine with it loaded;
 - the agents' GitHub tokens: no administration or key-management permission, so they cannot add a signing key, change the default branch, or relax the rulesets `ledger-cas` relies on.
 
-Giving `github-review` and comment commands back their levels needs agents with an identity of their own. That is a later SPEC change, by the owner's decision, which names the accounts that are agents' by numeric user id (Ryan, 2026-11-02).
+Giving `github-review` and comment commands back their levels needs agents with an identity of their own. That is a later SPEC change, by the owner's decision. It should list the human-only accounts by numeric user id, accounts never signed in where an agent can reach, rather than the agents' accounts: a missing or empty human list trusts nobody, while an agent list is safe only when complete (Ryan, 2026-11-02).
