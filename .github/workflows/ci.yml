@@ -37,6 +37,7 @@ jobs:
       typescript: ${{ steps.paths.outputs.typescript }}
       labels: ${{ steps.paths.outputs.labels }}
       weigh-in: ${{ steps.paths.outputs.weigh-in }}
+      charters: ${{ steps.paths.outputs.charters }}
       has-plugins: ${{ steps.paths.outputs.has-plugins }}
       has-package: ${{ steps.paths.outputs.has-package }}
       base: ${{ steps.paths.outputs.base }}
@@ -80,6 +81,7 @@ jobs:
           exists has-plugins 'plugins/*/.claude-plugin/plugin.json'
           exists has-package 'package.json'
           area labels '^(\.github/labels\.yml|tools/labels/)'
+          area charters '(^|/)AGENTS\.md$|^tools/charters/'
           area weigh-in '^(plugins/weigh-in(-mod)?/|tools/weigh-in/|tools/launcher/weighin-)'
 
   rust:
@@ -276,6 +278,19 @@ jobs:
           "$RUNNER_TEMP/venv/bin/pip" install --quiet pyyaml==6.0.3
           "$RUNNER_TEMP/venv/bin/python" tools/labels/check.py .github/labels.yml
 
+  # Charter size (field guide T6): every AGENTS.md chain stays under 24 KiB, below Codex's
+  # 32 KiB cut.
+  charters:
+    needs: changes
+    if: needs.changes.outputs.charters == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: sh tools/charters/check.sh
+
   # Weigh-In's own checks, imported with it (Move 1): the Cowork fetch script against a fake
   # device shell (weigh-in D-0021), and the mod's manifest, plugin tests and strict tsc (#114).
   # No model calls.
@@ -300,7 +315,7 @@ jobs:
         run: bash tools/weigh-in/mod-check/mod-check.sh
 
   ok:
-    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in]
+    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, charters]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
