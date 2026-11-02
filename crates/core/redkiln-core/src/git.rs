@@ -4,7 +4,12 @@
 //! git's stdout and stderr go to anonymous files on the local temporary disk, not to pipes, so no
 //! reader thread is needed and a full pipe can never stall git: the deadline is the only wait.
 //! git runs under `LC_ALL=C`, so its messages are untranslated and [`discover`] can tell "not a
-//! git repository" from every other failure.
+//! git repository" from every other failure, and without the variables that would steer it to
+//! another repository ([`STEERING`]).
+//!
+//! Only the child is killed at the deadline. On Windows the `git.exe` on `PATH` may be Git for
+//! Windows' launcher, whose own child, the real git, outlives the kill; it holds only its copies
+//! of the spool files, which nothing here waits on, so the call still returns at the deadline.
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -19,8 +24,27 @@ pub(crate) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 /// How often a running git is checked for completion.
 const POLL: Duration = Duration::from_millis(5);
 
-/// What git says, untranslated, when a directory is in no repository.
-const NOT_A_REPOSITORY: &str = "not a git repository";
+/// What git's discovery says, untranslated, when no directory from the start up is a
+/// repository: `fatal: not a git repository (or any of the parent directories): .git`, or, where
+/// discovery stopped at a file system boundary, `(or any parent up to mount point /m)`. git's
+/// other "not a git repository: <path>" names a gitdir that is gone (a pruned linked worktree's
+/// `.git` file), which is a broken repository, not none (ST-01).
+const NO_REPOSITORY: [&str; 2] = [
+    "not a git repository (or any of the parent directories)",
+    "not a git repository (or any parent up to mount point",
+];
+
+/// git's variables that would point it at another repository, index or search than the
+/// directory's own: a git hook running the caller hands them on. Removed from git's
+/// environment, so discovery always starts from the directory given.
+const STEERING: [&str; 6] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+];
 
 /// Why git could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -78,6 +102,19 @@ pub(crate) struct GitDirs {
 /// # Errors
 /// Any other git failure ([`GitError::Failed`]), and git that cannot run or answer in time.
 pub(crate) fn discover(cwd: &Path, timeout: Duration) -> Result<Option<GitDirs>, GitError> {
+    discover_with(Command::new("git"), cwd, timeout)
+}
+
+/// [`discover`] through `git`, a `Command` for git that may carry the caller's environment (the
+/// tests' seam: they set git's variables on it, as a git hook would on the process).
+fn discover_with(
+    mut git: Command,
+    cwd: &Path,
+    timeout: Duration,
+) -> Result<Option<GitDirs>, GitError> {
+    for name in STEERING {
+        git.env_remove(name);
+    }
     let args = [
         "rev-parse",
         "--path-format=absolute",
@@ -85,10 +122,10 @@ pub(crate) fn discover(cwd: &Path, timeout: Duration) -> Result<Option<GitDirs>,
         "--show-toplevel",
     ]
     .map(OsStr::new);
-    let captured = run(OsStr::new("git"), &args, cwd, timeout)?;
+    let captured = run(git, &args, cwd, timeout)?;
     if !captured.status.success() {
         let stderr = String::from_utf8_lossy(&captured.stderr).trim().to_owned();
-        if stderr.contains(NOT_A_REPOSITORY) {
+        if NO_REPOSITORY.iter().any(|said| stderr.contains(said)) {
             return Ok(None);
         }
         return Err(GitError::Failed {
@@ -112,16 +149,16 @@ pub(crate) fn normalise(path: &Path) -> PathBuf {
     path.components().collect()
 }
 
-/// Runs `program` with `args` in `cwd`, killing it once `timeout` has passed.
+/// Runs `command` with `args` in `cwd`, killing it once `timeout` has passed.
 fn run(
-    program: &OsStr,
+    mut command: Command,
     args: &[&OsStr],
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Captured, GitError> {
     let mut stdout = tempfile::tempfile().map_err(GitError::Io)?;
     let mut stderr = tempfile::tempfile().map_err(GitError::Io)?;
-    let mut child = Command::new(program)
+    let mut child = command
         .args(args)
         .current_dir(cwd)
         .env("LC_ALL", "C")
@@ -149,17 +186,17 @@ fn wait(child: &mut Child, timeout: Duration) -> Result<ExitStatus, GitError> {
             return Ok(status);
         }
         if Instant::now() >= deadline {
-            // It may have exited since `try_wait`; the kill then finds a process to reap, which
-            // `wait` does, and the answer is still the timeout.
-            let killed = child.kill();
+            match child.kill() {
+                // Killed, or it exited since `try_wait` (`InvalidInput`): either way it ends now,
+                // so reaping it cannot wait.
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
+                // Not killed: waiting for it could outlast the deadline, so it is left unreaped
+                // (std reaps nothing on drop) rather than waited for.
+                Err(e) => return Err(GitError::Io(e)),
+            }
             child.wait().map_err(GitError::Io)?;
-            return match killed {
-                Ok(()) => Err(GitError::Timeout { timeout }),
-                Err(e) if e.kind() == io::ErrorKind::InvalidInput => {
-                    Err(GitError::Timeout { timeout })
-                }
-                Err(e) => Err(GitError::Io(e)),
-            };
+            return Err(GitError::Timeout { timeout });
         }
         std::thread::sleep(POLL);
     }
@@ -185,7 +222,7 @@ mod tests {
     #[cfg(unix)]
     fn sh(dir: &Path, script: &str, timeout: Duration) -> Result<Captured, GitError> {
         run(
-            OsStr::new("sh"),
+            Command::new("sh"),
             &[OsStr::new("-c"), OsStr::new(script)],
             dir,
             timeout,
@@ -239,7 +276,7 @@ mod tests {
     fn a_program_that_cannot_start_is_a_spawn_error() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outcome = run(
-            OsStr::new("redkiln-no-such-program"),
+            Command::new("redkiln-no-such-program"),
             &[],
             dir.path(),
             Duration::from_secs(1),
@@ -249,6 +286,48 @@ mod tests {
             "{:?}",
             outcome.map(|c| c.status)
         );
+    }
+
+    /// A repository at `<dir>/<name>`, its `.git` canonicalised.
+    fn init(dir: &Path, name: &str) -> (PathBuf, PathBuf) {
+        let repo = dir.join(name);
+        std::fs::create_dir_all(repo.join("sub")).expect("dirs");
+        let status = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&repo)
+            .status()
+            .expect("git init");
+        assert!(status.success());
+        let git_dir = std::fs::canonicalize(repo.join(".git")).expect(".git");
+        (repo, git_dir)
+    }
+
+    #[test]
+    fn git_variables_the_caller_inherited_never_steer_discovery() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (here, here_git) = init(dir.path(), "here");
+        let (_, other_git) = init(dir.path(), "other");
+        let steered = [
+            ("GIT_DIR", other_git.as_os_str()),
+            ("GIT_COMMON_DIR", other_git.as_os_str()),
+            ("GIT_WORK_TREE", dir.path().as_os_str()),
+            ("GIT_INDEX_FILE", other_git.as_os_str()),
+            ("GIT_CEILING_DIRECTORIES", here.as_os_str()),
+            ("GIT_DISCOVERY_ACROSS_FILESYSTEM", OsStr::new("0")),
+        ];
+        for (name, value) in steered {
+            // As a git hook's environment would hand them to the caller.
+            let mut command = Command::new("git");
+            command.env(name, value);
+            let found = discover_with(command, &here.join("sub"), Duration::from_secs(10))
+                .expect("discovered")
+                .expect("a repository");
+            assert_eq!(
+                std::fs::canonicalize(&found.common_dir).expect("common dir"),
+                here_git,
+                "{name}"
+            );
+        }
     }
 
     #[test]

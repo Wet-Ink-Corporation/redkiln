@@ -56,7 +56,8 @@ mod tests {
         std::env::set_current_dir(first.path()).expect("enter the first");
         let opened = Store::open(Path::new("events.sqlite3"), Wait::Command);
         std::env::set_current_dir(second.path()).expect("enter the second");
-        let recorded = opened.map(|mut store| (store.record_telemetry(timing()), store));
+        let recorded =
+            opened.map(|mut store| (store.record_telemetry(timing(), SystemTime::now()), store));
         // Left before any assertion, so neither directory is in use when it is removed.
         std::env::set_current_dir(original).expect("restore the working directory");
 

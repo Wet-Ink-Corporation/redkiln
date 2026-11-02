@@ -19,7 +19,7 @@
 //! written.
 
 use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use happenstance_core::{AppendError, SendEventStore, StoreId};
 use happenstance_sqlite::event_store::{SqliteEventStore, SqliteEventStoreError};
@@ -29,6 +29,7 @@ use super::{
     Filter, NewEvent, OpenError, Page, Store, StoreError, Stored, open, read_page,
     refuse_inside_runtime, retention, sibling,
 };
+use retention::Window;
 
 /// How long telemetry is kept, and read (EV-14's default). SPEC 1.0 gives suite.toml no key for
 /// it (ST-12), so it is fixed.
@@ -59,8 +60,10 @@ pub enum Recorded {
 
 impl Store {
     /// Writes a telemetry event to the side store without waiting: when another writer holds
-    /// the lock, the event is dropped and counted (ST-09). Rows past [`TELEMETRY_WINDOW`] are
-    /// deleted first, when there are a day's worth of them.
+    /// the lock, the event is dropped and counted (ST-09). Rows outside the window at `now`
+    /// (older than [`TELEMETRY_WINDOW`], or dated more than a day ahead) are deleted first, when
+    /// there are a day's worth of them or a row is dated ahead. `now` is the caller's clock
+    /// (`SystemTime::now()`); the library reads none.
     ///
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Open`] when the store's file or the side
@@ -69,7 +72,11 @@ impl Store {
     /// store's path is no longer the store opened; [`StoreError::Read`] or
     /// [`StoreError::Prune`] when the window cannot be kept; [`StoreError::Append`] when
     /// happenstance refuses the append for a reason other than a busy lock.
-    pub fn record_telemetry(&mut self, event: TelemetryEvent) -> Result<Recorded, StoreError> {
+    pub fn record_telemetry(
+        &mut self,
+        event: TelemetryEvent,
+        now: SystemTime,
+    ) -> Result<Recorded, StoreError> {
         refuse_inside_runtime()?;
         let side = sibling(&self.path, SIDE_SUFFIX);
         let handle = telemetry_handle(
@@ -81,7 +88,7 @@ impl Store {
         let outcome = match handle {
             None => None,
             Some(handle) => {
-                retention::prune(&self.runtime, handle, &side)?;
+                retention::prune(&self.runtime, handle, &side, Window::at(now))?;
                 let events = [event.0.into_event()];
                 match self.runtime.block_on(handle.append(&events, None))? {
                     Ok(position) => Some(u64::from(position)),
@@ -105,8 +112,9 @@ impl Store {
     }
 
     /// At most `page.limit` telemetry events matching `filter` after `page.after`, in the side
-    /// store's order, recorded no earlier than [`TELEMETRY_WINDOW`] before `now` (EV-14):
-    /// older rows not yet deleted are passed over, never returned. `now` is the caller's clock
+    /// store's order, recorded no earlier than [`TELEMETRY_WINDOW`] before `now` and no later
+    /// than a day after it (EV-14): rows outside that, not yet deleted, are passed over, never
+    /// returned. `now` is the caller's clock
     /// (`SystemTime::now()`); the library reads none. A store with no side store yet reads none,
     /// and none is created. The read waits up to the open's busy timeout.
     ///
@@ -127,7 +135,7 @@ impl Store {
             Err(OpenError::NoStore) => return Ok(Vec::new()),
             Err(source) => return Err(StoreError::Open { path: side, source }),
         };
-        let cutoff = window_start(now);
+        let window = Window::at(now);
         let limit = page.limit.get();
         let mut kept = Vec::new();
         let mut next = page;
@@ -140,7 +148,7 @@ impl Store {
             };
             kept.extend(
                 rows.into_iter()
-                    .filter(|stored| stored.recorded_at_millis >= cutoff),
+                    .filter(|stored| window.holds(stored.recorded_at_millis)),
             );
             if kept.len() >= limit || !full {
                 break;
@@ -149,19 +157,6 @@ impl Store {
         }
         kept.truncate(limit);
         Ok(kept)
-    }
-}
-
-/// The earliest `recorded_at` a reader at `now` sees, in milliseconds since the Unix epoch,
-/// saturating at the ends of `i64`.
-fn window_start(now: SystemTime) -> i64 {
-    let Some(start) = now.checked_sub(TELEMETRY_WINDOW) else {
-        return i64::MIN;
-    };
-    match start.duration_since(UNIX_EPOCH) {
-        Ok(after) => i64::try_from(after.as_millis()).unwrap_or(i64::MAX),
-        Err(before) => i64::try_from(before.duration().as_millis())
-            .map_or(i64::MIN, |millis| 0_i64.saturating_sub(millis)),
     }
 }
 

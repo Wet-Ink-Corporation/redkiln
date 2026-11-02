@@ -94,7 +94,9 @@ fn a_telemetry_write_is_dropped_and_counted_while_another_writer_holds_the_lock(
     // A command's store: its durable appends would wait 10 seconds.
     let mut store = Store::open(&path, Wait::Command).expect("opens");
     assert_eq!(
-        store.record_telemetry(timing(0)).expect("written"),
+        store
+            .record_telemetry(timing(0), SystemTime::now())
+            .expect("written"),
         Recorded::At(1),
         "the side store exists"
     );
@@ -106,11 +108,15 @@ fn a_telemetry_write_is_dropped_and_counted_while_another_writer_holds_the_lock(
 
     let started = Instant::now();
     assert_eq!(
-        store.record_telemetry(timing(1)).expect("no error"),
+        store
+            .record_telemetry(timing(1), SystemTime::now())
+            .expect("no error"),
         Recorded::Dropped
     );
     assert_eq!(
-        store.record_telemetry(timing(2)).expect("no error"),
+        store
+            .record_telemetry(timing(2), SystemTime::now())
+            .expect("no error"),
         Recorded::Dropped
     );
     assert!(
@@ -126,7 +132,9 @@ fn a_telemetry_write_is_dropped_and_counted_while_another_writer_holds_the_lock(
 
     holder.execute_batch("ROLLBACK").expect("release the lock");
     assert_eq!(
-        store.record_telemetry(timing(3)).expect("written"),
+        store
+            .record_telemetry(timing(3), SystemTime::now())
+            .expect("written"),
         Recorded::At(2)
     );
     assert_eq!(
@@ -149,7 +157,9 @@ fn the_write_that_would_create_the_side_store_drops_while_its_lock_is_held() {
 
     let started = Instant::now();
     assert_eq!(
-        store.record_telemetry(timing(1)).expect("no error"),
+        store
+            .record_telemetry(timing(1), SystemTime::now())
+            .expect("no error"),
         Recorded::Dropped
     );
     assert!(
@@ -159,7 +169,9 @@ fn the_write_that_would_create_the_side_store_drops_while_its_lock_is_held() {
     );
     holder.execute_batch("ROLLBACK").expect("release the lock");
     assert_eq!(
-        store.record_telemetry(timing(2)).expect("written"),
+        store
+            .record_telemetry(timing(2), SystemTime::now())
+            .expect("written"),
         Recorded::At(1)
     );
     assert_eq!(store.telemetry_dropped(), 1);
@@ -171,7 +183,9 @@ fn a_reader_holding_the_file_at_commit_drops_the_event_and_writes_nothing() {
     let path = dir.path().join("events.sqlite3");
     let mut store = Store::open(&path, Wait::Command).expect("opens");
     assert_eq!(
-        store.record_telemetry(timing(0)).expect("written"),
+        store
+            .record_telemetry(timing(0), SystemTime::now())
+            .expect("written"),
         Recorded::At(1),
         "the side store exists"
     );
@@ -182,7 +196,9 @@ fn a_reader_holding_the_file_at_commit_drops_the_event_and_writes_nothing() {
         .expect("hold a read lock");
 
     assert_eq!(
-        store.record_telemetry(timing(1)).expect("no error"),
+        store
+            .record_telemetry(timing(1), SystemTime::now())
+            .expect("no error"),
         Recorded::Dropped
     );
     assert_eq!(store.telemetry_dropped(), 1);
@@ -192,7 +208,9 @@ fn a_reader_holding_the_file_at_commit_drops_the_event_and_writes_nothing() {
         .expect("release the read lock");
     assert_eq!(telemetry(&store), [1], "the busy commit was rolled back");
     assert_eq!(
-        store.record_telemetry(timing(2)).expect("written"),
+        store
+            .record_telemetry(timing(2), SystemTime::now())
+            .expect("written"),
         Recorded::At(2)
     );
     assert_eq!(telemetry(&store), [1, 2]);
@@ -212,12 +230,16 @@ fn a_telemetry_connection_opened_while_the_lock_is_busy_is_opened_again_later() 
     lock.lock().expect("hold the open lock");
 
     assert_eq!(
-        store.record_telemetry(timing(1)).expect("no error"),
+        store
+            .record_telemetry(timing(1), SystemTime::now())
+            .expect("no error"),
         Recorded::Dropped
     );
     lock.unlock().expect("release the open lock");
     assert_eq!(
-        store.record_telemetry(timing(2)).expect("written"),
+        store
+            .record_telemetry(timing(2), SystemTime::now())
+            .expect("written"),
         Recorded::At(1)
     );
     assert_eq!(store.telemetry_dropped(), 1);
@@ -251,7 +273,7 @@ fn telemetry_is_refused_by_a_store_whose_identity_changed_in_place() {
         )
         .expect("re-mint in place");
 
-    let refused = store.record_telemetry(timing(1));
+    let refused = store.record_telemetry(timing(1), SystemTime::now());
     match refused {
         Err(StoreError::IdentityChanged { opened, found }) => {
             assert_eq!(opened, store.store_id());
@@ -260,6 +282,7 @@ fn telemetry_is_refused_by_a_store_whose_identity_changed_in_place() {
         other => panic!("expected IdentityChanged, got {other:?}"),
     }
     assert_eq!(rows(&path), 1, "only the durable event; no telemetry row");
+    assert!(!side(&path).exists(), "no side store made beside it");
     assert_eq!(store.telemetry_dropped(), 0, "a refusal is not a drop");
 }
 
@@ -279,7 +302,7 @@ fn telemetry_is_refused_by_another_store_renamed_over_the_path() {
     std::fs::copy(&other, &copy).expect("copy it beside the store");
     std::fs::rename(&copy, &path).expect("rename it over the store");
 
-    let refused = store.record_telemetry(timing(1));
+    let refused = store.record_telemetry(timing(1), SystemTime::now());
     match refused {
         Err(StoreError::IdentityChanged { opened, found }) => {
             assert_eq!(opened, store.store_id());
@@ -288,6 +311,7 @@ fn telemetry_is_refused_by_another_store_renamed_over_the_path() {
         other => panic!("expected IdentityChanged, got {other:?}"),
     }
     assert_eq!(rows(&path), 0, "no telemetry row in the replacing file");
+    assert!(!side(&path).exists(), "no side store made beside it");
 }
 
 /// Deleting a file another handle holds open is refused on Windows.
@@ -302,7 +326,7 @@ fn telemetry_never_creates_a_store_where_the_opened_one_vanished() {
     std::fs::remove_file(&path).expect("the store vanishes");
     let before = listing(dir.path());
 
-    let refused = store.record_telemetry(timing(1));
+    let refused = store.record_telemetry(timing(1), SystemTime::now());
     assert!(
         matches!(
             refused,
@@ -328,7 +352,9 @@ fn telemetry_is_kept_in_a_side_store_and_never_in_the_log() {
     let mut store = Store::open(&path, Wait::Command).expect("opens");
     store.append(vec![durable()], None).expect("appended");
     assert_eq!(
-        store.record_telemetry(timing(1)).expect("written"),
+        store
+            .record_telemetry(timing(1), SystemTime::now())
+            .expect("written"),
         Recorded::At(1),
         "the side store has positions of its own"
     );
@@ -396,12 +422,17 @@ fn raw_side(path: &Path) -> (Vec<i64>, Vec<i64>, Vec<(String, i64)>) {
 }
 
 fn tagged_timing(millis: u64) -> TelemetryEvent {
+    channel_timing(millis, "cli")
+}
+
+/// A timing tagged `weighin.channel:<channel>`.
+fn channel_timing(millis: u64, channel: &str) -> TelemetryEvent {
     let author = Author {
         actor: Actor::Hook,
         trust: Trust::asserted(),
         writer: Writer::new("weighin", "2.0.0").expect("valid writer"),
     };
-    let tag = Tag::namespaced(Namespace::Weighin, "channel", "cli").expect("a tag");
+    let tag = Tag::namespaced(Namespace::Weighin, "channel", channel).expect("a tag");
     Envelope::new(
         Timestamp::parse("2026-10-31T04:20:11Z").expect("valid ts"),
         author,
@@ -418,7 +449,9 @@ fn telemetry_recorded_before_the_window_is_never_read() {
     let path = dir.path().join("events.sqlite3");
     let mut store = Store::open(&path, Wait::Command).expect("opens");
     for n in 1..=3 {
-        store.record_telemetry(timing(n)).expect("written");
+        store
+            .record_telemetry(timing(n), SystemTime::now())
+            .expect("written");
     }
     // Past the window by an hour: within the day of slack before it is deleted.
     backdate(&path, &[1], 30 * DAY_MILLIS + HOUR_MILLIS);
@@ -430,16 +463,28 @@ fn telemetry_recorded_before_the_window_is_never_read() {
         [2],
         "a page is filled from inside the window"
     );
+    // Two hours back: the hour-old row is in that reader's window, and rows two hours ahead of
+    // it are within the day of skew it accepts.
     let earlier = now
-        .checked_sub(Duration::from_hours(2 * 24))
-        .expect("two days ago");
+        .checked_sub(Duration::from_hours(2))
+        .expect("two hours ago");
     assert_eq!(
         telemetry_at(&store, earlier, 0, 100),
         [1, 2, 3],
         "the window is measured from the reader's now"
     );
+    let far_behind = now
+        .checked_sub(Duration::from_hours(2 * 24))
+        .expect("two days ago");
+    assert_eq!(
+        telemetry_at(&store, far_behind, 0, 100),
+        [1],
+        "rows dated more than a day past the reader's now are outside its window"
+    );
 
-    store.record_telemetry(timing(4)).expect("written");
+    store
+        .record_telemetry(timing(4), SystemTime::now())
+        .expect("written");
     assert_eq!(
         raw_side(&path).0,
         [1, 2, 3, 4],
@@ -455,7 +500,9 @@ fn rows_past_the_window_are_deleted_from_the_side_store_with_their_tags() {
     let mut store = Store::open(&path, Wait::Command).expect("opens");
     store.append(vec![durable()], None).expect("appended");
     for n in 1..=3 {
-        store.record_telemetry(tagged_timing(n)).expect("written");
+        store
+            .record_telemetry(tagged_timing(n), SystemTime::now())
+            .expect("written");
     }
     backdate(&path, &[1, 2], 32 * DAY_MILLIS);
     let (_, tagged, counts) = raw_side(&path);
@@ -465,7 +512,9 @@ fn rows_past_the_window_are_deleted_from_the_side_store_with_their_tags() {
     assert!(counts.iter().all(|(_, n)| *n == 3), "{counts:?}");
 
     assert_eq!(
-        store.record_telemetry(tagged_timing(4)).expect("written"),
+        store
+            .record_telemetry(tagged_timing(4), SystemTime::now())
+            .expect("written"),
         Recorded::At(4),
         "positions are never reused"
     );
@@ -479,4 +528,142 @@ fn rows_past_the_window_are_deleted_from_the_side_store_with_their_tags() {
     assert_eq!(telemetry(&store), [3, 4]);
     assert_eq!(count(&store), 1, "the log is untouched");
     assert_eq!(rows(&path), 1);
+}
+
+fn write(store: &mut Store, event: TelemetryEvent) -> Recorded {
+    store
+        .record_telemetry(event, SystemTime::now())
+        .expect("no error")
+}
+
+/// A store with `n` telemetry rows written now.
+fn with_rows(n: u64) -> (tempfile::TempDir, PathBuf, Store) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    for millis in 1..=n {
+        assert_eq!(write(&mut store, timing(millis)), Recorded::At(millis));
+    }
+    (dir, path, store)
+}
+
+#[test]
+fn a_tag_only_pruned_rows_carried_loses_its_count() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    write(&mut store, channel_timing(1, "old"));
+    write(&mut store, channel_timing(2, "old"));
+    write(&mut store, channel_timing(3, "cli"));
+    backdate(&path, &[1, 2], 32 * DAY_MILLIS);
+
+    write(&mut store, channel_timing(4, "cli"));
+    let (positions, _, counts) = raw_side(&path);
+    assert_eq!(positions, [3, 4]);
+    let tags: Vec<&str> = counts.iter().map(|(tag, _)| tag.as_str()).collect();
+    assert!(
+        !tags.contains(&"weighin.channel:old"),
+        "no count left for a tag no row carries: {counts:?}"
+    );
+    assert!(tags.contains(&"weighin.channel:cli"), "{counts:?}");
+}
+
+#[test]
+fn a_future_dated_first_row_does_not_stop_the_prune_and_is_never_read() {
+    let (_dir, path, mut store) = with_rows(3);
+    backdate(&path, &[1], -40 * DAY_MILLIS);
+    backdate(&path, &[2], 32 * DAY_MILLIS);
+    assert_eq!(
+        telemetry(&store),
+        [3],
+        "neither the future row nor the old one"
+    );
+
+    write(&mut store, timing(4));
+    assert_eq!(
+        raw_side(&path).0,
+        [3, 4],
+        "the old row is deleted, and the future one with it"
+    );
+}
+
+#[test]
+fn a_future_dated_head_row_never_deletes_the_live_window() {
+    let (_dir, path, mut store) = with_rows(3);
+    backdate(&path, &[3], -40 * DAY_MILLIS);
+
+    write(&mut store, timing(4));
+    assert_eq!(
+        raw_side(&path).0,
+        [1, 2, 4],
+        "the window is the writer's now, not the head row's"
+    );
+    assert_eq!(telemetry(&store), [1, 2, 4]);
+}
+
+#[test]
+fn telemetry_is_written_while_another_writer_holds_the_logs_lock() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let mut store = Store::open(&path, Wait::Command).expect("opens");
+    let holder = other_connection(&path);
+    holder
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("take the log's write lock");
+
+    let started = Instant::now();
+    assert_eq!(write(&mut store, timing(1)), Recorded::At(1));
+    assert!(
+        started.elapsed() < Wait::Hook.timeout(),
+        "{:?}",
+        started.elapsed()
+    );
+    holder.execute_batch("ROLLBACK").expect("release");
+    assert_eq!(store.telemetry_dropped(), 0);
+}
+
+#[test]
+fn a_prune_is_skipped_while_the_side_store_is_busy_and_runs_once_it_is_free() {
+    let (_dir, path, mut store) = with_rows(3);
+    backdate(&path, &[1], 32 * DAY_MILLIS);
+    let holder = other_connection(&side(&path));
+    holder
+        .execute_batch("BEGIN IMMEDIATE")
+        .expect("take the side store's write lock");
+
+    let started = Instant::now();
+    assert_eq!(write(&mut store, timing(4)), Recorded::Dropped);
+    assert!(
+        started.elapsed() < Wait::Hook.timeout(),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(raw_side(&path).0, [1, 2, 3], "nothing deleted while busy");
+
+    holder.execute_batch("ROLLBACK").expect("release");
+    assert_eq!(write(&mut store, timing(5)), Recorded::At(4));
+    assert_eq!(raw_side(&path).0, [2, 3, 4]);
+}
+
+#[test]
+fn a_side_store_whose_identity_changed_in_place_is_not_pruned() {
+    let (_dir, path, mut store) = with_rows(3);
+    backdate(&path, &[1], 32 * DAY_MILLIS);
+    other_connection(&side(&path))
+        .execute(
+            "UPDATE store_meta SET v = randomblob(16) WHERE k = 'store_id'",
+            [],
+        )
+        .expect("re-mint in place");
+
+    let refused = store.record_telemetry(timing(4), SystemTime::now());
+    assert!(
+        matches!(refused, Err(StoreError::Append(_))),
+        "happenstance refuses the append to a moved identity: {refused:?}"
+    );
+    assert_eq!(
+        raw_side(&path).0,
+        [1, 2, 3],
+        "rows are deleted only from the side store the handle opened"
+    );
 }

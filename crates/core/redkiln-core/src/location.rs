@@ -82,17 +82,26 @@ pub enum Workspace {
 }
 
 impl Workspace {
-    /// Asks git where `cwd` sits, killing git after `timeout`. `cwd` should be absolute.
+    /// Asks git where `cwd` sits, killing git after `timeout`.
     ///
     /// # Errors
-    /// [`GitError::Failed`] when git fails for any reason other than `cwd` being in no
-    /// repository (a broken `.git` file, dubious ownership, a bare repository); the other
-    /// [`GitError`]s when git cannot be run or does not answer in time.
-    pub fn discover(cwd: &Path, timeout: Duration) -> Result<Self, GitError> {
-        Ok(match git::discover(cwd, timeout)? {
-            Some(GitDirs { common_dir, root }) => Self::Git { root, common_dir },
-            None => Self::Folder(normalise(cwd)),
-        })
+    /// [`LocateError::RelativeCwd`] when `cwd` is relative, so it would depend on the process's
+    /// own; [`LocateError::Git`] with [`GitError::Failed`] when git fails for any reason other
+    /// than `cwd` being in no repository (a broken `.git` file, a gitdir that is gone, dubious
+    /// ownership, a bare repository), or another [`GitError`] when git cannot be run or does not
+    /// answer in time.
+    pub fn discover(cwd: &Path, timeout: Duration) -> Result<Self, LocateError> {
+        if !cwd.is_absolute() {
+            return Err(LocateError::RelativeCwd {
+                cwd: cwd.to_path_buf(),
+            });
+        }
+        Ok(
+            match git::discover(cwd, timeout).map_err(LocateError::Git)? {
+                Some(GitDirs { common_dir, root }) => Self::Git { root, common_dir },
+                None => Self::Folder(normalise(cwd)),
+            },
+        )
     }
 
     /// Where suite.toml is read and its `store` resolved: the worktree root, or the folder.
@@ -193,7 +202,7 @@ pub fn locate(search: &Search<'_>) -> Result<Located, LocateError> {
         let path = expand_home(Path::new(value), search.home, Source::Env)?;
         return Ok(chosen(cwd.join(path), Source::Env));
     }
-    let workspace = Workspace::discover(cwd, search.git_timeout).map_err(LocateError::Git)?;
+    let workspace = Workspace::discover(cwd, search.git_timeout)?;
     let suite = Suite::load(workspace.root());
     let (store, source) = match (suite.store(), &workspace) {
         (Some(configured), _) => {

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use redkiln_core::location::{
-    GitError, LocateError, Located, STORE_FILE, Search, Source, Workspace, locate,
+    GIT_TIMEOUT, GitError, LocateError, Located, STORE_FILE, Search, Source, Workspace, locate,
 };
 use redkiln_core::suite::RepoClass;
 
@@ -146,6 +146,33 @@ fn a_git_failure_other_than_no_repository_stops_and_never_falls_back_to_the_fold
         }
         other => panic!("expected a git failure, got {other:?}"),
     }
+}
+
+/// A pruned linked worktree: its `.git` file names a gitdir that is gone. git 2.43 says
+/// "fatal: not a git repository: <gitdir>", which is not discovery finding nothing.
+#[test]
+fn a_git_file_pointing_at_a_missing_directory_is_a_failure_not_the_folder() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let gone = dir.path().join("gone").join("worktrees").join("w");
+    std::fs::write(
+        dir.path().join(".git"),
+        format!("gitdir: {}\n", gone.display()),
+    )
+    .expect("a .git file");
+    let refused = locate(&Search::new(dir.path()));
+    assert!(
+        matches!(refused, Err(LocateError::Git(GitError::Failed { .. }))),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn discovering_from_a_relative_directory_is_refused() {
+    let refused = Workspace::discover(Path::new("relative"), GIT_TIMEOUT);
+    assert!(
+        matches!(&refused, Err(LocateError::RelativeCwd { cwd }) if cwd == Path::new("relative")),
+        "{refused:?}"
+    );
 }
 
 #[test]
