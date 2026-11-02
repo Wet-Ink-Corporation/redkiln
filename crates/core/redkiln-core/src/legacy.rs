@@ -423,8 +423,12 @@ mod tests {
         commit_one(&conn);
         let before = fingerprint(&path).expect("fingerprint");
         assert!(before.wal.is_some(), "the commit is in the WAL");
-        // The last connection of a WAL ledger closing removes its `-wal`.
-        fs::rename(sibling(&path, "-wal"), dir.path().join("gone")).expect("rename");
+        // The last connection of a WAL ledger closing checkpoints and removes its `-wal`.
+        drop(conn);
+        assert!(
+            !sibling(&path, "-wal").exists(),
+            "the WAL went with its connection"
+        );
         let copy = tempfile::tempdir().expect("tempdir");
         let taken = take_copy(&path, &copy.path().join("copy.sqlite3"), before);
         assert!(matches!(taken, Ok(Copied::SourceChanged)), "{taken:?}");
