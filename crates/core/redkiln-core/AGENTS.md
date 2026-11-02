@@ -1,18 +1,20 @@
 # Crate charter: `redkiln-core`
 
 ## Purpose
-The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and, as Move 1 step 2 continues (#17), the envelope, ids, location, config and journal codec the SPEC defines. Today it holds the store (ST-04 to ST-11), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), and a read-only reader for old weighin ledgers.
+The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and, as Move 1 step 2 continues (#17), the envelope, ids, location, config and journal codec the SPEC defines. Today it holds the store's location (ST-01 to ST-03) and the store (ST-04 to ST-11), `suite.toml` (ST-12, ST-13), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), and a read-only reader for old weighin ledgers.
 
 ## Layer
 Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, and other Core crates may depend only on it.
 
 ## Allowed dependencies
 - Workspace crates: none.
-- Third-party: `happenstance-core` and `happenstance-sqlite` at `=0.4.5` with `sync` (ST-04, decided 2026-11-01); `tokio` with `rt` only, to drive happenstance's async API on a private current-thread runtime; `tempfile` (the schema template and the old-ledger copy live on the local temporary disk); `thiserror`; `serde` and `serde_json` (the envelope and the canonical JSON digest), `sha2` (content ids, worktree ids, digests) and `time` (the envelope's `ts`), pre-approved, added 2026-11-02. `toml` arrives with `suite.toml` (approved 2026-11-02).
+- Third-party: `happenstance-core` and `happenstance-sqlite` at `=0.4.5` with `sync` (ST-04, decided 2026-11-01); `tokio` with `rt` only, to drive happenstance's async API on a private current-thread runtime; `tempfile` (the schema template and the old-ledger copy live on the local temporary disk); `thiserror`; `serde` and `serde_json` (the envelope and the canonical JSON digest), `sha2` (content ids, worktree ids, digests) and `time` (the envelope's `ts`), pre-approved, added 2026-11-02. `toml` (parse only, with serde) reads `suite.toml` (approved 2026-11-02).
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 
 ## Public surface
-- `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `CoreKey`, `Filter`, `Condition`, `Appended`, `Stored`, `TelemetryEvent`, `Recorded`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`.
+- `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `CoreKey`, `Filter`, `Page`, `Condition`, `Appended`, `Stored`, `TelemetryEvent`, `Recorded`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`, `TELEMETRY_WINDOW`.
+- `location`: `locate`, `Search`, `Located`, `Source`, `Workspace`, `LocateError`, `GitError`, `STORE_ENV`, `STORE_FILE`, `GIT_TIMEOUT`.
+- `suite`: `Suite`, `RepoClass`, `ClassSource`, `Owner`, `OwnerError`, `Key`, `Warning`, `Problem`, `SUITE_FILE`, `LEGACY_CONFIG`, `MAX_CONFIG_BYTES`.
 - `envelope`: `Envelope`, `Author`, `Payload`, `Class`, `Namespace`, `TypeName`, `NameError`, `Timestamp`, `Actor`, `ActorName`, `Writer`, `Field`, `FieldError`, `EnvelopeError`, `decode`, `decode_all`, `Decoded`, `Skip`, `Unusable`, `SPEC_VERSION`, `MAX_ENVELOPE_BYTES`, `MAX_TYPE_BYTES`.
 - `trust`: `Trust`, `Level`, `Via`, `TrustError`.
 - `ids`: `parse_store_id`, `parse_event_ref`, `ContentId`, `IdPrefix`, `AtomKind`, `HexLen`, `content_input`, `SessionId`, `WorktreeId`, `Host`, `Digest`, `IdError`.
@@ -32,17 +34,21 @@ Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError
 - A file stamped 1000 to 1999 is taken to be a store, since only Core writes those stamps.
 - Tags are never truncated (EV-11). An envelope's event carries `plugin` and `trust`, and `session` and `worktree` when it has them, set by Core; a caller's tag is a registered key or `<namespace>.<key>` (EV-12).
 - Writing an envelope is strict and builds nothing on a broken rule (EV-05), a NaN or infinite float in the payload among them (`serde_json` would write `null`); reading is lenient: another type is skipped, a known type this build cannot use is reported and counted, never an error for the whole read (EV-08 to EV-10). An envelope that names a key twice, at any depth, is unusable, never read last-wins.
-- A telemetry write never waits: it goes through a second connection with no busy wait, opened lazily by the same open path in its existing-store-only mode (a vanished store is `OpenError::NoStore`, never created again), and a busy answer drops and counts it, never retried (ST-09). A file whose identity is not the opened store's gets no telemetry (`StoreError::IdentityChanged`). The 30-day telemetry window (EV-14) arrives with PR 3; until then telemetry rows grow with use. Durable appends keep the open's busy timeout.
+- A telemetry write never waits: it goes through a second connection with no busy wait, opened lazily by the same open path in its existing-store-only mode (a vanished store is `OpenError::NoStore`, never created again), and a busy answer drops and counts it, never retried (ST-09). A file whose identity is not the opened store's gets no telemetry (`StoreError::IdentityChanged`). Durable appends keep the open's busy timeout.
+- Telemetry lives in a side store, `<store>.telemetry` (a Core store with its own `.lock`), never in the log. Rows recorded more than 30 days (`TELEMETRY_WINDOW`) before its newest are deleted there, with their tag rows and counts, once a day's slack has built up, on a connection with no busy wait; `read_telemetry` never returns a row older than the window before the caller's `now` (EV-14).
+- Location and config read no harness protocol or process state: the working directory, `$REDKILN_STORE`'s value and the home directory are arguments. git runs only when the flag and the variable did not choose, under `LC_ALL=C` with a timeout and output capped; only "not a git repository" is the folder step. Locating creates nothing.
+- `suite.toml` is read up to 64 KiB; anything it cannot give is `client` (ST-13). The legacy `config.json` `repo_class` is a fallback only when `suite.toml` sets none (M1-F). Problems and fallbacks are returned `Warning`s, never printed.
 - The library reads no clock: a `Timestamp` comes from the caller's `SystemTime` or text.
 - The canonical digest is RFC 8785 over a JSON value; an integer beyond +-2^53 is refused, never rounded (I-JSON, which RFC 8785 requires).
 
 ## Errors
-`OpenError` (why a file could not be opened), `StoreError` (an operation on an open store), `LegacyError` (reading an old ledger), `EnvelopeError` (an envelope not built), `TagError`, `TrustError`, `IdError`, `NameError`, `FieldError` and `CanonicalError`. Refusals are their own variants, so a caller can name them. `Skip` and `Unusable` are a lenient read's outcomes, not failures.
+`OpenError` (why a file could not be opened), `StoreError` (an operation on an open store), `LocateError` and `GitError` (where the store is), `LegacyError` (reading an old ledger), `EnvelopeError` (an envelope not built), `TagError`, `TrustError`, `IdError`, `NameError`, `FieldError` and `CanonicalError`. Refusals are their own variants, so a caller can name them. `Skip` and `Unusable` are a lenient read's outcomes, not failures.
 
 ## Test strategy
-Unit tests beside the code for the header, the transaction helper, tags and their registry, trust, ids, names, envelope fields, writing and reading (the SPEC's EV-01 example byte for byte), and RFC 8785's own vectors; integration tests in one binary, `tests/it/`, against real files: new, concurrent, WAL, refused and copied stores, conditioned appends, envelopes stored and read back with foreign and unusable events among them, telemetry dropped under a held write lock, a read lock at commit and a held open lock, and the old-ledger fixtures in `tests/fixtures/` (written by weighin 0.2.2 and 1.2.0 binaries built from weigh-in's tags; the 0.1.x one is the 0.2.2 ledger under WAL, as happenstance's own open left 0.1.x ledgers, since 0.1.x predates weigh-in's history).
+Unit tests beside the code for the header, the transaction helper, tags and their registry, trust, ids, names, envelope fields, writing and reading (the SPEC's EV-01 example byte for byte), and RFC 8785's own vectors, `suite.toml` and git's deadline and cap; integration tests in one binary, `tests/it/`, against real files and real git repositories (subdirectories, a linked worktree, a broken `.git`, no repository): new, concurrent, WAL, refused and copied stores, conditioned appends, envelopes stored and read back with foreign and unusable events among them, telemetry dropped under a held write lock, a read lock at commit and a held open lock, and kept to its window, and the old-ledger fixtures in `tests/fixtures/` (written by weighin 0.2.2 and 1.2.0 binaries built from weigh-in's tags; the 0.1.x one is the 0.2.2 ledger under WAL, as happenstance's own open left 0.1.x ledgers, since 0.1.x predates weigh-in's history). The one test that moves the process's working directory is its own binary, `tests/working_dir.rs`.
 
 ## Do not
 - Open the store through `SqliteEventStore::open` (it switches the file to WAL).
 - Delete, truncate or stamp a file this crate did not create as a Core store.
 - Retry a dropped telemetry write, or give one a busy wait.
+- Read an environment variable or the process's working directory, or run git without a deadline.
