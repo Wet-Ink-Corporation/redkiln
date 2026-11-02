@@ -83,6 +83,7 @@ pinned() {
     unset GIT_DIFF_OPTS GIT_EXTERNAL_DIFF
     GIT_GRAFT_FILE=/dev/null; export GIT_GRAFT_FILE
     cd "$dir"
+    [ "$(git rev-parse --is-shallow-repository)" = false ] || exit 3
     bases=$(git "$@" -c core.useReplaceRefs=false merge-base --all "$base" "$head") || exit 3
     [ "$(printf '%s\n' "$bases" | wc -l)" -eq 1 ] || exit 3
     git "$@" -c core.quotePath=true -c diff.suppressBlankEmpty=false \
@@ -180,6 +181,43 @@ obj=".git/objects/$(printf %s "$blob" | cut -c1-2)/$(printf %s "$blob" | cut -c3
 mv "$obj" "$work/blob"
 if got=$(pinned); then fail "missing object: got $got, expected no id"; fi
 mv "$work/blob" "$obj"
+
+# no_id <label>: the recipe must refuse the current base and head.
+no_id() {
+  if got=$(pinned); then fail "$1: got $got, expected no id"; fi
+}
+keep_base=$base keep_head=$head
+tree_base=$(git rev-parse "$base^{tree}") tree_head=$(git rev-parse "$head^{tree}")
+
+# No change: no id.
+head=$base
+no_id "empty change"
+head=$keep_head
+
+# A criss-cross history has two merge bases: no id, and still none when a
+# replace ref makes it look linear.
+xa=$(git commit-tree -p "$keep_base" -m xa "$tree_base")
+xb=$(git commit-tree -p "$keep_base" -m xb "$tree_base")
+base=$(git commit-tree -p "$xa" -p "$xb" -m x1 "$tree_base")
+head=$(git commit-tree -p "$xb" -p "$xa" -m x2 "$tree_head")
+no_id "criss-cross"
+git replace "$head" "$(git commit-tree -p "$xa" -m linear "$tree_head")"
+no_id "criss-cross behind a replace ref"
+git replace -d "$head" > /dev/null
+
+# A shallow boundary can move the single merge base to an older commit, so a
+# shallow repository has no id. Normally the base here is keep_base and the id
+# is the expected one; with h1 shallow, the base would become root.
+b1=$(git commit-tree -p "$keep_base" -m b1 "$tree_base")
+h1=$(git commit-tree -p "$keep_base" -m h1 "$tree_head")
+side=$(git commit-tree -p "$root" -m side "$(git rev-parse "$root^{tree}")")
+base=$b1
+head=$(git commit-tree -p "$h1" -p "$side" -m merged "$tree_head")
+bytes "moved base, not shallow"
+printf '%s\n' "$h1" > .git/shallow
+no_id "shallow repository"
+rm .git/shallow
+base=$keep_base head=$keep_head
 
 printf 'white.yml\n*\n' > "$work/order"
 bytes diff.orderFile -c diff.orderFile="$work/order"

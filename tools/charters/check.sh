@@ -11,8 +11,14 @@ budget=${1:-24576}
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 
+# One charter per line, read whole, so a path with spaces or non-ASCII
+# characters keeps its own bytes in its chain.
+list=$(mktemp)
+trap 'rm -f "$list"' EXIT
+git -c core.quotePath=false ls-files -- 'AGENTS.md' '*/AGENTS.md' | grep -v '^references/' > "$list" || true
+
 status=0
-for charter in $(git ls-files -- 'AGENTS.md' '*/AGENTS.md' | grep -v '^references/'); do
+while IFS= read -r charter; do
   dir=$(dirname "$charter")
   total=0
   chain=""
@@ -31,5 +37,5 @@ for charter in $(git ls-files -- 'AGENTS.md' '*/AGENTS.md' | grep -v '^reference
   else
     echo "charters: $charter $total bytes"
   fi
-done
+done < "$list"
 exit "$status"
