@@ -64,7 +64,7 @@ The version is read from the file's 100-byte header before SQLite opens it, so a
 | `repo_class` | `own` or `client` | `client` |
 | `store` | a path, relative to the worktree root | none: ST-01 step 4 or 5 |
 | `owner` | the owner's name, lower-case ASCII words joined by dashes | git's `user.name`, else the local part of `user.email`, in that form (weigh-in B-31) |
-| `agent_logins` | a list of GitHub logins that agents push, comment or review as, for example the owner's own login when agents run on the owner's account (TR-10); `[]` says no login is shared | none, which TR-10 reads as unknown |
+| `agent_accounts` | an array of tables `{ id, login, until }`, one per GitHub account that agents push, comment or review as, for example the owner's own account when agents run on it (TR-10): `id` is the numeric user id, which is what matches; `login` is for people to read; `until`, an RFC 3339 time, closes an entry without removing it. `[]` says no account is shared | none, which TR-10 reads as unknown |
 
 **ST-13.** A missing file, a missing key, or a file that does not parse means `client`, so a forgotten config never publishes (pressure-test recommendation 11). A `client` repository never exports journals, pushes a ref, publishes a board, or projects items to GitHub (Blueprint design rule 10). Core enforces this: the export and publish paths ask Core for the class and get `client` unless the file says `own`.
 
