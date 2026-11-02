@@ -44,7 +44,7 @@ use happenstance_sqlite::rusqlite;
 pub use open::STORE_SCHEMA;
 pub use tag::{Tag, TagError};
 
-pub(crate) use header::read as read_header;
+pub(crate) use header::{Found, read as read_header};
 pub(crate) use open::sibling;
 
 /// How long a writer waits for another's lock (ST-09).
@@ -79,9 +79,18 @@ pub enum OpenError {
     /// The store's canonical path could not be found.
     #[error("finding the store's canonical path")]
     Canonicalize(#[source] std::io::Error),
-    /// SQLite failed.
-    #[error("SQLite failed")]
-    Sqlite(#[from] rusqlite::Error),
+    /// SQLite failed at `step`.
+    #[error("SQLite failed while {step}")]
+    Sqlite {
+        /// What the open was doing.
+        step: Step,
+        /// SQLite's error.
+        #[source]
+        source: rusqlite::Error,
+    },
+    /// The store has happenstance's schema but no identity row to re-mint.
+    #[error("the store has no identity row to re-mint")]
+    MissingIdentity,
     /// SQLite would not run the store under a TRUNCATE journal.
     #[error("SQLite kept journal mode {found}, not truncate; another process may hold it in WAL")]
     JournalMode {
@@ -92,10 +101,10 @@ pub enum OpenError {
     /// as a weighin 0.x ledger or another program's database.
     #[error("the database is not a Redkiln store; it was left unchanged")]
     NotAStore,
-    /// The file is an old plugin ledger (a happenstance store stamped below 1000). It is
-    /// imported into the store, never opened as one (ST-15, ST-16).
+    /// The file is stamped below 1000: an old plugin ledger, which is imported into the store and
+    /// never opened as one (ST-15, ST-16), or another program's database.
     #[error(
-        "the file is an old plugin ledger (schema {found}); it is imported, not opened, and was left unchanged"
+        "the file has schema {found}, below a Redkiln store's (an old plugin ledger, imported rather than opened, or another program's database); it was left unchanged"
     )]
     OldLedger {
         /// The stamp in the file.
@@ -150,6 +159,51 @@ pub enum OpenError {
         /// The cleanup's own failure.
         cleanup: rusqlite::Error,
     },
+}
+
+/// What an open was doing when SQLite failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Opening the connection.
+    Connect,
+    /// Setting the busy timeout, durability and foreign keys.
+    Configure,
+    /// Switching to the TRUNCATE journal.
+    JournalMode,
+    /// Looking at the file's schema.
+    Inspect,
+    /// Reading `user_version`.
+    ReadStamp,
+    /// Attaching the schema template.
+    AttachTemplate,
+    /// Copying the template's schema and writing Core's table and stamp.
+    CopySchema,
+    /// Detaching the schema template.
+    DetachTemplate,
+    /// Reading the recorded path, or re-minting the identity and recording the path (ID-01).
+    Identity,
+    /// Beginning a write transaction.
+    Begin,
+    /// Committing it.
+    Commit,
+}
+
+impl fmt::Display for Step {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Connect => "connecting",
+            Self::Configure => "configuring the connection",
+            Self::JournalMode => "switching to the truncate journal",
+            Self::Inspect => "inspecting the schema",
+            Self::ReadStamp => "reading the schema version",
+            Self::AttachTemplate => "attaching the schema template",
+            Self::CopySchema => "copying the schema",
+            Self::DetachTemplate => "detaching the schema template",
+            Self::Identity => "keeping the store's identity",
+            Self::Begin => "beginning a write transaction",
+            Self::Commit => "committing",
+        })
+    }
 }
 
 /// Why a store operation failed.
@@ -374,7 +428,8 @@ impl Store {
     /// a store ([`OpenError::NotAStore`]), each left as it was.
     pub fn open(path: &Path, wait: Wait) -> Result<Self, StoreError> {
         refuse_inside_runtime()?;
-        let opened = open::open(path, wait.timeout()).and_then(|inner| Ok((inner, Driver::new()?)));
+        let opened = open::open(path, wait.timeout())
+            .and_then(|inner| Ok((inner, Driver::new().map_err(OpenError::Runtime)?)));
         match opened {
             Ok((inner, runtime)) => Ok(Self { inner, runtime }),
             Err(source) => Err(StoreError::Open {
@@ -455,10 +510,8 @@ pub(crate) struct Driver {
 }
 
 impl Driver {
-    pub(crate) fn new() -> Result<Self, OpenError> {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .map_err(OpenError::Runtime)?;
+    pub(crate) fn new() -> std::io::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread().build()?;
         Ok(Self {
             runtime: Some(runtime),
         })

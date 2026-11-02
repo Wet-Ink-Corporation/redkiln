@@ -46,21 +46,36 @@ impl Header {
     }
 }
 
-/// The header of `path`: `None` for a missing file, a file shorter than a header, or one that
-/// is not a SQLite database (SQLite itself then reports what is wrong with it).
+/// What is at a path, as far as its first bytes tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Found {
+    /// No file.
+    Missing,
+    /// A file of zero bytes, which SQLite treats as an empty database.
+    Empty,
+    /// A file that is not a SQLite database: shorter than a header, or without its magic.
+    NotSqlite,
+    /// A SQLite database and its header.
+    Sqlite(Header),
+}
+
+/// What is at `path`.
 ///
 /// # Errors
 /// [`OpenError::Header`] when the file exists and cannot be read.
-pub(crate) fn read(path: &Path) -> Result<Option<Header>, OpenError> {
+pub(crate) fn read(path: &Path) -> Result<Found, OpenError> {
     let mut file = match File::open(path) {
         Ok(file) => file,
-        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(Found::Missing),
         Err(error) => return Err(OpenError::Header(error)),
     };
+    if file.metadata().map_err(OpenError::Header)?.len() == 0 {
+        return Ok(Found::Empty);
+    }
     let mut bytes = [0_u8; HEADER_LEN];
     match file.read_exact(&mut bytes) {
-        Ok(()) => Ok(Header::parse(&bytes)),
-        Err(short) if short.kind() == io::ErrorKind::UnexpectedEof => Ok(None),
+        Ok(()) => Ok(Header::parse(&bytes).map_or(Found::NotSqlite, Found::Sqlite)),
+        Err(short) if short.kind() == io::ErrorKind::UnexpectedEof => Ok(Found::NotSqlite),
         Err(error) => Err(OpenError::Header(error)),
     }
 }
@@ -105,11 +120,20 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_or_short_file_has_no_header() {
+    fn missing_empty_short_and_foreign_files_are_told_apart() {
         let dir = tempfile::tempdir().expect("tempdir");
-        assert!(matches!(read(&dir.path().join("absent")), Ok(None)));
+        assert!(matches!(
+            read(&dir.path().join("absent")),
+            Ok(Found::Missing)
+        ));
+        let empty = dir.path().join("empty");
+        std::fs::write(&empty, b"").expect("write");
+        assert!(matches!(read(&empty), Ok(Found::Empty)));
         let short = dir.path().join("short");
         std::fs::write(&short, b"SQLite format 3\0").expect("write");
-        assert!(matches!(read(&short), Ok(None)));
+        assert!(matches!(read(&short), Ok(Found::NotSqlite)));
+        let text = dir.path().join("text");
+        std::fs::write(&text, [b'x'; 200]).expect("write");
+        assert!(matches!(read(&text), Ok(Found::NotSqlite)));
     }
 }

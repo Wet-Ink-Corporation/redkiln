@@ -12,14 +12,19 @@ Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, an
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 
 ## Public surface
-`store` (`Store`, `Wait`, `NewEvent`, `Tag`, `Filter`, `Condition`, `Appended`, `Stored`, `OpenError`, `StoreError`) and `legacy` (`read_ledger`, `LegacyLedger`, `LegacyEvent`, `LegacyError`). Workspace-internal, never published.
+- `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `Filter`, `Condition`, `Appended`, `Stored`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`.
+- `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
+- At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
+
+Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError<SqliteEventStoreError>` as their sources, deliberately: Core is the store's adapter and pins both crates. Workspace-internal, never published.
 
 ## Invariants
 - The store runs under TRUNCATE, never WAL or DELETE. Nothing here deletes a file beside the store; files are set aside by renaming (ST-05).
 - Only Core writes `PRAGMA user_version`. A store is created with its schema and the stamp `1000` in one `BEGIN IMMEDIATE`, so a Core store never reads 0 (ST-06).
 - A file this crate refuses (newer major, not a store, an old plugin ledger) is left byte for byte as it was: its header is read before SQLite opens it (ST-07).
 - An old plugin ledger (stamp below 1000) is never opened in place and never stamped: a 1.x binary beside 2.0 would refuse a stamped file. It is read from a copy on the temporary disk (ST-15, ST-16).
-- The store records its canonical path and re-mints its identity when opened at another (ID-01).
+- The store records its canonical path and re-mints its identity when opened at another (ID-01), checking, re-minting and recording in one `BEGIN IMMEDIATE`, so concurrent first opens of a copy re-mint once. The re-mint is happenstance's own statement on its `store_meta` row, because `remint_identity_on` opens its own transaction.
+- A file stamped 1000 to 1999 is taken to be a store, since only Core writes those stamps.
 - Tags are never truncated (EV-11).
 
 ## Errors

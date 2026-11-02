@@ -398,3 +398,75 @@ fn happenstance_own_open_would_have_switched_to_wal() {
     drop(SqliteEventStore::open(&path).expect("happenstance opens"));
     assert!(in_wal(&path));
 }
+
+#[test]
+fn concurrent_first_opens_of_a_copy_re_mint_once_and_all_append() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("a/events.sqlite3");
+    let original = {
+        let store = open(&path);
+        store.append(vec![raise("wi-a")], None).expect("append");
+        store.store_id()
+    };
+    let copy = dir.path().join("b/events.sqlite3");
+    std::fs::create_dir_all(copy.parent().expect("parent")).expect("mkdir");
+    std::fs::copy(&path, &copy).expect("copy");
+
+    let ids: Vec<_> = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for n in 0..8 {
+            let copy = &copy;
+            let handle = std::thread::Builder::new()
+                .name(format!("opener-{n}"))
+                .spawn_scoped(scope, move || {
+                    let store = open(copy);
+                    let appended = store
+                        .append(vec![raise(&format!("wi-{n}"))], None)
+                        .expect("every opener appends");
+                    assert!(matches!(appended, Appended::At(_)), "{appended:?}");
+                    store.store_id()
+                })
+                .expect("spawn an opener");
+            handles.push(handle);
+        }
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("opener thread"))
+            .collect()
+    });
+    assert!(ids.windows(2).all(|w| w[0] == w[1]), "one re-mint: {ids:?}");
+    assert_ne!(ids.first().copied(), Some(original));
+    assert_eq!(all(&open(&copy)).len(), 9);
+}
+
+#[test]
+fn a_file_that_is_not_sqlite_is_refused_with_its_wal_left_in_place() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("notes.txt");
+    std::fs::write(&path, "a mistyped --store\n".repeat(20)).expect("write");
+    std::fs::write(sibling(&path, "-wal"), b"someone's").expect("write");
+    assert_refused_untouched(&path, |e| matches!(e, OpenError::NotAStore));
+    let tiny = dir.path().join("tiny");
+    std::fs::write(&tiny, b"x").expect("write");
+    assert_refused_untouched(&tiny, |e| matches!(e, OpenError::NotAStore));
+}
+
+#[test]
+fn a_journal_left_by_a_failed_creation_is_set_aside_not_deleted() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    std::fs::write(&path, b"").expect("write");
+    std::fs::write(sibling(&path, "-journal"), b"").expect("write");
+    let store = open(&path);
+    assert_eq!(
+        store.append(vec![raise("wi-a")], None).expect("append"),
+        Appended::At(1)
+    );
+    drop(store);
+    assert_truncate_layout(&path);
+    let orphans = listing(dir.path())
+        .into_iter()
+        .filter(|n| n.contains("-journal.orphaned-"))
+        .count();
+    assert_eq!(orphans, 1, "the leftover journal is renamed aside");
+}

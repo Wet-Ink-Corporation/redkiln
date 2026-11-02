@@ -185,5 +185,5 @@ fn a_ledger_mid_commit_is_reported_rather_than_copied_torn() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = fixture("weighin-0.2.2.sqlite3", dir.path());
     std::fs::write(sibling(&path, "-journal"), b"a hot journal").expect("write");
-    assert!(matches!(read_ledger(&path), Err(LegacyError::KeptChanging)));
+    assert!(matches!(read_ledger(&path), Err(LegacyError::HotJournal)));
 }

@@ -7,8 +7,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use happenstance_sqlite::event_store::SqliteEventStore;
 use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode};
 
-use super::OpenError;
-use super::header::{self, Header};
+use super::header::{self, Found, Header};
+use super::{OpenError, Step};
 
 /// The journal mode every store connection runs under, as `PRAGMA journal_mode` reports it.
 pub(crate) const JOURNAL_MODE: &str = "truncate";
@@ -26,6 +26,9 @@ const PATH_KEY: &str = "path";
 /// The pause between attempts to switch a WAL store to TRUNCATE while another connection holds it.
 const RETRY_PAUSE: Duration = Duration::from_millis(20);
 
+/// How many names `set_aside` tries before giving up.
+const ASIDE_NAMES: u32 = 100;
+
 /// What a file holds, looked at through a connection that has written nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Contents {
@@ -37,24 +40,42 @@ enum Contents {
     Foreign,
 }
 
+/// A `map_err` for a SQLite call made at `step`.
+const fn at(step: Step) -> impl FnOnce(rusqlite::Error) -> OpenError {
+    move |source| OpenError::Sqlite { step, source }
+}
+
 /// Opens (creating when absent) the store at `path` and hands its connection to happenstance.
 ///
 /// Until the file is known to be a store this build opens, or an empty database, nothing is
-/// written to it or beside it, so a refused file is left exactly as it was.
+/// written to it or beside it, so a refused file is left exactly as it was. A file stamped in
+/// Core's range (1000 to 1999) is taken to be a store: only Core writes that stamp (ST-06).
 pub(super) fn open(path: &Path, busy: Duration) -> Result<SqliteEventStore, OpenError> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(OpenError::CreateDir)?;
     }
-    let found = header::read(path)?;
-    if let Some(found) = &found {
-        refuse(found)?;
+    match header::read(path)? {
+        Found::NotSqlite => return Err(OpenError::NotAStore),
+        Found::Sqlite(found) => {
+            refuse(&found)?;
+            // A `-wal` beside a file that is not in WAL is stale, and SQLite would delete it on
+            // connect, which Cowork refuses. A stamped store in WAL keeps it until converted.
+            if !found.wal {
+                set_aside(path, "-wal")?;
+            }
+            if found.user_version == 0 {
+                // An empty database: a journal beside it is from a creation that never
+                // committed, and SQLite would delete it under its default mode.
+                set_aside(path, "-journal")?;
+            }
+        }
+        Found::Missing | Found::Empty => {
+            // SQLite deletes a `-wal` or a hot `-journal` beside a file with no pages.
+            set_aside(path, "-wal")?;
+            set_aside(path, "-journal")?;
+        }
     }
-    // A `-wal` beside a file that is not in WAL is stale, and SQLite would delete it on connect,
-    // which Cowork refuses. A stamped store in WAL keeps it until it is converted.
-    if !found.is_some_and(|h| h.wal) {
-        set_aside_wal(path)?;
-    }
-    let mut conn = connect(path, busy)?;
+    let conn = connect(path, busy)?;
     // Before any write, so not even the schema's commit deletes a journal. On a file the header
     // let through this writes nothing to it: a rollback journal mode is the connection's, and
     // only a stamped store in WAL (converted here) changes its header.
@@ -67,16 +88,16 @@ pub(super) fn open(path: &Path, busy: Duration) -> Result<SqliteEventStore, Open
     check_stamp(user_version(&conn)?)?;
     // TRUNCATE is in force, so no connection is using a WAL now; one left beside the store is
     // stale (its frames were checkpointed when the mode switched) and is never replayed.
-    set_aside_wal(path)?;
-    keep_identity_at(&mut conn, path)?;
+    set_aside(path, "-wal")?;
+    keep_identity_at(&conn, path)?;
     SqliteEventStore::new(conn).map_err(OpenError::Store)
 }
 
 /// ST-07's refusals, decided from the header alone so that no connection touches the file: a
-/// newer major, an old plugin ledger (stamped below 1000), and an unstamped database that has
-/// held a schema or is in WAL (a weighin 0.x ledger or another program's database; never a Core
-/// store, which is stamped as its schema is created). An unstamped database with no schema is
-/// an empty file, which becomes a store.
+/// newer major, a file stamped below 1000 (an old plugin ledger, or another program's
+/// database), and an unstamped database that has held a schema or is in WAL (a weighin 0.x
+/// ledger or another program's database; never a Core store, which is stamped as its schema
+/// is created). An unstamped database with no schema is an empty file, which becomes a store.
 fn refuse(found: &Header) -> Result<(), OpenError> {
     match found.user_version {
         0 if found.wal || found.schema_cookie != 0 => Err(OpenError::NotAStore),
@@ -85,8 +106,8 @@ fn refuse(found: &Header) -> Result<(), OpenError> {
     }
 }
 
-/// A stamp this build opens: SPEC 1.x, any minor (ST-07). Below 1000 is an old plugin ledger,
-/// which is imported, never opened (ST-15, ST-16).
+/// A stamp this build opens: SPEC 1.x, any minor (ST-07). Below 1000 is not a Core store; an old
+/// plugin ledger among those is imported, never opened (ST-15, ST-16).
 fn check_stamp(found: i64) -> Result<(), OpenError> {
     let major = |v: i64| v.div_euclid(1000);
     if found < STORE_SCHEMA {
@@ -104,20 +125,23 @@ fn check_stamp(found: i64) -> Result<(), OpenError> {
 /// A connection that has written nothing: the busy timeout, durability and foreign keys are
 /// per connection and never touch the file.
 fn connect(path: &Path, busy: Duration) -> Result<Connection, OpenError> {
-    let conn = Connection::open(path)?;
-    conn.busy_timeout(busy)?;
+    let conn = Connection::open(path).map_err(at(Step::Connect))?;
+    conn.busy_timeout(busy).map_err(at(Step::Configure))?;
     // FULL, not NORMAL: under a rollback journal NORMAL can lose the last commit on power loss.
-    conn.execute_batch("PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;")?;
+    conn.execute_batch("PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON;")
+        .map_err(at(Step::Configure))?;
     Ok(conn)
 }
 
 fn inspect(conn: &Connection) -> Result<Contents, OpenError> {
-    let (objects, store_meta): (i64, i64) = conn.query_row(
-        "SELECT count(*), coalesce(sum(type = 'table' AND name = 'store_meta'), 0)
-         FROM main.sqlite_master",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )?;
+    let (objects, store_meta): (i64, i64) = conn
+        .query_row(
+            "SELECT count(*), coalesce(sum(type = 'table' AND name = 'store_meta'), 0)
+             FROM main.sqlite_master",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(at(Step::Inspect))?;
     Ok(match (objects, store_meta) {
         (0, _) => Contents::Empty,
         (_, 0) => Contents::Foreign,
@@ -141,7 +165,7 @@ fn use_truncate(conn: &Connection, busy: Duration) -> Result<(), OpenError> {
                 if retry
                     && matches!(f.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => {}
             Ok(found) => return Err(OpenError::JournalMode { found }),
-            Err(other) => return Err(OpenError::Sqlite(other)),
+            Err(other) => return Err(at(Step::JournalMode)(other)),
         }
         std::thread::sleep(RETRY_PAUSE);
     }
@@ -154,27 +178,42 @@ pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// Renames a `-wal` beside the store aside; renaming is allowed where deleting is not (ST-05).
+/// Renames `<store><suffix>` aside, to a name not taken yet; renaming is allowed where deleting
+/// is not (ST-05). Nothing happens when there is no such file.
 ///
 /// * Before connecting to a file not in WAL: SQLite deletes a `-wal` it finds beside such a
 ///   database, and a failed WAL creation in a Cowork folder leaves exactly that.
 /// * After switching to TRUNCATE: converting a WAL store where deletes are refused leaves its
 ///   checkpointed `-wal` behind.
-fn set_aside_wal(path: &Path) -> Result<(), OpenError> {
-    let wal = sibling(path, "-wal");
-    if wal.exists() {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        let aside = sibling(path, &format!("-wal.orphaned-{stamp}"));
-        std::fs::rename(&wal, &aside)
-            .map_err(|source| OpenError::SetAside { path: wal, source })?;
+fn set_aside(path: &Path, suffix: &str) -> Result<(), OpenError> {
+    let file = sibling(path, suffix);
+    // The error names the file that stayed; it is rebuilt only on failure.
+    let fail = |source| OpenError::SetAside {
+        path: sibling(path, suffix),
+        source,
+    };
+    if !file.try_exists().map_err(fail)? {
+        return Ok(());
     }
-    Ok(())
+    // The clock only makes names readable; uniqueness comes from checking each candidate.
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    for n in 0..ASIDE_NAMES {
+        let aside = sibling(path, &format!("{suffix}.orphaned-{stamp}-{n}"));
+        if !aside.try_exists().map_err(fail)? {
+            return std::fs::rename(&file, &aside).map_err(fail);
+        }
+    }
+    Err(OpenError::SetAside {
+        path: file,
+        source: std::io::Error::from(std::io::ErrorKind::AlreadyExists),
+    })
 }
 
 pub(crate) fn user_version(conn: &Connection) -> Result<i64, OpenError> {
-    Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(at(Step::ReadStamp))
 }
 
 /// Gives an empty file happenstance's schema, Core's table and the stamp, in one
@@ -187,12 +226,13 @@ fn create_schema(conn: &Connection, path: &Path) -> Result<(), OpenError> {
     let Some(name) = template.to_str() else {
         return Err(OpenError::TemplatePath { path: template });
     };
-    conn.execute("ATTACH DATABASE ?1 AS tpl", [name])?;
+    conn.execute("ATTACH DATABASE ?1 AS tpl", [name])
+        .map_err(at(Step::AttachTemplate))?;
     let copied = copy_schema(conn, &canonical);
     let detached = conn.execute_batch("DETACH DATABASE tpl");
     match (copied, detached) {
         (Ok(()), Ok(())) => tmp.close().map_err(OpenError::TempDir),
-        (Ok(()), Err(cleanup)) => Err(OpenError::Sqlite(cleanup)),
+        (Ok(()), Err(cleanup)) => Err(at(Step::DetachTemplate)(cleanup)),
         (Err(failure), Ok(())) => Err(failure),
         (Err(failure), Err(cleanup)) => Err(OpenError::Cleanup {
             failure: Box::new(failure),
@@ -202,75 +242,99 @@ fn create_schema(conn: &Connection, path: &Path) -> Result<(), OpenError> {
 }
 
 fn copy_schema(conn: &Connection, canonical: &[u8]) -> Result<(), OpenError> {
-    conn.execute_batch("BEGIN IMMEDIATE")?;
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(at(Step::Begin))?;
     let body = (|| {
         // Another process may have created the schema while the template was built.
         if inspect(conn)? != Contents::Empty {
             return Ok(());
         }
-        let objects = {
-            let mut stmt = conn.prepare(
-                "SELECT type, name, sql FROM tpl.sqlite_master
-                 WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
-                 ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, rowid",
-            )?;
-            stmt.query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-        };
+        let copy = at(Step::CopySchema);
+        let objects = template_objects(conn).map_err(at(Step::CopySchema))?;
         if objects.is_empty() {
             return Err(OpenError::EmptyTemplate);
         }
-        // Unqualified DDL creates its object in `main`.
-        for (_, _, sql) in &objects {
-            conn.execute_batch(sql)?;
-        }
-        for (_, name, _) in objects.iter().filter(|(ty, _, _)| ty == "table") {
-            let name = name.replace('"', "\"\"");
+        let result = (|| {
+            // Unqualified DDL creates its object in `main`.
+            for (_, _, sql) in &objects {
+                conn.execute_batch(sql)?;
+            }
+            for (_, name, _) in objects.iter().filter(|(ty, _, _)| ty == "table") {
+                let name = name.replace('"', "\"\"");
+                conn.execute(
+                    &format!("INSERT INTO main.\"{name}\" SELECT * FROM tpl.\"{name}\""),
+                    [],
+                )?;
+            }
+            conn.execute_batch(CORE_META)?;
             conn.execute(
-                &format!("INSERT INTO main.\"{name}\" SELECT * FROM tpl.\"{name}\""),
-                [],
+                "INSERT INTO core_meta (k, v) VALUES (?1, ?2)",
+                rusqlite::params![PATH_KEY, canonical],
             )?;
+            conn.execute_batch(&format!("PRAGMA user_version = {STORE_SCHEMA}"))
+        })();
+        result.map_err(copy)
+    })();
+    finish_transaction(conn, body)
+}
+
+/// The template's schema objects, tables first: type, name and creating SQL.
+fn template_objects(conn: &Connection) -> rusqlite::Result<Vec<(String, String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT type, name, sql FROM tpl.sqlite_master
+         WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+         ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, rowid",
+    )?;
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect()
+}
+
+/// Re-mints the store's identity when it is opened at another path than the one it recorded:
+/// a copied `.git` or a restored backup must not issue the same event identities (ID-01).
+///
+/// A store opened where it was recorded is not written to. Otherwise the path is read again,
+/// and the identity re-minted and the path recorded, in one `BEGIN IMMEDIATE`, so that of
+/// several processes opening a copy at once exactly one re-mints and the rest read its identity.
+/// The re-mint is happenstance's own statement on its documented `store_meta` row
+/// (`remint_identity_on` opens a transaction of its own, so it cannot run inside this one).
+fn keep_identity_at(conn: &Connection, path: &Path) -> Result<(), OpenError> {
+    let canonical = canonical_bytes(path)?;
+    if recorded_path(conn)?.as_deref() == Some(canonical.as_slice()) {
+        return Ok(());
+    }
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(at(Step::Begin))?;
+    let body = (|| {
+        if recorded_path(conn)?.as_deref() == Some(canonical.as_slice()) {
+            return Ok(());
         }
-        conn.execute_batch(CORE_META)?;
+        let reminted = conn
+            .execute(
+                "UPDATE store_meta SET v = randomblob(16) WHERE k = 'store_id'",
+                [],
+            )
+            .map_err(at(Step::Identity))?;
+        if reminted != 1 {
+            return Err(OpenError::MissingIdentity);
+        }
         conn.execute(
-            "INSERT INTO core_meta (k, v) VALUES (?1, ?2)",
+            "INSERT OR REPLACE INTO core_meta (k, v) VALUES (?1, ?2)",
             rusqlite::params![PATH_KEY, canonical],
-        )?;
-        conn.execute_batch(&format!("PRAGMA user_version = {STORE_SCHEMA}"))?;
+        )
+        .map_err(at(Step::Identity))?;
         Ok(())
     })();
     finish_transaction(conn, body)
 }
 
-/// Re-mints the store's identity when it is opened at another path than the one it recorded:
-/// a copied `.git` or a restored backup must not issue the same event identities (ID-01).
-/// A store opened where it was recorded is not written to.
-fn keep_identity_at(conn: &mut Connection, path: &Path) -> Result<(), OpenError> {
-    let canonical = canonical_bytes(path)?;
-    let recorded: Option<Vec<u8>> = conn
-        .query_row("SELECT v FROM core_meta WHERE k = ?1", [PATH_KEY], |r| {
-            r.get(0)
-        })
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })?;
-    if recorded.as_deref() == Some(canonical.as_slice()) {
-        return Ok(());
+fn recorded_path(conn: &Connection) -> Result<Option<Vec<u8>>, OpenError> {
+    match conn.query_row("SELECT v FROM core_meta WHERE k = ?1", [PATH_KEY], |r| {
+        r.get(0)
+    }) {
+        Ok(path) => Ok(Some(path)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(other) => Err(at(Step::Identity)(other)),
     }
-    SqliteEventStore::remint_identity_on(conn).map_err(OpenError::Store)?;
-    conn.execute(
-        "INSERT OR REPLACE INTO core_meta (k, v) VALUES (?1, ?2)",
-        rusqlite::params![PATH_KEY, canonical],
-    )?;
-    Ok(())
 }
 
 /// The store's canonical path, as the platform encodes it; compared, never displayed.
@@ -289,7 +353,7 @@ pub(crate) fn finish_transaction(
     let failure = match body {
         Ok(()) => match conn.execute_batch("COMMIT") {
             Ok(()) => return Ok(()),
-            Err(e) => OpenError::Sqlite(e),
+            Err(e) => at(Step::Commit)(e),
         },
         Err(e) => e,
     };
@@ -330,6 +394,16 @@ mod tests {
     fn a_failed_commit_is_rolled_back_and_reported() {
         let conn = transaction_whose_commit_fails();
         let err = finish_transaction(&conn, Ok(())).expect_err("the commit fails");
+        assert!(
+            matches!(
+                &err,
+                OpenError::Sqlite {
+                    step: Step::Commit,
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
         assert!(format!("{err:?}").contains("FOREIGN KEY"), "{err:?}");
         assert!(conn.is_autocommit(), "the transaction is rolled back");
         let children: i64 = conn
@@ -366,5 +440,28 @@ mod tests {
             check_stamp(-1),
             Err(OpenError::OldLedger { found: -1 })
         ));
+    }
+
+    #[test]
+    fn setting_aside_never_overwrites_an_earlier_orphan() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = dir.path().join("events.sqlite3");
+        for content in [&b"first"[..], b"second", b"third"] {
+            std::fs::write(sibling(&store, "-wal"), content).expect("write");
+            set_aside(&store, "-wal").expect("set aside");
+        }
+        let mut kept: Vec<Vec<u8>> = std::fs::read_dir(dir.path())
+            .expect("list")
+            .map(|e| std::fs::read(e.expect("entry").path()).expect("read"))
+            .collect();
+        kept.sort();
+        assert_eq!(
+            kept,
+            vec![b"first".to_vec(), b"second".to_vec(), b"third".to_vec()]
+        );
+        assert!(
+            matches!(set_aside(&store, "-wal"), Ok(())),
+            "nothing to set aside"
+        );
     }
 }
