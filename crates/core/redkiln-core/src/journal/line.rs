@@ -2,20 +2,24 @@
 //! no byte order mark, ended by `\n`.
 //!
 //! A line is the stored envelope's own bytes with `origin` inserted (before `cites`, or `data`,
-//! where EV-01 puts it), so the payload keeps its key order and number forms and a line copied
-//! between journals stays the same fact. An import does the reverse: `origin` leaves the bytes
-//! (it is a store-minted value, EV-02, kept in happenstance's identity columns), and `trust` is
-//! rewritten to `asserted` with the line's level in `claimed` (JR-12, TR-06).
+//! where EV-01 puts it), and the caller's tags as `tags` before `data` when there are any, so
+//! the payload keeps its key order and number forms and a line copied between journals stays
+//! the same fact. An import does the reverse: `origin` and `tags` leave the bytes (`origin` is a
+//! store-minted value, EV-02, kept in happenstance's identity columns; the tags are stored as
+//! tags), and `trust` is rewritten to `asserted` with the line's level in `claimed` (JR-12,
+//! TR-06).
 
 use happenstance_core::EventId;
 
 use super::members::{Member, members};
-use crate::envelope::{MAX_ENVELOPE_BYTES, Unusable, read_untyped, trust_json};
+use super::tags;
+use crate::envelope::{MAX_ENVELOPE_BYTES, Unusable, namespace_of, read_untyped, trust_json};
 use crate::ids::SessionId;
 use crate::store::{CoreKey, StoreError, Stored, Tag, TagError};
 
-/// The longest line read: an envelope at its limit (EV-16) and the `origin` a line adds.
-pub const MAX_LINE_BYTES: usize = MAX_ENVELOPE_BYTES + 128;
+/// The longest line read: an envelope at its limit (EV-16), and the `origin` and `tags` a line
+/// adds (at most 64 tags of 255 bytes, each at most doubled by JSON's escapes).
+pub const MAX_LINE_BYTES: usize = 2 * MAX_ENVELOPE_BYTES;
 
 /// Why a stored event has no line, or a line is not one an import can store.
 #[derive(Debug, thiserror::Error)]
@@ -44,6 +48,19 @@ pub enum LineError {
     /// A tag Core sets from the envelope is refused.
     #[error("a tag of the envelope is refused")]
     Tag(#[source] TagError),
+    /// A tag in the line's `tags` is refused: not `key:value`, a key Core sets, or a registered
+    /// key with a value not its kind.
+    #[error("a tag the line carries is refused")]
+    CallerTag(#[source] TagError),
+    /// The line carries more tags than an event holds.
+    #[error(
+        "the line carries {count} tags, more than {}",
+        super::tags::MAX_LINE_TAGS
+    )]
+    TooManyTags {
+        /// How many it carries.
+        count: usize,
+    },
     /// The store refuses the envelope's type as an event type.
     #[error("the store refuses the event type")]
     Refused(#[source] StoreError),
@@ -110,24 +127,30 @@ pub fn encode_line(stored: &Stored) -> Result<Vec<u8>, LineError> {
 
 /// [`encode_line`], with the envelope's session, which names its journal (JR-06).
 pub(crate) fn encode(stored: &Stored) -> Result<(Option<SessionId>, Vec<u8>), LineError> {
-    let (name, _, envelope) = read_untyped(&stored.data).map_err(LineError::Envelope)?;
-    if name.as_str() != stored.event_type {
+    let (name, _, envelope) =
+        read_untyped(&stored.data, MAX_ENVELOPE_BYTES).map_err(LineError::Envelope)?;
+    if name != stored.event_type {
         return Err(LineError::TypeMismatch);
     }
     let text = text_of(&stored.data)?;
     let origin = format!("\"origin\":\"{}\"", stored.id);
-    let (mut line, inserted) = rebuilt(text, &members_of(text)?, |key| match key {
-        "origin" => Edit::Drop,
-        "cites" | "data" => Edit::Insert(origin.as_bytes()),
+    let tags = tags::member(&stored.tags)?;
+    // `origin` goes before `cites`, or else `data`, where EV-01 puts it; `tags` before `data`.
+    // `read_untyped` refused an envelope with no `data` object, so both are always written.
+    let mut origin_written = false;
+    let mut line = rebuilt(text, &members_of(text)?, |key| match key {
+        "origin" | "tags" => Edit::Drop,
+        "cites" => {
+            origin_written = true;
+            Edit::Before([Some(origin.as_bytes()), None])
+        }
+        "data" => {
+            let origin = (!origin_written).then_some(origin.as_bytes());
+            origin_written = true;
+            Edit::Before([origin, tags.as_deref()])
+        }
         _ => Edit::Keep,
     })?;
-    if !inserted {
-        // Neither `cites` nor `data` came: `origin` goes last.
-        line.pop();
-        line.push(b',');
-        line.extend_from_slice(origin.as_bytes());
-        line.push(b'}');
-    }
     // Valid JSON holds no raw line break inside a string, so any is whitespace between tokens.
     line.retain(|b| !matches!(b, b'\n' | b'\r'));
     line.push(b'\n');
@@ -145,9 +168,10 @@ pub(crate) enum Held {
     Torn,
 }
 
-/// What the line `text` holds.
+/// What the line `text` holds: whether it reads as an envelope does not depend on this build
+/// knowing its namespace (JR-10), so a later SPEC minor's line is never taken for a torn one.
 pub(crate) fn held(text: &[u8]) -> Held {
-    match read_untyped(text) {
+    match read_untyped(text, MAX_LINE_BYTES) {
         Ok((_, _, envelope)) => envelope.origin.map_or(Held::NoOrigin, Held::Origin),
         Err(_) => Held::Torn,
     }
@@ -158,11 +182,12 @@ pub(crate) fn held(text: &[u8]) -> Held {
 pub(crate) struct ReadLine {
     /// The identity it is stored under.
     pub(crate) origin: EventId,
-    /// Its type.
-    pub(crate) event_type: crate::envelope::TypeName,
+    /// Its type, in EV-03's grammar; its namespace may be one this build does not know.
+    pub(crate) event_type: String,
     /// The bytes stored: the line without `origin`, `trust` imported.
     pub(crate) data: Vec<u8>,
-    /// Core's tags from the envelope: `plugin`, `trust`, `session`, `worktree`.
+    /// Core's tags from the envelope (`plugin`, `trust`, `session`, `worktree`), then the
+    /// caller's tags the line carries.
     pub(crate) tags: Vec<Tag>,
     /// The line's `ts`, as the recorded time an import keeps.
     pub(crate) recorded_at_millis: i64,
@@ -176,15 +201,17 @@ pub(crate) fn read_line(text: &[u8]) -> Result<ReadLine, LineError> {
     if text.len() > MAX_LINE_BYTES {
         return Err(LineError::TooLong { len: text.len() });
     }
-    let (name, _, envelope) = read_untyped(text).map_err(LineError::Envelope)?;
+    let (name, _, envelope) = read_untyped(text, MAX_LINE_BYTES).map_err(LineError::Envelope)?;
     let origin = envelope.origin.ok_or(LineError::NoOrigin)?;
     let trust = envelope.trust.imported();
     let text = text_of(text)?;
     let new_trust = trust_json(&trust).map_err(|e| LineError::Envelope(Unusable::Json(e)))?;
     let mut trust_member = b"\"trust\":".to_vec();
     trust_member.extend_from_slice(&new_trust);
-    let (data, _) = rebuilt(text, &members_of(text)?, |key| match key {
-        "origin" => Edit::Drop,
+    let callers = tags::read(text.as_bytes())?;
+    let data = rebuilt(text, &members_of(text)?, |key| match key {
+        // Both live in the store's own columns, never in the bytes.
+        "origin" | "tags" => Edit::Drop,
         "trust" => Edit::Replace(&trust_member),
         _ => Edit::Keep,
     })?;
@@ -192,8 +219,11 @@ pub(crate) fn read_line(text: &[u8]) -> Result<ReadLine, LineError> {
         return Err(LineError::TooLarge { len: data.len() });
     }
     let core = |key, value: &str| Tag::core(key, value).map_err(LineError::Tag);
+    // `read_untyped` checked the type's grammar, so it has a namespace. Not one this build may
+    // know, so the tag is built as it is, not checked against the registry (JR-10).
+    let namespace = namespace_of(&name).ok_or_else(not_an_object)?;
     let mut tags = vec![
-        core(CoreKey::Plugin, name.namespace().as_str())?,
+        Tag::new(CoreKey::Plugin.as_str(), namespace).map_err(LineError::Tag)?,
         core(CoreKey::Trust, trust.level().as_str())?,
     ];
     if let Some(session) = &envelope.session {
@@ -202,6 +232,7 @@ pub(crate) fn read_line(text: &[u8]) -> Result<ReadLine, LineError> {
     if let Some(worktree) = &envelope.worktree {
         tags.push(core(CoreKey::Worktree, worktree.as_str())?);
     }
+    tags.extend(callers);
     Ok(ReadLine {
         origin,
         event_type: name,
@@ -235,20 +266,19 @@ enum Edit<'m> {
     Drop,
     /// Writes this member in its place.
     Replace(&'m [u8]),
-    /// Writes this member before it, the first time an `Insert` comes up.
-    Insert(&'m [u8]),
+    /// Writes these members, those given, before it.
+    Before([Option<&'m [u8]>; 2]),
 }
 
 /// The object `text` rebuilt from its `members`, compact between them, each member's own text
-/// kept unless `edit` says otherwise; also whether an [`Edit::Insert`] was written.
+/// kept unless `edit` says otherwise.
 fn rebuilt<'m>(
     text: &str,
     members: &[Member],
-    edit: impl Fn(&str) -> Edit<'m>,
-) -> Result<(Vec<u8>, bool), LineError> {
+    mut edit: impl FnMut(&str) -> Edit<'m>,
+) -> Result<Vec<u8>, LineError> {
     let mut out = Vec::with_capacity(text.len().saturating_add(64));
     out.push(b'{');
-    let mut inserted = false;
     let push = |out: &mut Vec<u8>, piece: &[u8]| {
         if out.len() > 1 {
             out.push(b',');
@@ -265,17 +295,16 @@ fn rebuilt<'m>(
             Edit::Keep => push(&mut out, own),
             Edit::Drop => {}
             Edit::Replace(new) => push(&mut out, new),
-            Edit::Insert(new) => {
-                if !inserted {
-                    push(&mut out, new);
-                    inserted = true;
+            Edit::Before(new) => {
+                for piece in new.into_iter().flatten() {
+                    push(&mut out, piece);
                 }
                 push(&mut out, own);
             }
         }
     }
     out.push(b'}');
-    Ok((out, inserted))
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -444,6 +473,41 @@ mod tests {
         );
         // `date -u -d 2026-10-31T04:20:11Z +%s` is 1793420411.
         assert_eq!(read.recorded_at_millis, 1_793_420_411_000, "the line's ts");
+    }
+
+    /// JR-02's line under a namespace a later SPEC minor may register.
+    fn newer_namespace() -> String {
+        JR_02.replace("weighin.item_raised", "assay.run_opened")
+    }
+
+    #[test]
+    fn a_line_of_a_namespace_this_build_does_not_know_is_imported_under_its_plugin() {
+        let read = read_line(newer_namespace().as_bytes()).expect("well formed (JR-10)");
+        assert_eq!(read.event_type.as_str(), "assay.run_opened");
+        let tags: Vec<&str> = read.tags.iter().map(Tag::as_str).collect();
+        assert!(tags.contains(&"plugin:assay"), "{tags:?}");
+        for outside in ["Assay.run_opened", "assay", "assay.Run", "9assay.run"] {
+            let line = JR_02.replace("weighin.item_raised", outside);
+            assert!(
+                matches!(read_line(line.as_bytes()), Err(LineError::Envelope(_))),
+                "{outside:?} is outside EV-03's grammar"
+            );
+        }
+    }
+
+    #[test]
+    fn a_line_of_a_namespace_this_build_does_not_know_is_held_not_torn() {
+        let origin = parse_event_ref("0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:40").expect("a ref");
+        assert_eq!(held(newer_namespace().as_bytes()), Held::Origin(origin));
+        let stored = stored(
+            "0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:40",
+            "assay.run_opened",
+            &without_origin(&newer_namespace()),
+        );
+        assert_eq!(
+            encode_line(&stored).expect("exported again (JR-08)"),
+            format!("{}\n", newer_namespace()).into_bytes()
+        );
     }
 
     #[test]

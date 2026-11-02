@@ -3,9 +3,10 @@
 use serde_json::Value;
 
 use super::fields::{self, Field, FieldError};
+use super::name::namespace_of;
 use super::strict::Strict;
 use super::wire::{EnvelopeIn, TrustIn};
-use super::{Actor, Envelope, MAX_ENVELOPE_BYTES, Payload, Timestamp, TypeName, Writer};
+use super::{Actor, Envelope, MAX_ENVELOPE_BYTES, Payload, Timestamp, Writer};
 use crate::ids::{IdError, SessionId, WorktreeId, parse_event_ref};
 use crate::store::Stored;
 use crate::trust::{Trust, TrustError};
@@ -140,16 +141,22 @@ fn read_known<P: Payload>(stored: &Stored) -> Result<Envelope<P>, Unusable> {
 
 /// An envelope of any type, every key checked as a typed read checks it, its `data` left as
 /// JSON: what an import or export checks of a line whose type this build may not know. Its type
-/// and version are returned beside it, the type parsed (a registered namespace, EV-03).
-pub(crate) fn read_untyped(bytes: &[u8]) -> Result<(TypeName, u64, Envelope<Value>), Unusable> {
-    let wire = parse_wire(bytes)?;
-    // `NameError` says which part is wrong; a read reports only that the type is unusable.
-    let Ok(name) = TypeName::parse(&wire.event_type) else {
+/// and version are returned beside it, the type in EV-03's grammar but its namespace registered
+/// or not (JR-10: a later SPEC minor's namespace is imported too). `bytes` are at most `limit`:
+/// [`MAX_ENVELOPE_BYTES`] for a stored envelope, more for a journal line.
+pub(crate) fn read_untyped(
+    bytes: &[u8],
+    limit: usize,
+) -> Result<(String, u64, Envelope<Value>), Unusable> {
+    let mut wire = parse_wire_within(bytes, limit)?;
+    if namespace_of(&wire.event_type).is_none() {
         return Err(Unusable::Field(FieldError {
             field: Field::Type,
-            reason: "must be a registered <namespace>.<name> of at most 64 bytes",
+            reason: "must be <namespace>.<name> in EV-03's grammar, of at most 64 bytes",
         }));
-    };
+    }
+    // `read_fields` reads every other key; the type moves out first.
+    let name = std::mem::take(&mut wire.event_type);
     if wire.version == 0 {
         return Err(Unusable::Field(FieldError {
             field: Field::Version,
@@ -170,8 +177,13 @@ pub(crate) fn read_untyped(bytes: &[u8]) -> Result<(TypeName, u64, Envelope<Valu
 /// `bytes` as an envelope's JSON shape: at most [`MAX_ENVELOPE_BYTES`], an object naming no key
 /// twice at any depth, with EV-01's required keys.
 fn parse_wire(bytes: &[u8]) -> Result<EnvelopeIn, Unusable> {
+    parse_wire_within(bytes, MAX_ENVELOPE_BYTES)
+}
+
+/// [`parse_wire`] with another limit than an envelope's: a journal line's, which adds keys.
+fn parse_wire_within(bytes: &[u8], limit: usize) -> Result<EnvelopeIn, Unusable> {
     let len = bytes.len();
-    if len > MAX_ENVELOPE_BYTES {
+    if len > limit {
         return Err(Unusable::TooLarge { len });
     }
     // Strictly, so a repeated key is unusable rather than read last-wins; and an object first,

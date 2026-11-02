@@ -82,7 +82,7 @@ pub use fields::{Actor, ActorName, Field, FieldError, SPEC_VERSION, Timestamp, W
 pub use name::{MAX_TYPE_BYTES, NameError, Namespace, TypeName};
 pub use read::{Decoded, Skip, Unusable, decode, decode_all};
 
-pub(crate) use name::is_dotted_name;
+pub(crate) use name::{is_dotted_name, namespace_of};
 pub(crate) use read::read_untyped;
 pub(crate) use wire::trust_json;
 

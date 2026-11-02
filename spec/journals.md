@@ -6,7 +6,7 @@ A store lives as long as its clone, and a cloud container's clone dies with the 
 
 **JR-01.** A journal is a UTF-8 file with no byte order mark, one event per line, each line ended by `\n`.
 
-**JR-02 (one-way, OW-12).** Each line is one envelope exactly as EV-01 defines it, with `origin` set to the event's identity (ID-02) and `trust` as stored. A line carries no wrapper and no header, so `jq` and a plain line reader both work, and a line copied between journals stays the same fact.
+**JR-02 (one-way, OW-12).** Each line is one envelope exactly as EV-01 defines it, with `origin` set to the event's identity (ID-02) and `trust` as stored. A line carries no wrapper and no header, so `jq` and a plain line reader both work, and a line copied between journals stays the same fact. A line may also carry `tags`, before `data`: a list of the event's caller tags as stored, `key:value` strings, at most 64 (EV-11, EV-12). It never holds a tag Core sets from the envelope (`plugin`, `trust`, `session`, `worktree`), and a line without caller tags has no `tags` key, as every line written before the key existed; such a line reads as it always did. Import stores the tags as the event's tags, not in its bytes, and a line whose `tags` is not such a list, or names a key Core sets, is malformed (JR-10).
 
 ```text
 {"type":"weighin.item_raised","version":1,"ts":"2026-10-31T04:12:40Z","actor":"agent","trust":{"level":"asserted"},"writer":{"binary":"weighin","version":"2.0.0","spec":"1.0.0"},"session":"8b6fb94b-0975-5275-b434-6c9e60544265","worktree":"wt-5d41402abc4b","origin":"0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:40","data":{"item":"wi-3fa9c01b2e","question":"Which journal location?"}}

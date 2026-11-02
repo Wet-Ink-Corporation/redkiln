@@ -109,6 +109,30 @@ impl fmt::Display for CoreKey {
     }
 }
 
+/// Checks a caller's tag a journal line carries (JR-02): never a key Core sets from the
+/// envelope (a line does not set its own trust); a registered key with a value of its kind; any
+/// other key in EV-03's name grammar, registered or not, since a later SPEC minor may add it
+/// (JR-10).
+pub(crate) fn check_line_tag(tag: &Tag) -> Result<(), TagError> {
+    let (Some(key), Some(value)) = (tag.key(), tag.value()) else {
+        return Err(TagError::Unregistered);
+    };
+    if let Ok(core) = key.parse::<CoreKey>() {
+        return if core.set_by_core() {
+            Err(TagError::CoreSet { key: core })
+        } else if core.accepts(value) {
+            Ok(())
+        } else {
+            Err(TagError::Value { key: core })
+        };
+    }
+    if is_dotted_name(key) {
+        Ok(())
+    } else {
+        Err(TagError::Key)
+    }
+}
+
 /// Checks a tag a caller adds to an envelope's event: an unprefixed key from Core's registry
 /// that Core does not set itself, with a value of its kind, or `<namespace>.<key>` with a
 /// registered namespace and a key in EV-03's name grammar.

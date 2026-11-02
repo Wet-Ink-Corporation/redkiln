@@ -66,7 +66,9 @@ const UNSET: [&str; 5] = [
 /// The oldest git whose `patch-id --verbatim` implies `--stable` (file order does not count).
 const MIN_GIT: (u32, u32) = (2, 39);
 
-/// The largest diff spooled: 1 GiB. A larger change has no id here rather than fill the disk.
+/// The largest diff fed to patch-id: 1 GiB; a larger change has no id. The size is checked once
+/// `git diff` has finished, so this does not bound the spool while git writes it: the timeout
+/// does, by how much git can write before it is killed.
 const MAX_DIFF_BYTES: u64 = 1 << 30;
 
 /// Why a change has no `patch-id` (ID-09). Nothing may bind to `patch-id:` then.

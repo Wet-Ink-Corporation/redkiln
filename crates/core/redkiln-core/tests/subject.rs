@@ -441,6 +441,7 @@ mod tests {
         git_in(&repo, &["add", "staged.txt"]);
         write(&repo, "untracked.txt", b"not in the tree\n");
         let index = std::fs::read(repo.join(".git/index")).expect("the index");
+        let before = files_beside_objects(&repo.join(".git"));
 
         let subject = git_tree(&repo, TIMEOUT).expect("a tree");
         assert_eq!(subject.method(), Method::GitTree);
@@ -449,12 +450,63 @@ mod tests {
             index,
             "index untouched"
         );
+        assert_eq!(
+            files_beside_objects(&repo.join(".git")),
+            before,
+            "nothing in .git but objects"
+        );
 
         git_in(&repo, &["add", "-u"]);
         let expected = git_in(&repo, &["write-tree"]);
         assert_eq!(subject.as_str(), format!("git-tree:{expected}"));
         let names = git_in(&repo, &["ls-tree", "--name-only", &expected]);
         assert!(!names.contains("untracked"), "{names}");
+    }
+
+    /// Every file under `git_dir` outside `objects/`, by its path there, sorted.
+    fn files_beside_objects(git_dir: &Path) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        let mut dirs = vec![git_dir.to_path_buf()];
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).expect("list") {
+                let path = entry.expect("entry").path();
+                let relative = path.strip_prefix(git_dir).expect("inside").to_path_buf();
+                if relative.starts_with("objects") {
+                    continue;
+                }
+                if path.is_dir() {
+                    dirs.push(path);
+                } else {
+                    found.push(relative);
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    #[test]
+    fn a_repository_with_no_index_yet_has_the_empty_tree_and_gains_no_index() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).expect("repo");
+        git_in(&repo, &["init", "-q"]);
+        write(&repo, "untracked.txt", b"not in the tree\n");
+        assert!(!repo.join(".git/index").exists(), "no index yet");
+        let before = files_beside_objects(&repo.join(".git"));
+
+        let subject = git_tree(&repo, TIMEOUT).expect("a tree");
+
+        let nothing = dir.path().join("nothing");
+        std::fs::write(&nothing, b"").expect("an empty file");
+        let nothing = nothing.to_str().expect("utf-8");
+        let empty = git_in(&repo, &["hash-object", "-t", "tree", nothing]);
+        assert_eq!(subject.as_str(), format!("git-tree:{empty}"));
+        assert_eq!(
+            files_beside_objects(&repo.join(".git")),
+            before,
+            "no index written, nothing else either"
+        );
     }
 
     #[test]

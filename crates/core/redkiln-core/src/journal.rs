@@ -10,6 +10,7 @@ mod import;
 mod line;
 mod members;
 mod name;
+mod tags;
 
 pub use export::{Checkpoint, Exported, JournalError, MAX_JOURNAL_BYTES, checkpoint};
 pub use import::{

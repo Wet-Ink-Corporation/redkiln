@@ -18,6 +18,9 @@ use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::{Level, Trust, Via};
 use serde::{Deserialize, Serialize};
 
+mod batches;
+mod lines;
+
 const WAIT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +165,43 @@ fn a_checkpoint_writes_each_session_its_journal_once() {
     let third = written(checkpoint(&store, RepoClass::Own, &journals, WAIT).expect("written"));
     assert_eq!(third.appended, 1, "only what the journal lacks");
     assert_eq!(journal_lines(&journals.join("a1.jsonl")).len(), 3);
+}
+
+#[test]
+fn a_journal_another_writer_holds_is_reported_busy_and_the_others_are_written() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = source_store(dir.path());
+    let journals = dir.path().join("journals");
+    std::fs::create_dir(&journals).expect("the directory");
+    let held = std::fs::File::create(journals.join("a1.jsonl")).expect("a journal");
+    held.try_lock().expect("another writer holds a1");
+
+    let outcome = written(
+        checkpoint(&store, RepoClass::Own, &journals, Duration::from_millis(50))
+            .expect("no failure"),
+    );
+    let a1 = JournalName::for_event(
+        Some(&SessionId::parse("A1").expect("valid")),
+        store.store_id(),
+    );
+    assert_eq!(outcome.busy, [a1], "the held journal is named");
+    assert_eq!(outcome.appended, 2, "b2 and the sessionless journal");
+    assert_eq!(outcome.journals.len(), 2, "{:?}", outcome.journals);
+    assert!(
+        std::fs::read(journals.join("a1.jsonl"))
+            .expect("read")
+            .is_empty(),
+        "nothing written under the lock"
+    );
+    assert_eq!(journal_lines(&journals.join("b2.jsonl")).len(), 1);
+    drop(held);
+
+    let after = written(checkpoint(&store, RepoClass::Own, &journals, WAIT).expect("written"));
+    assert_eq!(
+        (after.appended, after.busy.len()),
+        (2, 0),
+        "caught up next time"
+    );
 }
 
 #[test]

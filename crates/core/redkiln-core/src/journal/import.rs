@@ -14,6 +14,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
+use happenstance_core::EventId;
 use serde::{Deserialize, Serialize};
 
 use super::line::{LineError, MAX_LINE_BYTES, ReadLine, read_line};
@@ -133,13 +134,23 @@ pub enum ImportError {
     /// The import's record could not be built.
     #[error("recording the import")]
     Record(#[source] EnvelopeError),
+    /// The store refused a batch for an identity of its own it does not hold, but no line of
+    /// the batch names it; nothing of the batch was written.
+    #[error("the store refused {id}, which no line of the batch names")]
+    UnheldOwnUnmatched {
+        /// The identity the store named.
+        id: EventId,
+    },
 }
 
 /// Imports the journal at `path` into `store`, recording it as written at `ts` by `author`, with
 /// the path as its source.
 ///
 /// # Errors
-/// [`ImportError::Open`] when the file cannot be opened; otherwise as [`import`].
+/// [`ImportError::Open`] when the file cannot be opened; otherwise as [`import`]. On Windows a
+/// journal a checkpoint is writing is locked against reads, so importing it then fails with
+/// [`ImportError::Read`]; the batches stored before stay, and an import after the checkpoint
+/// appends only the rest (JR-11).
 pub fn import_file(
     store: &Store,
     path: &Path,
@@ -164,6 +175,9 @@ pub fn import_file(
 /// # Errors
 /// [`ImportError::Read`] when `reader` fails, [`ImportError::Store`] when the store refuses a
 /// batch or the record, and [`ImportError::Record`] when the record cannot be built.
+/// [`ImportError::UnheldOwnUnmatched`] when the store refuses an identity no line names. A
+/// reader over a file a checkpoint holds fails on Windows, which locks it against reads while
+/// it writes: [`ImportError::Read`], with the batches before kept.
 pub fn import(
     store: &Store,
     mut reader: impl BufRead,
@@ -291,14 +305,25 @@ impl Batch {
     /// position it does not hold makes happenstance refuse the whole batch; that line is
     /// skipped as malformed and the rest stored.
     fn store(&mut self, store: &Store, imported: &mut ImportReport) -> Result<(), ImportError> {
+        self.store_with(imported, |events| store.ingest(events))
+    }
+
+    /// [`Batch::store`] through `ingest`. Each refusal drops at least one line, so the loop
+    /// ends; a refusal naming no line of the batch is [`ImportError::UnheldOwnUnmatched`].
+    fn store_with(
+        &mut self,
+        imported: &mut ImportReport,
+        mut ingest: impl FnMut(&[Foreign]) -> Result<Ingest, StoreError>,
+    ) -> Result<(), ImportError> {
         while !self.events.is_empty() {
-            match store.ingest(&self.events).map_err(ImportError::Store)? {
+            match ingest(&self.events).map_err(ImportError::Store)? {
                 Ingest::Done { appended, skipped } => {
                     imported.imported = imported.imported.saturating_add(count(appended));
                     imported.present = imported.present.saturating_add(count(skipped));
                     break;
                 }
                 Ingest::UnheldOwn(id) => {
+                    let before = self.events.len();
                     let mut kept = Self::default();
                     for (number, event) in self.numbers.drain(..).zip(self.events.drain(..)) {
                         if event.id == id {
@@ -308,6 +333,9 @@ impl Batch {
                         }
                     }
                     *self = kept;
+                    if self.events.len() == before {
+                        return Err(ImportError::UnheldOwnUnmatched { id });
+                    }
                 }
             }
         }
@@ -338,4 +366,68 @@ fn record(store: &Store, recording: Recording, imported: &ImportReport) -> Resul
         .append(vec![event], None)
         .map_err(ImportError::Store)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ids::parse_event_ref;
+
+    fn foreign(id: &str) -> Foreign {
+        Foreign {
+            id: parse_event_ref(id).expect("an event ref"),
+            recorded_at_millis: 0,
+            event: NewEvent::new("weighin.item_raised", b"{}".to_vec()).expect("an event"),
+        }
+    }
+
+    #[test]
+    fn a_refused_identity_no_line_names_is_an_error_not_a_retry() {
+        let mut batch = Batch::default();
+        batch.push(1, foreign("0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:1"));
+        let elsewhere = parse_event_ref("0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:9").expect("a ref");
+        let mut report = ImportReport::default();
+        let mut calls = 0_u32;
+        let outcome = batch.store_with(&mut report, |_| {
+            calls += 1;
+            if calls > 3 {
+                return Ok(Ingest::Done {
+                    appended: 0,
+                    skipped: 0,
+                });
+            }
+            Ok(Ingest::UnheldOwn(elsewhere))
+        });
+        assert!(
+            matches!(outcome, Err(ImportError::UnheldOwnUnmatched { id }) if id == elsewhere),
+            "{outcome:?}"
+        );
+        assert_eq!(calls, 1, "not retried");
+    }
+
+    #[test]
+    fn a_refused_line_is_dropped_and_the_rest_stored() {
+        let mut batch = Batch::default();
+        batch.push(1, foreign("0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:1"));
+        batch.push(2, foreign("0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:2"));
+        let refused = parse_event_ref("0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:2").expect("a ref");
+        let mut report = ImportReport::default();
+        let mut sizes = Vec::new();
+        batch
+            .store_with(&mut report, |events| {
+                sizes.push(events.len());
+                Ok(if events.iter().any(|e| e.id == refused) {
+                    Ingest::UnheldOwn(refused)
+                } else {
+                    Ingest::Done {
+                        appended: events.len(),
+                        skipped: 0,
+                    }
+                })
+            })
+            .expect("stored");
+        assert_eq!(sizes, [2, 1]);
+        assert_eq!((report.imported, report.malformed), (1, 1));
+        assert_eq!(report.problems.first().map(|p| p.line), Some(2));
+    }
 }

@@ -182,6 +182,11 @@ fn another_programs_creation_in_progress_is_busy_and_keeps_its_journal() {
         live,
         "the live journal keeps its name and bytes"
     );
+    let orphans = listing(dir.path())
+        .into_iter()
+        .filter(|n| n.contains(".orphaned-"))
+        .count();
+    assert_eq!(orphans, 0, "a busy refusal leaves nothing aside");
     assert_eq!(
         std::fs::metadata(&path).expect("stat").len(),
         0,

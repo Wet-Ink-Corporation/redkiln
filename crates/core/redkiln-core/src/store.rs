@@ -56,7 +56,7 @@ pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 pub(crate) use aside::sibling;
 pub(crate) use header::{Found, read as read_header};
 pub(crate) use ingest::{Foreign, Ingest};
-pub(crate) use tag::check_caller_tag;
+pub(crate) use tag::{check_caller_tag, check_line_tag};
 
 /// How long a writer waits for another's lock (ST-09).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +156,7 @@ pub enum OpenError {
     #[error("another process is opening the store; timed out waiting for it")]
     LockBusy,
     /// Another program (not a Core opener) holds a write transaction on a file with no store
-    /// yet: its journal beside the file is live, so it was neither set aside nor rolled back.
+    /// yet: its journal beside the file is live, so it keeps its name and bytes.
     #[error("another program is writing the file; its journal was left in place")]
     WriterBusy,
     /// The temporary directory for the schema template could not be created or removed.
@@ -218,8 +218,8 @@ pub enum Step {
     Commit,
     /// Deleting telemetry past its window from the side store (EV-14).
     Prune,
-    /// Trying the write lock of a file with a journal beside it, before setting the journal
-    /// aside.
+    /// Checking SQLite's locks on a file with a journal beside it, around setting the journal
+    /// aside: a read-only read lock, then the write lock with the journal renamed.
     Probe,
 }
 
