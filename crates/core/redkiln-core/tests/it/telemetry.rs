@@ -150,10 +150,17 @@ fn the_write_that_would_create_the_side_store_drops_while_its_lock_is_held() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("events.sqlite3");
     let mut store = Store::open(&path, Wait::Command).expect("opens");
-    let holder = other_connection(&side(&path));
-    holder
-        .execute_batch("BEGIN IMMEDIATE")
-        .expect("take the write lock");
+    // Another Core opener creating the side store holds its open lock, as a concurrent first
+    // creation does (ST-05). A raw SQLite writer on the still-empty file is not how one shows up,
+    // and on Windows its live journal cannot even be renamed.
+    let holder = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(sibling(&side(&path), ".lock"))
+        .expect("the side store's lock file");
+    holder.lock().expect("hold the side store's open lock");
 
     let started = Instant::now();
     assert_eq!(
@@ -167,7 +174,8 @@ fn the_write_that_would_create_the_side_store_drops_while_its_lock_is_held() {
         "{:?}",
         started.elapsed()
     );
-    holder.execute_batch("ROLLBACK").expect("release the lock");
+    holder.unlock().expect("release the lock");
+    drop(holder);
     assert_eq!(
         store
             .record_telemetry(timing(2), SystemTime::now())
