@@ -97,10 +97,10 @@ pub enum GitError {
 }
 
 /// What a finished git left.
-struct Captured {
-    status: ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
+pub(crate) struct Captured {
+    pub(crate) status: ExitStatus,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
 }
 
 /// A git repository's directories, as git names them (absolute).
@@ -159,27 +159,52 @@ pub(crate) fn normalise(path: &Path) -> PathBuf {
 }
 
 /// Runs `command` with `args` in `cwd`, killing it once `timeout` has passed.
-fn run(
+pub(crate) fn run(
     mut command: Command,
     args: &[&OsStr],
     cwd: &Path,
     timeout: Duration,
 ) -> Result<Captured, GitError> {
+    command.args(args);
+    let mut spooled = run_spooled(command, cwd, timeout, None)?;
+    Ok(Captured {
+        status: spooled.status,
+        stdout: read_back(&mut spooled.stdout)?,
+        stderr: spooled.stderr,
+    })
+}
+
+/// What a finished git left, its stdout still in its spool file, rewound and uncapped: for an
+/// output too large to hold in memory (a diff), which the caller hands on as a file.
+pub(crate) struct Spooled {
+    pub(crate) status: ExitStatus,
+    pub(crate) stdout: File,
+    pub(crate) stderr: Vec<u8>,
+}
+
+/// [`run`] of `command`, its arguments already given, with `stdin` read from a file when given,
+/// and stdout left in its spool.
+pub(crate) fn run_spooled(
+    mut command: Command,
+    cwd: &Path,
+    timeout: Duration,
+    stdin: Option<File>,
+) -> Result<Spooled, GitError> {
     let mut stdout = tempfile::tempfile().map_err(GitError::Io)?;
     let mut stderr = tempfile::tempfile().map_err(GitError::Io)?;
     let mut child = command
-        .args(args)
         .current_dir(cwd)
         .env("LC_ALL", "C")
-        .stdin(Stdio::null())
+        .stdin(stdin.map_or_else(Stdio::null, Stdio::from))
         .stdout(Stdio::from(stdout.try_clone().map_err(GitError::Io)?))
         .stderr(Stdio::from(stderr.try_clone().map_err(GitError::Io)?))
         .spawn()
         .map_err(GitError::Spawn)?;
     let status = wait(&mut child, timeout)?;
-    Ok(Captured {
+    stdout.seek(SeekFrom::Start(0)).map_err(GitError::Io)?;
+    Ok(Spooled {
         status,
-        stdout: read_back(&mut stdout)?,
+        stdout,
         stderr: read_back(&mut stderr)?,
     })
 }
@@ -212,7 +237,7 @@ fn wait(child: &mut Child, timeout: Duration) -> Result<ExitStatus, GitError> {
 }
 
 /// The whole of a spool file, refused past [`MAX_OUTPUT_BYTES`].
-fn read_back(file: &mut File) -> Result<Vec<u8>, GitError> {
+pub(crate) fn read_back(file: &mut File) -> Result<Vec<u8>, GitError> {
     file.seek(SeekFrom::Start(0)).map_err(GitError::Io)?;
     let mut bytes = Vec::new();
     file.take(MAX_OUTPUT_BYTES.saturating_add(1))

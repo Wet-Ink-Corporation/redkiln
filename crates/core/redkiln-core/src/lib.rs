@@ -26,6 +26,7 @@ pub mod ids;
 pub mod legacy;
 pub mod location;
 pub mod store;
+pub mod subject;
 pub mod suite;
 pub mod trust;
 
