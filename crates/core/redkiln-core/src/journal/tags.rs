@@ -6,30 +6,35 @@
 use serde::Deserialize;
 
 use super::line::LineError;
-use crate::store::{CoreKey, Tag, check_line_tag};
+use crate::store::{MAX_CALLER_TAGS, Tag, check_line_tag, is_core_set};
 
-/// The most tags a line carries: happenstance's guaranteed tags per event.
-pub(crate) const MAX_LINE_TAGS: usize = happenstance_core::MIN_SUPPORTED_TAGS_PER_EVENT;
+/// The most caller tags a line carries, the cap a write holds too ([`MAX_CALLER_TAGS`]).
+pub(crate) const MAX_LINE_TAGS: usize = MAX_CALLER_TAGS;
 
-/// The member `"tags":[...]` for a line of an event stored with `tags`: those a caller set, in
-/// stored order; `None` when there are none, so such a line has no `tags` key.
+/// The member `"tags":[...]` for a line of an event stored with `tags`: those a caller set,
+/// sorted, each once, so one fact has one line in every journal; `None` when there are none, so
+/// such a line has no `tags` key.
 ///
 /// # Errors
-/// [`LineError::Envelope`] when the list cannot be written as JSON.
+/// What an import would refuse, so the event is not exported (it counts as unexportable):
+/// [`LineError::TooManyTags`] past [`MAX_LINE_TAGS`], [`LineError::CallerTag`] for a tag
+/// [`check_line_tag`] refuses. [`LineError::Envelope`] when the list cannot be written as JSON.
 pub(crate) fn member(tags: &[Tag]) -> Result<Option<Vec<u8>>, LineError> {
-    let core_set = |tag: &&Tag| {
-        tag.key()
-            .and_then(|key| key.parse::<CoreKey>().ok())
-            .is_some_and(CoreKey::set_by_core)
-    };
-    let callers: Vec<&str> = tags
-        .iter()
-        .filter(|tag| !core_set(tag))
-        .map(Tag::as_str)
-        .collect();
+    let mut callers: Vec<&Tag> = tags.iter().filter(|tag| !is_core_set(tag)).collect();
+    callers.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+    callers.dedup_by(|a, b| a.as_str() == b.as_str());
+    if callers.len() > MAX_LINE_TAGS {
+        return Err(LineError::TooManyTags {
+            count: callers.len(),
+        });
+    }
+    for tag in &callers {
+        check_line_tag(tag).map_err(LineError::CallerTag)?;
+    }
     if callers.is_empty() {
         return Ok(None);
     }
+    let callers: Vec<&str> = callers.into_iter().map(Tag::as_str).collect();
     let mut out = b"\"tags\":".to_vec();
     serde_json::to_writer(&mut out, &callers)
         .map_err(|e| LineError::Envelope(crate::envelope::Unusable::Json(e)))?;
@@ -68,7 +73,7 @@ pub(crate) fn read(text: &[u8]) -> Result<Vec<Tag>, LineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::TagError;
+    use crate::store::{CoreKey, TagError};
 
     fn tag(text: &str) -> Tag {
         let (key, value) = text.split_once(':').expect("key:value");
@@ -89,6 +94,26 @@ mod tests {
             Some(&br#""tags":["item:wi-3fa9c01b2e","weighin.channel:chat"]"#[..])
         );
         assert_eq!(member(&stored[..3]).expect("written"), None, "no key");
+    }
+
+    #[test]
+    fn the_member_is_sorted_each_once_and_refuses_what_no_import_reads() {
+        let stored = [tag("task:b"), tag("item:wi-3fa9c01b2e"), tag("task:b")];
+        assert_eq!(
+            member(&stored).expect("written").as_deref(),
+            Some(&br#""tags":["item:wi-3fa9c01b2e","task:b"]"#[..])
+        );
+        let many: Vec<Tag> = (0..=MAX_LINE_TAGS)
+            .map(|n| tag(&format!("task:{n}")))
+            .collect();
+        assert!(matches!(
+            member(&many),
+            Err(LineError::TooManyTags { count }) if count == MAX_LINE_TAGS + 1
+        ));
+        assert!(matches!(
+            member(&[tag("Upper:x")]),
+            Err(LineError::CallerTag(TagError::Key))
+        ));
     }
 
     #[test]

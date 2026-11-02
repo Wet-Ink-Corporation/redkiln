@@ -62,14 +62,16 @@ pub(super) fn set_aside(path: &Path, suffix: &str) -> Result<(), OpenError> {
 ///    the rename is refused (`ERROR_SHARING_VIOLATION`): [`OpenError::WriterBusy`].
 /// 3. With no journal under its name, a read-write connection with no busy wait tries
 ///    `BEGIN IMMEDIATE`, then rolls back, having written nothing. Busy means a writer holds the
-///    journal: it is renamed back, under the read lock, and the open is
+///    journal: it is renamed back while its name is still free, and the open is
 ///    [`OpenError::WriterBusy`], with nothing left aside.
 ///
-/// Any other failure of step 3 puts the journal back too, so only a probe that found no writer
-/// leaves it aside. A journal SQLite found hot in step 1 had no writer behind it, so it stays
-/// aside whatever step 3 finds. On Windows step 1 is skipped (a read-only connection there can
-/// take the write lock and delete a stale journal); step 2 is its test, and a journal it could
-/// rename was held open by no writer, so it stays aside too.
+/// Any failure of step 3 puts the journal back the same way, so only a probe that found no
+/// writer leaves it aside. Where step 1 holds the read lock, no writer can end its transaction
+/// or start a journal in between. Where it holds none (SQLite found the journal hot, or on
+/// Windows, where step 1 is skipped because a read-only connection there can take the write lock
+/// and delete a stale journal), a writer that appeared since may have recovered the journal and
+/// begun the one that was renamed; it goes back too, unless a journal has taken the name again,
+/// in which case the renamed one stays aside rather than replace it.
 pub(super) fn set_journal_aside(path: &Path) -> Result<(), OpenError> {
     let journal = sibling(path, "-journal");
     let len = match std::fs::metadata(&journal) {
@@ -80,12 +82,11 @@ pub(super) fn set_journal_aside(path: &Path) -> Result<(), OpenError> {
     if len == 0 || !path.try_exists().map_err(failed(path, "-journal"))? {
         return set_aside(path, "-journal");
     }
+    // Held to the end, after any put-back. Windows skips step 1: a read-only connection there
+    // takes SQLite's write lock, and would delete a stale journal beside an empty file. The
+    // rename is the test.
     #[cfg(not(windows))]
     let reader = read_lock(path)?;
-    // Windows skips step 1: a read-only connection there takes SQLite's write lock, and would
-    // delete a stale journal beside an empty file. The rename is the test.
-    #[cfg(windows)]
-    let reader: Option<Connection> = None;
     let aside = aside_name(path, "-journal")?;
     match std::fs::rename(&journal, &aside) {
         Ok(()) => {}
@@ -94,10 +95,11 @@ pub(super) fn set_journal_aside(path: &Path) -> Result<(), OpenError> {
         Err(other) => return Err(busy_or(other, failed(path, "-journal"))),
     }
     let probed = probe_writer(path);
-    if probed.is_err() && reader.is_some() {
+    if probed.is_err() {
         put_back(path, &aside, &journal)?;
     }
-    // The read lock ends only now, after the journal is back under its name.
+    // A read lock ends only now, after the journal is back under its name.
+    #[cfg(not(windows))]
     drop(reader);
     probed
 }
@@ -161,9 +163,8 @@ fn probe(source: rusqlite::Error) -> OpenError {
 }
 
 /// Puts the journal set aside at `aside` back under its name: a writer held it after all, or
-/// the probe could not tell.
-/// Under the read lock no other writer can have started one; a journal back under the name
-/// anyway is left where it is, and the one aside stays aside.
+/// the probe could not tell. A journal under the name again is never replaced: it is left
+/// where it is, and the one aside stays aside.
 fn put_back(path: &Path, aside: &Path, journal: &Path) -> Result<(), OpenError> {
     if journal.try_exists().map_err(failed(path, "-journal"))? {
         return Ok(());

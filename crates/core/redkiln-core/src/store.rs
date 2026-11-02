@@ -56,7 +56,7 @@ pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 pub(crate) use aside::sibling;
 pub(crate) use header::{Found, read as read_header};
 pub(crate) use ingest::{Foreign, Ingest};
-pub(crate) use tag::{check_caller_tag, check_line_tag};
+pub(crate) use tag::{MAX_CALLER_TAGS, check_caller_tag, check_line_tag, is_core_set};
 
 /// How long a writer waits for another's lock (ST-09).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -284,6 +284,13 @@ pub enum StoreError {
         #[source]
         source: OpenError,
     },
+    /// An event carries more caller tags (Core's own not counted) than a journal line holds,
+    /// 64 (JR-02), so it could be exported but never imported. Nothing was written.
+    #[error("an event carries {count} caller tags, more than a journal line holds")]
+    TooManyCallerTags {
+        /// How many it carries.
+        count: usize,
+    },
     /// The file at the store's path now has another identity than the one this store opened:
     /// it was replaced or restored since. Telemetry is not written beside it.
     #[error("the store file now has identity {found}, not the {opened} this store opened")]
@@ -320,6 +327,11 @@ impl NewEvent {
     pub fn with_tag(mut self, tag: Tag) -> Self {
         self.tags.push(tag);
         self
+    }
+
+    /// How many of its tags are not ones Core sets from the envelope.
+    pub(crate) fn caller_tags(&self) -> usize {
+        self.tags.iter().filter(|tag| !is_core_set(tag)).count()
     }
 
     fn into_event(self) -> Event {
@@ -534,13 +546,21 @@ impl Store {
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Query`] for a condition happenstance cannot
     /// query; [`StoreError::Append`] when happenstance refuses the append (no events, a store
-    /// limit, a busy lock past the timeout, I/O). A matched condition is
+    /// limit, a busy lock past the timeout, I/O); [`StoreError::TooManyCallerTags`] for an event
+    /// with more caller tags than a journal line holds. A matched condition is
     /// [`Appended::Conflict`], not an error.
     pub fn append(
         &self,
         events: Vec<NewEvent>,
         condition: Option<&Condition>,
     ) -> Result<Appended, StoreError> {
+        if let Some(count) = events
+            .iter()
+            .map(NewEvent::caller_tags)
+            .find(|count| *count > MAX_CALLER_TAGS)
+        {
+            return Err(StoreError::TooManyCallerTags { count });
+        }
         let condition = condition.map(Condition::to_append_condition).transpose()?;
         let events: Vec<Event> = events.into_iter().map(NewEvent::into_event).collect();
         match self
