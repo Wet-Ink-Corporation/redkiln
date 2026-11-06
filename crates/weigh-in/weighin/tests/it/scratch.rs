@@ -92,6 +92,7 @@ impl Repo {
     fn command(&self, dir: &std::path::Path) -> Command {
         let mut cmd = Command::new(bin());
         cmd.current_dir(dir)
+            .env_remove("REDKILN_STORE")
             .env_remove("WEIGHIN_STORE")
             .env_remove("WEIGHIN_SESSION")
             .env_remove("CLAUDE_SESSION_ID")

@@ -21,6 +21,7 @@
 //! the conversation and records through the computer's shell.
 
 use anyhow::Result;
+use redkiln_core::store::Wait;
 use serde_json::Value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
@@ -30,7 +31,7 @@ use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
-use crate::env::{self, Config, ConfigSource, Env};
+use crate::env::{self, Config, ConfigSource, Env, Vars};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
 use crate::{journal, recall, shell_bin};
@@ -40,7 +41,7 @@ use crate::{journal, recall, shell_bin};
 /// error, and input that cannot be read or parsed is logged inside a git repository.
 pub(crate) fn entry(input: &mut impl Read, output: &mut impl Write) {
     let (payload, unread) = read_payload(input);
-    let env = discover(&payload);
+    let env = discover(&payload, Vars::from_process());
     let hook = Hook {
         payload,
         env,
@@ -69,8 +70,9 @@ fn read_payload(input: &mut impl Read) -> (Value, Option<anyhow::Error>) {
     }
 }
 
-/// The environment the payload names: its `cwd` (else the process's) and its session.
-fn discover(payload: &Value) -> Env {
+/// The environment the payload names: its `cwd` (else the process's) and its session, writing
+/// under a hook's wait (ST-09).
+fn discover(payload: &Value, vars: Vars) -> Env {
     let cwd = payload.get("cwd").and_then(Value::as_str).map_or_else(
         || std::env::current_dir().unwrap_or_default(),
         PathBuf::from,
@@ -78,8 +80,8 @@ fn discover(payload: &Value) -> Env {
     let session = payload
         .get("session_id")
         .and_then(Value::as_str)
-        .map(str::to_owned);
-    Env::discover(&cwd, session)
+        .map(|s| (s.to_owned(), "the hook's session_id"));
+    Env::discover(&cwd, session, None, vars).with_wait(Wait::Hook)
 }
 
 /// Log why the input was missing (inside a git repository only), dispatch the hook, and write
@@ -229,7 +231,11 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
 /// reported here, once a session, and never logged.
 fn session_start(env: &Env, source: &str) -> String {
     let broken = broken_config(env);
-    let mut context = prime(env, source).unwrap_or_else(|e| {
+    let (primed, unusable) = match ops::loaded(env) {
+        Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
+        Err(e) => (Err(e), 0),
+    };
+    let mut context = primed.unwrap_or_else(|e| {
         log_error(env, "SessionStart", &e);
         CONVENTION.to_owned()
     });
@@ -238,10 +244,12 @@ fn session_start(env: &Env, source: &str) -> String {
         context.push_str(&copy.display().to_string());
         context.push('\n');
     }
-    let message = match (broken, new_errors(env)) {
-        (Some(broken), Some(errors)) => Some(format!("{broken} {errors}")),
-        (broken, errors) => broken.or(errors),
-    };
+    let parts: Vec<String> = broken
+        .into_iter()
+        .chain(store_notes(env, unusable))
+        .chain(new_errors(env))
+        .collect();
+    let message = (!parts.is_empty()).then(|| parts.join(" "));
     match message {
         // Plain stdout reaches only Claude; `systemMessage` is shown to the user.
         Some(message) => serde_json::json!({
@@ -256,6 +264,31 @@ fn session_start(env: &Env, source: &str) -> String {
     }
 }
 
+/// What the user should hear about the store, once a session: that it cannot be located (hooks
+/// then write nothing, CLI-09), a session id the store refuses (D10), what locating it found (an
+/// old ledger, a 2.x fallback), and events a newer weighin wrote, which are skipped (EV-10).
+fn store_notes(env: &Env, unusable: u64) -> Vec<String> {
+    let mut notes = Vec::new();
+    if let Err(e) = &env.store {
+        notes.push(format!(
+            "Weigh-In cannot locate its store, so hooks capture nothing until that is fixed: {}.",
+            Report(e)
+        ));
+    }
+    if let Some(e) = &env.session_error {
+        notes.push(format!(
+            "Weigh-In: {e}, so this session's items are recorded with no session."
+        ));
+    }
+    notes.extend(env.notices.iter().map(|n| format!("Weigh-In: {n}.")));
+    if unusable > 0 {
+        notes.push(format!(
+            "Weigh-In: {unusable} event(s) in the store are of a form this weighin cannot read, so they are skipped; a newer weighin wrote them."
+        ));
+    }
+    notes
+}
+
 /// On Windows inside a git repository, a copy of this binary in the repository's git dir, where
 /// the skill's shell can reach it when it cannot see the plugin folder (#127, `shell_bin`). Nowhere
 /// else: other platforms reach the plugin folder, and outside git the state dir would be a
@@ -265,8 +298,9 @@ fn shell_copy(env: &Env) -> Option<PathBuf> {
         return None;
     }
     // The repository's git dir, not the state dir, which follows a configured `store` to a folder
-    // the shell may not see.
-    let dir = env.common_dir.as_deref()?.join("weighin");
+    // the shell may not see. Under `redkiln/`, so nothing is added beside a 1.x ledger in
+    // `<common>/weighin/`, which stays as it was until it is imported.
+    let dir = env.common_dir.as_deref()?.join("redkiln").join("weighin");
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
@@ -310,7 +344,8 @@ const ERRORS_SEEN: &str = "hook-errors.seen";
 /// records the log's length so each line is reported once. Writes nothing when there is no log,
 /// and overwrites rather than deletes (B-01).
 fn new_errors(env: &Env) -> Option<String> {
-    let dir = env.state_dir();
+    // No store located is no state dir, so no log to report.
+    let dir = env.state_dir().ok()?;
     let log_path = dir.join("hook-errors.log");
     let log = std::fs::read(&log_path).ok()?;
     // The length reported so far, then the start of the log's first line at that time. A
@@ -364,7 +399,11 @@ fn first_line(log: &[u8]) -> &[u8] {
 /// Fails when the ledger cannot be read.
 pub(crate) fn prime(env: &Env, source: &str) -> Result<String> {
     // Read-only: a session that raises nothing must not leave a store behind.
-    let ledger = read_ledger(env)?;
+    prime_from(env, source, &read_ledger(env)?)
+}
+
+/// [`prime`] of a ledger already read.
+fn prime_from(env: &Env, source: &str, ledger: &Ledger) -> Result<String> {
     let open = ledger.open();
     let here = env
         .session
@@ -606,9 +645,10 @@ pub(crate) fn scan_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{Hook, new_errors, read_payload, serve};
-    use crate::env::Env;
+    use super::{Hook, discover, new_errors, read_payload, serve};
+    use crate::env::{Env, Vars};
     use crate::git;
+    use redkiln_core::store::Wait;
     use std::io::{self, Read, Write};
     use std::path::Path;
 
@@ -636,7 +676,14 @@ mod tests {
     }
 
     fn error_log(dir: &Path) -> String {
-        std::fs::read_to_string(dir.join(".weighin").join("hook-errors.log")).unwrap_or_default()
+        std::fs::read_to_string(dir.join(".redkiln/weighin/hook-errors.log")).unwrap_or_default()
+    }
+
+    /// The environment of a hook in `dir` with its store at `dir/.redkiln/events.sqlite3`,
+    /// whatever the process environment says (`REDKILN_STORE`, `WEIGHIN_STORE`).
+    fn env_in(dir: &Path) -> Env {
+        let store = dir.join(".redkiln/events.sqlite3");
+        Env::discover(dir, None, Some(store), Vars::default()).with_wait(Wait::Hook)
     }
 
     /// A temporary directory that is a git repository.
@@ -654,13 +701,12 @@ mod tests {
             .expect("temp dir entries")
     }
 
-    /// Run a hook on `input` in `dir` (inside git when `dir` is a repository) with its ledger
-    /// under `dir/.weighin`, whatever the process environment says (`WEIGHIN_STORE`,
-    /// `CLAUDE_CODE_ENTRYPOINT`).
+    /// Run a hook on `input` in `dir` (inside git when `dir` is a repository) with its store
+    /// under `dir/.redkiln`, whatever the process environment says (`CLAUDE_CODE_ENTRYPOINT`
+    /// among it).
     fn serve_in(dir: &Path, cowork: bool, input: &mut impl Read, output: &mut impl Write) {
         let (payload, unread) = read_payload(input);
-        let env =
-            Env::discover(dir, None).with_store(Some(dir.join(".weighin").join("ledger.sqlite3")));
+        let env = env_in(dir);
         serve(
             &Hook {
                 payload,
@@ -673,15 +719,27 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "spawns git")]
+    fn a_hook_writes_under_a_hooks_wait_and_a_command_under_a_commands() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let payload = serde_json::json!({ "cwd": tmp.path(), "hook_event_name": "Stop" });
+
+        let hook = discover(&payload, Vars::default());
+        let command = Env::discover(tmp.path(), None, None, Vars::default());
+
+        assert_eq!((hook.wait, command.wait), (Wait::Hook, Wait::Command));
+    }
+
+    #[test]
     #[cfg_attr(
         miri,
         ignore = "reads and writes the error log through the file system"
     )]
     fn a_seen_record_from_an_older_build_still_counts_from_its_length() {
         let tmp = tempfile::tempdir().expect("temp dir");
-        let state = tmp.path().join(".weighin");
+        let state = tmp.path().join(".redkiln/weighin");
         std::fs::create_dir_all(&state).expect("state dir");
-        let env = Env::discover(tmp.path(), None).with_store(Some(state.join("ledger.sqlite3")));
+        let env = env_in(tmp.path());
         let old = "2026-10-01T00:00:00Z Stop: reported before\n";
         let added = "2026-10-02T00:00:00Z Stop: logged since\n";
         std::fs::write(state.join("hook-errors.log"), format!("{old}{added}")).expect("log");
@@ -705,10 +763,10 @@ mod tests {
     fn errors_logged_after_the_log_was_truncated_are_all_reported() {
         use std::fmt::Write as _;
         let tmp = tempfile::tempdir().expect("temp dir");
-        let state = tmp.path().join(".weighin");
+        let state = tmp.path().join(".redkiln/weighin");
         std::fs::create_dir_all(&state).expect("state dir");
         let log = state.join("hook-errors.log");
-        let env = Env::discover(tmp.path(), None).with_store(Some(state.join("ledger.sqlite3")));
+        let env = env_in(tmp.path());
         let old = "2026-10-01T00:00:00Z Stop: an old failure that was reported\n".repeat(3);
         std::fs::write(&log, &old).expect("old log");
         assert!(

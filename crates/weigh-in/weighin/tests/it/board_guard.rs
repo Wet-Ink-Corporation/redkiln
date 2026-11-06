@@ -2,7 +2,7 @@
 //! folder whose config exists, parses and chooses the `artifact` board; a broken config stops
 //! every command but `hook`, which carries on and says so at `SessionStart`.
 
-use crate::support::{MESSAGE, hook, setup, weighin};
+use crate::support::{MESSAGE, hook, setup, state_of, store_of, weighin};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -30,7 +30,7 @@ fn break_config(repo: &Path) -> std::io::Result<()> {
 /// `board export` to its default place and to `--out`; returns each run and whether its file
 /// was written.
 fn export_both_ways(repo: &Path) -> Vec<(bool, String, bool)> {
-    let default = repo.join(".git/weighin/board-state.json");
+    let default = state_of(repo).join("board-state.json");
     let explicit = repo.join("board.json");
     [
         (vec!["board", "export"], default),
@@ -172,21 +172,19 @@ fn hooks_carry_on_with_a_broken_config_and_session_start_says_so()
             .contains("```weigh-in"),
         "the prime keeps the convention"
     );
+    let beside_the_repo = repo.parent().ok_or("the repo is in a temp dir")?;
     assert!(
-        repo.join(".git/weighin/ledger.sqlite3").exists()
-            && !repo
-                .parent()
-                .ok_or("the repo is in a temp dir")?
-                .join("ledger.sqlite3")
-                .exists(),
+        store_of(&repo).exists()
+            && !beside_the_repo.join("ledger.sqlite3").exists()
+            && !beside_the_repo.join("ledger.events.sqlite3").exists(),
         "Stop captured into the default ledger, not the broken config's store"
     );
     let log =
-        std::fs::read_to_string(repo.join(".git/weighin/hook-errors.log")).or_else(|e| match e
-            .kind()
-        {
-            std::io::ErrorKind::NotFound => Ok(String::new()),
-            _ => Err(e),
+        std::fs::read_to_string(state_of(&repo).join("hook-errors.log")).or_else(|e| {
+            match e.kind() {
+                std::io::ErrorKind::NotFound => Ok(String::new()),
+                _ => Err(e),
+            }
         })?;
     assert!(
         !log.contains("config.json"),

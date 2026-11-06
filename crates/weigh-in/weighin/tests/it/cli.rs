@@ -3,9 +3,10 @@
 
 use crate::support::{
     LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
-    context_pack_for, hook, in_a_folder_with_no_ledger, isolated_launcher,
+    context_pack_for, folder_store, hook, in_a_folder_with_no_ledger, isolated_launcher,
     items_seen_from_a_worktree, launcher_target, reopen_default_from_the_board, run_within,
-    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, weighin, weighin_env,
+    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, state_of, weighin,
+    weighin_env, wrote_in,
 };
 use serde_json::{Value, json};
 use std::io::Write as _;
@@ -130,7 +131,7 @@ fn board_export_caps_defaults_at_the_newest_unacknowledged() {
 fn session_start_says_when_the_error_report_cannot_be_marked_seen() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
-    let state = repo.join(".git/weighin");
+    let state = state_of(&repo);
     // A directory where the marker file goes, so writing it fails.
     std::fs::create_dir_all(state.join("hook-errors.seen")).unwrap();
     std::fs::write(
@@ -169,7 +170,7 @@ fn session_start_asks_for_one_block_per_call_in_a_list_for_the_user() {
 fn session_start_reports_hook_errors_since_the_last_session() {
     let (_tmp, repo) = setup();
     let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"});
-    let state = repo.join(".git/weighin");
+    let state = state_of(&repo);
     std::fs::create_dir_all(&state).unwrap();
     let log = state.join("hook-errors.log");
     std::fs::write(
@@ -216,8 +217,8 @@ fn session_start_reports_hook_errors_since_the_last_session() {
     // A ledger SessionStart cannot read is reported in the same session, and Claude still gets
     // the convention.
     let folder = repo.parent().unwrap().join("broken");
-    std::fs::create_dir_all(folder.join(".weighin")).unwrap();
-    std::fs::write(folder.join(".weighin/ledger.sqlite3"), b"not a database").unwrap();
+    std::fs::create_dir_all(folder.join(".redkiln")).unwrap();
+    std::fs::write(folder_store(&folder), b"not a database").unwrap();
     let out: Value = serde_json::from_str(&hook(
         &folder,
         &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": folder}),
@@ -312,10 +313,7 @@ fn session_start_in_a_plain_folder_leaves_no_store_behind() {
         &plain,
         &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": plain, "source": "startup"}),
     );
-    assert!(
-        !plain.join(".weighin").exists(),
-        "prime must not create a store"
-    );
+    assert!(!wrote_in(&plain), "prime must not create a store");
 }
 
 /// #127: in the Windows desktop app the skill's shell cannot see the plugin folder, so
@@ -375,7 +373,8 @@ fn session_start_on_windows_copies_into_the_git_dir_whatever_the_store() {
         "{copy} is outside {}",
         git_dir.display()
     );
-    assert!(!repo.parent().unwrap().join("elsewhere/bin").exists());
+    let elsewhere = repo.parent().unwrap().join("elsewhere");
+    assert!(!elsewhere.join("bin").exists() && !elsewhere.join("weighin/bin").exists());
 }
 
 /// Off Windows the plugin folder is reachable, so `SessionStart` copies nothing (#127).
@@ -391,7 +390,7 @@ fn session_start_off_windows_copies_no_binary() {
     );
 
     assert!(!out.contains("Weigh-In binary for the shell"), "{out}");
-    assert!(!repo.join(".git/weighin/bin").exists());
+    assert!(!repo.join(".git/weighin/bin").exists() && !state_of(&repo).join("bin").exists());
 }
 
 #[test]
@@ -790,7 +789,7 @@ fn cowork_hooks_write_nothing_and_still_nudge() {
     );
     assert!(edit.is_empty(), "{edit}");
     assert!(
-        !repo.join(".git/weighin").exists(),
+        !repo.join(".git/weighin").exists() && !repo.join(".git/redkiln").exists(),
         "no ledger in the Cowork scratch folder"
     );
 }
@@ -804,18 +803,18 @@ fn the_ledger_goes_where_the_folder_says() {
     std::fs::create_dir_all(&folder).unwrap();
     let raise = r#"[{"op":"raise","q":"Which rule wins when two rulings conflict?","kind":"question","door":"two-way","authority":"authority","channel":"sweep"}]"#;
 
-    // Default: <folder>/.weighin/, under a TRUNCATE journal.
+    // Default: <folder>/.redkiln/, under a TRUNCATE journal.
     let (ok, out) = weighin(&folder, "s1", &["batch"], Some(raise));
     assert!(ok, "{out}");
-    let default = folder.join(".weighin/ledger.sqlite3");
+    let default = folder_store(&folder);
     assert!(default.exists());
     assert_eq!(
-        std::fs::metadata(folder.join(".weighin/ledger.sqlite3-journal"))
+        std::fs::metadata(folder.join(".redkiln/events.sqlite3-journal"))
             .unwrap()
             .len(),
         0
     );
-    assert!(!folder.join(".weighin/ledger.sqlite3-wal").exists());
+    assert!(!folder.join(".redkiln/events.sqlite3-wal").exists());
 
     // `init --ledger` moves it outside the folder, relative to the folder root.
     let (ok, out) = weighin(
@@ -834,7 +833,8 @@ fn the_ledger_goes_where_the_folder_says() {
     assert!(out.contains("ledgers"), "{out}");
     let (ok, out) = weighin(&folder, "s2", &["batch"], Some(raise));
     assert!(ok, "{out}");
-    assert!(tmp.path().join("ledgers/rulings.sqlite3").exists());
+    // D2 B: the key names a 1.x ledger, and the store goes beside it.
+    assert!(tmp.path().join("ledgers/rulings.events.sqlite3").exists());
     let (ok, out) = weighin(&folder, "s2", &["open", "--repo"], None);
     assert!(ok && out.contains("Which rule wins"), "{out}");
 
@@ -987,9 +987,9 @@ fn the_cowork_sweep_raises_every_block_into_the_folder_ledger() {
         2,
         "{out}"
     );
-    assert!(folder.join(".weighin/ledger.sqlite3").exists(), "{out}");
+    assert!(folder_store(&folder).exists(), "{out}");
     assert!(
-        !tmp.path().join(".weighin").exists(),
+        !wrote_in(tmp.path()),
         "the ledger follows --dir, not the process's cwd"
     );
     let (ok, open) = weighin(
@@ -1031,7 +1031,7 @@ fn raise_with_no_blocks_leaves_no_ledger_behind() -> Result<(), Box<dyn std::err
             "weighin: no weigh-in blocks found on stdin\n".to_owned()
         )
     );
-    assert!(!folder.join(".weighin").exists(), "raise created .weighin/");
+    assert!(!wrote_in(&folder), "raise created .weighin/");
     Ok(())
 }
 
@@ -1165,12 +1165,9 @@ fn read_only_commands_leave_no_ledger_behind() {
     }
     let (ok, out) = weighin(tmp.path(), "s1", &["--dir", dir, "board", "export"], None);
     assert!(ok && out.contains("nothing to export"), "{out}");
+    assert!(!wrote_in(&folder), "a read created .weighin/");
     assert!(
-        !folder.join(".weighin").exists(),
-        "a read created .weighin/"
-    );
-    assert!(
-        !repo.join(".git/weighin").exists(),
+        !repo.join(".git/weighin").exists() && !repo.join(".git/redkiln").exists(),
         "a read created .git/weighin/"
     );
 }

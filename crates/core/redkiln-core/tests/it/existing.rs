@@ -72,7 +72,8 @@ fn opening_only_an_existing_store_opens_one_and_refuses_an_old_ledger_as_open_do
     }
     let foreign = old.path().join("other.sqlite3");
     let conn = happenstance_sqlite::rusqlite::Connection::open(&foreign).expect("open");
-    conn.execute_batch("CREATE TABLE t (x)").expect("another program's table");
+    conn.execute_batch("CREATE TABLE t (x)")
+        .expect("another program's table");
     drop(conn);
     assert_eq!(variant(&refusal(existing(&foreign))), "NotAStore");
 }

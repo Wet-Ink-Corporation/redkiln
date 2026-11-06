@@ -35,13 +35,15 @@ pub(crate) fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<(
         c.store = Some(l).filter(|l| !l.trim().is_empty());
     }
     let p = env.config.save(&env.root())?;
+    // The receipt names the store the next command uses, which `--ledger` may have moved.
+    env.relocate();
     writeln!(
         out,
         "wrote {} · class {} · board {} · ledger {}",
         env.relative(&p.to_string_lossy()),
         env.config.repo_class,
         env.config.board.mode,
-        env.store_path().display()
+        env.store_path()?.display()
     )?;
     Ok(())
 }

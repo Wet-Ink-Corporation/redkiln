@@ -78,6 +78,7 @@ fn weighin(dir: &Path, args: &[&str], stdin: &str) -> Res<String> {
         .current_dir(dir)
         .args(["--session", "eval"])
         .args(args)
+        .env_remove("REDKILN_STORE")
         .env_remove("WEIGHIN_STORE")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")

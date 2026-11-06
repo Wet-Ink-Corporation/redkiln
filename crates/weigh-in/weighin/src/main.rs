@@ -20,14 +20,14 @@ mod shell_bin;
 mod store;
 mod text;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use weighin_core::event::Surface;
 
-use crate::env::{BoardMode, ConfigSource, Env, RepoClass};
+use crate::env::{BoardMode, ConfigSource, Env, RepoClass, Vars};
 use crate::ops::{DecideOp, DeferOp, Op};
 use crate::text::Report;
 
@@ -48,7 +48,7 @@ struct Cli {
     #[arg(
         long,
         global = true,
-        help = "Use this ledger file (wins over $WEIGHIN_STORE and the config's `store`)"
+        help = "Use this store file (wins over $REDKILN_STORE, $WEIGHIN_STORE and every config's `store`)"
     )]
     store: Option<PathBuf>,
     #[command(subcommand)]
@@ -137,7 +137,8 @@ struct InitArgs {
     board_url: Option<String>,
     #[arg(long)]
     owner: Option<String>,
-    /// Keep the ledger here instead of the default (relative to the folder, or absolute).
+    /// A 1.x ledger's place, kept in config.json's `store`: the store goes beside it (relative to
+    /// the folder, or absolute).
     #[arg(long = "ledger")]
     ledger: Option<String>,
 }
@@ -365,15 +366,12 @@ fn main() -> ExitCode {
         dir,
         store,
     };
-    let (result, warning) = run(globals, cmd, &mut out);
+    let (result, warnings) = run(globals, cmd, &mut out);
     let code = match result.and_then(|()| out.flush().map_err(anyhow::Error::from)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => report(&e),
     };
-    match warning {
-        Some(w) => warn(&w, code),
-        None => code,
-    }
+    warnings.iter().fold(code, |code, w| warn(w, code))
 }
 
 /// The options every command takes.
@@ -460,26 +458,38 @@ fn run_hook_guarded() -> ExitCode {
     }
 }
 
-/// Run `cmd`: its result, and a warning to print after it whatever the result (`journal_after`).
-fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Option<String>) {
+/// Run `cmd`: its result, and the warnings to print after it whatever the result: what locating
+/// the store found (an old ledger, a 2.x fallback) and `journal_after`'s.
+fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Vec<String>) {
     let mut env = match environment(g) {
         Ok(env) => env,
-        Err(e) => return (Err(e), None),
+        Err(e) => return (Err(e), Vec::new()),
     };
     let appends = cmd.appends();
     let result = dispatch(&mut env, cmd, out);
+    let mut warnings: Vec<String> = env.notices.iter().map(ToString::to_string).collect();
     // Whatever the result: a batch that failed in part has still applied its other operations.
-    let warning = if appends { journal_after(&env) } else { None };
-    (result, warning)
+    if appends {
+        warnings.extend(journal_after(&env));
+    }
+    (result, warnings)
 }
 
-/// The environment the options name, refused when the folder's config is broken.
+/// The environment the options name, refused when the store cannot be located (ST-01), the
+/// session id is one the store refuses (D10), or the folder's config is broken.
 fn environment(g: Globals) -> Result<Env> {
+    // Absolute, as Core locates from: a relative `--dir` is the process's directory's.
     let cwd = match g.dir {
-        Some(d) => d,
+        Some(d) => std::path::absolute(&d)
+            .with_context(|| format!("finding the absolute path of --dir {}", d.display()))?,
         None => std::env::current_dir()?,
     };
-    let env = Env::discover(&cwd, g.session).with_store(g.store);
+    let session = g.session.map(|s| (s, "--session"));
+    let env = Env::discover(&cwd, session, g.store, Vars::from_process());
+    env.store_path()?;
+    if let Some(e) = &env.session_error {
+        bail!("{e}");
+    }
     // Only hooks run on the defaults when the config is broken: a command would drop its
     // settings, the ledger's place among them, without a word.
     if let ConfigSource::Broken(e) = &env.config_source {

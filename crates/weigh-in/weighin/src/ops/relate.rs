@@ -70,7 +70,7 @@ mod tests {
     fn ack_on_a_decision_records_a_review_with_its_own_reason() -> Result<()> {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
-        let mut s = Session::open(&env, "t")?;
+        let mut s = Session::open(&env, "cli")?;
         run(
             &mut s,
             &serde_json::json!([

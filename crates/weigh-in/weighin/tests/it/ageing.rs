@@ -4,8 +4,9 @@
 //! the binary had written them then, so no test waits on the wall clock.
 
 use crate::support::{setup, weighin};
-use happenstance_sqlite::rusqlite::Connection;
+use redkiln_core::store::{Filter, NewEvent, Store, Wait};
 use serde_json::{Value, json};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
@@ -55,18 +56,39 @@ fn ack(repo: &Path, id: &str) -> TestResult<String> {
     batch(repo, &json!([{"op": "ack", "id": id}]))
 }
 
-/// Rewrite the timestamp of every event in the ledger to `ts`, under the ledger's own journal
-/// mode.
+/// Rewrite the timestamp of every event in the store to `ts`, through Core: every event is read,
+/// the file is set aside (renamed, never deleted), and each event is appended again to a new
+/// store at the same position, its envelope's `ts` replaced and its tags kept.
 fn backdate(repo: &Path, ts: &str) -> TestResult {
-    let conn = Connection::open(repo.join(".git/weighin/ledger.sqlite3"))?;
-    conn.pragma_update(None, "journal_mode", "TRUNCATE")?;
-    let changed = conn.execute(
-        "UPDATE event SET data = CAST(json_set(CAST(data AS TEXT), '$.ts', ?1) AS BLOB)",
-        [ts],
+    let path = repo.join(".git/redkiln/events.sqlite3");
+    let store = Store::open(&path, Wait::Command)?;
+    let events = store.read(
+        &Filter::all(),
+        0,
+        NonZeroUsize::new(1000).ok_or("non-zero")?,
     )?;
-    if changed == 0 {
+    // Closed before the rename, which Windows refuses on an open file.
+    drop(store);
+    if events.is_empty() {
         return Err("there were no events to back-date".into());
     }
+    for suffix in ["", "-journal"] {
+        let file = PathBuf::from(format!("{}{suffix}", path.display()));
+        if file.exists() {
+            std::fs::rename(&file, format!("{}.before-backdate", file.display()))?;
+        }
+    }
+    let mut rebuilt = Vec::with_capacity(events.len());
+    for event in events {
+        let mut envelope: Value = serde_json::from_slice(&event.data)?;
+        envelope
+            .as_object_mut()
+            .ok_or("a stored envelope is an object")?
+            .insert("ts".to_owned(), Value::from(ts));
+        let again = NewEvent::new(&event.event_type, serde_json::to_vec(&envelope)?)?;
+        rebuilt.push(event.tags.into_iter().fold(again, NewEvent::with_tag));
+    }
+    Store::open(&path, Wait::Command)?.append(rebuilt, None)?;
     Ok(())
 }
 

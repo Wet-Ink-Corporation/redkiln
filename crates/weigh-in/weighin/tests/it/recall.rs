@@ -1,7 +1,7 @@
 //! Past decisions brought back when an edit touches the code they are anchored to (#116): the
 //! `decisions` command and the context the `PostToolUse` hook adds.
 
-use crate::support::{hook, setup, weighin};
+use crate::support::{hook, setup, state_of, store_of, weighin};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -239,7 +239,7 @@ fn write(repo: &Path, file: &str, content: &str) -> Value {
 
 /// The hook error log's lines, none when it was never written.
 fn logged(repo: &Path) -> std::io::Result<Vec<String>> {
-    match std::fs::read_to_string(repo.join(".git/weighin/hook-errors.log")) {
+    match std::fs::read_to_string(state_of(repo).join("hook-errors.log")) {
         Ok(log) => Ok(log.lines().map(str::to_owned).collect()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(e),
@@ -270,7 +270,7 @@ fn a_write_to_an_anchored_file_adds_the_newest_decisions_first() -> TestResult {
 fn a_ledger_that_cannot_be_read_after_an_edit_prints_nothing_and_is_logged() -> TestResult {
     let (_tmp, repo) = setup();
     // A directory where the store should be: it exists, so it is opened, and the open fails.
-    std::fs::create_dir_all(repo.join(".git/weighin/ledger.sqlite3"))?;
+    std::fs::create_dir_all(store_of(&repo))?;
 
     let printed = hook(&repo, &edit(&repo, "src/retention.rs", "0\n"));
 
@@ -289,7 +289,7 @@ fn a_ledger_that_cannot_be_read_is_logged_once_for_the_journal_and_the_recall() 
     let (_tmp, repo) = setup();
     let (ok, out) = weighin(&repo, "s1", &["init", "--class", "own"], None);
     assert!(ok, "{out}");
-    std::fs::create_dir_all(repo.join(".git/weighin/ledger.sqlite3"))?;
+    std::fs::create_dir_all(store_of(&repo))?;
 
     let printed = hook(&repo, &edit(&repo, "src/retention.rs", "0\n"));
 

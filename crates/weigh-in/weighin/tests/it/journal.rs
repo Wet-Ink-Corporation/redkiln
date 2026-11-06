@@ -80,7 +80,7 @@ fn a_session_resumed_in_a_new_container_folds_the_same_with_or_without_its_ledge
     // The container is lost; the session resumes with its id and an empty ledger, raises the same
     // question again (the same item id) and dismisses it differently. The hook script appends
     // only the lines its journal does not hold yet.
-    std::fs::rename(repo.join(".git/weighin"), repo.join(".git/weighin-lost"))?;
+    std::fs::rename(repo.join(".git/redkiln"), repo.join(".git/redkiln-lost"))?;
     let (ok, out) = weighin(&repo, "s", &["raise", "--q", q], None);
     assert!(ok, "{out}");
     let id = out.split_whitespace().nth(1).ok_or("no id")?.to_owned();
@@ -98,7 +98,7 @@ fn a_session_resumed_in_a_new_container_folds_the_same_with_or_without_its_ledge
     commit_journal(&repo, "s.jsonl", &kept)?;
 
     let with_ledger = stats(&repo)?;
-    std::fs::rename(repo.join(".git/weighin"), repo.join(".git/weighin-gone"))?;
+    std::fs::rename(repo.join(".git/redkiln"), repo.join(".git/redkiln-gone"))?;
     let journal_only = stats(&repo)?;
 
     assert_eq!(with_ledger, journal_only);
@@ -115,7 +115,7 @@ fn journal_with_no_ledger_prints_nothing() {
 
     assert_eq!(run, (true, String::new()));
     assert!(
-        !repo.join(".git/weighin").exists(),
+        !repo.join(".git/weighin").exists() && !repo.join(".git/redkiln").exists(),
         "journal created a ledger"
     );
 }
