@@ -59,7 +59,8 @@ pub(super) enum Mode {
     Create,
     /// Opens only a store that exists, refusing a missing or empty file, or a database never
     /// stamped, with [`OpenError::NoStore`] before anything is created or set aside: the
-    /// telemetry connection, which must never stand up a new store where the opened one was.
+    /// telemetry connection, which must never stand up a new store where the opened one was,
+    /// and [`super::Store::open_existing`], for reads.
     Existing,
 }
 

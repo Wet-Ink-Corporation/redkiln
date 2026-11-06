@@ -508,6 +508,28 @@ impl Store {
     /// major ([`OpenError::NewerMajor`]), an old plugin ledger ([`OpenError::OldLedger`]) or not
     /// a store ([`OpenError::NotAStore`]), each left as it was.
     pub fn open(path: &Path, wait: Wait) -> Result<Self, StoreError> {
+        Self::open_in(path, wait, open::Mode::Create)
+    }
+
+    /// Opens the store at `path` only when there is one, as [`Store::open`] does otherwise:
+    /// `None`, with nothing created (no file, no directory, no lock), when the file is missing,
+    /// empty or a database never stamped. For a read, which must never stand up a store.
+    ///
+    /// # Errors
+    /// As [`Store::open`]: an old plugin ledger, a database that is not a store and a newer
+    /// major are the same refusals, each left as it was, never `None`.
+    pub fn open_existing(path: &Path, wait: Wait) -> Result<Option<Self>, StoreError> {
+        match Self::open_in(path, wait, open::Mode::Existing) {
+            Ok(store) => Ok(Some(store)),
+            Err(StoreError::Open {
+                source: OpenError::NoStore,
+                ..
+            }) => Ok(None),
+            Err(other) => Err(other),
+        }
+    }
+
+    fn open_in(path: &Path, wait: Wait, mode: open::Mode) -> Result<Self, StoreError> {
         refuse_inside_runtime()?;
         // Absolute, so the telemetry connection opens the same file whatever the working
         // directory becomes; not canonicalised, so Windows keeps the form SQLite was given.
@@ -515,7 +537,7 @@ impl Store {
         let opened = std::path::absolute(path)
             .map_err(OpenError::AbsolutePath)
             .and_then(|absolute| {
-                let inner = open::open(path, wait.timeout(), open::Mode::Create)?;
+                let inner = open::open(path, wait.timeout(), mode)?;
                 let runtime = Driver::new().map_err(OpenError::Runtime)?;
                 Ok((inner, runtime, absolute))
             });
