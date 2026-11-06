@@ -187,7 +187,11 @@ fn a_weighin_event_this_build_cannot_use_is_skipped_and_counted() {
 
     assert_eq!(loaded.unusable, 2);
     assert!(loaded.ledger.get(&a).is_some_and(|i| i.status.is_open()));
-    assert!(loaded.ledger.get(&b).is_none());
+    assert_eq!(
+        loaded.ledger.get(&b),
+        None,
+        "an item only unusable events name"
+    );
     let blocked = store.append(vec![ack(&b)], &Guard::ItemUnchangedSince(b.clone(), 1));
     assert_eq!(
         last(&blocked.expect("append")),

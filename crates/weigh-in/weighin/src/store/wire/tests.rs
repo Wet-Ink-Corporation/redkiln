@@ -197,3 +197,51 @@ fn another_namespace_is_foreign() {
     };
     assert!(matches!(from_stored(event), Err(Skip::Foreign)));
 }
+
+/// The names in `dir` with a digest of each file's bytes, to show a read changed nothing.
+fn listing(dir: &std::path::Path) -> Vec<(String, Option<redkiln_core::ids::Digest>)> {
+    let mut files = std::fs::read_dir(dir)
+        .expect("the ledger's directory")
+        .map(|entry| {
+            let entry = entry.expect("an entry");
+            // A directory beside the ledger (1.x's state files) is listed by name only.
+            let file = entry.file_type().expect("an entry's type").is_file();
+            let digest = file.then(|| {
+                redkiln_core::ids::Digest::sha256(&std::fs::read(entry.path()).expect("a file"))
+            });
+            (entry.file_name().to_string_lossy().into_owned(), digest)
+        })
+        .collect::<Vec<_>>();
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    files
+}
+
+/// Step 8's mapping covers real data: every event of the 1.x ledger `WEIGHIN_LIVE_LEDGER`
+/// names reads from a copy, decodes as a 1.x envelope and, its 1.x worktree (a directory name)
+/// dropped, maps through the wire; the ledger and its directory are left as they were. Here
+/// rather than in `tests/it/`, which cannot reach the binary's `wire`.
+#[test]
+#[ignore = "manual (#17): reads the 1.x ledger WEIGHIN_LIVE_LEDGER names"]
+fn a_live_ledger_reads_untouched_and_every_event_maps_through_the_wire() {
+    let path = std::env::var_os("WEIGHIN_LIVE_LEDGER")
+        .map(std::path::PathBuf::from)
+        .expect("WEIGHIN_LIVE_LEDGER names a 1.x ledger");
+    let dir = path.parent().expect("the ledger is in a directory");
+    let before = listing(dir);
+    let writer = writer().expect("the writer");
+
+    let ledger = redkiln_core::legacy::read_ledger(&path).expect("the 1.x ledger reads");
+
+    let mut refused = Vec::new();
+    for event in &ledger.events {
+        let mut envelope: EventEnvelope = serde_json::from_slice(&event.data)
+            .unwrap_or_else(|e| panic!("event {} is a 1.x envelope: {e}", event.position));
+        envelope.worktree = None;
+        if let Err(e) = to_new_event(envelope, &writer) {
+            refused.push(format!("{} {}: {e:#}", event.position, event.event_type));
+        }
+    }
+    assert!(!ledger.events.is_empty(), "the ledger has events");
+    assert_eq!(refused, Vec::<String>::new(), "events the wire refuses");
+    assert_eq!(listing(dir), before, "the ledger's directory is unchanged");
+}
