@@ -8,7 +8,10 @@
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
-//! hook exits 0. Input that cannot be read or parsed is logged only inside a git repository:
+//! hook exits 0. A store path the user gave that Core refuses (a 1.x ledger, another program's
+//! database) gets nothing beside it: its refusal goes to the default store's state dir,
+//! `<git-common-dir>/redkiln/weighin/` (outside git nowhere), and SessionStart reports it.
+//! Input that cannot be read or parsed is logged only inside a git repository:
 //! outside one, the state dir would be a `.weighin/` the hook creates in whatever folder it was
 //! started in, so there it writes nothing. The next `SessionStart` counts the lines added since
 //! the last one and tells the user, so capture is never off without a word. (The launcher says so
@@ -256,7 +259,7 @@ fn session_start(env: &Env, source: &str) -> String {
         Err(e) => (Err(e), 0),
     };
     // A given store Core refuses is told to the user here, every session until it is fixed, and
-    // not logged: the log would be in a state dir no later session reads.
+    // not logged: the log would only repeat it.
     let mut refused = None;
     let mut context = primed.unwrap_or_else(|e| {
         if refused_given_store(env, &e) {
