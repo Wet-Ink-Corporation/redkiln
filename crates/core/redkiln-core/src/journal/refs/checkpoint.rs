@@ -44,7 +44,8 @@ pub struct RefsExported {
     pub relay_reason: Option<String>,
     /// No remote is configured, so only local refs moved.
     pub local_only: bool,
-    /// Events that are not envelopes, so have no line.
+    /// Events that are not envelopes, so have no line. Import records, which are never
+    /// exported, are not counted.
     pub unexportable: u64,
 }
 
@@ -70,7 +71,8 @@ pub enum Deferral {
 /// Exports every durable event of `store` that its journal lacks into the journal refs of
 /// `target` (JR-07, JR-08); in a `client` repository, writes nothing (JR-09).
 ///
-/// No journal is started after the target's deadline; those left are deferred.
+/// Import records are not exported: they stay in the store (JR-13). No journal is started after
+/// the target's deadline; those left are deferred.
 ///
 /// # Errors
 /// [`RefsError`] when the store cannot be read, or git cannot run or fails at a local step. A

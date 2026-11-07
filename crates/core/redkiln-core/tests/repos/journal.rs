@@ -11,7 +11,7 @@ use redkiln_core::envelope::{
 use redkiln_core::ids::SessionId;
 use redkiln_core::journal::{
     Checkpoint, ImportCompleted, ImportReport, ImportSource, JournalName, Recording, checkpoint,
-    import, import_file, lines,
+    encode_line, import, import_file, lines,
 };
 use redkiln_core::store::{CoreKey, Filter, NewEvent, Store, Stored, Tag, Wait};
 use redkiln_core::suite::RepoClass;
@@ -341,6 +341,88 @@ fn assert_imported_facts(source: &Store, stored: &[Stored]) {
         "{:?}",
         facts[0].tags
     );
+}
+
+/// A store in `dir/<name>/` holding one event of session `A1`.
+fn one_event_store(dir: &Path, name: &str) -> Store {
+    let at = dir.join(name);
+    std::fs::create_dir_all(&at).expect("dir");
+    let store = Store::open(&at.join("events.sqlite3"), Wait::Command).expect("opens");
+    store
+        .append(
+            vec![raised("wi-000001", Some("A1"), Trust::asserted())],
+            None,
+        )
+        .expect("appended");
+    store
+}
+
+/// `store` imports an empty journal at `dir/empty.jsonl`, which writes one import record.
+fn record_an_import(store: &Store, dir: &Path) {
+    let empty = dir.join("empty.jsonl");
+    std::fs::write(&empty, b"").expect("an empty journal");
+    let report = imported(store, &empty);
+    assert_eq!(report.read, 0, "{report:?}");
+    assert_eq!(decode_all::<ImportCompleted>(&all(store)).events.len(), 1);
+}
+
+/// Every line of every journal file in `dir`.
+fn every_line(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flat_map(|entry| journal_lines(&entry.expect("entry").path()))
+        .collect()
+}
+
+#[test]
+fn a_file_checkpoint_never_exports_an_import_record() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = one_event_store(dir.path(), "store");
+    record_an_import(&store, dir.path());
+    let journals = dir.path().join("journals");
+    let outcome = written(checkpoint(&store, RepoClass::Own, &journals, WAIT).expect("written"));
+    assert_eq!(
+        (outcome.appended, outcome.unexportable),
+        (1, 0),
+        "{outcome:?}"
+    );
+    let lines = every_line(&journals);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| !line.contains(&format!("\"type\":\"{}\"", ImportCompleted::TYPE))),
+        "{lines:?}"
+    );
+    let own = JournalName::of_store(store.store_id()).file_name();
+    assert!(!journals.join(own).exists(), "no store journal");
+}
+
+#[test]
+fn an_import_record_in_a_journal_is_still_imported() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let other = one_event_store(dir.path(), "other");
+    record_an_import(&other, dir.path());
+    let records = all(&other)
+        .into_iter()
+        .filter(|stored| stored.event_type == ImportCompleted::TYPE)
+        .map(|stored| encode_line(&stored).expect("a line"))
+        .collect::<Vec<_>>()
+        .concat();
+    let journal = dir.path().join("records.jsonl");
+    std::fs::write(&journal, records).expect("a journal of import records");
+
+    let at = dir.path().join("store");
+    std::fs::create_dir_all(&at).expect("dir");
+    let store = Store::open(&at.join("events.sqlite3"), Wait::Command).expect("opens");
+    let report = imported(&store, &journal);
+    assert_eq!((report.read, report.imported), (1, 1), "{report:?}");
+    let journals = dir.path().join("journals");
+    let outcome = written(checkpoint(&store, RepoClass::Own, &journals, WAIT).expect("written"));
+    assert_eq!(outcome, redkiln_core::journal::Exported::default());
+    assert!(every_line(&journals).is_empty(), "nothing re-exported");
 }
 
 #[test]
