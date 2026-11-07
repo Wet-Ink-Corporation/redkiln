@@ -145,6 +145,34 @@ pub fn checkpoint(
     Ok(Checkpoint::Written(exported))
 }
 
+/// Every durable event of `store` as journal lines, grouped by journal (JR-06), each journal's
+/// lines in store order; and how many events are not envelopes, so have no line.
+pub(crate) fn grouped(store: &Store) -> Result<(BTreeMap<JournalName, Vec<u8>>, u64), StoreError> {
+    let mut journals: BTreeMap<JournalName, Vec<u8>> = BTreeMap::new();
+    let mut unexportable = 0_u64;
+    let mut after = 0;
+    loop {
+        let page = store.read(&Filter::all(), after, PAGE)?;
+        let Some(last) = page.last().map(|stored| stored.position) else {
+            break;
+        };
+        for stored in &page {
+            match encode(stored) {
+                Ok((session, line)) => journals
+                    .entry(JournalName::for_event(session.as_ref(), stored.id.store()))
+                    .or_default()
+                    .extend_from_slice(&line),
+                Err(_) => unexportable = unexportable.saturating_add(1),
+            }
+        }
+        if page.len() < PAGE.get() {
+            break;
+        }
+        after = last;
+    }
+    Ok((journals, unexportable))
+}
+
 /// What this checkpoint knows of a journal file: the origins it holds and its length when they
 /// were read, so a file no other writer touched since is not read again.
 #[derive(Debug, Default)]

@@ -11,6 +11,14 @@ use crate::ids::SessionId;
 /// The suffix of a journal's file, `<name>.jsonl` (JR-07).
 pub const JOURNAL_SUFFIX: &str = ".jsonl";
 
+/// The longest name [`JournalName::parse`] accepts, in bytes.
+pub const MAX_NAME_BYTES: usize = 200;
+
+/// A name read back from git (a ref or a branch) that JR-06 cannot produce.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{0}` is not a journal name")]
+pub struct NameError(pub String);
+
 /// A journal's name. Two session ids can share one (`A` and `a`), which is harmless: every
 /// write merges by `origin`, and identity removes duplicates (JR-06, JR-11).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -43,6 +51,24 @@ impl JournalName {
     #[must_use]
     pub fn for_event(session: Option<&SessionId>, origin: StoreId) -> Self {
         session.map_or_else(|| Self::of_store(origin), Self::of_session)
+    }
+
+    /// A name read back from a ref or a branch: one or more of `[a-z0-9_-]`, at most
+    /// [`MAX_NAME_BYTES`], so it is always one valid ref component.
+    ///
+    /// # Errors
+    /// [`NameError`] for anything else, holding what was given.
+    pub fn parse(name: &str) -> Result<Self, NameError> {
+        let valid = !name.is_empty()
+            && name.len() <= MAX_NAME_BYTES
+            && name
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'));
+        if valid {
+            Ok(Self(name.to_owned()))
+        } else {
+            Err(NameError(name.to_owned()))
+        }
     }
 
     /// The name.
@@ -82,6 +108,30 @@ mod tests {
         assert_eq!(JournalName::of_session(&ci).as_str(), "gha_812345_9912_1");
         let odd = SessionId::parse("caf\u{e9} Run.x/y").expect("valid");
         assert_eq!(JournalName::of_session(&odd).as_str(), "caf__run_x_y");
+    }
+
+    #[test]
+    fn a_name_read_back_must_be_one_jr_06_can_produce() {
+        for good in ["a", "gha_1_2_3", "store-0f3c", "-x_"] {
+            assert_eq!(JournalName::parse(good).expect(good).as_str(), good);
+        }
+        let long = "a".repeat(MAX_NAME_BYTES + 1);
+        for bad in [
+            "",
+            "A",
+            "a.b",
+            "a/b",
+            "..",
+            "a b",
+            "caf\u{e9}",
+            long.as_str(),
+        ] {
+            assert_eq!(
+                JournalName::parse(bad),
+                Err(NameError(bad.to_owned())),
+                "{bad}"
+            );
+        }
     }
 
     #[test]
