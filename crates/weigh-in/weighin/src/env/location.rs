@@ -290,6 +290,9 @@ fn old_ledgers(named: Option<PathBuf>, workspace: &Workspace) -> Vec<Notice> {
 /// A suite config warning as weighin words it: Core's meaning, with the file named relative to
 /// the worktree `root` it was read under (as weighin names config.json, so a deep synced folder
 /// does not fill the message), and an unusable file's whole cause chain.
+///
+/// The texts mirror Core's `Display` for [`Warning`] on purpose, rather than formatting it: that
+/// names the full path, and these shorten it. A change to Core's wording is copied here.
 fn suite_notice(warning: &Warning, root: &Path) -> Notice {
     let path = warning.path();
     let path = path.strip_prefix(root).unwrap_or(path).display();

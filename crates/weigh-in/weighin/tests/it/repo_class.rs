@@ -11,7 +11,8 @@ use std::path::Path;
 const SUITE: &str = ".redkiln/suite.toml";
 const CONFIG: &str = ".kb/_ledger/config.json";
 
-/// What Core's legacy warning starts with (`redkiln_core::suite::Warning::LegacyRepoClass`).
+/// What weighin's notice for Core's `redkiln_core::suite::Warning::LegacyRepoClass` starts with:
+/// `env::location::suite_notice`'s wording, which mirrors Core's `Display` with a shorter path.
 const LEGACY_WARNING: &str = "repo_class `own` comes from";
 
 /// Writes `text` to `<root>/<relative>`, making its directory.
