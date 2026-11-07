@@ -69,11 +69,30 @@ pub enum Deferral {
     Failed(String),
 }
 
+/// The most git calls a checkpoint makes after its target's deadline passes.
+///
+/// No journal, push or fetch starts after it, and no run of calls between two checks of it is
+/// longer than this (reading a journal ref: seven calls; its inbox copy: six). Each call is
+/// bounded by the target's `timeout`, so a checkpoint ends by `deadline +
+/// MAX_CALLS_PAST_DEADLINE × timeout`, plus its store reads.
+pub const MAX_CALLS_PAST_DEADLINE: u32 = 7;
+
+/// A checkpoint scoped by [`checkpoint_refs_since`], and how far it read the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use]
+pub struct ScopedCheckpoint {
+    /// What the checkpoint did.
+    pub outcome: RefsCheckpoint,
+    /// The last store position the checkpoint read (0 when it read none): a later checkpoint
+    /// scoped since it examines only journals with an event written after this one read.
+    pub through: u64,
+}
+
 /// Exports every durable event of `store` that its journal lacks into the journal refs of
 /// `target` (JR-07, JR-08); in a `client` repository, writes nothing (JR-09).
 ///
-/// Import records are not exported: they stay in the store (JR-13). No journal is started after
-/// the target's deadline; those left are deferred.
+/// Import records are not exported: they stay in the store (JR-13). No journal is examined or
+/// started after the target's deadline; those left are deferred.
 ///
 /// # Errors
 /// [`RefsError`] when the store cannot be read, or git cannot run or fails at a local step. A
@@ -83,27 +102,82 @@ pub fn checkpoint_refs(
     class: RepoClass,
     target: &RefsTarget<'_>,
 ) -> Result<RefsCheckpoint, RefsError> {
+    checkpoint_refs_since(store, class, target, 0).map(|scoped| scoped.outcome)
+}
+
+/// [`checkpoint_refs`], examining only the journals with an event after the store position
+/// `since`.
+///
+/// The journals whose last event is at or before it are neither read nor written; `since` 0
+/// examines every journal. A caller that passes the `through` of an earlier
+/// checkpoint that deferred and broke nothing examines only what is new since; a full
+/// checkpoint now and then still catches a ref moved by anyone else.
+///
+/// # Errors
+/// As [`checkpoint_refs`].
+pub fn checkpoint_refs_since(
+    store: &Store,
+    class: RepoClass,
+    target: &RefsTarget<'_>,
+    since: u64,
+) -> Result<ScopedCheckpoint, RefsError> {
     if class == RepoClass::Client {
-        return Ok(RefsCheckpoint::Client);
+        return Ok(ScopedCheckpoint {
+            outcome: RefsCheckpoint::Client,
+            through: 0,
+        });
     }
-    let (journals, unexportable) = grouped(store).map_err(RefsError::Store)?;
+    let grouped = grouped(store).map_err(RefsError::Store)?;
+    let through = grouped.through;
+    let journals = grouped
+        .journals
+        .into_iter()
+        .filter(|(_, group)| group.last > since)
+        .map(|(name, group)| (name, group.lines));
+    let outcome = refs_of(target, journals, grouped.unexportable)?;
+    Ok(ScopedCheckpoint {
+        outcome: RefsCheckpoint::Written(outcome),
+        through,
+    })
+}
+
+/// Writes each of `journals` that its journal ref lacks.
+fn refs_of(
+    target: &RefsTarget<'_>,
+    journals: impl Iterator<Item = (JournalName, Vec<u8>)>,
+    unexportable: u64,
+) -> Result<RefsExported, RefsError> {
     let mut ctx = Ctx::local(target);
     let mut report = RefsExported {
         unexportable,
         ..RefsExported::default()
     };
     let mut pending = Vec::new();
-    for (name, own) in journals {
-        if lacks(&ctx, &name, &own)? {
-            pending.push((name, own));
+    let mut journals = journals;
+    while let Some((name, own)) = journals.next() {
+        let lacking = if ctx.late() {
+            None
+        } else {
+            lacks(&ctx, &name, &own)?
+        };
+        match lacking {
+            Some(true) => pending.push((name, own)),
+            Some(false) => {}
+            None => {
+                // Not examined in time: each is deferred, whether it lacks a line or not.
+                pending.push((name, own));
+                pending.extend(journals.by_ref());
+                report.deferred = late(pending);
+                return Ok(report);
+            }
         }
     }
     if pending.is_empty() {
-        return Ok(RefsCheckpoint::Written(report));
+        return Ok(report);
     }
     if ctx.late() {
         report.deferred = late(pending);
-        return Ok(RefsCheckpoint::Written(report));
+        return Ok(report);
     }
     if ctx.repo.has_remote(target.remote)? {
         ctx.remote = Some(target.remote);
@@ -114,13 +188,13 @@ pub fn checkpoint_refs(
                 .into_iter()
                 .map(|(name, _)| (name, Deferral::Failed(said.clone())))
                 .collect();
-            return Ok(RefsCheckpoint::Written(report));
+            return Ok(report);
         }
     } else {
         report.local_only = true;
     }
     export(&ctx, &mut report, pending)?;
-    Ok(RefsCheckpoint::Written(report))
+    Ok(report)
 }
 
 /// Writes each pending journal directly until a push fails other than by rejection, then the
@@ -132,6 +206,11 @@ fn export(
 ) -> Result<(), RefsError> {
     let mut base = None;
     for (name, own) in pending {
+        // No journal starts after the deadline: a relay write would read the base first.
+        if ctx.late() {
+            report.deferred.push((name, Deferral::Late));
+            continue;
+        }
         let name = if report.relay_reason.is_none() {
             match direct(ctx, report, name, &own)? {
                 Some(name) => name,
@@ -228,16 +307,20 @@ fn relayed(
     Ok(())
 }
 
-/// Whether `own` holds a line that neither the clone's journal ref nor its inbox copy holds.
-fn lacks(ctx: &Ctx<'_>, name: &JournalName, own: &[u8]) -> Result<bool, RefsError> {
+/// Whether `own` holds a line that neither the clone's journal ref nor its inbox copy holds;
+/// `None` when the deadline passed between the two reads.
+fn lacks(ctx: &Ctx<'_>, name: &JournalName, own: &[u8]) -> Result<Option<bool>, RefsError> {
     let journal = match read_journal(ctx, name)? {
         State::Good { file, .. } => file,
         State::Absent | State::Broken(_) => Vec::new(),
     };
+    if ctx.late() {
+        return Ok(None);
+    }
     let known = match read_inbox(ctx, name)? {
         InboxCopy::Read { file, .. } => merge(&journal, &file).bytes,
         // An inbox too large to read holds nothing this check can count on.
         InboxCopy::Absent | InboxCopy::TooLarge => journal,
     };
-    Ok(merge(&known, own).added > 0)
+    Ok(Some(merge(&known, own).added > 0))
 }

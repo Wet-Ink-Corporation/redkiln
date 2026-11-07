@@ -213,10 +213,15 @@ to JR-13). The ref holds one commit per export, each adding the session's new ev
 journal files. Where `origin` refuses refs outside `refs/heads/` (Claude Code cloud sessions),
 it pushes the branch `redkiln/inbox/<session>` instead, and `weighin journal relay` (run by a
 relay workflow) moves it into the ref. The export runs inside a budget that ends before the
-hook's 20 s timeout; a remote that hangs or refuses is retried at the next Stop, unlogged. Only
-what needs a person goes to `hook-errors.log`: a journal ref that breaks JR-05 (move it aside to
-`refs/redkiln/broken/<session>/<sha>`) and an export that cannot go on by itself (an occupied or
-too large inbox, a journal too large to push). `SubagentStop` and `PostToolUse` export nothing,
+hook's 20 s timeout (an 18 s worst case), and looks only at the journals that gained an event
+since the last export that deferred and broke nothing, so a turn's cost does not grow with the
+number of sessions the repository ever had; `journal checkpoint` and `journal pre-push` look at
+every journal. A remote that hangs or refuses is retried at the next Stop, unlogged. Only what
+needs a person goes to `hook-errors.log`: a journal ref that breaks JR-05 (move it aside to
+`refs/redkiln/broken/<session>/<sha>`), an export that cannot go on by itself (an occupied or
+too large inbox, a journal too large to push), an export error (the store or local git failed,
+or the export watermark could not be written) and a Stop that ran past its budget's worst
+case. `SubagentStop` and `PostToolUse` export nothing,
 and neither does any command but `weighin journal checkpoint` and `weighin journal pre-push`.
 In Cowork hooks export nothing. Set `"journal": false` in `.kb/_ledger/config.json` to opt out.
 

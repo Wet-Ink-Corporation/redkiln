@@ -22,7 +22,10 @@ mod relay;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-pub use checkpoint::{Deferral, RefsCheckpoint, RefsExported, checkpoint_refs};
+pub use checkpoint::{
+    Deferral, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsExported, ScopedCheckpoint,
+    checkpoint_refs, checkpoint_refs_since,
+};
 pub use read::{BROKEN_REFS, ImportedRef, RefsImport, import_refs};
 pub use relay::{Deleted, Refusal, Relayed, relay};
 

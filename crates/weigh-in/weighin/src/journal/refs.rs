@@ -15,12 +15,13 @@ use anyhow::{Context as _, Result};
 use redkiln_core::envelope::Timestamp;
 use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{
-    Breach, Deferral, Deleted, JOURNAL_REFS, RefsCheckpoint, RefsError, RefsExported, RefsImport,
-    RefsTarget, Refusal, Relayed, checkpoint_refs, import_refs,
+    Breach, Deferral, Deleted, JOURNAL_REFS, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsError,
+    RefsExported, RefsImport, RefsTarget, Refusal, Relayed, checkpoint_refs_since, import_refs,
 };
 use redkiln_core::location::GIT_TIMEOUT;
 use serde::{Serialize, Serializer};
 
+use super::watermark::Watermark;
 use crate::cli_envelope::{Exit, Finding, Severity};
 use crate::env::{Env, RepoClass};
 use crate::store::Store;
@@ -33,9 +34,8 @@ const REMOTE: &str = "origin";
 /// The most characters of what git said that a finding keeps.
 const MAX_SAID_CHARS: usize = 200;
 
-/// Remote calls Core can still make on one journal after the deadline passes: the direct push,
-/// the relay base's `ls-remote` and fetch, and the inbox's fetch and push.
-const CALLS_AFTER_DEADLINE: u32 = 5;
+/// The git calls, local or remote, Core can still make after the deadline passes.
+const CALLS_AFTER_DEADLINE: u32 = MAX_CALLS_PAST_DEADLINE;
 
 /// How long a caller lets journal-ref work run (HK-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,16 +47,17 @@ pub(crate) struct Budget {
 }
 
 impl Budget {
-    /// The Stop hook, inside its 20 s timeout in `hooks.json` (D3): worst case 17.5 s, leaving
-    /// time for the capture before it and the output after.
+    /// The Stop hook, inside its 20 s timeout in `hooks.json` (D3): worst case 4 s + 7 × 2 s =
+    /// 18 s, leaving time for the output after it.
     pub(crate) const STOP: Self = Self {
-        start_by: Some(Duration::from_secs(5)),
-        per_call: Duration::from_millis(2_500),
+        start_by: Some(Duration::from_secs(4)),
+        per_call: Duration::from_secs(2),
     };
-    /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook.
+    /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook:
+    /// worst case 6 s + 7 × 2 s = 20 s.
     pub(crate) const PRE_PUSH: Self = Self {
-        start_by: Some(Duration::from_secs(5)),
-        per_call: Duration::from_secs(3),
+        start_by: Some(Duration::from_secs(6)),
+        per_call: Duration::from_secs(2),
     };
     /// `journal checkpoint` and `journal import` run by hand: no deadline, every call bounded.
     pub(crate) const COMMAND: Self = Self {
@@ -125,12 +126,32 @@ impl Serialize for Skip {
     }
 }
 
+/// Which journals [`checkpoint`] examines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scope {
+    /// Every journal: `journal checkpoint` and `journal pre-push`, the sweep.
+    All,
+    /// Only the journals with an event after the watermark: the Stop hook.
+    SinceWatermark,
+}
+
+/// Whether a checkpoint moved the watermark.
+#[derive(Debug)]
+pub(crate) enum Marked {
+    /// To the store position it read.
+    Moved,
+    /// Not moved: a journal it examined was deferred or broken, so the next one looks again.
+    Kept,
+    /// It could not be written; the next Stop examines every journal again.
+    Failed(anyhow::Error),
+}
+
 /// What [`checkpoint`] did.
 #[derive(Debug)]
 #[must_use]
 pub(crate) enum Checkpointed {
     Skipped(Skip),
-    Ran(RefsExported),
+    Ran(RefsExported, Marked),
 }
 
 /// What [`import`] did.
@@ -141,12 +162,19 @@ pub(crate) enum Imported {
     Ran(RefsImport),
 }
 
-/// Export the store's durable events that their journals lack (JR-08). Skips, in this order:
-/// not in git, a `client` repository, opted out, then no store (none is created).
+/// Export the store's durable events that their journals lack (JR-08), from the journals
+/// `scope` names. Skips, in this order: not in git, a `client` repository, opted out, then no
+/// store (none is created). A run that deferred and broke nothing moves the watermark to the
+/// store position it read, whatever its scope.
 ///
 /// # Errors
 /// The store cannot be located, opened or read, or git fails locally.
-pub(crate) fn checkpoint(env: &Env, budget: Budget, started: Instant) -> Result<Checkpointed> {
+pub(crate) fn checkpoint(
+    env: &Env,
+    budget: Budget,
+    started: Instant,
+    scope: Scope,
+) -> Result<Checkpointed> {
     let Some(repo) = env.repo_root.as_deref() else {
         return Ok(Checkpointed::Skipped(Skip::NotGit));
     };
@@ -166,14 +194,34 @@ pub(crate) fn checkpoint(env: &Env, budget: Budget, started: Instant) -> Result<
         return Ok(Checkpointed::Skipped(Skip::NoStore));
     };
     let target = budget.target(repo, started);
-    Ok(
-        match checkpoint_refs(store.core(), class.into(), &target)
-            .context("exporting the journals")?
-        {
-            RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
-            RefsCheckpoint::Written(report) => Checkpointed::Ran(report),
-        },
-    )
+    let watermark = Watermark::of(env, repo)?;
+    let since = match scope {
+        Scope::All => 0,
+        Scope::SinceWatermark => watermark.read(),
+    };
+    let export = |since| {
+        checkpoint_refs_since(store.core(), class.into(), &target, since)
+            .context("exporting the journals")
+    };
+    let mut scoped = export(since)?;
+    if scoped.through < since {
+        // A store behind its watermark is not the one it was written for (a store recreated
+        // since): nothing it holds is known to be exported.
+        scoped = export(0)?;
+    }
+    Ok(match scoped.outcome {
+        RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
+        RefsCheckpoint::Written(report) => {
+            let marked = if report.deferred.is_empty() && report.broken.is_empty() {
+                watermark
+                    .write(scoped.through)
+                    .map_or_else(Marked::Failed, |()| Marked::Moved)
+            } else {
+                Marked::Kept
+            };
+            Checkpointed::Ran(report, marked)
+        }
+    })
 }
 
 /// Import every journal source not yet imported at its commit (JR-10 to JR-13), recorded as
@@ -439,7 +487,7 @@ mod tests {
     #[test]
     fn every_hook_budget_ends_inside_its_hook_timeout() {
         let worst = Budget::STOP.worst_case().expect("Stop has a deadline");
-        assert_eq!(worst, Duration::from_millis(17_500));
+        assert_eq!(worst, Duration::from_secs(18));
         assert!(
             worst.saturating_add(MARGIN) <= STOP_HOOK_TIMEOUT,
             "{worst:?}"

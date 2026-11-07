@@ -39,7 +39,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env, Vars};
-use crate::journal::refs::{self, Budget, Checkpointed};
+use crate::journal::refs::{self, Budget, Checkpointed, Marked, Scope};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
 use crate::{recall, shell_bin, store};
@@ -208,13 +208,17 @@ impl Hook {
     /// `result` is: a capture that failed part way may have raised items first, and capture
     /// runs first so this turn's items leave with it (JR-08). An export failure, and each
     /// outcome a person must act on (`needs_a_person`, D12), is logged; the result is unchanged,
-    /// and the export prints nothing.
+    /// and the export prints nothing. Only the journals with an event after the watermark are
+    /// examined, so the Stop's work grows with what is new, not with the store's history.
     fn checkpointed(&self, result: Result<String>) -> Result<String> {
         let budget = Budget::STOP;
-        match refs::checkpoint(&self.env, budget, self.started) {
-            Ok(Checkpointed::Ran(report)) => {
+        match refs::checkpoint(&self.env, budget, self.started, Scope::SinceWatermark) {
+            Ok(Checkpointed::Ran(report, marked)) => {
                 for line in refs::needs_a_person(&report) {
                     self.log(&anyhow::anyhow!("{line}"));
+                }
+                if let Marked::Failed(e) = marked {
+                    self.log(&e);
                 }
             }
             // Not git, a client repository, opted out or no store: nothing to say.

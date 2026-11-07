@@ -15,6 +15,7 @@
 
 pub(crate) mod pre_push;
 pub(crate) mod refs;
+mod watermark;
 
 use anyhow::{Context as _, Result};
 use std::collections::HashSet;

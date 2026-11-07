@@ -4,7 +4,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use redkiln_core::journal::refs::{
-    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs, import_refs,
+    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs,
+    checkpoint_refs_since, import_refs,
 };
 // Every relay test needs a git hook script, so runs only on unix.
 #[cfg(unix)]
@@ -143,6 +144,64 @@ fn a_new_event_is_appended_on_top_of_the_previous_commit() {
     let new = file_at(&remote, "refs/redkiln/journal/a1", "a1.jsonl").expect("file");
     assert!(new.starts_with(&old), "append-only (JR-05)");
     assert_eq!(line_count(&new), 3);
+}
+
+#[test]
+fn a_checkpoint_since_a_position_examines_only_the_journals_with_a_later_event() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), 0).expect("ok");
+    assert_eq!(
+        written(first.outcome).direct.len(),
+        3,
+        "since 0 is every journal"
+    );
+    // b2's ref goes from both sides: a scan that examined b2 would push it again.
+    git(&remote, &["update-ref", "-d", "refs/redkiln/journal/b2"]);
+    git(&work, &["update-ref", "-d", "refs/redkiln/journal/b2"]);
+    store
+        .append(
+            vec![raised("wi-000005", Some("A1"), Trust::asserted())],
+            None,
+        )
+        .expect("appended");
+
+    let scoped =
+        checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
+
+    assert!(scoped.through > first.through, "the new event was read");
+    let report = written(scoped.outcome);
+    assert_eq!(report.direct, [name("a1")], "{report:?}");
+    assert_eq!(report.appended, 1);
+    assert!(!refs(&remote, "refs/redkiln/journal").contains(&"refs/redkiln/journal/b2".to_owned()));
+    let swept = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!(swept.direct, [name("b2")], "a full checkpoint is the sweep");
+}
+
+#[test]
+fn a_checkpoint_since_the_last_position_touches_no_git() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), 0).expect("ok");
+    // With every journal before the position, not one ref is read: a broken one goes unseen.
+    // The clone's own commit: its tree is not exactly `a1.jsonl`, so the ref breaks JR-05.
+    git(&work, &["update-ref", "refs/redkiln/journal/a1", "HEAD"]);
+
+    let again =
+        checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
+
+    assert_eq!(again.through, first.through);
+    assert_eq!(
+        written(again.outcome),
+        RefsExported {
+            unexportable: 1,
+            ..RefsExported::default()
+        }
+    );
 }
 
 #[test]

@@ -10,6 +10,24 @@ use std::process::{Command, Output};
 
 const JOURNAL_DIR: &str = ".kb/_ledger/journal";
 
+/// `Budget::STOP.worst_case()`, which `every_hook_budget_ends_inside_its_hook_timeout` pins.
+#[cfg(unix)]
+const STOP_WORST_CASE: std::time::Duration = std::time::Duration::from_secs(18);
+
+/// Where weighin records how far the store's events are exported.
+fn watermark(repo: &Repo) -> std::path::PathBuf {
+    state_of(&repo.root).join("journal-watermark")
+}
+
+/// Sets the store position the watermark records to `position`, keeping the rest of it.
+fn set_watermark(repo: &Repo, position: impl FnOnce(u64) -> u64) -> TestResult {
+    let text = std::fs::read_to_string(watermark(repo))?;
+    let (first, rest) = text.split_once('\n').unwrap_or((text.as_str(), ""));
+    let moved = position(first.trim().parse()?);
+    std::fs::write(watermark(repo), format!("{moved}\n{rest}"))?;
+    Ok(())
+}
+
 /// git's stdout in `dir`, trimmed; the run must succeed.
 fn git_out(dir: &Path, args: &[&str]) -> TestResult<String> {
     let out = Command::new("git").arg("-C").arg(dir).args(args).output()?;
@@ -209,7 +227,9 @@ fn a_stop_hook_whose_remote_hangs_ends_inside_its_timeout_and_the_next_stop_expo
     let elapsed = started.elapsed();
 
     exited_0(&out)?;
-    assert!(elapsed < std::time::Duration::from_secs(20), "{elapsed:?}");
+    // The budget's worst case, and a second for starting the binary and capturing.
+    let bound = STOP_WORST_CASE.saturating_add(std::time::Duration::from_secs(1));
+    assert!(elapsed < bound, "{elapsed:?}");
     assert!(
         !repo.printed_for("s")?.is_empty(),
         "the store keeps the events"
@@ -227,6 +247,100 @@ fn a_stop_hook_whose_remote_hangs_ends_inside_its_timeout_and_the_next_stop_expo
     assert_eq!(
         refs(&remote, "refs/redkiln/journal")?,
         ["refs/redkiln/journal/s"]
+    );
+    Ok(())
+}
+
+/// Sessions already exported before the Stop under test: enough that a scan of every journal
+/// shows in git's trace, few enough to raise quickly on every platform.
+const EXPORTED_SESSIONS: usize = 30;
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_stop_examines_only_the_journals_with_events_since_the_last_clean_export() -> TestResult {
+    let repo = Repo::new(true)?;
+    for n in 0..EXPORTED_SESSIONS {
+        repo.raise(&format!("old{n}"), "Keep three retries?")?;
+    }
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    assert_eq!(
+        refs(&repo.root, "refs/redkiln/journal")?.len(),
+        EXPORTED_SESSIONS,
+        "the sweep exported every session"
+    );
+    repo.raise("s", "Shard the ledger by tenant?")?;
+    let trace = repo.sibling("trace")?.join("git.trace");
+
+    let out = repo.hook_with(&repo.stop("s"), "GIT_TRACE", &trace.to_string_lossy())?;
+
+    exited_0(&out)?;
+    assert!(
+        repo.has_ref("refs/redkiln/journal/s"),
+        "the current session is exported"
+    );
+    let traced = std::fs::read_to_string(&trace)?;
+    let examined: Vec<&str> = traced
+        .lines()
+        .filter(|l| l.contains("refs/redkiln/journal/old"))
+        .collect();
+    assert_eq!(
+        examined,
+        Vec::<&str>::new(),
+        "no exported journal is read again"
+    );
+    assert_eq!(logged(&repo)?, Vec::<String>::new());
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_watermark_past_the_store_head_is_ignored() -> TestResult {
+    let repo = Repo::new(true)?;
+    repo.raise("u", "Keep the cache warm?")?;
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    set_watermark(&repo, |at| at.saturating_add(1_000))?;
+    repo.raise("t", "Keep three retries?")?;
+
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+
+    assert!(
+        repo.has_ref("refs/redkiln/journal/t"),
+        "a store behind its watermark is not the one it was written for: everything is examined"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_stop_after_a_deferred_export_examines_the_deferred_journals_again() -> TestResult {
+    let (repo, remote) = Repo::with_remote(true)?;
+    repo.raise("u", "Keep the cache warm?")?;
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    assert!(watermark(&repo).exists(), "the sweep moved the watermark");
+    repo.raise("t", "Keep three retries?")?;
+    pre_receive(
+        &remote,
+        "#!/bin/sh\necho \"closed for maintenance\" >&2\nexit 1\n",
+    )?;
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+    assert_eq!(
+        refs(&remote, "refs/redkiln")?,
+        ["refs/redkiln/journal/u"],
+        "t and s deferred"
+    );
+    assert_eq!(
+        refs(&remote, "refs/heads/redkiln")?,
+        Vec::<String>::new(),
+        "deferred"
+    );
+    std::fs::remove_file(remote.join("hooks/pre-receive"))?;
+
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+
+    assert!(
+        refs(&remote, "refs/redkiln/journal")?.contains(&"refs/redkiln/journal/t".to_owned()),
+        "t's events are past no clean export, so the next Stop examines t again"
     );
     Ok(())
 }
@@ -250,7 +364,7 @@ fn hooks_json_timeouts_match_the_budgets() -> TestResult {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/weigh-in/hooks/hooks.json");
     let hooks: Value = serde_json::from_str(&std::fs::read_to_string(path)?)?;
     let timeout = |event: &str| hooks["hooks"][event][0]["hooks"][0]["timeout"].as_u64();
-    // Budget::STOP's worst case is 17.5 s, plus 2 s for the hook's own work (journal::refs).
+    // Budget::STOP's worst case is 18 s, plus 2 s for the hook's own work (journal::refs).
     assert_eq!(timeout("Stop"), Some(20));
     assert_eq!(timeout("SessionStart"), Some(10));
     Ok(())

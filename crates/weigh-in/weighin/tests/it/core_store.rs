@@ -317,6 +317,14 @@ fn a_written_events_worktree_is_its_toplevels_id_in_the_store_and_the_journal_re
         id,
         "the journal's worktree"
     );
+    // The line exported is the store's event as Core encodes it, so a reader of both counts it
+    // once.
+    let encoded = read
+        .iter()
+        .map(redkiln_core::journal::encode_line)
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    assert_eq!(written.as_bytes(), encoded.as_slice());
     Ok(())
 }
 

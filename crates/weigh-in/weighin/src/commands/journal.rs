@@ -27,7 +27,7 @@ use serde::Serialize;
 use crate::cli_envelope::{Envelope, Exit, Finding, Severity, one_line};
 use crate::env::Env;
 use crate::journal::pre_push::{self, Pushing};
-use crate::journal::refs::{self, Budget, Checkpointed, Imported, Skip};
+use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope, Skip};
 use crate::{Globals, JournalCmd, RelayArgs};
 
 /// A command's envelope ids (CLI-02).
@@ -79,7 +79,7 @@ fn checkpoint(g: Globals, json: bool, started: Instant) -> Exit {
         Err(e) => return internal(CHECKPOINT, json, &e),
     };
     let noticed = warn_notices(&env);
-    let exit = match refs::checkpoint(&env, Budget::COMMAND, started) {
+    let exit = match refs::checkpoint(&env, Budget::COMMAND, started, Scope::All) {
         Ok(done) => emit(CHECKPOINT, json, &checkpointed(&done)),
         Err(e) => internal(CHECKPOINT, json, &e),
     };
@@ -134,7 +134,7 @@ fn pre_push(g: Globals, json: bool, started: Instant) -> Exit {
         Err(e) => return pre_push_failed(json, &e),
     };
     let noticed = worst(read, warn_notices(&env));
-    let done = match refs::checkpoint(&env, Budget::PRE_PUSH, started) {
+    let done = match refs::checkpoint(&env, Budget::PRE_PUSH, started, Scope::All) {
         Ok(done) => done,
         Err(e) => return pre_push_failed(json, &e),
     };
@@ -303,7 +303,7 @@ impl CheckpointData<'_> {
 }
 
 fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
-    let report = match done {
+    let (report, marked) = match done {
         Checkpointed::Skipped(skip) => {
             return Outcome {
                 data: CheckpointData::empty(Some(*skip)),
@@ -312,11 +312,20 @@ fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
                 line: format!("nothing to export ({})", skip.as_str()),
             };
         }
-        Checkpointed::Ran(report) => report,
+        Checkpointed::Ran(report, marked) => (report, marked),
     };
     let direct: Vec<&str> = report.direct.iter().map(JournalName::as_str).collect();
     let relayed: Vec<&str> = report.relayed.iter().map(JournalName::as_str).collect();
     let line = export_line(report, &direct, &relayed);
+    let mut findings = refs::checkpoint_findings(report);
+    if let Marked::Failed(e) = marked {
+        // The export stands; only the Stop hook's next scope widens to every journal.
+        findings.push(Finding::new(
+            "journal/watermark".to_owned(),
+            &format!("{e:#}"),
+            Severity::Warning,
+        ));
+    }
     Outcome {
         data: CheckpointData {
             skipped: None,
@@ -327,7 +336,7 @@ fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
             unexportable: report.unexportable,
             relay_reason: report.relay_reason.as_deref(),
         },
-        findings: refs::checkpoint_findings(report),
+        findings,
         exit: Exit::Success,
         line,
     }
