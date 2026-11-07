@@ -49,6 +49,16 @@ WAL and SQLite's default both delete files beside the database, and Cowork's con
 refuse deletes. For a folder synced by OneDrive or Dropbox and used from more than one computer,
 put the store outside the synced tree with suite.toml's `store`.
 
+Whose repository it is, `own` or `client`, is `repo_class` in `.redkiln/suite.toml`'s `[suite]`
+table; with no suite.toml, or one that sets no `repo_class`, weigh-in 1.x's `repo_class` in
+`.kb/_ledger/config.json` is used, with a warning on every command and at SessionStart, until
+3.0. Neither, or a suite.toml that does not parse, is `client`: nothing of a `client` repository
+leaves the machine, so it gets no session journals and `board export` refuses. The owner is
+suite.toml's `owner`, else config.json's, else git's user. `weighin init --class <class>`
+writes a suite.toml holding only `repo_class` when there is none, refuses a class other than the
+one an existing suite.toml gives (edit it by hand), and never writes `repo_class` to config.json;
+`init` with no `--class` gives a new suite.toml config.json's class, else `own`.
+
 A weighin 1.x ledger (`<git-common-dir>/weighin/ledger.sqlite3`, or `<folder>/.weighin/`) is
 never opened or changed: every command and SessionStart names it, and its items are listed
 again once it is imported. A store path that names one is refused.
@@ -95,8 +105,9 @@ pwsh scripts/build-plugin-bins.ps1        # x86_64-pc-windows-msvc
 Then in Claude Code: `/plugin marketplace add <path to this repo>` and
 `/plugin install weigh@weigh-in`, plus `/plugin install weigh-mod@weigh-in` for the ledger band. Type `/weigh-in` everywhere. Cowork and claude.ai list plugin
 skills by the skill's own name (`/weigh-in`); Claude Code lists them as `/<plugin>:<skill>`
-(`/weigh:weigh-in`) but also resolves the bare name. A repo needs no setup; run
-`/weigh-in init client` first in client repos, which sets the board to `local`. From Claude Code's `!` prompt on Windows, which is Git Bash, use
+(`/weigh:weigh-in`) but also resolves the bare name. A repo needs no setup to capture,
+but counts as `client` until `.redkiln/suite.toml` says otherwise: run `/weigh-in init own` in
+your own repositories, and `/weigh-in init client` in client repos, which sets the board to `local`. From Claude Code's `!` prompt on Windows, which is Git Bash, use
 forward slashes: `! sh D:/repos/weigh-in/plugin/libexec/weighin init --class own`.
 
 After pulling a new version, rebuild every binary you keep: the launcher prefers the native
@@ -185,7 +196,7 @@ scratch workspace (#116). `weighin decisions --path <file>` lists the same decis
 
 ### Session journals and CI
 
-In an initialised git repository, every session keeps its own events in
+In an initialised git repository of class `own`, every session keeps its own events in
 `.kb/_ledger/journal/<session>.jsonl`. The binary appends them after each capture hook and each
 command that changes the ledger, append-only and each line once, so a pull request that commits
 `.kb/` carries what its session raised, deferred, dismissed and decided (B-28). Set
@@ -210,9 +221,10 @@ commit, so check out with `fetch-depth: 0` or fetch the base first.
 - An authority-sounding item (compliance, isolation, retention, security, migration, …) is
   dismissed as "already decided" only against an accepted `kb-…` atom or the user's own words.
 - An agent's two-way "judgment" marker with authority words stays open instead of defaulting.
-- `board export` writes a board only where `.kb/_ledger/config.json` chose the `artifact` board:
-  it refuses a `local` or `off` mode, a folder never initialised (run `weighin init --class own`
-  or `--class client` first) and a config that does not parse (wi-7c21e4).
+- `board export` writes a board only where `.kb/_ledger/config.json` chose the `artifact` board
+  and the repository is `own`: it refuses a `local` or `off` mode, a folder never initialised
+  (run `weighin init --class own` or `--class client` first), a config that does not parse
+  (wi-7c21e4) and a `client` repository (ST-13).
 - `board export --stdout`, for the local board pane, prints the state under a `local` or
   `artifact` board and never writes or publishes it; it refuses `off` and a folder never
   initialised. `board apply --surface pane` records decisions with surface `pane`, leaves items

@@ -973,13 +973,20 @@ fn init_without_class_or_board_keeps_the_existing_ones() {
         &std::fs::read_to_string(repo.join(".kb/_ledger/config.json")).unwrap(),
     )
     .unwrap();
+    // The class is suite.toml's since #17 part 5b, and config.json carries none.
     assert_eq!(
         (
+            std::fs::read_to_string(repo.join(".redkiln/suite.toml")).unwrap(),
             &config["repo_class"],
             &config["board"]["mode"],
             &config["store"]
         ),
-        (&json!("client"), &json!("local"), &json!("../l.sqlite3"))
+        (
+            "[suite]\nrepo_class = \"client\"\n".to_owned(),
+            &Value::Null,
+            &json!("local"),
+            &json!("../l.sqlite3")
+        )
     );
 }
 

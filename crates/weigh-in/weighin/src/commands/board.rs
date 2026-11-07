@@ -1,12 +1,13 @@
 //! `board export` and `board apply`: the exchange with the Artifact board and the local pane.
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result, anyhow, bail};
+use redkiln_core::suite::SUITE_FILE;
 use std::io::{self, Write};
 use weighin_core::Ledger;
 use weighin_core::board::{self, Answer, Scope, ValidAnswer};
 
 use super::Receipts;
-use crate::env::{self, BoardMode, BoardUse, Env};
+use crate::env::{self, BoardMode, BoardUse, Env, RepoClass};
 use crate::ops::{self, DecideOp, DeferOp, Op, Session};
 use crate::{AnswerSurface, ApplyArgs, ExportArgs, pane};
 
@@ -68,8 +69,8 @@ pub(crate) fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Re
 }
 
 /// Whether this folder's items may go to the claude.ai board: only when its config chose the
-/// `artifact` board (decision wi-7c21e4). A folder never initialised may be a client's, so the
-/// defaults do not count as a choice.
+/// `artifact` board (decision wi-7c21e4) and the repository is `own` (ST-13, D8 A). A folder
+/// never initialised may be a client's, so the defaults do not count as a choice.
 fn publishable(env: &Env) -> Result<()> {
     env.board_allows(&BoardUse {
         modes: &[BoardMode::Artifact],
@@ -77,7 +78,16 @@ fn publishable(env: &Env) -> Result<()> {
         refusing: "not exporting the board",
         other_mode: "its items are not published to claude.ai, so there is no board to export \
                      (`weighin init --board artifact` changes the mode)",
-    })
+    })?;
+    match env.repo_class() {
+        RepoClass::Own => Ok(()),
+        RepoClass::Client => bail!(
+            "this repository is `client` ({}): nothing of it is published, so there is no board \
+             to export (set `repo_class = \"own\"` in the `[suite]` table of {SUITE_FILE} if it \
+             is yours)",
+            env.class_origin()
+        ),
+    }
 }
 
 /// Where the board's items come from, as the board shows it.

@@ -2,6 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use redkiln_core::location::{LocateError, Source};
+use redkiln_core::suite::{ClassSource, LEGACY_CONFIG, RepoClass, SUITE_FILE};
 
 use super::{Fallback, Found, Notice, Vars, locate_store};
 use crate::git;
@@ -251,5 +252,107 @@ fn a_repository_git_refuses_is_an_error_not_the_folder_store() -> TestResult {
         .ok_or("a broken .git file is refused")?;
 
     assert!(matches!(err, LocateError::Git(_)), "{err:?}");
+    Ok(())
+}
+
+/// Writes `text` to `<repo>/<relative>`, making its directory.
+fn write(repo: &Path, relative: &str, text: &str) -> std::io::Result<()> {
+    let path = repo.join(relative);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, text)
+}
+
+#[test]
+fn suite_tomls_repo_class_is_the_class_with_nothing_to_report() -> TestResult {
+    let (_tmp, repo) = repo();
+    write(&repo, SUITE_FILE, "[suite]\nrepo_class = \"own\"\n")?;
+    write(&repo, LEGACY_CONFIG, r#"{"repo_class":"client"}"#)?;
+
+    let own = found(&repo, None, None, &vars(None, None));
+
+    assert_eq!(
+        (own.suite.repo_class(), own.suite.class_source()),
+        (RepoClass::Own, ClassSource::Suite)
+    );
+    assert_eq!(texts(&own), Vec::<String>::new());
+    Ok(())
+}
+
+#[test]
+fn with_no_suite_toml_config_jsons_repo_class_is_taken_and_reported() -> TestResult {
+    let (_tmp, repo) = repo();
+    write(&repo, LEGACY_CONFIG, r#"{"repo_class":"own"}"#)?;
+
+    let legacy = found(&repo, None, None, &vars(None, None));
+
+    assert_eq!(
+        (legacy.suite.repo_class(), legacy.suite.class_source()),
+        (RepoClass::Own, ClassSource::Legacy)
+    );
+    let [text] = texts(&legacy).try_into().map_err(|t| format!("{t:?}"))?;
+    assert!(
+        text.contains("config.json") && text.contains(SUITE_FILE) && text.contains("`own`"),
+        "{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn with_neither_file_the_repository_is_client() {
+    let (_tmp, repo) = repo();
+
+    let neither = found(&repo, None, None, &vars(None, None));
+
+    assert_eq!(
+        (neither.suite.repo_class(), neither.suite.class_source()),
+        (RepoClass::Client, ClassSource::Default)
+    );
+    assert_eq!(texts(&neither), Vec::<String>::new());
+}
+
+#[test]
+fn a_suite_toml_that_does_not_parse_is_client_with_no_fallback_and_says_so() -> TestResult {
+    let (_tmp, repo) = repo();
+    write(&repo, SUITE_FILE, "[suite\nrepo_class = \"own\"\n")?;
+    write(&repo, LEGACY_CONFIG, r#"{"repo_class":"own"}"#)?;
+
+    let broken = found(&repo, None, None, &vars(None, None));
+
+    assert_eq!(
+        (broken.suite.repo_class(), broken.suite.class_source()),
+        (RepoClass::Client, ClassSource::Default)
+    );
+    let [text] = texts(&broken).try_into().map_err(|t| format!("{t:?}"))?;
+    assert!(
+        text.contains("suite.toml is not used") && text.ends_with("the repository is client"),
+        "{text}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_class_is_read_whatever_chose_the_store() -> TestResult {
+    let (_tmp, repo) = repo();
+    write(&repo, SUITE_FILE, "[suite]\nrepo_class = \"own\"\n")?;
+
+    let flagged = found(
+        &repo,
+        Some(Path::new("f/events.sqlite3")),
+        None,
+        &vars(None, None),
+    );
+    let variable = found(&repo, None, None, &vars(Some("r/events.sqlite3"), None));
+    let weighin = found(&repo, None, None, &vars(None, Some("x/proj.sqlite3")));
+
+    for found in [&flagged, &variable, &weighin] {
+        assert_eq!(
+            (found.suite.repo_class(), found.suite.class_source()),
+            (RepoClass::Own, ClassSource::Suite),
+            "{:?}",
+            found.store
+        );
+    }
     Ok(())
 }

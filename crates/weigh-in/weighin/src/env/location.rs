@@ -19,7 +19,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use redkiln_core::location::{GIT_TIMEOUT, LocateError, Search, Source, Workspace, locate};
-use redkiln_core::suite::{Suite, Warning};
+use redkiln_core::suite::{SUITE_FILE, Suite, Warning};
 
 use crate::text::Report;
 
@@ -137,11 +137,15 @@ impl Fallback {
     }
 }
 
-/// Where the store is, where the working directory sits, and what to tell the user.
+/// Where the store is, where the working directory sits, the suite config of its worktree, and
+/// what to tell the user.
 #[derive(Debug)]
 pub(crate) struct Found {
     pub(crate) store: StoreAt,
     pub(crate) workspace: Workspace,
+    /// `.redkiln/suite.toml` of the worktree root, read whatever step chose the store: the
+    /// repository class (ST-13, with M1-F's fallback) and the owner (ST-12) come from it.
+    pub(crate) suite: Suite,
     pub(crate) notices: Vec<Notice>,
 }
 
@@ -204,16 +208,21 @@ pub(crate) fn locate_store(
         notices.push(Notice::LegacyStoreKey(fallback));
     }
     notices.extend(old_ledgers(named, &workspace));
+    // Core reads suite.toml only when no flag or variable chose the store; the class and the
+    // owner are the repository's whatever chose it.
+    let suite = located
+        .suite
+        .unwrap_or_else(|| Suite::load(workspace.root()));
     notices.extend(
-        located
-            .suite
+        suite
+            .warnings()
             .iter()
-            .flat_map(Suite::warnings)
-            .filter_map(suite_notice),
+            .map(|w| suite_notice(w, workspace.root())),
     );
     Ok(Found {
         store,
         workspace,
+        suite,
         notices,
     })
 }
@@ -278,19 +287,28 @@ fn old_ledgers(named: Option<PathBuf>, workspace: &Workspace) -> Vec<Notice> {
         .collect()
 }
 
-/// A suite.toml warning, as weighin words it while its class still comes from config.json (#17
-/// part 5b moves it onto suite.toml): `LegacyRepoClass` is not news yet, and an unusable file
-/// does not make this repository `client`.
-fn suite_notice(warning: &Warning) -> Option<Notice> {
-    match warning {
-        Warning::Unusable { path, problem } => Some(Notice::Suite(format!(
-            "{} is not used: {}",
-            path.display(),
-            Report(problem)
-        ))),
-        Warning::Value { .. } => Some(Notice::Suite(warning.to_string())),
-        Warning::LegacyRepoClass { .. } => None,
-    }
+/// A suite config warning as weighin words it: Core's meaning, with the file named relative to
+/// the worktree `root` it was read under (as weighin names config.json, so a deep synced folder
+/// does not fill the message), and an unusable file's whole cause chain.
+fn suite_notice(warning: &Warning, root: &Path) -> Notice {
+    let path = warning.path();
+    let path = path.strip_prefix(root).unwrap_or(path).display();
+    Notice::Suite(match warning {
+        Warning::Unusable { problem, .. } => {
+            format!(
+                "{path} is not used: {}; the repository is client",
+                Report(problem)
+            )
+        }
+        Warning::Value { key, .. } => format!(
+            "{path}: `{}` has a value outside its grammar and is ignored",
+            key.as_str()
+        ),
+        Warning::LegacyRepoClass { class, .. } => format!(
+            "repo_class `{}` comes from {path}; set it in {SUITE_FILE}, as 3.0 reads only that",
+            class.as_str()
+        ),
+    })
 }
 
 /// A variable's value, unless it is unset, empty or only white space.

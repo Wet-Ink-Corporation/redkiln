@@ -126,8 +126,9 @@ struct CiCheckArgs {
 
 #[derive(Args)]
 struct InitArgs {
-    /// `own` or `client` (client repos default to a local board). Unchanged when not given; a
-    /// first `init` is `own`.
+    /// `own` or `client` (client repos default to a local board), written to
+    /// .redkiln/suite.toml when there is none; refused when it sets another class. With no
+    /// `--class`, a new suite.toml takes config.json's 1.x `repo_class`, else `own`.
     #[arg(long, value_enum)]
     class: Option<RepoClass>,
     /// `artifact`, `local` or `off`. Unchanged when not given, unless `--class` is.

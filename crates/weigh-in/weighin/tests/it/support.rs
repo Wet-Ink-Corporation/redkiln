@@ -25,9 +25,17 @@ pub(crate) fn folder_store(folder: &Path) -> PathBuf {
     folder.join(".redkiln/events.sqlite3")
 }
 
-/// Whether anything weighin writes was left in `folder`: a 2.0 `.redkiln/` or a 1.x `.weighin/`.
+/// Whether anything weighin writes was left in `folder`: a 2.0 `.redkiln/` holding more than the
+/// `suite.toml` `init` commits there (#17 part 5b), or a 1.x `.weighin/`.
 pub(crate) fn wrote_in(folder: &Path) -> bool {
-    folder.join(".redkiln").exists() || folder.join(".weighin").exists()
+    let redkiln = folder.join(".redkiln");
+    let beside_suite = match std::fs::read_dir(&redkiln) {
+        Ok(entries) => entries
+            .map(|e| e.map(|e| e.file_name()))
+            .any(|name| name.is_err() || name.is_ok_and(|n| n != "suite.toml")),
+        Err(_) => redkiln.exists(),
+    };
+    beside_suite || folder.join(".weighin").exists()
 }
 
 pub(crate) fn git(dir: &Path, args: &[&str]) {
