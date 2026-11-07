@@ -394,13 +394,21 @@ fn stats_counts_an_event_once_when_it_is_in_a_committed_journal_and_imported_fro
     let (repo, remote, _id) = raised()?;
     repo.ok("s1", &["journal", "checkpoint"], None)?;
     let expected: Value = serde_json::from_str(repo.ok("s1", &["stats", "--json"], None)?.trim())?;
+    let lines = stored_for(&repo, "s1")?;
     let committed = repo.journal("s1")?;
     let clone = own_clone(&repo, &remote)?;
     let dir = clone.join(".kb/_ledger/journal");
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("s1.jsonl"), committed)?;
 
-    repo.run_in(&clone, &["journal", "import"])?;
+    let import = repo.run_in(&clone, &["journal", "import", "--json"])?;
+    assert_eq!(code(&import), Some(0), "{}", stderr(&import));
+    let imported = envelope(&import)?;
+    assert_eq!(
+        imported["data"]["sources"][0]["imported"],
+        json!(lines),
+        "{imported}"
+    );
     let out = repo.run_in(&clone, &["stats", "--json"])?;
 
     let got: Value = serde_json::from_slice(&out.stdout)?;
@@ -437,6 +445,25 @@ fn pre_push_of_only_journal_refs_does_nothing() -> TestResult {
         )
     );
     assert_eq!(refs(&remote, "refs/redkiln")?, Vec::<String>::new());
+    Ok(())
+}
+
+/// A journal-only push skips before the environment is looked for: a broken config says nothing.
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn pre_push_of_only_journal_refs_looks_for_no_environment() -> TestResult {
+    let (repo, _remote, _id) = raised()?;
+    std::fs::write(repo.root.join(".kb/_ledger/config.json"), "{ not json")?;
+
+    let out = repo.run(
+        "s1",
+        &["journal", "pre-push", "origin", "url", "--json"],
+        Some(&push_line("refs/redkiln/journal/s1")),
+    )?;
+
+    assert_eq!(code(&out), Some(0));
+    assert_eq!(stderr(&out), "");
+    assert_eq!(envelope(&out)?["data"]["skipped"], "journal-only-push");
     Ok(())
 }
 
@@ -523,6 +550,12 @@ fn a_warning_stderr_cannot_take_leaves_ok_and_the_exit_agreeing() -> TestResult 
         r#"{"repo_class":"own"}"#,
     )?;
     repo.raise("s1", QUESTION)?;
+    let said = repo.run("s1", &["journal", "checkpoint", "--json"], None)?;
+    assert!(
+        stderr(&said).starts_with("weighin: warning: "),
+        "the precondition: a notice goes to stderr before the envelope: {}",
+        stderr(&said)
+    );
 
     for command in ["checkpoint", "import"] {
         let out = repo.run_with_stderr_full("s1", &["journal", command, "--json"])?;
@@ -543,6 +576,22 @@ fn a_closed_stdout_exits_0_with_nothing_on_stderr() -> TestResult {
 
     assert_eq!(code(&out), Some(0));
     assert_eq!(stderr(&out), "");
+    Ok(())
+}
+
+/// A closed stdout silences a success, never a failure (CLI-05, CLI-07).
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_internal_error_with_a_closed_stdout_still_exits_70() -> TestResult {
+    let repo = Repo::new(true)?;
+    let bogus = repo.sibling("bogus")?.join("events.sqlite3");
+    std::fs::write(&bogus, "not a database")?;
+    let store = bogus.to_string_lossy().into_owned();
+
+    let out =
+        repo.run_with_stdout_closed(&["--store", &store, "journal", "checkpoint", "--json"])?;
+
+    assert_eq!(code(&out), Some(70), "{}", stderr(&out));
     Ok(())
 }
 

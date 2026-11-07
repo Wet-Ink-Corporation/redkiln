@@ -115,11 +115,16 @@ fn relay(dir: Option<PathBuf>, args: &RelayArgs) -> Exit {
 /// The checkpoint unless only journal refs are pushed. Every failure is a warning: the exit
 /// it would earn elsewhere is returned for `run` to set aside.
 fn pre_push(g: Globals, json: bool, started: Instant) -> Exit {
-    let (pushing, read) = match pre_push::pushing(io::stdin().lock()) {
-        Ok(pushing) => (pushing, Exit::Success),
+    let read = match pre_push::pushing(io::stdin().lock()) {
+        // A checkpoint's own push: nothing to export, so no environment is even looked for.
+        Ok(Pushing::OnlyJournals) => {
+            let skipped = Checkpointed::Skipped(Skip::JournalOnlyPush);
+            return emit(PRE_PUSH, json, &checkpointed(&skipped));
+        }
+        Ok(Pushing::Other) => Exit::Success,
         Err(e) => {
             let msg = format_args!("reading git's pre-push input: {e}; exporting anyway");
-            (Pushing::Other, say("warning", &msg, Exit::Success))
+            say("warning", &msg, Exit::Success)
         }
     };
     let env = match crate::environment(g) {
@@ -127,12 +132,9 @@ fn pre_push(g: Globals, json: bool, started: Instant) -> Exit {
         Err(e) => return pre_push_failed(json, &e),
     };
     let noticed = worst(read, warn_notices(&env));
-    let done = match pushing {
-        Pushing::OnlyJournals => Checkpointed::Skipped(Skip::JournalOnlyPush),
-        Pushing::Other => match refs::checkpoint(&env, Budget::PRE_PUSH, started) {
-            Ok(done) => done,
-            Err(e) => return pre_push_failed(json, &e),
-        },
+    let done = match refs::checkpoint(&env, Budget::PRE_PUSH, started) {
+        Ok(done) => done,
+        Err(e) => return pre_push_failed(json, &e),
     };
     settle(json, noticed, emit(PRE_PUSH, json, &checkpointed(&done)))
 }
@@ -173,7 +175,7 @@ fn emit<D: Serialize>(named: Named, json: bool, outcome: &Outcome<D>) -> Exit {
         writeln!(stdout, "{}", outcome.line)
     };
     if let Err(e) = written.and_then(|()| stdout.flush()) {
-        return output_failed(&e);
+        return output_failed(&e, outcome.exit);
     }
     if json {
         return outcome.exit;
@@ -217,11 +219,12 @@ fn failed<D: Serialize>(named: Named, json: bool, e: &anyhow::Error, failure: Fa
     settle(json, said, emit(named, json, &outcome))
 }
 
-/// The exit after stdout failed with `e`: 0 when its reader stopped reading (CLI-07), else 74,
+/// The exit after stdout failed with `e`: when its reader stopped reading, the exit the command
+/// earned, said nowhere (CLI-07: a success stays 0, a failure keeps its code, CLI-05); else 74,
 /// said on stderr.
-fn output_failed(e: &io::Error) -> Exit {
+fn output_failed(e: &io::Error, earned: Exit) -> Exit {
     if e.kind() == io::ErrorKind::BrokenPipe {
-        return Exit::Success;
+        return earned;
     }
     say(
         "error",
