@@ -169,7 +169,10 @@ pub(crate) fn write_inbox(
         }
         let blob = ctx.repo.hash_blob(&merged.bytes)?;
         let tree = ctx.repo.tree_with(base, &path, &blob)?;
-        let message = format!("redkiln inbox {name} [skip ci]");
+        // No CI skip directive: GitHub would then start no `on: push` workflow, and the relay
+        // workflow is what moves this inbox into its journal ref. A journal-ref commit keeps its
+        // `[skip ci]`, since a ref outside `refs/heads/` starts no workflow either way.
+        let message = format!("redkiln inbox {name}");
         let commit = ctx.repo.commit(&tree, Some(base), &message)?;
         let lease = format!("{branch}:{}", expected.as_ref().map_or("", Oid::as_str));
         match ctx

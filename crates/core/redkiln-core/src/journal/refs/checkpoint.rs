@@ -1,7 +1,8 @@
 //! The export checkpoint onto journal refs (SPEC JR-07 to JR-09).
 //!
-//! It first asks, with no network, which journals hold a durable event that neither the clone's
-//! copy of the journal ref nor its copy of the inbox branch holds; a checkpoint with nothing new
+//! It exports every durable event except import records. It first asks, with no network, which
+//! journals hold such an event that neither the clone's copy of the journal ref nor its copy of
+//! the inbox branch holds; a checkpoint with nothing new
 //! touches no remote. Then it fetches the journal refs once and writes each such journal: direct
 //! first, and after any failure other than a rejection, through the inbox for the rest of the
 //! checkpoint. With no remote configured, it moves the local refs only.
@@ -44,8 +45,8 @@ pub struct RefsExported {
     pub relay_reason: Option<String>,
     /// No remote is configured, so only local refs moved.
     pub local_only: bool,
-    /// Events that are not envelopes, so have no line. Import records, which are never
-    /// exported, are not counted.
+    /// Events left out because they are not envelopes, so have no line. Import records are
+    /// left out too (JR-13), and are not counted here.
     pub unexportable: u64,
 }
 
