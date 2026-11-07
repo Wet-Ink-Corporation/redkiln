@@ -4,8 +4,8 @@
 
 use super::git::{Fetched, Pushed};
 use super::{
-    BASE_REF, Breach, Ctx, Oid, RETRIES, RefsError, State, inbox_branch, inbox_path, inbox_ref,
-    journal_ref, read_inbox, read_journal,
+    BASE_REF, Breach, Ctx, InboxCopy, Oid, RETRIES, RefsError, State, inbox_branch, inbox_path,
+    inbox_ref, journal_ref, read_inbox, read_journal,
 };
 use crate::journal::merge::{Merged, merge};
 use crate::journal::name::JournalName;
@@ -19,6 +19,9 @@ pub(crate) enum Direct {
     Moved(u64),
     /// The ref breaks JR-05, so it was left alone.
     Broken(Breach),
+    /// The merged file would be larger than the cap every reader holds to, so nothing was
+    /// written: a ref no reader can read would stop every later write.
+    TooLarge,
     /// Every retry was rejected.
     Spent,
     /// The deadline passed before the write.
@@ -46,6 +49,9 @@ pub(crate) fn merge_direct(
         let merged = merge(&current, incoming);
         if merged.added == 0 {
             return Ok(Direct::UpToDate);
+        }
+        if over(ctx, &merged) {
+            return Ok(Direct::TooLarge);
         }
         let blob = ctx.repo.hash_blob(&merged.bytes)?;
         let tree = ctx.repo.single_file_tree(&name.file_name(), &blob)?;
@@ -91,13 +97,13 @@ fn current_journal(
     ctx: &Ctx<'_>,
     name: &JournalName,
 ) -> Result<Result<Current, Direct>, RefsError> {
-    let mut state = read_journal(ctx.repo, name)?;
+    let mut state = read_journal(ctx, name)?;
     if let (State::Broken(_), Some(remote)) = (&state, ctx.remote) {
         let refname = journal_ref(name);
         if let Some(failed) = refetch(ctx, remote, &refname, &refname)? {
             return Ok(Err(Direct::Failed(failed)));
         }
-        state = read_journal(ctx.repo, name)?;
+        state = read_journal(ctx, name)?;
     }
     Ok(match state {
         State::Absent => Ok((None, Vec::new())),
@@ -113,8 +119,13 @@ pub(crate) enum Inboxed {
     Same,
     /// The inbox branch was pushed; this many of the checkpoint's lines were new to it.
     Pushed(u64),
-    /// The default branch already holds the inbox's path, so no commit can only add it.
+    /// The default branch already holds the inbox's path, or a file where one of its folders
+    /// goes, so no commit can only add it.
     Occupied,
+    /// The inbox branch's file is larger than the cap, so it cannot be merged.
+    InboxTooLarge,
+    /// The merged file would be larger than the cap, so nothing was pushed.
+    TooLarge,
     Spent,
     Late,
     Failed(String),
@@ -139,11 +150,7 @@ pub(crate) fn write_inbox(
 ) -> Result<Inboxed, RefsError> {
     let Inbox { remote, base } = inbox_to;
     let path = inbox_path(name);
-    if ctx
-        .repo
-        .entries(base, Some(&path))?
-        .is_none_or(|entries| !entries.is_empty())
-    {
+    if occupied(ctx, base, &path)? {
         return Ok(Inboxed::Occupied);
     }
     let branch = inbox_branch(name);
@@ -152,9 +159,14 @@ pub(crate) fn write_inbox(
         if ctx.late() {
             return Ok(Inboxed::Late);
         }
-        let Some((expected, merged)) = inbox_content(ctx, name, own)? else {
-            return Ok(Inboxed::Same);
+        let (expected, merged) = match inbox_content(ctx, name, own)? {
+            Content::Same => return Ok(Inboxed::Same),
+            Content::InboxTooLarge => return Ok(Inboxed::InboxTooLarge),
+            Content::New(expected, merged) => (expected, merged),
         };
+        if over(ctx, &merged) {
+            return Ok(Inboxed::TooLarge);
+        }
         let blob = ctx.repo.hash_blob(&merged.bytes)?;
         let tree = ctx.repo.tree_with(base, &path, &blob)?;
         let message = format!("redkiln inbox {name} [skip ci]");
@@ -184,24 +196,65 @@ pub(crate) fn write_inbox(
     Ok(Inboxed::Spent)
 }
 
-/// The inbox tip read (`None`: no inbox) and the file the inbox should hold: the merge of the
-/// journal ref's file, the inbox's and `own`; `None` when the inbox would not change.
-fn inbox_content(
-    ctx: &Ctx<'_>,
-    name: &JournalName,
-    own: &[u8],
-) -> Result<Option<(Option<Oid>, Merged)>, RefsError> {
+/// Whether `merged` is larger than the context's cap.
+fn over(ctx: &Ctx<'_>, merged: &Merged) -> bool {
+    u64::try_from(merged.bytes.len()).map_or(true, |len| len > ctx.max_bytes)
+}
+
+/// Whether `base` holds `path`, or a file where one of its folders goes: either way no commit
+/// on `base` can only add `path`.
+fn occupied(ctx: &Ctx<'_>, base: &Oid, path: &str) -> Result<bool, RefsError> {
+    let folders = path.match_indices('/').filter_map(|(at, _)| path.get(..at));
+    for folder in folders {
+        match ctx.repo.entries(base, Some(folder))?.as_deref() {
+            Some([]) => return Ok(false),
+            Some([entry]) if entry.kind == "tree" && entry.path == folder => {}
+            _ => return Ok(true),
+        }
+    }
+    Ok(ctx
+        .repo
+        .entries(base, Some(path))?
+        .is_none_or(|entries| !entries.is_empty()))
+}
+
+/// What the inbox should hold.
+enum Content {
+    /// The inbox would not change.
+    Same,
+    /// The inbox's file is larger than the cap.
+    InboxTooLarge,
+    /// The inbox tip read (`None`: no inbox) and the merge of the journal ref's file, the
+    /// inbox's and the checkpoint's own.
+    New(Option<Oid>, Merged),
+}
+
+/// What `name`'s inbox should hold once `own` is merged in.
+fn inbox_content(ctx: &Ctx<'_>, name: &JournalName, own: &[u8]) -> Result<Content, RefsError> {
     // A ref breaking JR-05 counts as empty here; the inbox is still pushed (JR-07).
-    let journal = match read_journal(ctx.repo, name)? {
+    let journal = match read_journal(ctx, name)? {
         State::Good { file, .. } => file,
         State::Absent | State::Broken(_) => Vec::new(),
     };
-    if let Some((tip, file)) = read_inbox(ctx.repo, name)? {
-        let merged = merge(&merge(&journal, &file).bytes, own);
-        return Ok((merged.bytes != file).then_some((Some(tip), merged)));
-    }
-    let merged = merge(&journal, own);
-    Ok((merged.added > 0).then_some((None, merged)))
+    Ok(match read_inbox(ctx, name)? {
+        InboxCopy::TooLarge => Content::InboxTooLarge,
+        InboxCopy::Read { tip, file } => {
+            let merged = merge(&merge(&journal, &file).bytes, own);
+            if merged.bytes == file {
+                Content::Same
+            } else {
+                Content::New(Some(tip), merged)
+            }
+        }
+        InboxCopy::Absent => {
+            let merged = merge(&journal, own);
+            if merged.added > 0 {
+                Content::New(None, merged)
+            } else {
+                Content::Same
+            }
+        }
+    })
 }
 
 /// Fetches the remote ref `from` into the local `to`, deleting `to` when the remote has no
@@ -249,6 +302,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::journal::export::MAX_JOURNAL_BYTES;
     use crate::journal::refs::RefsTarget;
 
     fn git(dir: &Path, args: &[&str]) -> String {
@@ -426,6 +480,184 @@ mod tests {
         );
         let file = git(&remote, &["show", "refs/redkiln/journal/a1:a1.jsonl"]) + "\n";
         assert_eq!(file, line(1) + &line(2));
+    }
+
+    /// A repository with no remote, a commit `HEAD` and the journal ref `a1` set by `setup`.
+    fn local_with(dir: &Path, setup: &[&[&str]]) -> std::path::PathBuf {
+        let [work] = remote_with_clones(dir, &[], ["work"]);
+        git(&work, &["remote", "remove", "origin"]);
+        for args in setup {
+            git(&work, args);
+        }
+        work
+    }
+
+    /// `merge_direct` of `line(9)` into `a1` from `repo`, with no remote, reading at most `cap`
+    /// bytes of journal.
+    fn direct_with_cap(repo: &Path, cap: u64) -> Direct {
+        let target = target(repo);
+        let mut ctx = Ctx::local(&target);
+        ctx.max_bytes = cap;
+        let name = JournalName::parse("a1").expect("name");
+        merge_direct(&ctx, &name, line(9).as_bytes()).expect("ran")
+    }
+
+    /// The commit of a tree holding `file` as `a1.jsonl`, with `parents`.
+    fn journal_commit(repo: &Path, file: &str, parents: &[&str]) -> String {
+        let blob = Command::new("git")
+            .args(["hash-object", "-w", "--stdin"])
+            .current_dir(repo)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write as _;
+                child
+                    .stdin
+                    .take()
+                    .expect("stdin")
+                    .write_all(file.as_bytes())?;
+                child.wait_with_output()
+            })
+            .expect("hash-object");
+        let blob = String::from_utf8(blob.stdout).expect("utf-8");
+        let tree = Command::new("git")
+            .args(["mktree"])
+            .current_dir(repo)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write as _;
+                let entry = format!("100644 blob {}\ta1.jsonl\n", blob.trim());
+                child
+                    .stdin
+                    .take()
+                    .expect("stdin")
+                    .write_all(entry.as_bytes())?;
+                child.wait_with_output()
+            })
+            .expect("mktree");
+        let tree = String::from_utf8(tree.stdout).expect("utf-8");
+        let mut args = vec![
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            "commit-tree",
+            tree.trim(),
+            "-m",
+            "j",
+        ];
+        for parent in parents {
+            args.extend(["-p", parent]);
+        }
+        git(repo, &args)
+    }
+
+    #[test]
+    fn a_journal_ref_naming_a_blob_or_an_annotated_tag_breaks_its_tree() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let work = local_with(dir.path(), &[]);
+        let blob = git(&work, &["rev-parse", "HEAD:README.md"]);
+        git(&work, &["update-ref", "refs/redkiln/journal/a1", &blob]);
+        assert_eq!(
+            direct_with_cap(&work, MAX_JOURNAL_BYTES),
+            Direct::Broken(Breach::Tree)
+        );
+        let commit = journal_commit(&work, &line(1), &[]);
+        let tag = git(
+            &work,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.invalid",
+                "tag",
+                "-a",
+                "-m",
+                "t",
+                "t1",
+                &commit,
+            ],
+        );
+        assert_eq!(tag, "");
+        let tag = git(&work, &["rev-parse", "refs/tags/t1"]);
+        git(&work, &["update-ref", "refs/redkiln/journal/a1", &tag]);
+        assert_eq!(
+            direct_with_cap(&work, MAX_JOURNAL_BYTES),
+            Direct::Broken(Breach::Tree)
+        );
+    }
+
+    #[test]
+    fn a_journal_ref_with_a_merge_in_its_chain_or_an_unended_file_is_broken() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let work = local_with(dir.path(), &[]);
+        let first = journal_commit(&work, &line(1), &[]);
+        let second = journal_commit(&work, &line(2), &[]);
+        let merged = journal_commit(&work, &(line(1) + &line(2)), &[&first, &second]);
+        git(&work, &["update-ref", "refs/redkiln/journal/a1", &merged]);
+        assert_eq!(
+            direct_with_cap(&work, MAX_JOURNAL_BYTES),
+            Direct::Broken(Breach::Merge)
+        );
+        let unended = journal_commit(&work, line(1).trim_end(), &[]);
+        git(&work, &["update-ref", "refs/redkiln/journal/a1", &unended]);
+        assert_eq!(
+            direct_with_cap(&work, MAX_JOURNAL_BYTES),
+            Direct::Broken(Breach::Unended)
+        );
+    }
+
+    #[test]
+    fn a_journal_ref_over_the_cap_is_broken_and_a_merge_over_it_is_not_written() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let work = local_with(dir.path(), &[]);
+        let commit = journal_commit(&work, &line(1), &[]);
+        git(&work, &["update-ref", "refs/redkiln/journal/a1", &commit]);
+        let one = u64::try_from(line(1).len()).expect("small");
+        assert_eq!(
+            direct_with_cap(&work, one - 1),
+            Direct::Broken(Breach::TooLarge)
+        );
+        assert_eq!(direct_with_cap(&work, one + 1), Direct::TooLarge);
+        assert_eq!(
+            git(&work, &["rev-parse", "refs/redkiln/journal/a1"]),
+            commit
+        );
+    }
+
+    #[test]
+    fn an_inbox_over_the_cap_or_a_merge_past_it_defers_the_journal() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let [work] = remote_with_clones(dir.path(), &[], ["work"]);
+        let name = JournalName::parse("a1").expect("name");
+        assert_eq!(inbox(&work, &name, &line(1)), Inboxed::Pushed(1));
+        let target = target(&work);
+        let mut ctx = ctx(&target);
+        let base = prepare_relay(&ctx, "origin").expect("ran").expect("a base");
+        let to = Inbox {
+            remote: "origin",
+            base: &base,
+        };
+        let one = u64::try_from(line(1).len()).expect("small");
+        ctx.max_bytes = one - 1;
+        let outcome = write_inbox(&ctx, to, &name, line(2).as_bytes()).expect("ran");
+        assert_eq!(outcome, Inboxed::InboxTooLarge);
+        ctx.max_bytes = one + 1;
+        let outcome = write_inbox(&ctx, to, &name, line(2).as_bytes()).expect("ran");
+        assert_eq!(outcome, Inboxed::TooLarge);
+    }
+
+    #[test]
+    fn a_default_branch_holding_a_file_where_the_inbox_folder_goes_defers_the_journal() {
+        for file in [".redkiln", ".redkiln/inbox"] {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let [work] = remote_with_clones(dir.path(), &[file], ["work"]);
+            let name = JournalName::parse("a1").expect("name");
+            assert_eq!(inbox(&work, &name, &line(1)), Inboxed::Occupied, "{file}");
+        }
     }
 
     #[test]

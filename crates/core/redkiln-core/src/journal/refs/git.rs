@@ -7,7 +7,9 @@
 //!
 //! A step that talks to the remote (`ls-remote`, `fetch`, `push`) reports every failure as an
 //! outcome, a timeout included, so a hung remote defers a journal instead of failing the
-//! checkpoint; a local step's failure is a [`RefsError`].
+//! checkpoint; a local step's failure is a [`RefsError`]. Core's runner sets `LC_ALL=C`, which
+//! also makes gettext ignore `LANGUAGE`, so the one message read here, a fetch's "couldn't find
+//! remote ref", is git's untranslated text.
 
 use std::ffi::OsStr;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -141,17 +143,19 @@ impl Repo<'_> {
     }
 
     /// What the ref `name` holds.
+    ///
+    /// The ref itself must name a commit: an annotated tag of one is not peeled.
     pub(crate) fn resolve(&self, name: &str) -> Result<Resolved, RefsError> {
-        let spec = format!("{name}^{{commit}}");
-        let captured = self.run(Self::command(), &["rev-parse", "-q", "--verify", &spec])?;
-        if captured.status.success() {
-            return Oid::from_output(&captured.stdout).map(Resolved::Commit);
+        let captured = self.run(Self::command(), &["show-ref", "--verify", "-q", name])?;
+        if !captured.status.success() {
+            return Ok(Resolved::Absent);
         }
-        let exists = self.run(Self::command(), &["show-ref", "--verify", "-q", name])?;
-        Ok(if exists.status.success() {
-            Resolved::NotACommit
+        let oid = Oid::from_output(&self.ok(&["rev-parse", "--verify", "-q", name])?)?;
+        let kind = self.ok(&["cat-file", "-t", oid.as_str()])?;
+        Ok(if kind.trim_ascii() == b"commit" {
+            Resolved::Commit(oid)
         } else {
-            Resolved::Absent
+            Resolved::NotACommit
         })
     }
 
@@ -300,7 +304,14 @@ impl Repo<'_> {
         if captured.status.success() {
             return Ok(true);
         }
-        if String::from_utf8_lossy(&captured.stderr).contains("cannot lock ref") {
+        // A miss is read from the ref, not from git's message: the ref no longer holds `old`.
+        // A ref that still holds it failed for another reason.
+        let now = match self.resolve(name)? {
+            Resolved::Commit(oid) => Some(oid),
+            Resolved::Absent => None,
+            Resolved::NotACommit => return Ok(false),
+        };
+        if now.as_ref() != old {
             return Ok(false);
         }
         self.succeeded(&args, captured).map(|_| false)
@@ -455,4 +466,53 @@ fn answer(step: &'static str, got: &[u8]) -> RefsError {
 
 fn trimmed(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).trim().to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repo(dir: &Path) -> Repo<'_> {
+        let init = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir)
+            .status()
+            .expect("git");
+        assert!(init.success());
+        Repo {
+            dir,
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    #[test]
+    fn a_blob_over_the_cap_is_none_and_one_at_it_is_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = repo(dir.path());
+        let blob = repo.hash_blob(b"0123456789").expect("blob");
+        assert_eq!(repo.blob(&blob, 9).expect("ran"), None);
+        assert_eq!(
+            repo.blob(&blob, 10).expect("ran"),
+            Some(b"0123456789".to_vec())
+        );
+    }
+
+    #[test]
+    fn a_ref_moved_by_another_writer_is_a_miss_and_an_unwritable_one_an_error() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = repo(dir.path());
+        let tree = repo.single_file_tree("a1.jsonl", &repo.hash_blob(b"").expect("blob"));
+        let tree = tree.expect("tree");
+        let first = repo.commit(&tree, None, "1").expect("commit");
+        let second = repo.commit(&tree, Some(&first), "2").expect("commit");
+        let name = "refs/redkiln/journal/a1";
+        assert!(repo.move_ref(name, &second, None).expect("ran"));
+        assert!(!repo.move_ref(name, &first, Some(&first)).expect("ran"));
+        // A name git refuses is not a miss: the ref holds what the writer read.
+        let refused = repo.move_ref("refs/redkiln/journal/..", &first, None);
+        assert!(
+            matches!(&refused, Err(RefsError::Git { step, .. }) if step == "update-ref"),
+            "{refused:?}"
+        );
+    }
 }

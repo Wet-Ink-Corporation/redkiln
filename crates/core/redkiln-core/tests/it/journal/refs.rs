@@ -244,16 +244,32 @@ fn a_remote_that_hangs_defers_the_journals_instead_of_failing_the_checkpoint() {
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
     let hook = remote.join("hooks/pre-receive");
-    std::fs::write(&hook, "#!/bin/sh\nsleep 5\n").expect("hook");
+    // Only a push runs the hook, so fetches and local steps finish well inside the limit; the
+    // hook ends by itself soon after the test, whichever process outlives the killed push.
+    std::fs::write(&hook, "#!/bin/sh\nsleep 12\n").expect("hook");
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).expect("chmod");
     let store = store_in(dir.path(), "store");
     let quick = RefsTarget {
-        timeout: Duration::from_secs(2),
+        timeout: Duration::from_secs(4),
         ..target(&work)
     };
     let report = written(checkpoint_refs(&store, RepoClass::Own, &quick).expect("not an error"));
-    assert!(report.relay_reason.is_some(), "{report:?}");
+    let timed_out = |said: &str| said.contains("did not answer");
+    assert!(
+        report.relay_reason.as_deref().is_some_and(timed_out),
+        "{report:?}"
+    );
+    assert!(
+        report.direct.is_empty() && report.relayed.is_empty(),
+        "{report:?}"
+    );
     assert!(!report.deferred.is_empty(), "{report:?}");
+    for (name, deferral) in &report.deferred {
+        assert!(
+            matches!(deferral, Deferral::Failed(said) if timed_out(said)),
+            "{name}: {deferral:?}"
+        );
+    }
 }
 
 #[cfg(unix)]

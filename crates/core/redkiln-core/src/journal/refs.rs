@@ -66,12 +66,6 @@ pub enum RefsError {
         /// What it printed.
         got: String,
     },
-    /// A journal file in git is larger than [`MAX_JOURNAL_BYTES`].
-    #[error("the journal {name} in git is larger than {MAX_JOURNAL_BYTES} bytes")]
-    TooLarge {
-        /// The journal.
-        name: JournalName,
-    },
     /// The branch given to [`relay`] is not an inbox branch.
     #[error("`{0}` is not an inbox branch, redkiln/inbox/<name>")]
     NotInbox(String),
@@ -113,6 +107,8 @@ pub(crate) struct Ctx<'a> {
     /// The remote to push to; `None` writes local refs only.
     pub(crate) remote: Option<&'a str>,
     pub(crate) deadline: Option<Instant>,
+    /// The largest journal file read or written: [`MAX_JOURNAL_BYTES`], smaller in tests.
+    pub(crate) max_bytes: u64,
 }
 
 impl<'a> Ctx<'a> {
@@ -125,6 +121,7 @@ impl<'a> Ctx<'a> {
             },
             remote: None,
             deadline: target.deadline,
+            max_bytes: MAX_JOURNAL_BYTES,
         }
     }
 
@@ -160,7 +157,8 @@ pub(crate) fn inbox_path(name: &JournalName) -> String {
 }
 
 /// The local journal ref of `name`, checked against JR-05.
-pub(crate) fn read_journal(repo: Repo<'_>, name: &JournalName) -> Result<State, RefsError> {
+pub(crate) fn read_journal(ctx: &Ctx<'_>, name: &JournalName) -> Result<State, RefsError> {
+    let repo = ctx.repo;
     let tip = match repo.resolve(&journal_ref(name))? {
         Resolved::Absent => return Ok(State::Absent),
         Resolved::NotACommit => return Ok(State::Broken(Breach::Tree)),
@@ -178,7 +176,7 @@ pub(crate) fn read_journal(repo: Repo<'_>, name: &JournalName) -> Result<State, 
         }
         _ => return Ok(State::Broken(Breach::Tree)),
     };
-    let Some(file) = repo.blob(blob, MAX_JOURNAL_BYTES)? else {
+    let Some(file) = repo.blob(blob, ctx.max_bytes)? else {
         return Ok(State::Broken(Breach::TooLarge));
     };
     if file.last().is_some_and(|last| *last != b'\n') {
@@ -187,25 +185,34 @@ pub(crate) fn read_journal(repo: Repo<'_>, name: &JournalName) -> Result<State, 
     Ok(State::Good { tip, file })
 }
 
-/// The local copy of `name`'s inbox branch: its tip and its file (empty when it holds none).
-///
-/// # Errors
-/// [`RefsError::TooLarge`] when its file is larger than [`MAX_JOURNAL_BYTES`]: the inbox cannot
-/// be merged, so its journal is deferred.
-pub(crate) fn read_inbox(
-    repo: Repo<'_>,
-    name: &JournalName,
-) -> Result<Option<(Oid, Vec<u8>)>, RefsError> {
+/// The clone's copy of an inbox branch as read.
+#[derive(Debug)]
+pub(crate) enum InboxCopy {
+    Absent,
+    /// Its tip and its file (empty when it holds none).
+    Read {
+        tip: Oid,
+        file: Vec<u8>,
+    },
+    /// Its file is larger than the context's cap, so it cannot be merged.
+    TooLarge,
+}
+
+/// The local copy of `name`'s inbox branch.
+pub(crate) fn read_inbox(ctx: &Ctx<'_>, name: &JournalName) -> Result<InboxCopy, RefsError> {
+    let repo = ctx.repo;
     let Some(tip) = repo.commit_of(&inbox_ref(name))? else {
-        return Ok(None);
+        return Ok(InboxCopy::Absent);
     };
     let path = inbox_path(name);
     let file = match repo.entries(&tip, Some(&path))?.as_deref() {
-        Some([entry]) if entry.kind == "blob" && entry.path == path => repo
-            .blob(&entry.oid, MAX_JOURNAL_BYTES)?
-            // The error names the journal it stops.
-            .ok_or_else(|| RefsError::TooLarge { name: name.clone() })?,
+        Some([entry]) if entry.kind == "blob" && entry.path == path => {
+            match repo.blob(&entry.oid, ctx.max_bytes)? {
+                Some(file) => file,
+                None => return Ok(InboxCopy::TooLarge),
+            }
+        }
         _ => Vec::new(),
     };
-    Ok(Some((tip, file)))
+    Ok(InboxCopy::Read { tip, file })
 }

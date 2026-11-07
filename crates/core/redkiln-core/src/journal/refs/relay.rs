@@ -12,7 +12,6 @@ use super::{
     Breach, Ctx, INBOX_BRANCHES, Oid, RefsError, RefsTarget, inbox_branch, inbox_path, inbox_ref,
     journal_ref,
 };
-use crate::journal::export::MAX_JOURNAL_BYTES;
 use crate::journal::name::JournalName;
 
 /// What a relay run did.
@@ -25,6 +24,9 @@ pub enum Relayed {
     Refused(Refusal),
     /// The journal ref breaks JR-05; the branch is left in place.
     Broken(Breach),
+    /// Merging the inbox would make the journal larger than [`crate::journal::MAX_JOURNAL_BYTES`]; nothing was
+    /// written and the branch is left in place.
+    TooLarge,
     /// Every retry of a rejected push was rejected; the branch is left in place.
     RetriesSpent,
     /// A fetch or push failed, with what git said; the branch is left in place.
@@ -57,7 +59,7 @@ pub enum Refusal {
     Parents(usize),
     /// It changes something other than adding the one inbox file: what git listed.
     Changes(String),
-    /// Its file is larger than [`MAX_JOURNAL_BYTES`].
+    /// Its file is larger than [`crate::journal::MAX_JOURNAL_BYTES`].
     TooLarge,
 }
 
@@ -109,6 +111,7 @@ fn merged(
         Direct::UpToDate => 0,
         Direct::Moved(added) => added,
         Direct::Broken(breach) => return Ok(Relayed::Broken(breach)),
+        Direct::TooLarge => return Ok(Relayed::TooLarge),
         Direct::Spent => return Ok(Relayed::RetriesSpent),
         Direct::Failed(said) => return Ok(Relayed::Failed(said)),
         Direct::Late => return Ok(Relayed::Failed("out of time".to_owned())),
@@ -159,7 +162,7 @@ fn inbox_file(
     };
     Ok(ctx
         .repo
-        .blob(&blob, MAX_JOURNAL_BYTES)?
+        .blob(&blob, ctx.max_bytes)?
         .ok_or(Refusal::TooLarge))
 }
 

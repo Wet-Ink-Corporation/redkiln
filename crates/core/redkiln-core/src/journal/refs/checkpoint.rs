@@ -8,7 +8,9 @@
 
 use super::direct::{Direct, Inbox, Inboxed, merge_direct, prepare_relay, write_inbox};
 use super::git::Fetched;
-use super::{Breach, Ctx, JOURNAL_REFS, RefsError, RefsTarget, State, read_inbox, read_journal};
+use super::{
+    Breach, Ctx, InboxCopy, JOURNAL_REFS, RefsError, RefsTarget, State, read_inbox, read_journal,
+};
 use crate::journal::export::grouped;
 use crate::journal::merge::merge;
 use crate::journal::name::JournalName;
@@ -58,6 +60,9 @@ pub enum Deferral {
     /// The inbox branch's file is larger than [`crate::journal::MAX_JOURNAL_BYTES`], so it
     /// cannot be merged; the relay refuses it too, and a person deletes it.
     InboxTooLarge,
+    /// Merging the checkpoint's lines would make the journal larger than
+    /// [`crate::journal::MAX_JOURNAL_BYTES`], so nothing was written.
+    TooLarge,
     /// A fetch or push failed, with what git said.
     Failed(String),
 }
@@ -147,6 +152,7 @@ fn direct(
             report.direct.push(name);
         }
         Direct::Broken(breach) => report.broken.push((name, breach)),
+        Direct::TooLarge => report.deferred.push((name, Deferral::TooLarge)),
         Direct::Spent => report.deferred.push((name, Deferral::RetriesSpent)),
         Direct::Late => report.deferred.push((name, Deferral::Late)),
         Direct::Failed(said) => {
@@ -173,14 +179,7 @@ fn relayed(
             return Ok(());
         }
     };
-    let written = match write_inbox(ctx, inbox, &name, own) {
-        Err(RefsError::TooLarge { .. }) => {
-            report.deferred.push((name, Deferral::InboxTooLarge));
-            return Ok(());
-        }
-        written => written?,
-    };
-    let deferral = match written {
+    let deferral = match write_inbox(ctx, inbox, &name, own)? {
         Inboxed::Same => return Ok(()),
         Inboxed::Pushed(added) => {
             report.appended = report.appended.saturating_add(added);
@@ -188,6 +187,8 @@ fn relayed(
             return Ok(());
         }
         Inboxed::Occupied => Deferral::InboxOccupied,
+        Inboxed::InboxTooLarge => Deferral::InboxTooLarge,
+        Inboxed::TooLarge => Deferral::TooLarge,
         Inboxed::Spent => Deferral::RetriesSpent,
         Inboxed::Late => Deferral::Late,
         Inboxed::Failed(said) => Deferral::Failed(said),
@@ -198,15 +199,14 @@ fn relayed(
 
 /// Whether `own` holds a line that neither the clone's journal ref nor its inbox copy holds.
 fn lacks(ctx: &Ctx<'_>, name: &JournalName, own: &[u8]) -> Result<bool, RefsError> {
-    let journal = match read_journal(ctx.repo, name)? {
+    let journal = match read_journal(ctx, name)? {
         State::Good { file, .. } => file,
         State::Absent | State::Broken(_) => Vec::new(),
     };
-    let known = match read_inbox(ctx.repo, name) {
-        Ok(Some((_, inbox))) => merge(&journal, &inbox).bytes,
+    let known = match read_inbox(ctx, name)? {
+        InboxCopy::Read { file, .. } => merge(&journal, &file).bytes,
         // An inbox too large to read holds nothing this check can count on.
-        Ok(None) | Err(RefsError::TooLarge { .. }) => journal,
-        Err(e) => return Err(e),
+        InboxCopy::Absent | InboxCopy::TooLarge => journal,
     };
     Ok(merge(&known, own).added > 0)
 }
