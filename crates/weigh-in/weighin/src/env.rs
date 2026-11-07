@@ -2,7 +2,7 @@
 
 mod location;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use redkiln_core::ids::{Host, SessionId, WorktreeId};
 use redkiln_core::location::{LocateError, Workspace};
 use redkiln_core::store::Wait;
@@ -609,6 +609,24 @@ impl Env {
         Ok(dir.join("weighin"))
     }
 
+    /// The state dir of the default store, `<git-common-dir>/redkiln/weighin/`: where a hook
+    /// logs a store Core refused to open, since nothing is written beside that file (D4, review
+    /// F2). `None` outside git, where it would be a `.redkiln/` made in the user's folder for a
+    /// store kept elsewhere.
+    #[must_use]
+    pub(crate) fn default_state_dir(&self) -> Option<PathBuf> {
+        Some(self.common_dir.as_deref()?.join("redkiln").join("weighin"))
+    }
+
+    /// Whether the store is a path the user gave (`--store`, a variable, a config's `store`)
+    /// rather than the default in `<git-common-dir>/redkiln/` or `<folder>/.redkiln/`, which
+    /// are redkiln's own directories.
+    #[must_use]
+    pub(crate) fn store_was_given(&self) -> bool {
+        use redkiln_core::location::Source;
+        matches!(&self.store, Ok(at) if matches!(at.source, Source::Flag | Source::Env | Source::Config))
+    }
+
     #[must_use]
     pub(crate) fn envelope(&self, event: LedgerEvent, actor: &str) -> EventEnvelope {
         EventEnvelope {
@@ -695,14 +713,6 @@ impl Env {
     pub(crate) fn relative_anchor(&self, at: &str) -> String {
         let (path, position) = split_anchor(at);
         format!("{}{position}", self.relative(path))
-    }
-
-    /// # Errors
-    /// Fails when the state directory cannot be created.
-    pub(crate) fn ensure_state_dir(&self) -> Result<PathBuf> {
-        let d = self.state_dir()?;
-        std::fs::create_dir_all(&d).with_context(|| format!("creating {}", d.display()))?;
-        Ok(d)
     }
 }
 
@@ -1096,7 +1106,7 @@ mod tests {
         let tmp = tempfile::tempdir()?;
         std::fs::create_dir_all(tmp.path().join(".weighin"))?;
         std::fs::write(tmp.path().join(".weighin/ledger.sqlite3"), b"1.x")?;
-        let mut env = Env::discover(tmp.path(), None, None, location::Vars::default());
+        let mut env = Env::discover(tmp.path(), None, None, Vars::default());
         assert_eq!(env.notices.len(), 1, "the old ledger: {:?}", env.notices);
 
         // A `~/` key with no home directory cannot be resolved.

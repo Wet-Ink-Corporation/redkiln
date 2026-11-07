@@ -220,3 +220,24 @@ fn a_read_longer_than_a_page_returns_every_event_in_order() {
     let expected: Vec<u64> = (1..=u64::try_from(count).expect("small")).collect();
     assert_eq!(positions, expected);
 }
+
+#[test]
+fn only_a_file_core_refuses_as_a_store_is_a_refusal_however_it_is_wrapped() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A copy: Core's fixtures are never opened in place.
+    let old = dir.path().join("ledger.sqlite3");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../core/redkiln-core/tests/fixtures/weighin-1.2.0.sqlite3"),
+        &old,
+    )
+    .expect("fixture copied");
+    let blocked = old.join("events.sqlite3");
+
+    let refusal = Store::open(&old, Wait::Command).expect_err("an old ledger is refused");
+    let other = Store::open(&blocked, Wait::Command).expect_err("a file is no directory");
+
+    assert!(is_refused(&refusal), "{refusal:#}");
+    assert!(is_refused(&refusal.context("reading the ledger")));
+    assert!(!is_refused(&other), "{other:#}");
+}

@@ -34,7 +34,7 @@ use weighin_core::scan::{scan_markdown, scan_todos};
 use crate::env::{self, Config, ConfigSource, Env, Vars};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
-use crate::{journal, recall, shell_bin};
+use crate::{journal, recall, shell_bin, store};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
@@ -213,7 +213,7 @@ impl Hook {
     reason = "last-resort sink: a hook has no other channel to report a failed append (hooks.rs module doc)"
 )]
 fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
-    let Ok(dir) = env.ensure_state_dir() else {
+    let Some(dir) = log_dir(env, e) else {
         return;
     };
     if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -223,6 +223,26 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
     {
         let _ = writeln!(f, "{} {event}: {e:#}", env::now());
     }
+}
+
+/// Whether `e` is Core refusing a store path the user gave (an old ledger, another program's
+/// database), beside which nothing is written, not even the state dir (D4, review F2). A refused
+/// file at the default place is in redkiln's own directory, and is logged as any failure.
+fn refused_given_store(env: &Env, e: &anyhow::Error) -> bool {
+    env.store_was_given() && store::is_refused(e)
+}
+
+/// Where `e` is logged, the directory made: the state dir, except for
+/// [`refused_given_store`], logged in the default store's state dir, and outside git nowhere
+/// (`SessionStart` reports it).
+fn log_dir(env: &Env, e: &anyhow::Error) -> Option<PathBuf> {
+    let dir = if refused_given_store(env, e) {
+        env.default_state_dir()?
+    } else {
+        env.state_dir().ok()?
+    };
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
 }
 
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
@@ -235,8 +255,18 @@ fn session_start(env: &Env, source: &str) -> String {
         Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
         Err(e) => (Err(e), 0),
     };
+    // A given store Core refuses is told to the user here, every session until it is fixed, and
+    // not logged: the log would be in a state dir no later session reads.
+    let mut refused = None;
     let mut context = primed.unwrap_or_else(|e| {
-        log_error(env, "SessionStart", &e);
+        if refused_given_store(env, &e) {
+            refused = Some(format!(
+                "Weigh-In cannot open its store, so hooks capture nothing until that is fixed: {}.",
+                clip(&format!("{e:#}"), 400)
+            ));
+        } else {
+            log_error(env, "SessionStart", &e);
+        }
         CONVENTION.to_owned()
     });
     if let Some(copy) = shell_copy(env) {
@@ -246,6 +276,7 @@ fn session_start(env: &Env, source: &str) -> String {
     }
     let parts: Vec<String> = broken
         .into_iter()
+        .chain(refused)
         .chain(store_notes(env, unusable))
         .chain(new_errors(env))
         .collect();
@@ -297,10 +328,11 @@ fn shell_copy(env: &Env) -> Option<PathBuf> {
     if !cfg!(windows) {
         return None;
     }
-    // The repository's git dir, not the state dir, which follows a configured `store` to a folder
-    // the shell may not see. Under `redkiln/`, so nothing is added beside a 1.x ledger in
-    // `<common>/weighin/`, which stays as it was until it is imported.
-    let dir = env.common_dir.as_deref()?.join("redkiln").join("weighin");
+    // The default store's state dir in the repository's git dir, not the state dir, which follows
+    // a configured `store` to a folder the shell may not see. Under `redkiln/`, so nothing is
+    // added beside a 1.x ledger in `<common>/weighin/`, which stays as it was until it is
+    // imported.
+    let dir = env.default_state_dir()?;
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {

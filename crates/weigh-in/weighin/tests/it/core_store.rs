@@ -5,7 +5,7 @@
 //! same in the store and in its journal line (ID-06).
 
 use crate::scratch::{Repo, TestResult};
-use crate::support::{MESSAGE, Run, store_of, weighin_env};
+use crate::support::{MESSAGE, Run, state_of, store_of, weighin_env};
 use redkiln_core::ids::{Host, WorktreeId};
 use redkiln_core::store::{Filter, Store, Wait};
 use serde_json::{Value, json};
@@ -169,30 +169,76 @@ fn a_store_path_naming_an_old_ledger_is_refused_with_the_import_hint() -> TestRe
             before,
             "{name}: the old ledger is unchanged"
         );
-        let (ok, out) = weighin_env(
-            &repo.root,
+        let stop = json!({"hook_event_name": "Stop", "session_id": "s1", "cwd": repo.root, "last_assistant_message": MESSAGE})
+            .to_string();
+        let hooked = [&start, &stop].map(|payload| {
+            weighin_env(
+                &repo.root,
+                &Run {
+                    session: "s1",
+                    args: &["hook"],
+                    stdin: Some(payload),
+                    vars: &[("REDKILN_STORE", named.as_str())],
+                },
+            )
+        });
+        let [(started, message), (stopped, _)] = hooked;
+        assert!(started && stopped, "{name}: a hook fails open: {message}");
+        // Nothing is written beside the refused file, not even weighin's state dir (D4 as
+        // amended, review F2): SessionStart tells the user, and other hooks log under the default
+        // store's state dir.
+        assert_eq!(
+            snapshot(&old)?,
+            before,
+            "{name}: the old ledger and its directory are unchanged"
+        );
+        assert!(
+            message.contains(IMPORT_HINT),
+            "{name}: SessionStart reports the refusal: {message}"
+        );
+        let logged = std::fs::read_to_string(state_of(&repo.root).join("hook-errors.log"))?;
+        assert!(
+            logged.contains("Stop") && logged.contains(IMPORT_HINT),
+            "{name}: the Stop hook logs the refusal: {logged}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn outside_git_a_hook_given_a_refused_store_writes_nothing_and_session_start_says_so() -> TestResult
+{
+    let folder = tempfile::tempdir()?;
+    let old = folder.path().join("ledger.sqlite3");
+    std::fs::write(&old, fixture("weighin-1.2.0.sqlite3")?)?;
+    let before = names_in(folder.path())?;
+    let named = old.to_string_lossy().into_owned();
+    let start = json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": folder.path(), "source": "startup"})
+        .to_string();
+    let stop = json!({"hook_event_name": "Stop", "session_id": "s1", "cwd": folder.path(), "last_assistant_message": MESSAGE})
+        .to_string();
+
+    let hooked = [&start, &stop].map(|payload| {
+        weighin_env(
+            folder.path(),
             &Run {
                 session: "s1",
                 args: &["hook"],
-                stdin: Some(&start),
+                stdin: Some(payload),
                 vars: &[("REDKILN_STORE", named.as_str())],
             },
-        );
-        assert!(ok, "{name}: a hook fails open: {out}");
-        // The hook logs the refusal in weighin's state dir beside the store it was given (D4),
-        // its one channel back to the user; the ledger and its SQLite files stay as they were.
-        let (mut beside, digest) = snapshot(&old)?;
-        beside.retain(|n| n != "weighin");
-        assert_eq!(
-            (beside, digest),
-            before,
-            "{name}: the old ledger is unchanged"
-        );
-        assert!(
-            out.contains("hook error") && old.with_file_name("weighin/hook-errors.log").exists(),
-            "{name}: the refusal is reported: {out}"
-        );
-    }
+        )
+    });
+
+    let [(started, message), (stopped, _)] = hooked;
+    assert!(started && stopped, "a hook fails open: {message}");
+    assert!(message.contains(IMPORT_HINT), "{message}");
+    assert_eq!(
+        names_in(folder.path())?,
+        before,
+        "nothing written in the folder"
+    );
     Ok(())
 }
 

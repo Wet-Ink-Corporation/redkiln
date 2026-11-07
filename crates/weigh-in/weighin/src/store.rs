@@ -180,13 +180,7 @@ impl Store {
 /// A store Core would not open, with a hint when it is an old ledger: weighin 2.0 imports a 1.x
 /// ledger (Move 1 step 8, ST-15) rather than opening it.
 fn refused(error: StoreError) -> anyhow::Error {
-    let old = match &error {
-        StoreError::Open {
-            path,
-            source: OpenError::OldLedger { .. } | OpenError::NotAStore,
-        } => Some(path.display().to_string()),
-        _ => None,
-    };
+    let old = refused_path(&error).map(|path| path.display().to_string());
     let error = anyhow::Error::new(error);
     match old {
         Some(path) => error.context(format!(
@@ -194,6 +188,29 @@ fn refused(error: StoreError) -> anyhow::Error {
         )),
         None => error,
     }
+}
+
+/// The file Core refused to open as a store, when `error` is that refusal: an old ledger or
+/// another program's database.
+fn refused_path(error: &StoreError) -> Option<&Path> {
+    match error {
+        StoreError::Open {
+            path,
+            source: OpenError::OldLedger { .. } | OpenError::NotAStore,
+        } => Some(path),
+        _ => None,
+    }
+}
+
+/// Whether `error`, or any error it was caused by, is Core refusing to open a file as a store.
+/// Nothing is written beside such a file, not even weighin's state dir (D4, review F2).
+pub(crate) fn is_refused(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<StoreError>()
+            .and_then(refused_path)
+            .is_some()
+    })
 }
 
 #[cfg(test)]
