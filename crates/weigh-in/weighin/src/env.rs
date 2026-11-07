@@ -537,7 +537,11 @@ impl Env {
                 self.store = Ok(found.store);
                 self.notices = found.notices;
             }
-            Err(e) => self.store = Err(e),
+            // Whatever the last location found is not news about a store no longer located.
+            Err(e) => {
+                self.store = Err(e);
+                self.notices.clear();
+            }
         }
     }
 
@@ -1084,6 +1088,24 @@ mod tests {
             "{:?}",
             env.config_source
         );
+    }
+
+    #[test]
+    fn a_relocation_that_fails_drops_the_notices_of_the_last_one()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        std::fs::create_dir_all(tmp.path().join(".weighin"))?;
+        std::fs::write(tmp.path().join(".weighin/ledger.sqlite3"), b"1.x")?;
+        let mut env = Env::discover(tmp.path(), None, None, location::Vars::default());
+        assert_eq!(env.notices.len(), 1, "the old ledger: {:?}", env.notices);
+
+        // A `~/` key with no home directory cannot be resolved.
+        env.config.store = Some("~/proj.sqlite3".to_owned());
+        env.relocate();
+
+        assert!(env.store.is_err(), "{:?}", env.store);
+        assert_eq!(env.notices, [], "notices of a store no longer located");
+        Ok(())
     }
 
     #[test]

@@ -116,7 +116,7 @@ pub(crate) fn locate_store(
     // to Core as the variable's value, so a later step never runs.
     let redkiln = set(vars.redkiln_store.as_deref());
     let weighin = match (flag, redkiln, set(vars.weighin_store.as_deref())) {
-        (None, None, Some(named)) => Some(beside(&resolve(cwd, named, home)?)),
+        (None, None, Some(named)) => Some(beside(&resolve(cwd, trimmed(named), home)?)),
         _ => None,
     };
     let search = Search {
@@ -252,6 +252,12 @@ fn suite_notice(warning: &Warning) -> Option<Notice> {
 /// A variable's value, unless it is unset, empty or only white space.
 fn set(value: Option<&OsStr>) -> Option<&OsStr> {
     value.filter(|v| !blank(v))
+}
+
+/// `value` without surrounding white space, as 1.x read `$WEIGHIN_STORE`; a value that is not
+/// UTF-8 is taken as it is.
+fn trimmed(value: &OsStr) -> &OsStr {
+    value.to_str().map_or(value, |s| OsStr::new(s.trim()))
 }
 
 /// Empty, or only white space.

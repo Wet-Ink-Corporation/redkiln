@@ -133,6 +133,16 @@ fn weighin_store_names_the_old_ledger_and_the_store_goes_beside_it() {
 }
 
 #[test]
+fn weighin_store_is_trimmed_as_1x_trimmed_it() {
+    let (_tmp, repo) = repo();
+
+    let padded = found(&repo, None, None, &vars(None, Some(" x/proj.sqlite3\n")));
+
+    assert_eq!(padded.store.source, Source::Env);
+    assert_at(&padded.store.path, &repo, &["x", "proj.events.sqlite3"]);
+}
+
+#[test]
 fn suite_store_wins_over_the_config_key_which_alone_puts_the_store_beside_its_ledger() -> TestResult
 {
     let (_tmp, repo) = repo();
