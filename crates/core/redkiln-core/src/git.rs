@@ -16,7 +16,35 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
+
+/// Held for reading while a child is spawned, and for writing by a store opener while it holds
+/// `<store>.lock`. A child forked in that window would hold the whole-file lock too, until it
+/// execs, so an opener that does not wait (a telemetry write, an existing-only open) would find
+/// its own store busy.
+///
+/// The state is process-wide (ARC-09) because what it guards is: every child inherits the
+/// process's open file descriptions, whichever thread or store opened them. It covers Core's own
+/// spawns only; a caller's `Command` on another thread can still inherit the lock file.
+static FORKS: RwLock<()> = RwLock::new(());
+
+/// Whether Core could spawn now: no store opener holds the guard for writing.
+#[cfg(test)]
+pub(crate) fn forks_free() -> bool {
+    FORKS.try_read().is_ok()
+}
+
+/// Keeps Core from spawning a child until the guard drops. The guarded data is `()`, so
+/// a poisoned lock is as good as a clean one.
+pub(crate) fn no_forks() -> RwLockWriteGuard<'static, ()> {
+    FORKS.write().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Lets this process spawn a child, once no store opener holds its lock.
+pub(crate) fn forking() -> RwLockReadGuard<'static, ()> {
+    FORKS.read().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The most bytes kept of each of git's output streams; more is [`GitError::TooMuchOutput`].
 pub(crate) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
@@ -183,7 +211,8 @@ pub(crate) struct Spooled {
 }
 
 /// [`run`] of `command`, its arguments already given, with `stdin` read from a file when given,
-/// and stdout left in its spool.
+/// and stdout left in its spool. The spawn first waits for any store opener in this process to
+/// let go of its lock ([`forking`]), and the timeout starts after that wait.
 pub(crate) fn run_spooled(
     mut command: Command,
     cwd: &Path,
@@ -192,14 +221,16 @@ pub(crate) fn run_spooled(
 ) -> Result<Spooled, GitError> {
     let mut stdout = tempfile::tempfile().map_err(GitError::Io)?;
     let mut stderr = tempfile::tempfile().map_err(GitError::Io)?;
-    let mut child = command
+    command
         .current_dir(cwd)
         .env("LC_ALL", "C")
         .stdin(stdin.map_or_else(Stdio::null, Stdio::from))
         .stdout(Stdio::from(stdout.try_clone().map_err(GitError::Io)?))
-        .stderr(Stdio::from(stderr.try_clone().map_err(GitError::Io)?))
-        .spawn()
-        .map_err(GitError::Spawn)?;
+        .stderr(Stdio::from(stderr.try_clone().map_err(GitError::Io)?));
+    let forking = forking();
+    let spawned = command.spawn();
+    drop(forking);
+    let mut child = spawned.map_err(GitError::Spawn)?;
     let status = wait(&mut child, timeout)?;
     stdout.seek(SeekFrom::Start(0)).map_err(GitError::Io)?;
     Ok(Spooled {
@@ -326,6 +357,7 @@ mod tests {
     fn init(dir: &Path, name: &str) -> (PathBuf, PathBuf) {
         let repo = dir.join(name);
         std::fs::create_dir_all(repo.join("sub")).expect("dirs");
+        let _forking = forking();
         let status = Command::new("git")
             .args(["init", "-q"])
             .current_dir(&repo)

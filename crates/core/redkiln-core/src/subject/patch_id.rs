@@ -289,12 +289,14 @@ mod tests {
     const TIMEOUT: Duration = Duration::from_secs(30);
 
     fn git(dir: &Path, args: &[&str]) -> String {
+        let forking = git::forking();
         let out = Command::new("git")
             .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
             .args(args)
             .current_dir(dir)
             .output()
             .expect("git runs");
+        drop(forking);
         assert!(out.status.success(), "git {args:?}");
         String::from_utf8(out.stdout)
             .expect("utf-8")
@@ -324,6 +326,7 @@ mod tests {
 
     /// A plain `git diff | git patch-id --verbatim` under `env`: the control.
     fn plain(dir: &Path, base: &str, head: &str, env: &[(&str, &str)]) -> Vec<u8> {
+        let _forking = git::forking();
         let diff = Command::new("git")
             .args(["diff", &format!("{base}...{head}")])
             .envs(env.iter().copied())

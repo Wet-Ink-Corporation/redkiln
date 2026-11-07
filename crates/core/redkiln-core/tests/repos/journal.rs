@@ -19,7 +19,9 @@ use redkiln_core::trust::{Level, Trust, Via};
 use serde::{Deserialize, Serialize};
 
 mod batches;
+mod git_fixture;
 mod lines;
+mod refs;
 
 const WAIT: Duration = Duration::from_secs(5);
 

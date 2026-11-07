@@ -1,4 +1,5 @@
-//! Integration tests for `redkiln-core`, one binary (TST-02).
+//! Integration tests for `redkiln-core` that start no git process (TST-02). Those that do are in
+//! the `repos` binary, and the subject cases in `subject`.
 
 #[cfg(test)]
 mod envelope;
@@ -7,11 +8,7 @@ mod existing;
 #[cfg(test)]
 mod fixtures;
 #[cfg(test)]
-mod journal;
-#[cfg(test)]
 mod legacy;
-#[cfg(test)]
-mod location;
 #[cfg(test)]
 mod store;
 #[cfg(test)]
