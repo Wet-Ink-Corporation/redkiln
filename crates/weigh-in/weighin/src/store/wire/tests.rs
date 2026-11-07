@@ -183,6 +183,25 @@ fn a_field_core_refuses_is_an_error_naming_it() {
 }
 
 #[test]
+fn an_item_id_core_refuses_as_a_tag_is_an_error_naming_the_tag_never_cut() {
+    // weighin's own tag values are bounded (item ids, enum names), so EV-11's "too long" is
+    // reached only through Core's `session` tag (the case above); an item id read from 1.x
+    // JSON is any string, and one Core does not take as an item id is refused whole.
+    let writer = writer().expect("writer");
+    let long_id = format!("wi-{}", "a".repeat(300));
+    let mut raise = raise_json();
+    raise["item_id"] = json!(long_id);
+
+    let err = to_new_event(flat(&raise), &writer).expect_err("a 303-byte item id");
+
+    assert_eq!(err.to_string(), format!("tagging the event item:{long_id}"));
+    assert!(
+        format!("{err:#}").contains("not a valid item tag value"),
+        "{err:#}"
+    );
+}
+
+#[test]
 fn another_namespace_is_foreign() {
     let dir = tempfile::tempdir().expect("tempdir");
     let store = Store::open(&dir.path().join("events.sqlite3"), Wait::Command).expect("store");
