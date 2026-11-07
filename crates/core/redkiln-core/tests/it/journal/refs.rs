@@ -4,10 +4,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use redkiln_core::journal::refs::{
-    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, Relayed, checkpoint_refs, relay,
+    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs,
 };
+// Every relay test needs a git hook script, so runs only on unix.
 #[cfg(unix)]
-use redkiln_core::journal::refs::{Deleted, Refusal};
+use redkiln_core::journal::refs::{Deleted, Refusal, Relayed, relay};
 use redkiln_core::store::{Store, Wait};
 use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::Trust;
