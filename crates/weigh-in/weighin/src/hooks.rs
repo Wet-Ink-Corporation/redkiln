@@ -10,7 +10,7 @@
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
 //! hook exits 0. A store path the user gave that Core refuses (a 1.x ledger, another program's
 //! database) gets nothing beside it: its refusal goes to the default store's state dir,
-//! `<git-common-dir>/redkiln/weighin/` (outside git nowhere), and SessionStart reports it.
+//! `<git-common-dir>/redkiln/weighin/` (outside git nowhere), and `SessionStart` reports it.
 //! Input that cannot be read or parsed is logged only inside a git repository:
 //! outside one, the state dir would be a `.weighin/` the hook creates in whatever folder it was
 //! started in, so there it writes nothing. The next `SessionStart` counts the lines added since
