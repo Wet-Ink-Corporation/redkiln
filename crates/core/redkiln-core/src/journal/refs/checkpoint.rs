@@ -98,6 +98,10 @@ pub fn checkpoint_refs(
     if pending.is_empty() {
         return Ok(RefsCheckpoint::Written(report));
     }
+    if ctx.late() {
+        report.deferred = late(pending);
+        return Ok(RefsCheckpoint::Written(report));
+    }
     if ctx.repo.has_remote(target.remote)? {
         ctx.remote = Some(target.remote);
         let all = format!("+{JOURNAL_REFS}*:{JOURNAL_REFS}*");
@@ -112,10 +116,21 @@ pub fn checkpoint_refs(
     } else {
         report.local_only = true;
     }
+    export(&ctx, &mut report, pending)?;
+    Ok(RefsCheckpoint::Written(report))
+}
+
+/// Writes each pending journal directly until a push fails other than by rejection, then the
+/// rest to their inbox branches.
+fn export(
+    ctx: &Ctx<'_>,
+    report: &mut RefsExported,
+    pending: Vec<(JournalName, Vec<u8>)>,
+) -> Result<(), RefsError> {
     let mut base = None;
     for (name, own) in pending {
         let name = if report.relay_reason.is_none() {
-            match direct(&ctx, &mut report, name, &own)? {
+            match direct(ctx, report, name, &own)? {
                 Some(name) => name,
                 None => continue,
             }
@@ -123,18 +138,31 @@ pub fn checkpoint_refs(
             name
         };
         if let Some(remote) = ctx.remote {
+            // The relay's base is fetched only once, and not after the deadline.
+            if base.is_none() && ctx.late() {
+                report.deferred.push((name, Deferral::Late));
+                continue;
+            }
             let tip = match &base {
                 Some(tip) => tip,
-                None => base.insert(prepare_relay(&ctx, remote)?),
+                None => base.insert(prepare_relay(ctx, remote)?),
             };
             let inbox = match tip {
                 Ok(base) => Ok(Inbox { remote, base }),
                 Err(said) => Err(said.as_str()),
             };
-            relayed(&ctx, inbox, &mut report, (name, &own))?;
+            relayed(ctx, inbox, report, (name, &own))?;
         }
     }
-    Ok(RefsCheckpoint::Written(report))
+    Ok(())
+}
+
+/// Every journal of `pending`, deferred as started after the deadline.
+fn late(pending: Vec<(JournalName, Vec<u8>)>) -> Vec<(JournalName, Deferral)> {
+    pending
+        .into_iter()
+        .map(|(name, _)| (name, Deferral::Late))
+        .collect()
 }
 
 /// Writes `name` directly, recording the outcome; the name back when the direct way failed and

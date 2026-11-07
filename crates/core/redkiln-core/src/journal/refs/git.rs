@@ -220,14 +220,19 @@ impl Repo<'_> {
         if size > cap {
             return Ok(None);
         }
-        let args = ["cat-file", "blob", oid.as_str()];
+        self.ok_spooled(&["cat-file", "blob", oid.as_str()], cap)
+    }
+
+    /// `git <args>`, which must succeed; its stdout, read from a spool, or `None` when it wrote
+    /// more than `cap` bytes.
+    fn ok_spooled(&self, args: &[&str], cap: u64) -> Result<Option<Vec<u8>>, RefsError> {
         let mut command = Self::command();
         command.args(args);
         let mut spooled = git::run_spooled(command, self.dir, self.timeout, None)
-            .map_err(|source| step_error(&args, source))?;
+            .map_err(|source| step_error(args, source))?;
         if !spooled.status.success() {
             return Err(step_error(
-                &args,
+                args,
                 GitError::Failed {
                     dir: self.dir.to_path_buf(),
                     stderr: trimmed(&spooled.stderr),
@@ -238,8 +243,63 @@ impl Repo<'_> {
         (&mut spooled.stdout)
             .take(cap.saturating_add(1))
             .read_to_end(&mut bytes)
-            .map_err(|e| step_error(&args, GitError::Io(e)))?;
+            .map_err(|e| step_error(args, GitError::Io(e)))?;
         Ok((u64::try_from(bytes.len()).unwrap_or(u64::MAX) <= cap).then_some(bytes))
+    }
+
+    /// The local refs under `prefix`, each with the object it names; `None` when the listing
+    /// is longer than `cap` bytes.
+    pub(crate) fn list_refs(
+        &self,
+        prefix: &str,
+        cap: u64,
+    ) -> Result<Option<Vec<(String, Oid)>>, RefsError> {
+        let args = ["for-each-ref", "--format=%(refname) %(objectname)", prefix];
+        let Some(out) = self.ok_spooled(&args, cap)? else {
+            return Ok(None);
+        };
+        out.split(|b| *b == b'\n')
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let text =
+                    std::str::from_utf8(line).map_err(|_utf8| answer("for-each-ref", line))?;
+                let (name, oid) = text
+                    .split_once(' ')
+                    .ok_or_else(|| answer("for-each-ref", line))?;
+                Ok((name.to_owned(), Oid::parse(oid)?))
+            })
+            .collect::<Result<Vec<_>, RefsError>>()
+            .map(Some)
+    }
+
+    /// The commits reachable from `tip`, oldest first; `None` when the listing is longer than
+    /// `cap` bytes.
+    pub(crate) fn history(&self, tip: &Oid, cap: u64) -> Result<Option<Vec<Oid>>, RefsError> {
+        let Some(out) = self.ok_spooled(&["rev-list", "--reverse", tip.as_str()], cap)? else {
+            return Ok(None);
+        };
+        String::from_utf8_lossy(&out)
+            .lines()
+            .map(Oid::parse)
+            .collect::<Result<Vec<_>, RefsError>>()
+            .map(Some)
+    }
+
+    /// Whether `ancestor` is `tip` or one of its ancestors; `None` when git cannot say, as when
+    /// this clone does not hold `ancestor`.
+    pub(crate) fn descends(&self, ancestor: &Oid, tip: &Oid) -> Result<Option<bool>, RefsError> {
+        let args = [
+            "merge-base",
+            "--is-ancestor",
+            ancestor.as_str(),
+            tip.as_str(),
+        ];
+        let captured = self.run(Self::command(), &args)?;
+        Ok(match captured.status.code() {
+            Some(0) => Some(true),
+            Some(1) => Some(false),
+            _ => None,
+        })
     }
 
     /// Writes `bytes` as a blob.

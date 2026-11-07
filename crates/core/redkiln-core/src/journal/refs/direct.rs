@@ -656,6 +656,39 @@ mod tests {
     }
 
     #[test]
+    fn the_relay_refuses_an_inbox_over_the_cap_and_leaves_one_whose_merge_would_pass_it() {
+        use crate::journal::refs::relay::{Refusal, Relayed, relay_with};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let [work] = remote_with_clones(dir.path(), &[], ["work"]);
+        let name = JournalName::parse("a1").expect("name");
+        assert_eq!(inbox(&work, &name, &line(1)), Inboxed::Pushed(1));
+        let target = target(&work);
+        let mut ctx = ctx(&target);
+        assert_eq!(
+            merge_direct(&ctx, &name, line(2).as_bytes()).expect("ran"),
+            Direct::Moved(1)
+        );
+        let one = u64::try_from(line(1).len()).expect("small");
+        ctx.max_bytes = one - 1;
+        assert_eq!(
+            relay_with(&ctx, "origin", &name).expect("ran"),
+            Relayed::Refused(Refusal::TooLarge)
+        );
+        ctx.max_bytes = one + 1;
+        assert_eq!(
+            relay_with(&ctx, "origin", &name).expect("ran"),
+            Relayed::TooLarge
+        );
+        let remote = dir.path().join("remote.git");
+        let journal = git(&remote, &["show", "refs/redkiln/journal/a1:a1.jsonl"]) + "\n";
+        assert_eq!(journal, line(2), "nothing was written");
+        assert!(
+            !git(&remote, &["for-each-ref", "refs/heads/redkiln/inbox/a1"]).is_empty(),
+            "the inbox branch is left"
+        );
+    }
+
+    #[test]
     fn a_default_branch_holding_a_file_where_the_inbox_folder_goes_defers_the_journal() {
         for file in [".redkiln", ".redkiln/inbox"] {
             let dir = tempfile::tempdir().expect("tempdir");

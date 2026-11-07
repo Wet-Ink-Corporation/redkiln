@@ -72,10 +72,18 @@ pub enum Refusal {
 pub fn relay(target: &RefsTarget<'_>, branch: &str) -> Result<Relayed, RefsError> {
     let name = inbox_name(branch)?;
     let mut ctx = Ctx::local(target);
-    let remote = target.remote;
-    ctx.remote = Some(remote);
-    let full = inbox_branch(&name);
-    let local = inbox_ref(&name);
+    ctx.remote = Some(target.remote);
+    relay_with(&ctx, target.remote, &name)
+}
+
+/// [`relay`] of `name`'s inbox from `remote`, under `ctx` (whose cap tests lower).
+pub(super) fn relay_with(
+    ctx: &Ctx<'_>,
+    remote: &str,
+    name: &JournalName,
+) -> Result<Relayed, RefsError> {
+    let full = inbox_branch(name);
+    let local = inbox_ref(name);
     match ctx
         .repo
         .fetch(remote, &[format!("+{full}:{local}")], false)?
@@ -87,11 +95,11 @@ pub fn relay(target: &RefsTarget<'_>, branch: &str) -> Result<Relayed, RefsError
     let Some(tip) = ctx.repo.commit_of(&local)? else {
         return Ok(Relayed::Gone);
     };
-    let file = match inbox_file(&ctx, &name, &tip)? {
+    let file = match inbox_file(ctx, name, &tip)? {
         Ok(file) => file,
         Err(refusal) => return Ok(Relayed::Refused(refusal)),
     };
-    merged(&ctx, remote, &name, (&tip, &file))
+    merged(ctx, remote, name, (&tip, &file))
 }
 
 /// Merges the inbox `file` read at `tip` into `name`'s journal ref, then deletes the inbox
