@@ -79,13 +79,10 @@ pub(super) fn open(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEven
     }
     // Refused first, so that no lock file is created beside a file this build will not open.
     refuse_found(&header::read(path)?, mode)?;
-    // No child is forked while the lock is held, so none can hold it after this open returns.
-    let no_forks = crate::git::no_forks();
     let lock = take_lock(path, busy)?;
     let store = open_locked(path, busy, mode)?;
-    // Closing the lock file releases its lock.
+    // Closing the lock file releases its lock, and then lets Core spawn again.
     drop(lock);
-    drop(no_forks);
     Ok(store)
 }
 
@@ -103,22 +100,44 @@ fn refuse_found(found: &Found, mode: Mode) -> Result<(), OpenError> {
     }
 }
 
+/// The open lock, held until dropped. Its fields drop in order: the file first, which releases
+/// the lock, then the guard that kept Core from spawning while it was held.
+struct Locked {
+    _file: File,
+    _no_forks: std::sync::RwLockWriteGuard<'static, ()>,
+}
+
 /// Takes the open lock, waiting at most `busy` for another opener to finish. A file system
 /// without whole-file locks opens unlocked, as SQLite alone would: the lock only keeps
 /// concurrent first creations from setting each other's journals aside.
-fn take_lock(path: &Path, busy: Duration) -> Result<Option<File>, OpenError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(sibling(path, LOCK_SUFFIX))
-        .map_err(OpenError::Lock)?;
+///
+/// Each attempt opens the lock file afresh under [`crate::git::no_forks`], and a held lock keeps
+/// it: no child Core spawns can share the lock file's description, so none holds the lock after
+/// this process lets it go. Between attempts, Core spawns as usual. A caller's own spawns on
+/// other threads are not covered (`FORKS` in `crate::git` says why).
+fn take_lock(path: &Path, busy: Duration) -> Result<Option<Locked>, OpenError> {
     let deadline = Instant::now().checked_add(busy);
     loop {
+        let no_forks = crate::git::no_forks();
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(sibling(path, LOCK_SUFFIX))
+            .map_err(OpenError::Lock)?;
         match file.try_lock() {
-            Ok(()) => return Ok(Some(file)),
-            Err(TryLockError::WouldBlock) if deadline.is_some_and(|d| Instant::now() < d) => {}
+            Ok(()) => {
+                return Ok(Some(Locked {
+                    _file: file,
+                    _no_forks: no_forks,
+                }));
+            }
+            Err(TryLockError::WouldBlock) if deadline.is_some_and(|d| Instant::now() < d) => {
+                // The file closes first, so no later child can share it.
+                drop(file);
+                drop(no_forks);
+            }
             Err(TryLockError::WouldBlock) => return Err(OpenError::LockBusy),
             Err(TryLockError::Error(e)) if e.kind() == io::ErrorKind::Unsupported => {
                 return Ok(None);

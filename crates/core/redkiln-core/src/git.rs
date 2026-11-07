@@ -23,6 +23,10 @@ use std::time::{Duration, Instant};
 /// `<store>.lock`. A child forked in that window would hold the whole-file lock too, until it
 /// execs, so an opener that does not wait (a telemetry write, an existing-only open) would find
 /// its own store busy.
+///
+/// The state is process-wide (ARC-09) because what it guards is: every child inherits the
+/// process's open file descriptions, whichever thread or store opened them. It covers Core's own
+/// spawns only; a caller's `Command` on another thread can still inherit the lock file.
 static FORKS: RwLock<()> = RwLock::new(());
 
 /// Keeps this process from spawning a child until the guard drops. The guarded data is `()`, so
@@ -346,6 +350,7 @@ mod tests {
     fn init(dir: &Path, name: &str) -> (PathBuf, PathBuf) {
         let repo = dir.join(name);
         std::fs::create_dir_all(repo.join("sub")).expect("dirs");
+        let _forking = forking();
         let status = Command::new("git")
             .args(["init", "-q"])
             .current_dir(&repo)
