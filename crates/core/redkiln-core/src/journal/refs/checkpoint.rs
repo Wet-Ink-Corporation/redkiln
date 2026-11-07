@@ -12,7 +12,9 @@ use super::git::Fetched;
 use super::{
     Breach, Ctx, InboxCopy, JOURNAL_REFS, RefsError, RefsTarget, State, read_inbox, read_journal,
 };
-use crate::journal::export::grouped;
+use std::collections::HashSet;
+
+use crate::journal::export::{Group, grouped};
 use crate::journal::merge::merge;
 use crate::journal::name::JournalName;
 use crate::store::Store;
@@ -83,8 +85,12 @@ pub const MAX_CALLS_PAST_DEADLINE: u32 = 7;
 pub struct ScopedCheckpoint {
     /// What the checkpoint did.
     pub outcome: RefsCheckpoint,
-    /// The last store position the checkpoint read (0 when it read none): a later checkpoint
-    /// scoped since it examines only journals with an event written after this one read.
+    /// How far the store is settled: every journal whose last event is at or before this
+    /// position was examined and neither deferred nor broken (or is at or before `since`).
+    /// That is the last position read when nothing was deferred or broken, else the position
+    /// just before the first such journal's last event, journals taken oldest last event
+    /// first. A later checkpoint scoped since it goes on from there. 0 in a `client`
+    /// repository, or when nothing is settled.
     pub through: u64,
 }
 
@@ -109,9 +115,9 @@ pub fn checkpoint_refs(
 /// `since`.
 ///
 /// The journals whose last event is at or before it are neither read nor written; `since` 0
-/// examines every journal. A caller that passes the `through` of an earlier
-/// checkpoint that deferred and broke nothing examines only what is new since; a full
-/// checkpoint now and then still catches a ref moved by anyone else.
+/// examines every journal. Journals are examined oldest last event first. A caller that passes
+/// an earlier checkpoint's `through` examines only what is not settled yet; a full checkpoint
+/// now and then still catches a ref moved by anyone else.
 ///
 /// # Errors
 /// As [`checkpoint_refs`].
@@ -128,17 +134,46 @@ pub fn checkpoint_refs_since(
         });
     }
     let grouped = grouped(store).map_err(RefsError::Store)?;
-    let through = grouped.through;
-    let journals = grouped
+    let mut journals: Vec<(JournalName, Group)> = grouped
         .journals
         .into_iter()
         .filter(|(_, group)| group.last > since)
-        .map(|(name, group)| (name, group.lines));
-    let outcome = refs_of(target, journals, grouped.unexportable)?;
+        .collect();
+    // Oldest last event first, so a checkpoint cut short still settles a prefix of positions
+    // and the next one, scoped since it, goes on from there.
+    journals.sort_by_key(|(_, group)| group.last);
+    // The names go to the writers and into the report; this copy maps them back to positions.
+    let order: Vec<(JournalName, u64)> = journals
+        .iter()
+        .map(|(name, group)| (name.clone(), group.last))
+        .collect();
+    let report = refs_of(
+        target,
+        journals
+            .into_iter()
+            .map(|(name, group)| (name, group.lines)),
+        grouped.unexportable,
+    )?;
+    let through = settled(&order, &report).unwrap_or(grouped.through);
     Ok(ScopedCheckpoint {
-        outcome: RefsCheckpoint::Written(outcome),
+        outcome: RefsCheckpoint::Written(report),
         through,
     })
+}
+
+/// The position just before the last event of the first journal of `order` that `report`
+/// deferred or found broken; `None` when it deferred and broke none.
+fn settled(order: &[(JournalName, u64)], report: &RefsExported) -> Option<u64> {
+    let unsettled: HashSet<&JournalName> = report
+        .deferred
+        .iter()
+        .map(|(name, _)| name)
+        .chain(report.broken.iter().map(|(name, _)| name))
+        .collect();
+    order
+        .iter()
+        .find(|(name, _)| unsettled.contains(name))
+        .map(|(_, last)| last.saturating_sub(1))
 }
 
 /// Writes each of `journals` that its journal ref lacks.

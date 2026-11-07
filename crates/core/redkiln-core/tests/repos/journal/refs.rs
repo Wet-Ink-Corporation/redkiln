@@ -325,6 +325,108 @@ fn past_its_deadline_a_checkpoint_does_not_fetch() {
     );
 }
 
+/// Makes `path` an executable shell script holding `script`.
+#[cfg(unix)]
+fn executable(path: &Path, script: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::write(path, script).expect("script");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    // A slow push: the first journal starts before the deadline and ends after it.
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
+    );
+    // Positions: 1 a1, 2 b2, 3 the store's, 4 raw, 5 a1; so the oldest last event is b2's.
+    let store = store_in(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        ..target(&work)
+    };
+
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &cut, 0).expect("ok");
+
+    let report = written(first.outcome);
+    assert_eq!(
+        report.direct,
+        [name("b2")],
+        "journals go oldest last event first"
+    );
+    assert!(
+        report
+            .deferred
+            .iter()
+            .all(|(_, why)| *why == Deferral::Late),
+        "{report:?}"
+    );
+    assert_eq!(
+        first.through, 2,
+        "through b2, before the first journal left"
+    );
+    accept_custom_refs(&remote);
+    let rest =
+        checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
+    assert_eq!(rest.through, 5, "the whole store");
+    assert_eq!(written(rest.outcome).direct.len(), 2, "the store's and a1");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_journal_whose_push_fails_after_the_deadline_asks_the_remote_nothing_more() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 2\necho closed >&2\nexit 1\n",
+    );
+    // Every call to the remote, in order: fetches and ls-remote run upload-pack, pushes
+    // receive-pack, both as this clone's config names them.
+    let calls = dir.path().join("calls");
+    let calls_arg = calls.to_string_lossy();
+    for (pack, key) in [("upload", "uploadpack"), ("receive", "receivepack")] {
+        let wrapper = dir.path().join(format!("{pack}-pack"));
+        executable(
+            &wrapper,
+            &format!("#!/bin/sh\necho {pack} >> '{calls_arg}'\nexec git {pack}-pack \"$@\"\n"),
+        );
+        git(
+            &work,
+            &[
+                "config",
+                &format!("remote.origin.{key}"),
+                &wrapper.to_string_lossy(),
+            ],
+        );
+    }
+    let store = store_in(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_000)),
+        ..target(&work)
+    };
+
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &cut).expect("ok"));
+
+    assert!(
+        report.direct.is_empty() && report.relayed.is_empty(),
+        "{report:?}"
+    );
+    assert_eq!(report.deferred.len(), 3, "{report:?}");
+    let made = std::fs::read_to_string(&calls).expect("calls");
+    assert_eq!(
+        made.lines().collect::<Vec<_>>(),
+        ["upload", "receive"],
+        "the journal refs' fetch, one push, and no relay base read after it"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn a_remote_that_hangs_defers_the_journals_instead_of_failing_the_checkpoint() {

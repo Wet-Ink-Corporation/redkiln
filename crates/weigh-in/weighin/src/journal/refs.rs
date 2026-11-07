@@ -138,9 +138,9 @@ pub(crate) enum Scope {
 /// Whether a checkpoint moved the watermark.
 #[derive(Debug)]
 pub(crate) enum Marked {
-    /// To the store position it read.
+    /// To the position up to which the store is settled (Core's `through`).
     Moved,
-    /// Not moved: a journal it examined was deferred or broken, so the next one looks again.
+    /// Already there: nothing more is settled, so the next checkpoint looks again.
     Kept,
     /// It could not be written; the next Stop examines every journal again.
     Failed(anyhow::Error),
@@ -164,8 +164,9 @@ pub(crate) enum Imported {
 
 /// Export the store's durable events that their journals lack (JR-08), from the journals
 /// `scope` names. Skips, in this order: not in git, a `client` repository, opted out, then no
-/// store (none is created). A run that deferred and broke nothing moves the watermark to the
-/// store position it read, whatever its scope.
+/// store (none is created). Every run, whatever its scope, moves the watermark to the position
+/// up to which it settled the store: every journal whose last event is at or before it was
+/// examined and neither deferred nor broken.
 ///
 /// # Errors
 /// The store cannot be located, opened or read, or git fails locally.
@@ -194,10 +195,11 @@ pub(crate) fn checkpoint(
         return Ok(Checkpointed::Skipped(Skip::NoStore));
     };
     let target = budget.target(repo, started);
-    let watermark = Watermark::of(env, repo)?;
+    let watermark = Watermark::of(env, repo, store.core().store_id())?;
+    let recorded = watermark.read();
     let since = match scope {
         Scope::All => 0,
-        Scope::SinceWatermark => watermark.read(),
+        Scope::SinceWatermark => recorded,
     };
     let export = |since| {
         checkpoint_refs_since(store.core(), class.into(), &target, since)
@@ -212,12 +214,15 @@ pub(crate) fn checkpoint(
     Ok(match scoped.outcome {
         RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
         RefsCheckpoint::Written(report) => {
-            let marked = if report.deferred.is_empty() && report.broken.is_empty() {
+            // Core's `through` already stops before the first journal deferred or broken, so a
+            // run cut short still records the journals it settled, and a sweep that found a
+            // broken ref may move it back.
+            let marked = if scoped.through == recorded {
+                Marked::Kept
+            } else {
                 watermark
                     .write(scoped.through)
                     .map_or_else(Marked::Failed, |()| Marked::Moved)
-            } else {
-                Marked::Kept
             };
             Checkpointed::Ran(report, marked)
         }
@@ -455,7 +460,10 @@ mod tests {
     };
     use redkiln_core::journal::{ImportReport, JournalName, LineError, Problem};
 
-    use super::{Budget, checkpoint_findings, import_findings, needs_a_person, relay_findings};
+    use super::{
+        Budget, CALLS_AFTER_DEADLINE, checkpoint_findings, import_findings, needs_a_person,
+        relay_findings,
+    };
     use crate::cli_envelope::{Exit, Finding, Severity};
 
     fn name(text: &str) -> JournalName {
@@ -472,7 +480,20 @@ mod tests {
 
     #[test]
     fn the_pre_push_budget_ends_within_twenty_seconds_and_commands_set_no_deadline() {
-        assert_eq!(Budget::PRE_PUSH.worst_case(), Some(Duration::from_secs(20)));
+        let worst = Budget::PRE_PUSH
+            .worst_case()
+            .expect("pre-push has a deadline");
+        let calls = Budget::PRE_PUSH
+            .per_call
+            .checked_mul(CALLS_AFTER_DEADLINE)
+            .expect("no overflow");
+        assert_eq!(
+            Some(worst),
+            Budget::PRE_PUSH
+                .start_by
+                .and_then(|by| by.checked_add(calls))
+        );
+        assert!(worst <= Duration::from_secs(20), "{worst:?}");
         assert_eq!(Budget::COMMAND.worst_case(), None);
         assert_eq!(Budget::RELAY.worst_case(), None);
     }
@@ -487,7 +508,15 @@ mod tests {
     #[test]
     fn every_hook_budget_ends_inside_its_hook_timeout() {
         let worst = Budget::STOP.worst_case().expect("Stop has a deadline");
-        assert_eq!(worst, Duration::from_secs(18));
+        // Derived from the budget's constants, so a change of per-call time only has to fit.
+        let calls = Budget::STOP
+            .per_call
+            .checked_mul(CALLS_AFTER_DEADLINE)
+            .expect("no overflow");
+        assert_eq!(
+            Some(worst),
+            Budget::STOP.start_by.and_then(|by| by.checked_add(calls))
+        );
         assert!(
             worst.saturating_add(MARGIN) <= STOP_HOOK_TIMEOUT,
             "{worst:?}"

@@ -1,14 +1,16 @@
-//! How far the store's events are exported: the last store position read by a checkpoint that
-//! deferred and broke nothing, kept in the state dir (D4) as `journal-watermark`, so the Stop
-//! hook examines only the journals with a later event instead of every journal the store ever
-//! held (PR B review F1). Every event at or before it is in its journal ref or inbox, as far as
-//! this clone could tell when it was written.
+//! How far the store's events are exported: the store position up to which a checkpoint
+//! settled the store (Core's `ScopedCheckpoint::through`), kept in the state dir (D4) as
+//! `journal-watermark`, so the Stop hook examines only the journals with a later event instead
+//! of every journal the store ever held (PR B review F1). Every journal whose last event is at
+//! or before it was in its journal ref or inbox, as far as this clone could tell then.
 //!
-//! The file holds the position and the repository it was written for, one per line. It is
-//! overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is. A missing,
-//! unreadable or torn file, or one written for another repository sharing the store, reads as
-//! no watermark: the next checkpoint examines every journal.
+//! The file holds the position, the repository and the store it was written for, one per line.
+//! It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is. A missing,
+//! unreadable or torn file, or one written for another repository sharing the store or for
+//! another store at this path (one recreated since), reads as no watermark: the next checkpoint
+//! examines every journal.
 
+use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -22,33 +24,34 @@ const FILE: &str = "journal-watermark";
 #[derive(Debug)]
 pub(crate) struct Watermark {
     path: PathBuf,
-    /// The repository's git common dir (its worktrees share refs), else `repo` as given.
-    repo: String,
+    /// Whose it is, as the file's last two lines hold it: the repository's git common dir (its
+    /// worktrees share refs), else `repo` as given, then the store's id.
+    owner: String,
 }
 
 impl Watermark {
-    /// The watermark of `env`'s store for the repository at `repo`.
+    /// The watermark of `env`'s store, whose id is `store`, for the repository at `repo`.
     ///
     /// # Errors
     /// The store could not be located, so there is no state dir.
-    pub(crate) fn of(env: &Env, repo: &Path) -> Result<Self> {
+    pub(crate) fn of(env: &Env, repo: &Path, store: impl Display) -> Result<Self> {
         let repo = env.common_dir.as_deref().unwrap_or(repo);
         Ok(Self {
             path: env.state_dir()?.join(FILE),
-            repo: repo.display().to_string(),
+            owner: format!("{}\n{store}", repo.display()),
         })
     }
 
-    /// The position recorded for this repository; 0, which examines every journal, when none
-    /// can be read (module doc).
+    /// The position recorded for this repository and store; 0, which examines every journal,
+    /// when none can be read (module doc).
     pub(crate) fn read(&self) -> u64 {
         std::fs::read_to_string(&self.path)
             .ok()
-            .and_then(|text| position(&text, &self.repo))
+            .and_then(|text| position(&text, &self.owner))
             .unwrap_or(0)
     }
 
-    /// Records `through` for this repository.
+    /// Records `through` for this repository and store.
     ///
     /// # Errors
     /// The state dir or the file cannot be written.
@@ -56,15 +59,15 @@ impl Watermark {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
-        std::fs::write(&self.path, format!("{through}\n{}\n", self.repo))
+        std::fs::write(&self.path, format!("{through}\n{}\n", self.owner))
             .with_context(|| format!("recording the export watermark in {}", self.path.display()))
     }
 }
 
-/// The position `text` records for `repo`, or `None` when it is torn or another repository's.
-fn position(text: &str, repo: &str) -> Option<u64> {
+/// The position `text` records for `owner`, or `None` when it is torn or another's.
+fn position(text: &str, owner: &str) -> Option<u64> {
     let (position, rest) = text.split_once('\n')?;
-    if rest.strip_suffix('\n')? != repo {
+    if rest.strip_suffix('\n')? != owner {
         return None;
     }
     position.parse().ok()
@@ -74,16 +77,28 @@ fn position(text: &str, repo: &str) -> Option<u64> {
 mod tests {
     use super::position;
 
+    const OWNER: &str = "/r/.git\nstore-a";
+
     #[test]
-    fn a_watermark_reads_only_whole_and_for_its_own_repository() {
-        assert_eq!(position("42\n/r/.git\n", "/r/.git"), Some(42));
+    fn a_watermark_reads_only_whole_and_for_its_own_repository_and_store() {
+        assert_eq!(position("42\n/r/.git\nstore-a\n", OWNER), Some(42));
         assert_eq!(
-            position("42\n/other/.git\n", "/r/.git"),
+            position("42\n/other/.git\nstore-a\n", OWNER),
             None,
             "another repository's"
         );
-        assert_eq!(position("42\n/r/.g", "/r/.git"), None, "torn");
-        assert_eq!(position("4x\n/r/.git\n", "/r/.git"), None, "not a position");
-        assert_eq!(position("", "/r/.git"), None, "empty");
+        assert_eq!(
+            position("42\n/r/.git\nstore-b\n", OWNER),
+            None,
+            "another store's"
+        );
+        assert_eq!(position("42\n/r/.git\n", OWNER), None, "no store");
+        assert_eq!(position("42\n/r/.git\nstore-a", OWNER), None, "torn");
+        assert_eq!(
+            position("4x\n/r/.git\nstore-a\n", OWNER),
+            None,
+            "not a position"
+        );
+        assert_eq!(position("", OWNER), None, "empty");
     }
 }

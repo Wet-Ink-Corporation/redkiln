@@ -10,7 +10,8 @@ use std::process::{Command, Output};
 
 const JOURNAL_DIR: &str = ".kb/_ledger/journal";
 
-/// `Budget::STOP.worst_case()`, which `every_hook_budget_ends_inside_its_hook_timeout` pins.
+/// `Budget::STOP.worst_case()` (`journal/refs.rs`): 4 s + 7 x 2 s. The binary's constants are
+/// out of this test's reach, so this changes with them.
 #[cfg(unix)]
 const STOP_WORST_CASE: std::time::Duration = std::time::Duration::from_secs(18);
 
@@ -25,6 +26,22 @@ fn set_watermark(repo: &Repo, position: impl FnOnce(u64) -> u64) -> TestResult {
     let (first, rest) = text.split_once('\n').unwrap_or((text.as_str(), ""));
     let moved = position(first.trim().parse()?);
     std::fs::write(watermark(repo), format!("{moved}\n{rest}"))?;
+    Ok(())
+}
+
+/// The store position the watermark records.
+fn watermark_at(repo: &Repo) -> TestResult<u64> {
+    let text = std::fs::read_to_string(watermark(repo))?;
+    Ok(text.lines().next().ok_or("a position")?.parse()?)
+}
+
+/// Replaces the watermark's last line, the store it was written for, with `store`.
+fn set_watermark_store(repo: &Repo, store: &str) -> TestResult {
+    let text = std::fs::read_to_string(watermark(repo))?;
+    let mut lines: Vec<&str> = text.lines().collect();
+    lines.pop().ok_or("a store line")?;
+    lines.push(store);
+    std::fs::write(watermark(repo), format!("{}\n", lines.join("\n")))?;
     Ok(())
 }
 
@@ -279,6 +296,10 @@ fn a_stop_examines_only_the_journals_with_events_since_the_last_clean_export() -
         "the current session is exported"
     );
     let traced = std::fs::read_to_string(&trace)?;
+    assert!(
+        traced.lines().any(|l| l.contains("refs/redkiln/journal/s")),
+        "the trace shows the current journal read: {traced}"
+    );
     let examined: Vec<&str> = traced
         .lines()
         .filter(|l| l.contains("refs/redkiln/journal/old"))
@@ -341,6 +362,117 @@ fn a_stop_after_a_deferred_export_examines_the_deferred_journals_again() -> Test
     assert!(
         refs(&remote, "refs/redkiln/journal")?.contains(&"refs/redkiln/journal/t".to_owned()),
         "t's events are past no clean export, so the next Stop examines t again"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_watermark_written_for_another_store_is_ignored() -> TestResult {
+    let repo = Repo::new(true)?;
+    repo.raise("u", "Keep the cache warm?")?;
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    // A full scan would export u again; one scoped by the watermark does not look at it.
+    git(&repo.root, &["update-ref", "-d", "refs/redkiln/journal/u"]);
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+    assert!(
+        !repo.has_ref("refs/redkiln/journal/u"),
+        "scoped: u not examined"
+    );
+    set_watermark_store(&repo, "00000000000000000000000000000000")?;
+
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+
+    assert!(
+        repo.has_ref("refs/redkiln/journal/u"),
+        "another store's watermark: full scan"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_watermark_that_cannot_be_written_is_one_warning_and_one_logged_line() -> TestResult {
+    let repo = Repo::new(true)?;
+    repo.raise("u", "Keep the cache warm?")?;
+    std::fs::create_dir_all(watermark(&repo))?;
+
+    let out = repo.run("cli", &["journal", "checkpoint", "--json"], None)?;
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let envelope: Value = serde_json::from_slice(&out.stdout)?;
+    let keys: Vec<&str> = envelope["findings"]
+        .as_array()
+        .ok_or("findings")?
+        .iter()
+        .filter_map(|f| f["key"].as_str())
+        .collect();
+    assert_eq!(keys, ["journal/watermark"], "{envelope}");
+    assert_eq!(envelope["findings"][0]["severity"], "warning", "{envelope}");
+    assert!(repo.has_ref("refs/redkiln/journal/u"), "the export stands");
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+    let log = logged(&repo)?;
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(log.iter().all(|l| l.contains("watermark")), "{log:?}");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_stop_finding_a_broken_ref_leaves_the_watermark_unchanged() -> TestResult {
+    let repo = Repo::new(true)?;
+    repo.raise("u", "Keep the cache warm?")?;
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    let before = watermark_at(&repo)?;
+    repo.raise("t", "Keep three retries?")?;
+    // The repository's own commit: its tree is not exactly `t.jsonl`, so the ref breaks JR-05.
+    git(
+        &repo.root,
+        &["update-ref", "refs/redkiln/journal/t", "HEAD"],
+    );
+
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+
+    assert_eq!(logged(&repo)?.len(), 1, "the broken ref is logged");
+    assert_eq!(
+        watermark_at(&repo)?,
+        before,
+        "t is not settled, so nothing after it is"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn stops_cut_short_by_their_deadline_each_move_the_watermark_on() -> TestResult {
+    let (repo, remote) = Repo::with_remote(true)?;
+    for n in 0..8 {
+        repo.raise(&format!("old{n}"), "Keep three retries?")?;
+    }
+    // Each push takes a second, so the Stop's deadline passes after a few journals.
+    pre_receive(&remote, "#!/bin/sh\ncat >/dev/null\nsleep 1\n")?;
+
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+
+    let first = watermark_at(&repo)?;
+    let pushed = refs(&remote, "refs/redkiln/journal")?.len();
+    assert!(first > 0, "the journals it finished are settled");
+    assert!((1..9).contains(&pushed), "cut short: {pushed} pushed");
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+    assert!(
+        watermark_at(&repo)? > first,
+        "the next Stop goes on from there"
+    );
+    assert_eq!(
+        logged(&repo)?,
+        Vec::<String>::new(),
+        "a late journal retries unlogged"
     );
     Ok(())
 }
