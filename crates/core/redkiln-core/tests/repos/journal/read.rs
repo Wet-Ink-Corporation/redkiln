@@ -8,7 +8,7 @@ use redkiln_core::envelope::decode_all;
 use redkiln_core::journal::refs::{
     ImportedRef, RefsCheckpoint, RefsImport, RefsTarget, checkpoint_refs, import_refs,
 };
-use redkiln_core::journal::{ImportCompleted, ImportSource};
+use redkiln_core::journal::{Checkpoint, ImportCompleted, ImportSource, checkpoint, import_file};
 use redkiln_core::store::{Store, Wait};
 use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::Trust;
@@ -242,4 +242,129 @@ fn a_failed_fetch_is_reported_and_the_clones_own_copies_are_read() {
     let report = imported(&store, &work);
     assert_eq!(report.fetch_failed.len(), 2, "{report:?}");
     assert_eq!(report.sources.len(), 3, "{report:?}");
+}
+
+#[test]
+fn records_ingested_from_another_store_do_not_stand_for_this_ones_imports() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_source, remote) = exported(dir.path());
+    let reader = clone(dir.path(), &remote, "reader");
+    let other = empty_store(dir.path(), "other");
+    assert_eq!(imported(&other, &reader).sources.len(), 3);
+    // The other store's journals, its import records among them, reach this store.
+    let journals = dir.path().join("journals");
+    let outcome =
+        checkpoint(&other, RepoClass::Own, &journals, Duration::from_secs(5)).expect("exported");
+    assert!(matches!(outcome, Checkpoint::Written(_)));
+    let store = empty_store(dir.path(), "store");
+    for entry in std::fs::read_dir(&journals).expect("journals") {
+        let path = entry.expect("entry").path();
+        let ingested = import_file(&store, &path, ts(), importer()).expect("ingested");
+        assert!(!ingested.incomplete, "{ingested:?}");
+    }
+    let report = imported(&store, &reader);
+    assert!(
+        by_source(&report)
+            .iter()
+            .any(|(source, _)| *source == "refs/redkiln/journal/a1"),
+        "{report:?}"
+    );
+    assert!(report.rewritten.is_empty(), "{report:?}");
+}
+
+#[test]
+fn a_broken_ref_whose_tip_has_no_journal_file_is_reported_and_not_recorded_again() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_source, remote) = exported(dir.path());
+    let work = dir.path().join("work");
+    let a1 = git(&work, &["rev-parse", "refs/redkiln/journal/a1"]);
+    let readme = git(&work, &["hash-object", "-w", "README.md"]);
+    let tree = super::refs::mktree(&work, &format!("100644 blob {readme}\tother\n"));
+    let broken = git(&work, &["commit-tree", &tree, "-p", &a1, "-m", "broken"]);
+    let aside = format!("refs/redkiln/broken/a1/{broken}");
+    git(
+        &work,
+        &["push", "-q", "origin", &format!("{broken}:{aside}")],
+    );
+    let reader = clone(dir.path(), &remote, "reader");
+    let store = empty_store(dir.path(), "store");
+    let first = imported(&store, &reader);
+    assert!(first.passed_over.contains(&aside), "{first:?}");
+    let records = decode_all::<ImportCompleted>(&all(&store)).events.len();
+    let again = imported(&store, &reader);
+    assert!(again.sources.is_empty(), "{again:?}");
+    assert!(again.passed_over.contains(&aside), "{again:?}");
+    assert_eq!(
+        decode_all::<ImportCompleted>(&all(&store)).events.len(),
+        records,
+        "nothing recorded again"
+    );
+}
+
+#[test]
+fn past_its_deadline_an_import_fetches_and_reads_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_source, remote) = exported(dir.path());
+    let reader = clone(dir.path(), &remote, "reader");
+    let store = empty_store(dir.path(), "store");
+    let late = RefsTarget {
+        deadline: Some(std::time::Instant::now()),
+        ..target(&reader)
+    };
+    let report = import_refs(&store, &late, &ts(), &importer()).expect("ran");
+    assert!(report.late, "{report:?}");
+    assert!(report.sources.is_empty(), "{report:?}");
+    assert!(all(&store).is_empty(), "nothing recorded");
+}
+
+#[test]
+fn a_name_that_is_no_journals_is_passed_over() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_source, remote) = exported(dir.path());
+    let work = dir.path().join("work");
+    let a1 = git(&work, &["rev-parse", "refs/redkiln/journal/a1"]);
+    let bad = "refs/redkiln/journal/Not.A.Name";
+    git(&work, &["push", "-q", "origin", &format!("{a1}:{bad}")]);
+    let reader = clone(dir.path(), &remote, "reader");
+    let store = empty_store(dir.path(), "store");
+    let report = imported(&store, &reader);
+    assert_eq!(report.passed_over, [bad], "{report:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_inbox_is_read_once_per_commit_and_a_deleted_one_is_pruned_alone() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    super::git_fixture::refuse_custom_refs(&remote);
+    let cloud = clone(dir.path(), &remote, "cloud");
+    let at = dir.path().join("source");
+    std::fs::create_dir_all(&at).expect("dir");
+    let source = source_store(&at);
+    let outcome = checkpoint_refs(&source, RepoClass::Own, &target(&cloud)).expect("ok");
+    assert!(matches!(outcome, RefsCheckpoint::Written(_)));
+    let reader = clone(dir.path(), &remote, "reader");
+    let store = empty_store(dir.path(), "store");
+    let first = imported(&store, &reader);
+    assert!(!first.sources.is_empty(), "{first:?}");
+    let again = imported(&store, &reader);
+    assert!(again.sources.is_empty(), "unchanged inboxes: {again:?}");
+    git(
+        &remote,
+        &["update-ref", "-d", "refs/heads/redkiln/inbox/a1"],
+    );
+    let head = git(&reader, &["rev-parse", "HEAD"]);
+    git(&reader, &["update-ref", "refs/redkiln/broken/zz/x", &head]);
+    let pruned = imported(&store, &reader);
+    assert!(pruned.fetch_failed.is_empty(), "{pruned:?}");
+    assert_eq!(
+        git(&reader, &["for-each-ref", "refs/redkiln/inbox/a1"]),
+        "",
+        "the deleted inbox's copy is pruned"
+    );
+    assert_ne!(
+        git(&reader, &["for-each-ref", "refs/redkiln/broken/zz/x"]),
+        "",
+        "a broken ref only this clone holds is not pruned"
+    );
 }

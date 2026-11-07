@@ -42,10 +42,14 @@ pub struct RefsImport {
     /// Journal refs whose commit does not descend from the one last imported (JR-05).
     pub rewritten: Vec<String>,
     /// Sources passed over: a name that is no journal's, a listing longer than this reader
-    /// takes, or a file larger than [`crate::journal::MAX_JOURNAL_BYTES`].
+    /// takes, or a journal file that is missing, not a regular file or larger than
+    /// [`crate::journal::MAX_JOURNAL_BYTES`] (for a broken ref, at its tip).
     pub passed_over: Vec<String>,
     /// What git said when a fetch failed; the clone's copies were read anyway.
     pub fetch_failed: Vec<String>,
+    /// The target's deadline passed, so some sources (and perhaps the fetch) were left for a
+    /// later run.
+    pub late: bool,
 }
 
 /// One source imported at one commit.
@@ -63,7 +67,7 @@ pub struct ImportedRef {
 ///
 /// Sources are fetched from the target's remote first, when one is configured; a fetch that
 /// fails is reported and the clone's own copies are read. Each import is recorded as written
-/// at `ts` by `author` (JR-13).
+/// at `ts` by `author` (JR-13). After the target's deadline, nothing more is fetched or read.
 ///
 /// # Errors
 /// [`RefsError::Store`] when the store cannot be read, [`RefsError::Import`] when an import
@@ -77,6 +81,10 @@ pub fn import_refs(
 ) -> Result<RefsImport, RefsError> {
     let ctx = Ctx::local(target);
     let mut report = RefsImport::default();
+    if ctx.late() {
+        report.late = true;
+        return Ok(report);
+    }
     if ctx.repo.has_remote(target.remote)? {
         fetch_all(&ctx, target.remote, &mut report)?;
     }
@@ -131,11 +139,20 @@ impl Importer<'_> {
         (source, commit): (String, Oid),
         path: &str,
     ) -> Result<(), RefsError> {
+        if self.late(report) {
+            return Ok(());
+        }
         match file_at(self.ctx, &commit, path)? {
             Some(file) => report.sources.push(self.one(source, &commit, file)?),
             None => report.passed_over.push(source),
         }
         Ok(())
+    }
+
+    /// Whether the deadline has passed, noted in `report`: no more sources are started.
+    fn late(&self, report: &mut RefsImport) -> bool {
+        report.late |= self.ctx.late();
+        report.late
     }
 
     /// Imports `file`, read from `source` at `commit`.
@@ -167,6 +184,9 @@ fn import_broken(
     importer: &Importer<'_>,
 ) -> Result<(), RefsError> {
     for (refname, tip) in listed(ctx, BROKEN_REFS, report)? {
+        if importer.late(report) {
+            return Ok(());
+        }
         let name = refname
             .strip_prefix(BROKEN_REFS)
             .and_then(|rest| rest.split_once('/'))
@@ -175,22 +195,31 @@ fn import_broken(
             report.passed_over.push(refname);
             continue;
         };
-        if last.get(&refname) == Some(&tip) {
-            continue;
-        }
-        let Some(history) = ctx.repo.history(&tip, MAX_LISTING_BYTES)? else {
+        // Only the commits after the last one this store imported from the ref, so a tip with
+        // no readable journal file is not read, and recorded, again on every run.
+        let since = match last.get(&refname) {
+            Some(previous) if *previous == tip => continue,
+            Some(previous) if ctx.repo.descends(previous, &tip)? == Some(true) => Some(previous),
+            _ => None,
+        };
+        let Some(history) = ctx.repo.history(&tip, since, MAX_LISTING_BYTES)? else {
             report.passed_over.push(refname);
             continue;
         };
+        let mut tip_read = false;
         for commit in history {
             // A broken tree may hold other files: only the journal's own is read, and a commit
-            // without it is passed over silently, since the ref as a whole is what was set aside.
+            // without a readable one is passed over, since the ref as a whole was set aside.
             if let Some(file) = file_at(ctx, &commit, &name.file_name())? {
+                tip_read |= commit == tip;
                 // Each commit's record names the ref it was read from.
                 report
                     .sources
                     .push(importer.one(refname.clone(), &commit, file)?);
             }
+        }
+        if !tip_read {
+            report.passed_over.push(refname);
         }
     }
     Ok(())
@@ -247,11 +276,13 @@ fn file_at(ctx: &Ctx<'_>, commit: &Oid, path: &str) -> Result<Option<Vec<u8>>, R
     }
 }
 
-/// The commit last imported from each ref, by the store's `core.import_completed` records.
+/// The commit last imported from each ref, by the `core.import_completed` records this store
+/// wrote itself.
 fn last_imported(store: &Store) -> Result<HashMap<String, Oid>, RefsError> {
     let filter = Filter::all()
         .of_type(ImportCompleted::TYPE)
         .map_err(RefsError::Store)?;
+    let mine = store.store_id();
     let mut last = HashMap::new();
     let mut after = 0;
     loop {
@@ -259,7 +290,11 @@ fn last_imported(store: &Store) -> Result<HashMap<String, Oid>, RefsError> {
         let Some(end) = page.last().map(|stored| stored.position) else {
             break;
         };
-        for envelope in decode_all::<ImportCompleted>(&page).events {
+        // Only this store's own records: those ingested from another clone's journal name what
+        // that store read, not what this one holds. A record that does not decode is passed
+        // over; its ref is then read again, which the idempotent import makes harmless.
+        let own = page.iter().filter(|stored| stored.id.store() == mine);
+        for envelope in decode_all::<ImportCompleted>(own).events {
             // A record whose commit is not an object name was not written by this reader.
             if let ImportSource::Ref { name, commit } = envelope.data.source
                 && let Ok(commit) = Oid::parse(&commit)

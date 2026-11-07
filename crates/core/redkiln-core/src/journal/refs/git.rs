@@ -272,10 +272,18 @@ impl Repo<'_> {
             .map(Some)
     }
 
-    /// The commits reachable from `tip`, oldest first; `None` when the listing is longer than
-    /// `cap` bytes.
-    pub(crate) fn history(&self, tip: &Oid, cap: u64) -> Result<Option<Vec<Oid>>, RefsError> {
-        let Some(out) = self.ok_spooled(&["rev-list", "--reverse", tip.as_str()], cap)? else {
+    /// The commits reachable from `tip` and not from `since`, oldest first; `None` when the
+    /// listing is longer than `cap` bytes.
+    pub(crate) fn history(
+        &self,
+        tip: &Oid,
+        since: Option<&Oid>,
+        cap: u64,
+    ) -> Result<Option<Vec<Oid>>, RefsError> {
+        let not = since.map(|since| format!("^{since}"));
+        let mut args = vec!["rev-list", "--reverse", tip.as_str()];
+        args.extend(not.as_deref());
+        let Some(out) = self.ok_spooled(&args, cap)? else {
             return Ok(None);
         };
         String::from_utf8_lossy(&out)
