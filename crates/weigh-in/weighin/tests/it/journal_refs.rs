@@ -510,6 +510,78 @@ fn an_internal_error_writes_the_envelope_and_exits_70() -> TestResult {
     Ok(())
 }
 
+/// A warning stderr cannot take, written before the envelope, must not make the exit disagree
+/// with the envelope's `ok` (CLI-02).
+#[cfg(target_os = "linux")]
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_warning_stderr_cannot_take_leaves_ok_and_the_exit_agreeing() -> TestResult {
+    let (repo, _remote) = Repo::with_remote(false)?;
+    std::fs::create_dir_all(repo.root.join(".kb/_ledger"))?;
+    std::fs::write(
+        repo.root.join(".kb/_ledger/config.json"),
+        r#"{"repo_class":"own"}"#,
+    )?;
+    repo.raise("s1", QUESTION)?;
+
+    for command in ["checkpoint", "import"] {
+        let out = repo.run_with_stderr_full("s1", &["journal", command, "--json"])?;
+
+        let env = envelope(&out)?;
+        assert_eq!(env["ok"], json!(true), "{command}: {env}");
+        assert_eq!(code(&out), Some(0), "{command}: ok and the exit agree");
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_closed_stdout_exits_0_with_nothing_on_stderr() -> TestResult {
+    let (repo, _remote, _id) = raised()?;
+
+    let out = repo.run_with_stdout_closed(&["journal", "checkpoint", "--json"])?;
+
+    assert_eq!(code(&out), Some(0));
+    assert_eq!(stderr(&out), "");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn pre_push_that_cannot_open_the_store_warns_exits_0_and_keeps_its_data_shape() -> TestResult {
+    let repo = Repo::new(true)?;
+    let bogus = repo.sibling("bogus")?.join("events.sqlite3");
+    std::fs::write(&bogus, "not a database")?;
+    let store = bogus.to_string_lossy().into_owned();
+
+    let out = repo.run(
+        "s1",
+        &[
+            "--store", &store, "journal", "pre-push", "origin", "url", "--json",
+        ],
+        Some(&push_line("refs/heads/main")),
+    )?;
+
+    assert_eq!(code(&out), Some(0));
+    assert!(
+        stderr(&out).starts_with("weighin: warning: "),
+        "{}",
+        stderr(&out)
+    );
+    let env = envelope(&out)?;
+    assert_eq!(
+        (&env["ok"], &env["data"], &env["findings"][0]["key"]),
+        (
+            &json!(true),
+            &json!({"skipped": null, "appended": 0, "direct": [], "relayed": [],
+                "local_only": false, "unexportable": 0, "relay_reason": null}),
+            &json!("internal")
+        ),
+        "{env}"
+    );
+    Ok(())
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn checkpoint_without_json_prints_one_summary_line() -> TestResult {

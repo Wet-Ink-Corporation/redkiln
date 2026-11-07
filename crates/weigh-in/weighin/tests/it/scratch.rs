@@ -90,6 +90,21 @@ impl Repo {
             .output()?)
     }
 
+    /// Run `weighin --session <session> <args>` here with stderr on `/dev/full`, where every write
+    /// fails (Linux only: macOS has no `/dev/full`); its exit status and stdout.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn run_with_stderr_full(&self, session: &str, args: &[&str]) -> TestResult<Output> {
+        let full = std::fs::OpenOptions::new().write(true).open("/dev/full")?;
+        Ok(self
+            .command(&self.root)
+            .args(["--session", session])
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(full)
+            .output()?)
+    }
+
     /// The lock file the journal writer takes for `session`, in this repository's temp dir.
     pub(crate) fn lock_path(&self, session: &str) -> PathBuf {
         self.temp.join(format!("weigh-in-journal-{session}.lock"))

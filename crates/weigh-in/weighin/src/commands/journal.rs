@@ -18,7 +18,6 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use anyhow::Context as _;
 use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{Deleted, RefsError, RefsExported, RefsImport, Relayed};
 use serde::Serialize;
@@ -75,45 +74,40 @@ pub(crate) fn run(g: Globals, cmd: JournalCmd) -> ExitCode {
 fn checkpoint(g: Globals, json: bool, started: Instant) -> Exit {
     let env = match crate::environment(g) {
         Ok(env) => env,
-        Err(e) => return internal(CHECKPOINT, json, &e, Exit::Internal),
+        Err(e) => return internal(CHECKPOINT, json, &e),
     };
     let noticed = warn_notices(&env);
     let exit = match refs::checkpoint(&env, Budget::COMMAND, started) {
         Ok(done) => emit(CHECKPOINT, json, &checkpointed(&done)),
-        Err(e) => internal(CHECKPOINT, json, &e, Exit::Internal),
+        Err(e) => internal(CHECKPOINT, json, &e),
     };
-    worst(noticed, exit)
+    settle(json, noticed, exit)
 }
 
 fn import(g: Globals, json: bool, started: Instant) -> Exit {
     let env = match crate::environment(g) {
         Ok(env) => env,
-        Err(e) => return internal(IMPORT, json, &e, Exit::Internal),
+        Err(e) => return internal(IMPORT, json, &e),
     };
     let noticed = warn_notices(&env);
     let exit = match refs::import(&env, Budget::COMMAND, started, "cli") {
         Ok(done) => emit(IMPORT, json, &imported(&done)),
-        Err(e) => internal(IMPORT, json, &e, Exit::Internal),
+        Err(e) => internal(IMPORT, json, &e),
     };
-    worst(noticed, exit)
+    settle(json, noticed, exit)
 }
 
 fn relay(dir: Option<PathBuf>, args: &RelayArgs) -> Exit {
-    let found = match dir {
-        Some(d) => std::path::absolute(&d)
-            .with_context(|| format!("finding the absolute path of --dir {}", d.display())),
-        None => std::env::current_dir().context("finding the working directory"),
-    };
-    let dir = match found {
+    let dir = match crate::working_dir(dir) {
         Ok(dir) => dir,
-        Err(e) => return internal(RELAY, args.json, &e, Exit::Internal),
+        Err(e) => return internal(RELAY, args.json, &e),
     };
     match refs::relay(&dir, &args.branch, Budget::RELAY) {
         Ok(outcome) => emit(RELAY, args.json, &relayed(&args.branch, &outcome)),
         Err(e @ RefsError::NotInbox(_)) => say("error", &e, Exit::Usage),
         Err(e) => {
             let e = anyhow::Error::new(e).context(format!("relaying {}", args.branch));
-            internal(RELAY, args.json, &e, Exit::Internal)
+            internal(RELAY, args.json, &e)
         }
     }
 }
@@ -130,17 +124,27 @@ fn pre_push(g: Globals, json: bool, started: Instant) -> Exit {
     };
     let env = match crate::environment(g) {
         Ok(env) => env,
-        Err(e) => return internal(PRE_PUSH, json, &e, Exit::Success),
+        Err(e) => return pre_push_failed(json, &e),
     };
     let noticed = worst(read, warn_notices(&env));
     let done = match pushing {
         Pushing::OnlyJournals => Checkpointed::Skipped(Skip::JournalOnlyPush),
         Pushing::Other => match refs::checkpoint(&env, Budget::PRE_PUSH, started) {
             Ok(done) => done,
-            Err(e) => return internal(PRE_PUSH, json, &e, Exit::Success),
+            Err(e) => return pre_push_failed(json, &e),
         },
     };
-    worst(noticed, emit(PRE_PUSH, json, &checkpointed(&done)))
+    settle(json, noticed, emit(PRE_PUSH, json, &checkpointed(&done)))
+}
+
+/// `pre-push` could not export: `e` as a warning, and with `--json` the envelope with the
+/// checkpoint's data empty (its schema's shape) and one `internal` finding.
+fn pre_push_failed(json: bool, e: &anyhow::Error) -> Exit {
+    let failure = Failure {
+        exit: Exit::Success,
+        data: CheckpointData::empty(None),
+    };
+    failed(PRE_PUSH, json, e, failure)
 }
 
 /// One command's result, as the envelope and the summary line say it.
@@ -179,22 +183,38 @@ fn emit<D: Serialize>(named: Named, json: bool, outcome: &Outcome<D>) -> Exit {
     })
 }
 
-/// The command could not run: `e` on stderr at `error` (or `warning` when `exit` is success,
-/// as for `pre-push`), and with `--json` the envelope with no data and one `internal` finding.
-fn internal(named: Named, json: bool, e: &anyhow::Error, exit: Exit) -> Exit {
+/// How a command that could not run ends: its exit, and the `data` its envelope carries.
+struct Failure<D> {
+    exit: Exit,
+    data: D,
+}
+
+/// The command could not run (70): `e` on stderr, and with `--json` the envelope with
+/// `data: {}` and one `internal` finding.
+fn internal(named: Named, json: bool, e: &anyhow::Error) -> Exit {
+    let failure = Failure {
+        exit: Exit::Internal,
+        data: serde_json::Map::new(),
+    };
+    failed(named, json, e, failure)
+}
+
+/// `e` on stderr at `error` (or `warning` when the failure's exit is success, as for
+/// `pre-push`), and with `--json` the envelope with its `data` and one `internal` finding.
+fn failed<D: Serialize>(named: Named, json: bool, e: &anyhow::Error, failure: Failure<D>) -> Exit {
+    let Failure { exit, data } = failure;
     let chain = format!("{e:#}");
     let said = say(if exit.ok() { "warning" } else { "error" }, &chain, exit);
     if !json {
         return said;
     }
     let outcome = Outcome {
-        // `{}`: the command produced no data.
-        data: serde_json::Map::new(),
+        data,
         findings: vec![Finding::new("internal".to_owned(), &chain, Severity::Error)],
         exit,
         line: String::new(),
     };
-    worst(said, emit(named, json, &outcome))
+    settle(json, said, emit(named, json, &outcome))
 }
 
 /// The exit after stdout failed with `e`: 0 when its reader stopped reading (CLI-07), else 74,
@@ -225,6 +245,14 @@ const fn worst(first: Exit, second: Exit) -> Exit {
     if second.ok() { first } else { second }
 }
 
+/// The exit once the result is out: `emitted`, what writing it earned, after warnings that
+/// earned `said` on stderr before it. With `--json` the envelope's `ok` was written from
+/// `emitted`, so a warning stderr could not take leaves the exit as the envelope says (CLI-02);
+/// without it, that failure is an output error (74, CLI-05).
+const fn settle(json: bool, said: Exit, emitted: Exit) -> Exit {
+    if json { emitted } else { worst(said, emitted) }
+}
+
 /// The stderr level of a finding: CLI-08 knows only errors and warnings.
 const fn level(severity: Option<Severity>) -> &'static str {
     match severity {
@@ -252,19 +280,26 @@ struct CheckpointData<'a> {
     relay_reason: Option<&'a str>,
 }
 
+impl CheckpointData<'_> {
+    /// Nothing exported: skipped for `skipped`, or (`None`) a checkpoint that could not run.
+    const fn empty(skipped: Option<Skip>) -> Self {
+        Self {
+            skipped,
+            appended: 0,
+            direct: Vec::new(),
+            relayed: Vec::new(),
+            local_only: false,
+            unexportable: 0,
+            relay_reason: None,
+        }
+    }
+}
+
 fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
     let report = match done {
         Checkpointed::Skipped(skip) => {
             return Outcome {
-                data: CheckpointData {
-                    skipped: Some(*skip),
-                    appended: 0,
-                    direct: Vec::new(),
-                    relayed: Vec::new(),
-                    local_only: false,
-                    unexportable: 0,
-                    relay_reason: None,
-                },
+                data: CheckpointData::empty(Some(*skip)),
                 findings: Vec::new(),
                 exit: Exit::Success,
                 line: format!("nothing to export ({})", skip.as_str()),

@@ -523,15 +523,23 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Vec<Str
     (result, warnings)
 }
 
+/// The directory a command works in: `--dir` made absolute, as Core locates from (a relative
+/// one is the process's directory's), else the process's own.
+///
+/// # Errors
+/// Neither path can be found.
+fn working_dir(dir: Option<PathBuf>) -> Result<PathBuf> {
+    match dir {
+        Some(d) => std::path::absolute(&d)
+            .with_context(|| format!("finding the absolute path of --dir {}", d.display())),
+        None => std::env::current_dir().context("finding the working directory"),
+    }
+}
+
 /// The environment the options name, refused when the store cannot be located (ST-01), the
 /// session id is one the store refuses (D10), or the folder's config is broken.
 fn environment(g: Globals) -> Result<Env> {
-    // Absolute, as Core locates from: a relative `--dir` is the process's directory's.
-    let cwd = match g.dir {
-        Some(d) => std::path::absolute(&d)
-            .with_context(|| format!("finding the absolute path of --dir {}", d.display()))?,
-        None => std::env::current_dir()?,
-    };
+    let cwd = working_dir(g.dir)?;
     let session = g.session.map(|s| (s, "--session"));
     let env = Env::discover(&cwd, session, g.store, Vars::from_process());
     env.store_path()?;
