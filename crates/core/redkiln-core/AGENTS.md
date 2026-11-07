@@ -1,7 +1,7 @@
 # Crate charter: `redkiln-core`
 
 ## Purpose
-The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and what the SPEC defines around it: the store's location (ST-01 to ST-03) and the store (ST-04 to ST-11), `suite.toml` (ST-12, ST-13), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), subjects and their hashes (ID-09, ID-10), journal lines, the checkpoint into files and journal refs, the relay, and the import (JR-01 to JR-14; import from refs: step 7, PR 2), and a read-only reader for old weighin ledgers.
+The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and what the SPEC defines around it: the store's location (ST-01 to ST-03) and the store (ST-04 to ST-11), `suite.toml` (ST-12, ST-13), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), subjects and their hashes (ID-09, ID-10), journal lines, the checkpoint into files and journal refs, the relay, and the import (JR-01 to JR-14), and a read-only reader for old weighin ledgers.
 
 ## Layer
 Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, and other Core crates may depend only on it.
@@ -44,7 +44,7 @@ Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError
 - `suite.toml` is read up to 64 KiB; anything it cannot give is `client` (ST-13). The legacy `config.json` `repo_class` is a fallback only when `suite.toml` sets none (M1-F). Problems and fallbacks are returned `Warning`s, never printed.
 - The library reads no clock: a `Timestamp` comes from the caller's `SystemTime` or text.
 - patch-id is ID-09's pinned recipe only: git 2.39 or later, the pinned flags and `-c` values, the diff variables unset, and no id for a shallow boundary, other than one merge base, or an empty change. A failure is a `NoPatchId` naming why, never a fallback id.
-- Only an import writes an event under a foreign identity (the crate-internal `Store::ingest`), always at `asserted` with the line's level in `claimed`; it only reads its source. A checkpoint only appends complete lines; the one cut is a torn last line (JR-03, JR-05).
+- Only an import writes an event under a foreign identity (the crate-internal `Store::ingest`), always at `asserted` with the line's level in `claimed`; it only reads its source. A checkpoint only appends complete lines, never an import record (JR-13); the one cut is a torn last line (JR-03, JR-05).
 - The canonical digest is RFC 8785 over a JSON value; an integer beyond +-2^53 is refused, never rounded (I-JSON, which RFC 8785 requires).
 
 ## Errors

@@ -11,7 +11,9 @@
 //!
 //! The main log never holds telemetry (it lives in its side store), so every event read here is
 //! durable (JR-04). An event that is not an envelope (written through
-//! [`crate::store::NewEvent`] directly) has no line and is counted, not exported.
+//! [`crate::store::NewEvent`] directly) has no line and is counted, not exported. An import
+//! record ([`ImportCompleted`]) stays in the store that wrote it and is neither exported nor
+//! counted (JR-08, JR-13).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{File, OpenOptions, TryLockError};
@@ -22,9 +24,11 @@ use std::time::{Duration, Instant};
 
 use happenstance_core::EventId;
 
+use super::import::ImportCompleted;
 use super::line::{Held, encode, held, lines};
 use super::name::JournalName;
-use crate::store::{Filter, Store, StoreError};
+use crate::envelope::Payload as _;
+use crate::store::{Filter, Store, StoreError, Stored};
 use crate::suite::RepoClass;
 
 /// Events read from the store per page.
@@ -58,7 +62,8 @@ pub struct Exported {
     pub journals: Vec<JournalName>,
     /// Journals another writer held for the whole wait; the next checkpoint catches up.
     pub busy: Vec<JournalName>,
-    /// Events that are not envelopes, so have no line.
+    /// Events that are not envelopes, so have no line. Import records, which are never
+    /// exported, are not counted.
     pub unexportable: u64,
 }
 
@@ -87,7 +92,10 @@ pub enum JournalError {
 }
 
 /// Appends every event of `store` that its journal in `dir` lacks (JR-08); in a `client`
-/// repository, writes nothing (JR-09). Each journal is locked for at most `wait`.
+/// repository, writes nothing (JR-09).
+///
+/// Import records are not exported: they stay in the store (JR-13). Each journal is locked for
+/// at most `wait`.
 ///
 /// # Errors
 /// [`JournalError`] when the store cannot be read, or a journal file cannot be read or written.
@@ -111,7 +119,7 @@ pub fn checkpoint(
             break;
         };
         let mut by_journal: BTreeMap<JournalName, Vec<(EventId, Vec<u8>)>> = BTreeMap::new();
-        for stored in &page {
+        for stored in page.iter().filter(|stored| belongs_in_a_journal(stored)) {
             match encode(stored) {
                 Ok((session, line)) => by_journal
                     .entry(JournalName::for_event(session.as_ref(), stored.id.store()))
@@ -145,8 +153,9 @@ pub fn checkpoint(
     Ok(Checkpoint::Written(exported))
 }
 
-/// Every durable event of `store` as journal lines, grouped by journal (JR-06), each journal's
-/// lines in store order; and how many events are not envelopes, so have no line.
+/// Every exported event of `store` (all durable ones but import records) as journal lines,
+/// grouped by journal (JR-06), each journal's lines in store order; and how many events are
+/// not envelopes, so have no line.
 pub(crate) fn grouped(store: &Store) -> Result<(BTreeMap<JournalName, Vec<u8>>, u64), StoreError> {
     let mut journals: BTreeMap<JournalName, Vec<u8>> = BTreeMap::new();
     let mut unexportable = 0_u64;
@@ -156,7 +165,7 @@ pub(crate) fn grouped(store: &Store) -> Result<(BTreeMap<JournalName, Vec<u8>>, 
         let Some(last) = page.last().map(|stored| stored.position) else {
             break;
         };
-        for stored in &page {
+        for stored in page.iter().filter(|stored| belongs_in_a_journal(stored)) {
             match encode(stored) {
                 Ok((session, line)) => journals
                     .entry(JournalName::for_event(session.as_ref(), stored.id.store()))
@@ -171,6 +180,12 @@ pub(crate) fn grouped(store: &Store) -> Result<(BTreeMap<JournalName, Vec<u8>>, 
         after = last;
     }
     Ok((journals, unexportable))
+}
+
+/// Whether `stored` belongs in a journal: every durable event does but `core.import_completed`,
+/// which describes this store's own reads and stays in the store that wrote it (JR-08, JR-13).
+fn belongs_in_a_journal(stored: &Stored) -> bool {
+    stored.event_type != ImportCompleted::TYPE
 }
 
 /// What this checkpoint knows of a journal file: the origins it holds and its length when they

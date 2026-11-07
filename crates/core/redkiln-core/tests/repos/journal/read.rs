@@ -1,20 +1,21 @@
 //! Importing journals back from git: journal refs, refs set aside as broken, and inbox branches
 //! not yet relayed (SPEC JR-05, JR-07, JR-10 to JR-13).
 
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::time::Duration;
 
-use redkiln_core::envelope::decode_all;
+use redkiln_core::envelope::{Payload as _, decode_all};
 use redkiln_core::journal::refs::{
     ImportedRef, RefsCheckpoint, RefsImport, RefsTarget, checkpoint_refs, import_refs,
 };
-use redkiln_core::journal::{Checkpoint, ImportCompleted, ImportSource, checkpoint, import_file};
-use redkiln_core::store::{Store, Wait};
+use redkiln_core::journal::{ImportCompleted, ImportSource, encode_line, import_file};
+use redkiln_core::store::{Filter, Store, Wait};
 use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::Trust;
 
 use super::git_fixture::{clone, git, remote};
-use super::{all, importer, raised, source_store, ts};
+use super::{all, importer, one_event_store, raised, source_store, ts};
 
 fn target(repo: &Path) -> RefsTarget<'_> {
     RefsTarget {
@@ -251,17 +252,24 @@ fn records_ingested_from_another_store_do_not_stand_for_this_ones_imports() {
     let reader = clone(dir.path(), &remote, "reader");
     let other = empty_store(dir.path(), "other");
     assert_eq!(imported(&other, &reader).sources.len(), 3);
-    // The other store's journals, its import records among them, reach this store.
-    let journals = dir.path().join("journals");
-    let outcome =
-        checkpoint(&other, RepoClass::Own, &journals, Duration::from_secs(5)).expect("exported");
-    assert!(matches!(outcome, Checkpoint::Written(_)));
+    // The other store's import records reach this store through a journal, as one a build
+    // that still exported them wrote.
+    let of_type = Filter::all()
+        .of_type(ImportCompleted::TYPE)
+        .expect("a type");
+    let records = other
+        .read(&of_type, 0, NonZeroUsize::new(100).expect("non-zero"))
+        .expect("read");
+    assert_eq!(records.len(), 3, "one record per ref");
+    let journal: Vec<u8> = records
+        .iter()
+        .flat_map(|stored| encode_line(stored).expect("a line"))
+        .collect();
+    let path = dir.path().join("records.jsonl");
+    std::fs::write(&path, journal).expect("a journal");
     let store = empty_store(dir.path(), "store");
-    for entry in std::fs::read_dir(&journals).expect("journals") {
-        let path = entry.expect("entry").path();
-        let ingested = import_file(&store, &path, ts(), importer()).expect("ingested");
-        assert!(!ingested.incomplete, "{ingested:?}");
-    }
+    let ingested = import_file(&store, &path, ts(), importer()).expect("ingested");
+    assert!(!ingested.incomplete, "{ingested:?}");
     let report = imported(&store, &reader);
     assert!(
         by_source(&report)
@@ -270,6 +278,52 @@ fn records_ingested_from_another_store_do_not_stand_for_this_ones_imports() {
         "{report:?}"
     );
     assert!(report.rewritten.is_empty(), "{report:?}");
+}
+
+#[test]
+fn two_clones_importing_each_other_settle() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let a_clone = clone(dir.path(), &remote, "a");
+    let b_clone = clone(dir.path(), &remote, "b");
+    let a = one_event_store(dir.path(), "store-a");
+    let b = empty_store(dir.path(), "store-b");
+    b.append(
+        vec![raised("wi-000002", Some("b2"), Trust::asserted())],
+        None,
+    )
+    .expect("appended");
+    let export =
+        |store: &Store, repo: &Path| match checkpoint_refs(store, RepoClass::Own, &target(repo))
+            .expect("exported")
+        {
+            RefsCheckpoint::Written(exported) => exported,
+            RefsCheckpoint::Client => panic!("an own repository is exported"),
+        };
+
+    assert_eq!(export(&a, &a_clone).appended, 1);
+    assert_eq!(
+        by_source(&imported(&b, &b_clone)),
+        [("refs/redkiln/journal/a1", 1)]
+    );
+    assert_eq!(export(&b, &b_clone).appended, 1, "b2 alone");
+    assert_eq!(
+        by_source(&imported(&a, &a_clone)),
+        [
+            ("refs/redkiln/journal/a1", 0),
+            ("refs/redkiln/journal/b2", 1)
+        ]
+    );
+    let last = export(&a, &a_clone);
+    assert_eq!(last.appended, 0, "{last:?}");
+    assert_eq!(
+        by_source(&imported(&b, &b_clone)),
+        [("refs/redkiln/journal/b2", 0)],
+        "its own ref, read once"
+    );
+    assert_eq!(export(&b, &b_clone).appended, 0);
+    assert!(imported(&a, &a_clone).sources.is_empty(), "settled");
+    assert!(imported(&b, &b_clone).sources.is_empty(), "settled");
 }
 
 #[test]

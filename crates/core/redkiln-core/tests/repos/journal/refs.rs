@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use redkiln_core::journal::refs::{
-    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs,
+    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs, import_refs,
 };
 // Every relay test needs a git hook script, so runs only on unix.
 #[cfg(unix)]
@@ -16,7 +16,10 @@ use redkiln_core::trust::Trust;
 #[cfg(unix)]
 use super::git_fixture::{accept_custom_refs, refuse_custom_refs};
 use super::git_fixture::{clone, file_at, git, refs, remote};
-use super::{raised, source_store};
+use super::{
+    ImportCompleted, all, decode_all, importer, one_event_store, raised, record_an_import,
+    source_store, ts,
+};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -501,6 +504,54 @@ fn the_relay_refuses_an_inbox_commit_that_changes_anything_else() {
         refs(&remote, "refs/heads/redkiln").contains(&"refs/heads/redkiln/inbox/a1".to_owned())
     );
     assert!(refs(&remote, "refs/redkiln").is_empty());
+}
+
+#[test]
+fn checkpoint_refs_never_exports_an_import_record() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = one_event_store(dir.path(), "store");
+    record_an_import(&store, dir.path());
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!((report.appended, report.unexportable), (1, 0), "{report:?}");
+    assert_eq!(
+        refs(&remote, "refs/redkiln/journal"),
+        ["refs/redkiln/journal/a1"],
+        "no store journal ref"
+    );
+    let a1 = file_at(&remote, "refs/redkiln/journal/a1", "a1.jsonl").expect("a1.jsonl");
+    assert_eq!(line_count(&a1), 1, "{a1}");
+    assert!(a1.contains("wi-000001"), "{a1}");
+}
+
+#[test]
+fn a_store_whose_only_new_event_is_an_import_record_touches_no_remote() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = one_event_store(dir.path(), "store");
+    written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    let before = refs(&remote, "refs/redkiln");
+    let report = import_refs(&store, &target(&work), &ts(), &importer()).expect("imported");
+    assert_eq!(report.sources.len(), 1, "{report:?}");
+    assert_eq!(
+        decode_all::<ImportCompleted>(&all(&store)).events.len(),
+        1,
+        "the import wrote its record"
+    );
+    let gone = dir.path().join("no-such-remote.git");
+    git(
+        &work,
+        &["remote", "set-url", "origin", &gone.to_string_lossy()],
+    );
+    let again = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!(again, RefsExported::default());
+    assert_eq!(
+        refs(&remote, "refs/redkiln"),
+        before,
+        "the remote is unchanged"
+    );
 }
 
 fn name(text: &str) -> redkiln_core::journal::JournalName {
