@@ -306,6 +306,8 @@ mod tests {
     use crate::journal::refs::RefsTarget;
 
     fn git(dir: &Path, args: &[&str]) -> String {
+        // Spawned as Core spawns, never while another test's store opener holds its lock.
+        let _forking = crate::git::forking();
         let out = Command::new("git")
             .args(args)
             .current_dir(dir)
@@ -504,6 +506,7 @@ mod tests {
 
     /// The commit of a tree holding `file` as `a1.jsonl`, with `parents`.
     fn journal_commit(repo: &Path, file: &str, parents: &[&str]) -> String {
+        let forking = crate::git::forking();
         let blob = Command::new("git")
             .args(["hash-object", "-w", "--stdin"])
             .current_dir(repo)
@@ -538,6 +541,8 @@ mod tests {
                 child.wait_with_output()
             })
             .expect("mktree");
+        // Released before `git` takes its own: a second read while a writer waits could block.
+        drop(forking);
         let tree = String::from_utf8(tree.stdout).expect("utf-8");
         let mut args = vec![
             "-c",

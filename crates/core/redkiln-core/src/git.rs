@@ -16,7 +16,25 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
+
+/// Held for reading while a child is spawned, and for writing by a store opener while it holds
+/// `<store>.lock`. A child forked in that window would hold the whole-file lock too, until it
+/// execs, so an opener that does not wait (a telemetry write, an existing-only open) would find
+/// its own store busy.
+static FORKS: RwLock<()> = RwLock::new(());
+
+/// Keeps this process from spawning a child until the guard drops. The guarded data is `()`, so
+/// a poisoned lock is as good as a clean one.
+pub(crate) fn no_forks() -> RwLockWriteGuard<'static, ()> {
+    FORKS.write().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Lets this process spawn a child, once no store opener holds its lock.
+pub(crate) fn forking() -> RwLockReadGuard<'static, ()> {
+    FORKS.read().unwrap_or_else(PoisonError::into_inner)
+}
 
 /// The most bytes kept of each of git's output streams; more is [`GitError::TooMuchOutput`].
 pub(crate) const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
@@ -192,14 +210,16 @@ pub(crate) fn run_spooled(
 ) -> Result<Spooled, GitError> {
     let mut stdout = tempfile::tempfile().map_err(GitError::Io)?;
     let mut stderr = tempfile::tempfile().map_err(GitError::Io)?;
-    let mut child = command
+    command
         .current_dir(cwd)
         .env("LC_ALL", "C")
         .stdin(stdin.map_or_else(Stdio::null, Stdio::from))
         .stdout(Stdio::from(stdout.try_clone().map_err(GitError::Io)?))
-        .stderr(Stdio::from(stderr.try_clone().map_err(GitError::Io)?))
-        .spawn()
-        .map_err(GitError::Spawn)?;
+        .stderr(Stdio::from(stderr.try_clone().map_err(GitError::Io)?));
+    let forking = forking();
+    let spawned = command.spawn();
+    drop(forking);
+    let mut child = spawned.map_err(GitError::Spawn)?;
     let status = wait(&mut child, timeout)?;
     stdout.seek(SeekFrom::Start(0)).map_err(GitError::Io)?;
     Ok(Spooled {

@@ -79,10 +79,13 @@ pub(super) fn open(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEven
     }
     // Refused first, so that no lock file is created beside a file this build will not open.
     refuse_found(&header::read(path)?, mode)?;
+    // No child is forked while the lock is held, so none can hold it after this open returns.
+    let no_forks = crate::git::no_forks();
     let lock = take_lock(path, busy)?;
     let store = open_locked(path, busy, mode)?;
     // Closing the lock file releases its lock.
     drop(lock);
+    drop(no_forks);
     Ok(store)
 }
 

@@ -473,11 +473,13 @@ mod tests {
     use super::*;
 
     fn repo(dir: &Path) -> Repo<'_> {
+        let forking = git::forking();
         let init = Command::new("git")
             .args(["init", "-q"])
             .current_dir(dir)
             .status()
             .expect("git");
+        drop(forking);
         assert!(init.success());
         Repo {
             dir,
