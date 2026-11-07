@@ -36,8 +36,8 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 
 # Core (SPEC ST-04): every happenstance crate is pinned at =0.4.5, with happenstance-sqlite's
 # `sync` feature, the first release whose ingest port keeps a caller's TRUNCATE connection
-# (docs/decisions.md, 2026-11-01). Only Core opens the store; weighin's own 1.x ledger code moves
-# onto Core in a later step of Move 1.
+# (docs/decisions.md, 2026-11-01). Only Core opens the store; weighin writes through Core since
+# #17 part 5a (2026-11-06) and depends on neither happenstance crate.
 redkiln-core = { path = "crates/core/redkiln-core" }
 happenstance-core = { version = "=0.4.5", features = ["serde"] }
 happenstance-sqlite = { version = "=0.4.5", features = ["sync"] }
