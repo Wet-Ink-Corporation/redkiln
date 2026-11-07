@@ -38,7 +38,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `client` (before, `own`). A `client` repository writes no session journals and `board export`
   refuses it, whatever its board mode.
 - `weighin init` writes the class to a new `.redkiln/suite.toml` (with no `--class`:
-  config.json's class, else `own`) and no longer to config.json, whose old `repo_class` it keeps.
+  config.json's class; with no class anywhere a first `init` refuses, writing nothing, where
+  before it made the folder `own`) and no longer to config.json, whose old `repo_class` it keeps.
   It refuses a `--class` other than the one an existing suite.toml gives, and an `--owner` other
   than suite.toml's `owner`, writing nothing. Its receipt names where the class came from.
 - The owner is suite.toml's `owner` when it sets one, then config.json's, then git's user.

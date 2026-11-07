@@ -57,7 +57,8 @@ leaves the machine, so it gets no session journals and `board export` refuses. T
 suite.toml's `owner`, else config.json's, else git's user. `weighin init --class <class>`
 writes a suite.toml holding only `repo_class` when there is none, refuses a class other than the
 one an existing suite.toml gives (edit it by hand), and never writes `repo_class` to config.json;
-`init` with no `--class` gives a new suite.toml config.json's class, else `own`.
+`init` with no `--class` gives a new suite.toml config.json's class, and with no class anywhere
+refuses, writing nothing: pass `--class own` or `--class client`.
 
 A weighin 1.x ledger (`<git-common-dir>/weighin/ledger.sqlite3`, or `<folder>/.weighin/`) is
 never opened or changed: every command and SessionStart names it, and its items are listed

@@ -208,14 +208,17 @@ fn init_without_a_class_moves_config_jsons_into_suite_toml_and_keeps_the_old_key
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_first_init_without_a_class_writes_own_to_suite_toml_as_1x_made_it_own() -> TestResult {
+fn a_first_init_without_a_class_anywhere_is_refused_before_any_write() -> TestResult {
     let repo = Repo::new(false)?;
 
-    repo.ok("s", &["init"], None)?;
+    let out = repo.run("s", &["init", "--owner", "human:ann"], None)?;
 
-    assert_eq!(
-        std::fs::read_to_string(repo.root.join(SUITE))?,
-        "[suite]\nrepo_class = \"own\"\n"
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        !out.status.success() && stderr.contains("pass `--class own` or `--class client`"),
+        "{stderr}"
     );
+    assert!(!repo.root.join(SUITE).exists(), "no suite.toml");
+    assert!(!repo.root.join(CONFIG).exists(), "no config.json");
     Ok(())
 }

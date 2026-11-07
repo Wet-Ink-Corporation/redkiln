@@ -25,14 +25,7 @@ pub(crate) fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<(
             set.as_str()
         );
     }
-    let class_to_write = if suite_exists {
-        if let Some(given) = a.class {
-            refuse_another_class(env, given)?;
-        }
-        None
-    } else {
-        Some(a.class.unwrap_or_else(|| first_class(env)))
-    };
+    let class_to_write = class_to_write(env, a.class, suite_exists)?;
     // A config's owner stands unless `--owner` is given; a first config takes git's (B-31).
     // suite.toml's owner is not copied in: it is read where it is.
     let owner = match a.owner {
@@ -53,6 +46,8 @@ pub(crate) fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<(
     if let Some(l) = a.ledger {
         c.store = Some(l).filter(|l| !l.trim().is_empty());
     }
+    // suite.toml goes first. If config.json's save then fails, a re-run is safe: it finds
+    // suite.toml, writes nothing to it, accepts the same `--class` and saves config.json.
     if let Some(class) = class_to_write {
         write_suite(&suite_path, class)?;
     }
@@ -77,12 +72,35 @@ pub(crate) fn init(env: &mut Env, a: InitArgs, out: &mut impl Write) -> Result<(
     Ok(())
 }
 
+/// The class `init` writes to a new suite.toml, or `None` when one exists (never rewritten), in
+/// which case a `given` class other than the repository's is refused.
+fn class_to_write(
+    env: &Env,
+    given: Option<RepoClass>,
+    suite_exists: bool,
+) -> Result<Option<RepoClass>> {
+    if suite_exists {
+        if let Some(given) = given {
+            refuse_another_class(env, given)?;
+        }
+        return Ok(None);
+    }
+    match given {
+        Some(class) => Ok(Some(class)),
+        None => first_class(env).map(Some),
+    }
+}
+
 /// The class a suite.toml written with no `--class` gets: weigh-in 1.x's config.json's, which
-/// it moves into suite.toml, else `own`, as a first 1.x `init` made a folder.
-fn first_class(env: &Env) -> RepoClass {
+/// it moves into suite.toml. With no class anywhere it refuses, before any write, rather than
+/// guess (Ryan, #36 F1 A): a client's folder taken for `own` would publish its decisions.
+fn first_class(env: &Env) -> Result<RepoClass> {
     match env.class_source() {
-        ClassSource::Suite | ClassSource::Legacy => env.repo_class(),
-        ClassSource::Default => RepoClass::Own,
+        ClassSource::Suite | ClassSource::Legacy => Ok(env.repo_class()),
+        ClassSource::Default => bail!(
+            "no repository class is set ({SUITE_FILE} and {LEGACY_CONFIG} set no repo_class): \
+             pass `--class own` or `--class client`; `init` writes nothing without one"
+        ),
     }
 }
 
