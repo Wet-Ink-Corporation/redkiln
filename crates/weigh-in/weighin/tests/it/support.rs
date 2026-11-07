@@ -386,9 +386,17 @@ pub(crate) fn items_seen_from_a_worktree(repo: &Path) -> (String, String) {
         .as_str()
         .unwrap()
         .to_owned();
+    // `init --class own` committed `.redkiln/suite.toml` to the main checkout; nothing else is
+    // written into either working tree.
+    let mut in_redkiln: Vec<String> = std::fs::read_dir(repo.join(".redkiln"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    in_redkiln.sort();
+    assert_eq!(in_redkiln, ["suite.toml"], "init writes only suite.toml");
     assert!(
-        !wrote_in(repo) && !wrote_in(&wt),
-        "nothing is written into the working trees"
+        !repo.join(".weighin").exists() && !wrote_in(&wt),
+        "nothing else is written into the working trees"
     );
     (one_way, scanned)
 }

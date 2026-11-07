@@ -30,9 +30,9 @@ fn run(repo: &Path, global: &Path, args: &[&str]) -> Result<String, String> {
     if ok { Ok(out) } else { Err(out) }
 }
 
-/// The `owner` an `init` with no `--owner` writes.
+/// The `owner` an `init` with no `--owner` writes (with `--class`, which a first `init` needs).
 fn owner_after_init(repo: &Path, global: &Path) -> Result<Value, Box<dyn std::error::Error>> {
-    run(repo, global, &["init"])?;
+    run(repo, global, &["init", "--class", "own"])?;
     let config: Value = serde_json::from_str(&std::fs::read_to_string(
         repo.join(".kb/_ledger/config.json"),
     )?)?;
@@ -70,9 +70,61 @@ fn without_a_git_user_the_owner_is_ryan_as_before() -> TestResult {
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn init_keeps_the_owner_an_existing_config_names() -> TestResult {
     let (_tmp, repo, global) = repo_with_global("[user]\n\tname = Ana Lima\n")?;
-    run(&repo, &global, &["init", "--owner", "bea"])?;
+    run(
+        &repo,
+        &global,
+        &["init", "--class", "own", "--owner", "bea"],
+    )?;
 
     assert_eq!(owner_after_init(&repo, &global)?, json!("bea"));
+    Ok(())
+}
+
+/// The decider of a decision taken now in `repo`.
+fn decider(repo: &Path, global: &Path, q: &str) -> Result<Value, Box<dyn std::error::Error>> {
+    let raised = run(repo, global, &["raise", "--q", q, "--kind", "question"])?;
+    let id = raised.split_whitespace().nth(1).ok_or("no id")?;
+    run(repo, global, &["decide", id, "yes"])?;
+    let shown: Value = serde_json::from_str(&run(repo, global, &["show", id, "--json"])?)?;
+    Ok(shown
+        .pointer("/decision/decider")
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn suite_tomls_owner_wins_over_config_jsons_which_wins_over_gits() -> TestResult {
+    let (_tmp, repo, global) = repo_with_global("[user]\n\tname = Ana Lima\n")?;
+    run(
+        &repo,
+        &global,
+        &["init", "--class", "own", "--owner", "bea"],
+    )?;
+    let suite = repo.join(".redkiln/suite.toml");
+    std::fs::write(&suite, "[suite]\nrepo_class = \"own\"\nowner = \"cy\"\n")?;
+
+    let from_suite = decider(&repo, &global, "Per series?")?;
+    let refused = run(&repo, &global, &["init", "--owner", "dee"]);
+    let kept = run(&repo, &global, &["init"]);
+    std::fs::write(&suite, "[suite]\nrepo_class = \"own\"\n")?;
+    let from_config = decider(&repo, &global, "Per record?")?;
+    std::fs::remove_file(repo.join(".kb/_ledger/config.json"))?;
+    let from_git = decider(&repo, &global, "Per tenant?")?;
+
+    assert_eq!(from_suite, json!("human:cy"));
+    let refused = refused.err().ok_or("init --owner dee is refused")?;
+    assert!(
+        refused.contains("suite.toml") && refused.contains("`cy`"),
+        "{refused}"
+    );
+    kept?;
+    assert_eq!(
+        from_config,
+        json!("human:bea"),
+        "an init with no --owner kept config.json's owner"
+    );
+    assert_eq!(from_git, json!("human:ana-lima"));
     Ok(())
 }
 

@@ -6,6 +6,7 @@ use anyhow::{Result, bail};
 use redkiln_core::ids::{Host, SessionId, WorktreeId};
 use redkiln_core::location::{LocateError, Workspace};
 use redkiln_core::store::Wait;
+use redkiln_core::suite::{self, ClassSource, Owner, Suite};
 use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
 use std::path::{Component, Path, PathBuf};
@@ -52,6 +53,15 @@ impl RepoClass {
         match self {
             Self::Own => BoardMode::Artifact,
             Self::Client => BoardMode::Local,
+        }
+    }
+}
+
+impl From<suite::RepoClass> for RepoClass {
+    fn from(class: suite::RepoClass) -> Self {
+        match class {
+            suite::RepoClass::Own => Self::Own,
+            suite::RepoClass::Client => Self::Client,
         }
     }
 }
@@ -162,8 +172,12 @@ impl Default for ScanConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Config {
-    /// Client repos default to a local board (decision wi-7c21e4).
-    pub(crate) repo_class: RepoClass,
+    /// weigh-in 1.x's class, never read here and never set: the class is suite.toml's, and Core
+    /// reads this key only below it (M1-F). Kept so a rewrite carries it through for a 1.x
+    /// binary, and still parsed, so a typo stays a broken config (#169).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) repo_class: Option<RepoClass>,
+    /// The owner below suite.toml's `owner` (ST-12).
     pub(crate) owner: String,
     pub(crate) board: BoardConfig,
     pub(crate) caps: Caps,
@@ -230,7 +244,7 @@ fn slug(name: &str) -> Option<String> {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            repo_class: RepoClass::Own,
+            repo_class: None,
             owner: FALLBACK_OWNER.into(),
             board: BoardConfig::default(),
             caps: Caps::default(),
@@ -354,6 +368,9 @@ pub(crate) struct Env {
     pub(crate) store: Result<StoreAt, LocateError>,
     /// What locating the store took or found that the user should hear about.
     pub(crate) notices: Vec<Notice>,
+    /// The worktree's `.redkiln/suite.toml` (ST-12), read with the store; `None` when the store
+    /// could not be located, so the class is `client` (ST-13).
+    pub(crate) suite: Option<Suite>,
     /// How long a durable write waits for another writer's lock (ST-09).
     pub(crate) wait: Wait,
     /// `--store` and the process values the store was located from, for [`Env::relocate`].
@@ -479,9 +496,14 @@ impl Env {
             config = Some(loaded);
             key
         });
-        let (store, notices, workspace) = match found {
-            Ok(found) => (Ok(found.store), found.notices, Some(found.workspace)),
-            Err(e) => (Err(e), Vec::new(), None),
+        let (store, notices, suite, workspace) = match found {
+            Ok(found) => (
+                Ok(found.store),
+                found.notices,
+                Some(found.suite),
+                Some(found.workspace),
+            ),
+            Err(e) => (Err(e), Vec::new(), None, None),
         };
         let (repo_root, common_dir) = match workspace {
             Some(Workspace::Git { root, common_dir }) => (Some(root), Some(common_dir)),
@@ -518,6 +540,7 @@ impl Env {
             config_source,
             store,
             notices,
+            suite,
             wait: Wait::Command,
             flag,
             vars,
@@ -525,8 +548,8 @@ impl Env {
         }
     }
 
-    /// Locate the store again from this config, as the next command will: after `init` rewrote
-    /// its `store`.
+    /// Locate the store and read suite.toml again from this config, as the next command will:
+    /// after `init` rewrote its `store` or wrote suite.toml.
     pub(crate) fn relocate(&mut self) {
         let key = self.config.store.as_deref();
         let found = location::locate_store(&self.cwd, self.flag.as_deref(), &self.vars, |_| {
@@ -536,11 +559,13 @@ impl Env {
             Ok(found) => {
                 self.store = Ok(found.store);
                 self.notices = found.notices;
+                self.suite = Some(found.suite);
             }
             // Whatever the last location found is not news about a store no longer located.
             Err(e) => {
                 self.store = Err(e);
                 self.notices.clear();
+                self.suite = None;
             }
         }
     }
@@ -566,6 +591,7 @@ impl Env {
                 source: redkiln_core::location::Source::Flag,
             }),
             notices: Vec::new(),
+            suite: None,
             wait: Wait::Command,
             flag: Some(dir.join("events.sqlite3")),
             vars: Vars::default(),
@@ -640,15 +666,62 @@ impl Env {
         }
     }
 
-    /// The folder's owner: its config's, or for a folder with no usable config the one git names
-    /// (B-31), asked of git the first time it is needed.
+    /// The folder's owner (ST-12): suite.toml's `owner`, else [`Env::config_owner`].
     #[must_use]
     pub(crate) fn owner(&self) -> &str {
+        self.suite_owner()
+            .map_or_else(|| self.config_owner(), Owner::as_str)
+    }
+
+    /// suite.toml's `owner`, when it sets one in its grammar.
+    #[must_use]
+    pub(crate) fn suite_owner(&self) -> Option<&Owner> {
+        self.suite.as_ref().and_then(Suite::owner)
+    }
+
+    /// The owner below suite.toml's: the config's, or for a folder with no usable config the one
+    /// git names (B-31), asked of git the first time it is needed.
+    #[must_use]
+    pub(crate) fn config_owner(&self) -> &str {
         match self.config_source {
             ConfigSource::File => &self.config.owner,
             ConfigSource::Absent | ConfigSource::Broken(_) => {
                 self.git_owner.get_or_init(|| owner_from_git(&self.root()))
             }
+        }
+    }
+
+    /// The repository class (ST-13): suite.toml's, else weigh-in 1.x's config.json's with a
+    /// notice (M1-F), else `client`; `client` too when the store could not be located.
+    #[must_use]
+    pub(crate) fn repo_class(&self) -> RepoClass {
+        self.suite
+            .as_ref()
+            .map_or(RepoClass::Client, |s| s.repo_class().into())
+    }
+
+    /// Where [`Env::repo_class`] came from.
+    #[must_use]
+    pub(crate) fn class_source(&self) -> ClassSource {
+        self.suite
+            .as_ref()
+            .map_or(ClassSource::Default, Suite::class_source)
+    }
+
+    /// Where the class came from, in words: `from .redkiln/suite.toml`, and so on.
+    #[must_use]
+    pub(crate) fn class_origin(&self) -> String {
+        match self.class_source() {
+            ClassSource::Suite => format!("from {}", suite::SUITE_FILE),
+            ClassSource::Legacy => format!(
+                "from {}, as {} sets none",
+                suite::LEGACY_CONFIG,
+                suite::SUITE_FILE
+            ),
+            ClassSource::Default => format!(
+                "the default, as {} sets no usable repo_class",
+                suite::SUITE_FILE
+            ),
         }
     }
 
@@ -974,11 +1047,11 @@ mod tests {
 
         assert_eq!(
             (
-                c.repo_class.as_str(),
+                c.repo_class.map(RepoClass::as_str),
                 c.board.mode.as_str(),
                 c.store.as_deref()
             ),
-            ("client", "local", Some("~/l.sqlite3"))
+            (Some("client"), "local", Some("~/l.sqlite3"))
         );
         Ok(())
     }
@@ -1021,8 +1094,8 @@ mod tests {
         let c = Config::load(tmp.path())?.ok_or("the file is there")?;
 
         assert_eq!(
-            (c.repo_class.as_str(), c.board.mode.as_str()),
-            ("client", "local")
+            (c.repo_class.map(RepoClass::as_str), c.board.mode.as_str()),
+            (Some("client"), "local")
         );
         Ok(())
     }

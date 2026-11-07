@@ -109,7 +109,7 @@ fn export_to_stdout_before_any_item_prints_an_empty_board() -> TestResult {
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn export_to_stdout_is_refused_when_the_board_is_off() -> TestResult {
     let (_tmp, repo) = setup();
-    init(&repo, &["--board", "off"])?;
+    init(&repo, &["--class", "own", "--board", "off"])?;
     grounded(&repo)?;
 
     let (ok, out) = weighin(&repo, "s1", &["board", "export", "--stdout"], None);
@@ -203,7 +203,7 @@ fn the_pane_is_refused_an_answer_read_from_an_older_card() -> TestResult {
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn the_pane_cannot_answer_when_the_board_is_off() -> TestResult {
     let (_tmp, repo) = setup();
-    init(&repo, &["--board", "off"])?;
+    init(&repo, &["--class", "own", "--board", "off"])?;
     let id = grounded(&repo)?;
 
     let (ok, out) = pane_apply(

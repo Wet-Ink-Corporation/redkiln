@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use weighin_core::EventEnvelope;
 
 use super::{DIR, line, lines};
-use crate::env::{ConfigSource, Env};
+use crate::env::{ConfigSource, Env, RepoClass};
 use crate::ops;
 
 /// How long [`sync`] waits for another writer: 3 s, as the hook script's `flock -w 3`, so a
@@ -37,6 +37,9 @@ pub(crate) enum Skip {
     NotGit,
     /// The folder has no usable `.kb/_ledger/config.json`.
     NotInitialised,
+    /// The repository is not `own` (ST-13, D8 A): a journal is committed, so it leaves the
+    /// machine with the repository.
+    Client,
     /// The config sets `"journal": false`.
     OptedOut,
     /// Another writer held the lock for the whole wait; the next run catches up.
@@ -81,7 +84,8 @@ impl TryFrom<&str> for JournalName {
 
 /// Append this session's events that `<repo root>/DIR/<session>.jsonl` lacks, creating the
 /// directory and file only when there is something to append. A folder that is not a git
-/// worktree, has no config, or opted out, and a session with no usable id, are skipped.
+/// worktree, has no config, is not an `own` repository, or opted out, and a session with no
+/// usable id, are skipped.
 ///
 /// # Errors
 /// Fails when the ledger cannot be read, an event cannot be encoded, or the lock, the directory
@@ -136,6 +140,9 @@ fn gate(env: &Env) -> Result<(JournalName, &Path), Skip> {
     let root = env.repo_root.as_deref().ok_or(Skip::NotGit)?;
     if !matches!(env.config_source, ConfigSource::File) {
         return Err(Skip::NotInitialised);
+    }
+    if env.repo_class() != RepoClass::Own {
+        return Err(Skip::Client);
     }
     if !env.config.journal {
         return Err(Skip::OptedOut);

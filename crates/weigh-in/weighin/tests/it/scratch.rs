@@ -17,7 +17,8 @@ pub(crate) struct Repo {
 }
 
 impl Repo {
-    /// A repository from `setup`, initialised with `weighin init` when `init` is true.
+    /// A repository from `setup`, initialised with `weighin init --class own` when `init` is
+    /// true: the `own` repository a bare first `init` made before #36 F1 refused it.
     pub(crate) fn new(init: bool) -> TestResult<Self> {
         let (scratch, root) = setup();
         let temp = scratch.path().join("tmp");
@@ -28,7 +29,7 @@ impl Repo {
             temp,
         };
         if init {
-            repo.ok("s", &["init"], None)?;
+            repo.ok("s", &["init", "--class", "own"], None)?;
         }
         Ok(repo)
     }

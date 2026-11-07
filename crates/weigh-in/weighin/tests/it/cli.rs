@@ -973,24 +973,39 @@ fn init_without_class_or_board_keeps_the_existing_ones() {
         &std::fs::read_to_string(repo.join(".kb/_ledger/config.json")).unwrap(),
     )
     .unwrap();
+    // The class is suite.toml's since #17 part 5b, and config.json carries none.
     assert_eq!(
         (
+            std::fs::read_to_string(repo.join(".redkiln/suite.toml")).unwrap(),
             &config["repo_class"],
             &config["board"]["mode"],
             &config["store"]
         ),
-        (&json!("client"), &json!("local"), &json!("../l.sqlite3"))
+        (
+            "[suite]\nrepo_class = \"client\"\n".to_owned(),
+            &Value::Null,
+            &json!("local"),
+            &json!("../l.sqlite3")
+        )
     );
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_first_init_without_flags_is_an_own_repo_on_the_artifact_board() {
+fn a_first_init_without_flags_asks_for_a_class_and_writes_nothing() {
     let (_tmp, repo) = setup();
 
     let (ok, out) = weighin(&repo, "s1", &["init"], None);
 
-    assert!(ok && out.contains("class own · board artifact"), "{out}");
+    // Ryan's F1 decision (#36, option A): no class anywhere is not guessed as `own`.
+    assert!(
+        !ok && out.contains("--class own") && out.contains("--class client"),
+        "{out}"
+    );
+    assert!(
+        !repo.join(".kb/_ledger/config.json").exists() && !repo.join(".redkiln").exists(),
+        "{out}"
+    );
 }
 
 /// Every command that only reads, run where no ledger exists yet.
