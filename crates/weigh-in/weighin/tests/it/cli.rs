@@ -341,6 +341,52 @@ fn session_start_on_windows_names_a_copy_the_shell_can_run() {
     );
 }
 
+/// What `SessionStart` gave Claude: its whole output, or `additionalContext` when it also has a
+/// `systemMessage` for the user and so prints JSON; `None` for JSON without it.
+fn session_context(out: &str) -> Option<String> {
+    match serde_json::from_str::<Value>(out) {
+        Ok(json) => json
+            .pointer("/hookSpecificOutput/additionalContext")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        Err(_) => Some(out.to_owned()),
+    }
+}
+
+/// A config's `store` (a 2.x fallback) is a warning for the user, so `SessionStart` prints JSON
+/// and its context, the line naming the shell's copy on Windows among it, moves into
+/// `additionalContext`: the copy's tests read it there (#127).
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn session_start_with_a_store_fallback_warns_and_keeps_its_context_for_claude() {
+    let (_tmp, repo) = setup();
+    std::fs::create_dir_all(repo.join(".kb/_ledger")).unwrap();
+    std::fs::write(
+        repo.join(".kb/_ledger/config.json"),
+        r#"{"store":"../elsewhere/ledger.sqlite3"}"#,
+    )
+    .unwrap();
+
+    let out = hook(
+        &repo,
+        &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
+    );
+
+    let json: Value = serde_json::from_str(&out).unwrap();
+    let message = json["systemMessage"].as_str().unwrap();
+    assert!(message.contains(".kb/_ledger/config.json"), "{message}");
+    let context = session_context(&out).expect("SessionStart's JSON has additionalContext");
+    assert!(
+        context.starts_with("Weigh-In (startup)") && context.contains("```weigh-in"),
+        "{context}"
+    );
+    assert_eq!(
+        context.contains("Weigh-In binary for the shell: "),
+        cfg!(windows),
+        "{context}"
+    );
+}
+
 /// The copy stays in the repository's git dir even when the config keeps the ledger elsewhere,
 /// a folder the shell may not see (#127).
 #[test]
@@ -360,7 +406,10 @@ fn session_start_on_windows_copies_into_the_git_dir_whatever_the_store() {
         &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
     );
 
-    let copy = out
+    // The config's `store` is a 2.x fallback, so SessionStart also has a warning for the user
+    // and Claude's context is in `additionalContext`.
+    let context = session_context(&out).expect("SessionStart's JSON has additionalContext");
+    let copy = context
         .lines()
         .find_map(|l| l.strip_prefix("Weigh-In binary for the shell: "))
         .unwrap_or_else(|| panic!("no copy named in: {out}"));

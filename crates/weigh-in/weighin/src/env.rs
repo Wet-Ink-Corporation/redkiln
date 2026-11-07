@@ -1101,6 +1101,45 @@ mod tests {
     }
 
     #[test]
+    fn the_default_state_dir_is_in_the_git_common_dir_whatever_chose_the_store()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_tmp, repo, _) = fixture();
+        let expected = std::fs::canonicalize(repo.join(".git"))?
+            .join("redkiln")
+            .join("weighin");
+        write_config(&repo, r#"{"store":"../elsewhere/ledger.sqlite3"}"#);
+        let by_key = Env::discover(&repo, None, None, Vars::default());
+        let by_flag = Env::discover(
+            &repo,
+            None,
+            Some(repo.join("flagged/events.sqlite3")),
+            Vars::default(),
+        );
+
+        for (env, chose) in [(&by_key, "config.json's store"), (&by_flag, "--store")] {
+            let dir = env
+                .default_state_dir()
+                .ok_or_else(|| format!("{chose}: no default state dir"))?;
+            let [redkiln, weighin] = ["redkiln", "weighin"].map(std::ffi::OsStr::new);
+            assert_eq!(dir.file_name(), Some(weighin), "{chose}: {}", dir.display());
+            let common = dir.parent().and_then(Path::parent).ok_or("two levels up")?;
+            assert_eq!(
+                dir.parent().and_then(Path::file_name),
+                Some(redkiln),
+                "{chose}"
+            );
+            assert_eq!(
+                std::fs::canonicalize(common)?
+                    .join("redkiln")
+                    .join("weighin"),
+                expected,
+                "{chose}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn a_relocation_that_fails_drops_the_notices_of_the_last_one()
     -> Result<(), Box<dyn std::error::Error>> {
         let tmp = tempfile::tempdir()?;
