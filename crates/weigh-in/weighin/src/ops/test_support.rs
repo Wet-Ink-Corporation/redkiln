@@ -5,27 +5,14 @@ use std::path::Path;
 use weighin_core::id::ItemId;
 
 use super::{Session, parse_ops};
-use crate::env::{Config, ConfigSource, Env};
+use crate::env::Env;
 
 pub(super) const ONE_WAY: &str = "Should retention attach per record or per series?";
 pub(super) const TWO_WAY: &str = "Name the helper apply or run?";
 
-/// An environment outside git: no tree hash, the folder is the root, the ledger beside it.
+/// An environment outside git: no tree hash, the folder is the root, the store beside it.
 pub(super) fn env_in(dir: &Path, session: &str) -> Env {
-    Env {
-        cwd: dir.to_path_buf(),
-        repo_root: None,
-        common_dir: None,
-        branch: None,
-        head: None,
-        worktree: None,
-        session: Some(session.to_owned()),
-        config: Config::default(),
-        config_source: ConfigSource::Absent,
-        store_override: Some(dir.join("ledger.sqlite3")),
-        // Set, so the test never asks the machine's git for an owner.
-        git_owner: Config::default().owner.into(),
-    }
+    Env::outside_git(dir, session)
 }
 
 /// Apply a JSON batch and return one line per op, as `weighin batch` prints them.
@@ -63,7 +50,7 @@ pub(super) fn after(setup: &[serde_json::Value], ops: &[serde_json::Value]) -> R
     let env = env_in(dir.path(), "s1");
     let batch: Vec<_> = setup.iter().chain(ops).cloned().collect();
     let mut out = run(
-        &mut Session::open(&env, "t")?,
+        &mut Session::open(&env, "cli")?,
         &serde_json::Value::Array(batch),
     )?;
     let tail = out.split_off(setup.len().min(out.len()));

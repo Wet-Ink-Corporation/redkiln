@@ -2,7 +2,7 @@
 //! `local` or `artifact` board and never a file, and one answer at a time from stdin, recorded
 //! with surface `pane`.
 
-use crate::support::{setup, weighin};
+use crate::support::{setup, state_of, weighin};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -83,7 +83,7 @@ fn export_to_stdout_under_a_local_board_prints_the_state_and_writes_no_file() ->
         (Some(&json!(1)), Some(&json!("local")), Some(&json!(id)))
     );
     assert!(
-        !repo.join(".git/weighin/board-state.json").exists(),
+        !state_of(&repo).join("board-state.json").exists(),
         "no state file beside the ledger"
     );
     Ok(())
@@ -99,7 +99,7 @@ fn export_to_stdout_before_any_item_prints_an_empty_board() -> TestResult {
 
     assert_eq!(printed.get("items"), Some(&json!([])));
     assert!(
-        !repo.join(".git/weighin").exists(),
+        !repo.join(".git/weighin").exists() && !repo.join(".git/redkiln").exists(),
         "no ledger directory created"
     );
     Ok(())

@@ -10,6 +10,26 @@ pub(crate) fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_weighin")
 }
 
+/// The store of the repository whose main checkout is `repo`: `<common>/redkiln/events.sqlite3`.
+pub(crate) fn store_of(repo: &Path) -> PathBuf {
+    repo.join(".git/redkiln/events.sqlite3")
+}
+
+/// weighin's own files (hook log, board state) beside that store (D4).
+pub(crate) fn state_of(repo: &Path) -> PathBuf {
+    repo.join(".git/redkiln/weighin")
+}
+
+/// The store of `folder` outside git: `<folder>/.redkiln/events.sqlite3`.
+pub(crate) fn folder_store(folder: &Path) -> PathBuf {
+    folder.join(".redkiln/events.sqlite3")
+}
+
+/// Whether anything weighin writes was left in `folder`: a 2.0 `.redkiln/` or a 1.x `.weighin/`.
+pub(crate) fn wrote_in(folder: &Path) -> bool {
+    folder.join(".redkiln").exists() || folder.join(".weighin").exists()
+}
+
 pub(crate) fn git(dir: &Path, args: &[&str]) {
     let st = Command::new("git")
         .arg("-C")
@@ -58,6 +78,7 @@ pub(crate) fn weighin_env(dir: &Path, run: &Run<'_>) -> (bool, String) {
     cmd.current_dir(dir)
         .args(["--session", run.session])
         .args(run.args)
+        .env_remove("REDKILN_STORE")
         .env_remove("WEIGHIN_STORE")
         .env_remove("CLAUDE_SESSION_ID")
         .env_remove("CLAUDE_CODE_SESSION_ID")
@@ -208,7 +229,8 @@ pub(crate) fn isolated_launcher() -> (tempfile::TempDir, PathBuf, std::ffi::OsSt
 }
 
 /// Runs `args` with `--dir` on a fresh folder with no ledger, and says whether it succeeded,
-/// what it printed and whether it left a `.weighin/` behind. An `<answers>` argument becomes an
+/// what it printed and whether it left a `.redkiln/` or `.weighin/` behind. An `<answers>`
+/// argument becomes an
 /// empty directory in that folder.
 pub(crate) fn in_a_folder_with_no_ledger(
     args: &[&str],
@@ -237,7 +259,7 @@ pub(crate) fn in_a_folder_with_no_ledger(
         stdin,
     );
 
-    (ok, out, folder.join(".weighin").exists())
+    (ok, out, wrote_in(&folder))
 }
 
 /// Scans `file` in `repo` and returns the id of the one item it raised.
@@ -365,7 +387,7 @@ pub(crate) fn items_seen_from_a_worktree(repo: &Path) -> (String, String) {
         .unwrap()
         .to_owned();
     assert!(
-        !repo.join(".weighin").exists() && !wt.join(".weighin").exists(),
+        !wrote_in(repo) && !wrote_in(&wt),
         "nothing is written into the working trees"
     );
     (one_way, scanned)

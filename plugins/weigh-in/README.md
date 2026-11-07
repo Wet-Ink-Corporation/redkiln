@@ -30,18 +30,28 @@ It stands on its own until it moves into the `redkiln` monorepo as `rk-weigh-in`
 | Local board pane: decide, defer, dismiss, reopen or ack grounded cards and defaults | the mod, through `board export --stdout` and `board apply --surface pane` | 0 |
 | Toast for past decisions at an edited file, for the person | the mod's `tool.call` hook | 0 |
 
-The ledger is an event log in happenstance's SQLite schema at
-`<git-common-dir>/weighin/ledger.sqlite3`: shared by every worktree of the repo, never
+The ledger is Weigh-In's events in the Redkiln suite's store at
+`<git-common-dir>/redkiln/events.sqlite3`: shared by every worktree of the repo, never
 committed. Writes are conditioned (DCB): raising an item is idempotent, and two sessions
 cannot both decide the same item. Decisions reach git as atoms and as a
 `Weigh-In: <id> decided <X>` commit trailer.
 
-Where the ledger lives, first match wins: `--store <file>`; `$WEIGHIN_STORE`; `store` in
-`.kb/_ledger/config.json` (set with `init --ledger <path>`, relative to the folder or absolute);
-the git common dir; outside git, `<folder>/.weighin/`. It runs under a TRUNCATE journal, not
-happenstance's WAL: WAL and SQLite's default both delete files beside the database, and Cowork's
-connected folders refuse deletes. For a folder synced by OneDrive or Dropbox and used from more
-than one computer, point `store` outside the synced tree.
+Where the store lives, first match wins: `--store <file>`; `$REDKILN_STORE`; `$WEIGHIN_STORE`;
+`store` in `.redkiln/suite.toml`; `store` in `.kb/_ledger/config.json` (set with
+`init --ledger <path>`, relative to the folder or absolute); the git common dir
+(`<git-common-dir>/redkiln/events.sqlite3`); outside git, `<folder>/.redkiln/events.sqlite3`.
+`$WEIGHIN_STORE` and config.json's `store` name a 1.x ledger: the store goes beside it, at
+`<parent>/<stem>.events.sqlite3`, with a warning (worded as a path with no file when none is
+there). `init --ledger` still writes config.json's `store` until Weigh-In's settings move into
+suite.toml, so it is for a 1.x ledger's place; a new setup sets `store` in `.redkiln/suite.toml`
+(`[suite]` table, the store file's own path). It runs under a TRUNCATE journal, not WAL:
+WAL and SQLite's default both delete files beside the database, and Cowork's connected folders
+refuse deletes. For a folder synced by OneDrive or Dropbox and used from more than one computer,
+put the store outside the synced tree with suite.toml's `store`.
+
+A weighin 1.x ledger (`<git-common-dir>/weighin/ledger.sqlite3`, or `<folder>/.weighin/`) is
+never opened or changed: every command and SessionStart names it, and its items are listed
+again once it is imported. A store path that names one is refused.
 
 ## Cowork
 

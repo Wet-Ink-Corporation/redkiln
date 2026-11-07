@@ -7,7 +7,7 @@ use weighin_core::id::{EXTENDED_HEX_LEN, ItemId};
 use weighin_core::marker::{Authority, Door, Kind, authority_tripwire, did_is_blocked};
 
 use super::{RaiseInput, Session};
-use crate::store::{Appended, Guard};
+use crate::store::{Guard, Written};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RaiseOutcome {
@@ -157,14 +157,14 @@ impl Session<'_> {
                 .envelope(self.raised_event(input, id.clone()), &self.actor);
             match self
                 .store()?
-                .append(std::slice::from_ref(&env), &Guard::NotYetRaised(id.clone()))?
+                .append(vec![env], &Guard::NotYetRaised(id.clone()))?
             {
-                Appended::At(p) => {
-                    self.ledger.apply(p, &env);
+                Written::At { last, events } => {
+                    self.apply_written(last, &events)?;
                     return Ok(RaiseOutcome::New(id));
                 }
-                Appended::Conflict => {
-                    self.ledger = self.store()?.ledger()?;
+                Written::Conflict => {
+                    self.ledger = self.store()?.ledger()?.ledger;
                     let same = self.ledger.get(&id).is_some_and(|i| {
                         weighin_core::id::question_key(&i.question)
                             == weighin_core::id::question_key(q)
@@ -264,9 +264,9 @@ mod tests {
         let raise = serde_json::json!([{"op": "raise", "q": ONE_WAY, "door": "one-way"}]);
         let id = id_of(ONE_WAY);
 
-        let new = run(&mut Session::open(&first, "t")?, &raise)?;
-        let again = run(&mut Session::open(&first, "t")?, &raise)?;
-        let elsewhere = run(&mut Session::open(&second, "t")?, &raise)?;
+        let new = run(&mut Session::open(&first, "cli")?, &raise)?;
+        let again = run(&mut Session::open(&first, "cli")?, &raise)?;
+        let elsewhere = run(&mut Session::open(&second, "cli")?, &raise)?;
 
         assert_eq!(new, [format!("✓ raised {id} (raised)")]);
         assert_eq!(again, [format!("✓ {id} already raised")]);
@@ -284,7 +284,7 @@ mod tests {
             {"op": "ack", "id": "@1"}
         ]);
 
-        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+        let out = run(&mut Session::open(&env, "cli")?, &batch)?;
 
         let id = id_of(TWO_WAY);
         assert_eq!(
@@ -308,7 +308,7 @@ mod tests {
             {"op": "raise", "q": TWO_WAY, "door": "two-way", "authority": "judgment", "did": "blocked; left the guard as it is"}
         ]);
 
-        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+        let out = run(&mut Session::open(&env, "cli")?, &batch)?;
 
         assert_eq!(out, [format!("✓ raised {} (raised)", id_of(TWO_WAY))]);
         Ok(())

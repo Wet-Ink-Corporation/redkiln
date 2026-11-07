@@ -27,7 +27,7 @@ pub(crate) fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Re
             writeln!(
                 out,
                 "no ledger at {} yet: nothing to export",
-                env.store_path().display()
+                env.store_path()?.display()
             )?;
             return Ok(());
         }
@@ -38,9 +38,10 @@ pub(crate) fn board_export(env: &Env, a: ExportArgs, out: &mut impl Write) -> Re
         env.config.caps.board_focus,
         &env::now(),
     );
-    let path = a
-        .out
-        .unwrap_or_else(|| env.state_dir().join("board-state.json"));
+    let path = match a.out {
+        Some(path) => path,
+        None => env.state_dir()?.join("board-state.json"),
+    };
     if let Some(d) = path.parent() {
         std::fs::create_dir_all(d)?;
     }

@@ -37,7 +37,7 @@ use self::settle::{default_event, dismiss_event, reopen_event};
 use self::triage::{ground_event, triage_event};
 use crate::env::{self, Env};
 use crate::git;
-use crate::store::{Appended, Guard, Store};
+use crate::store::{Guard, Loaded, Store, Written};
 
 /// The ledger as it stands, for commands that only read, or `None` when no store exists yet.
 ///
@@ -48,11 +48,14 @@ use crate::store::{Appended, Guard, Store};
 /// Fails when the store's path cannot be checked (so an unreadable ledger is never taken for a
 /// missing one), or when an existing store cannot be opened or read.
 pub(crate) fn stored_ledger(env: &Env) -> Result<Option<Ledger>> {
-    existing_store(env)?.map(|s| s.ledger()).transpose()
+    Ok(existing_store(env)?
+        .map(|s| s.ledger())
+        .transpose()?
+        .map(|loaded| loaded.ledger))
 }
 
 /// Every ledger event in position order, or none when no store exists yet. Never creates the
-/// store; see [`stored_ledger`].
+/// store; see [`stored_ledger`]. Events this build cannot use are skipped (EV-10).
 ///
 /// # Errors
 /// See [`stored_ledger`].
@@ -60,20 +63,26 @@ pub(crate) fn stored_events(env: &Env) -> Result<Vec<(u64, EventEnvelope)>> {
     Ok(existing_store(env)?
         .map(|s| s.read_all())
         .transpose()?
-        .unwrap_or_default())
+        .unwrap_or_default()
+        .events)
 }
 
-/// The store, opened only when it exists already. See [`stored_ledger`].
+/// The store, opened only when it exists already (Core's `open_existing`, so nothing is created
+/// even when the file vanishes meanwhile). See [`stored_ledger`].
 fn existing_store(env: &Env) -> Result<Option<Store>> {
-    let path = env.store_path();
-    if path
-        .try_exists()
-        .with_context(|| format!("checking {}", path.display()))?
-    {
-        Store::open(&path).map(Some)
-    } else {
-        Ok(None)
-    }
+    Store::open_existing(env.store_path()?, env.wait)
+}
+
+/// The ledger and how many events this build could not use, with no store read as an empty
+/// ledger. Never creates the store; see [`stored_ledger`].
+///
+/// # Errors
+/// See [`stored_ledger`].
+pub(crate) fn loaded(env: &Env) -> Result<Loaded> {
+    Ok(existing_store(env)?
+        .map(|s| s.ledger())
+        .transpose()?
+        .unwrap_or_default())
 }
 
 /// [`stored_ledger`], with no store read as an empty ledger.
@@ -81,7 +90,7 @@ fn existing_store(env: &Env) -> Result<Option<Store>> {
 /// # Errors
 /// See [`stored_ledger`].
 pub(crate) fn read_ledger(env: &Env) -> Result<Ledger> {
-    Ok(stored_ledger(env)?.unwrap_or_default())
+    Ok(loaded(env)?.ledger)
 }
 
 /// The working tree's hash, read from git at most once per session.
@@ -123,7 +132,7 @@ impl<'a> Session<'a> {
     pub(crate) fn open(env: &'a Env, actor: &str) -> Result<Self> {
         let store = existing_store(env)?;
         let ledger = match &store {
-            Some(s) => s.ledger()?,
+            Some(s) => s.ledger()?.ledger,
             None => Ledger::default(),
         };
         Ok(Self {
@@ -159,7 +168,7 @@ impl<'a> Session<'a> {
         let env = self.env;
         match &mut self.store {
             Some(store) => Ok(store),
-            slot @ None => Ok(slot.insert(Store::open(&env.store_path())?)),
+            slot @ None => Ok(slot.insert(Store::open(env.store_path()?, env.wait)?)),
         }
     }
 
@@ -172,23 +181,39 @@ impl<'a> Session<'a> {
             .collect();
         match self
             .store()?
-            .append(&envs, &Guard::ItemUnchangedSince(id.clone(), since))?
+            .append(envs, &Guard::ItemUnchangedSince(id.clone(), since))?
         {
-            Appended::At(last) => {
-                let n = u64::try_from(envs.len()).context("too many events in one append")?;
-                let first = last + 1 - n;
-                for (position, e) in (first..).zip(&envs) {
-                    self.ledger.apply(position, e);
-                }
+            Written::At { last, events } => {
+                self.apply_written(last, &events)?;
                 Ok(())
             }
-            Appended::Conflict => {
-                self.ledger = self.store()?.ledger()?;
+            Written::Conflict => {
+                let Loaded { ledger, unusable } = self.store()?.ledger()?;
+                self.ledger = ledger;
+                let moved = self.ledger.get(id).map_or(0, |i| i.last_position) != since;
+                if !moved && unusable > 0 {
+                    bail!(
+                        "{id} has events a newer weighin wrote, which this build cannot read; upgrade weighin to change it"
+                    )
+                }
                 bail!(
                     "{id} changed while this was being written (another session acted on it); re-read with `weighin show {id}` and retry"
                 )
             }
         }
+    }
+
+    /// Fold `events`, appended with the last at `last`, into the session's ledger.
+    fn apply_written(&mut self, last: u64, events: &[EventEnvelope]) -> Result<()> {
+        let n = u64::try_from(events.len()).context("too many events in one append")?;
+        let first = last
+            .checked_add(1)
+            .and_then(|end| end.checked_sub(n))
+            .context("the store reported a position before its own events")?;
+        for (position, e) in (first..).zip(events) {
+            self.ledger.apply(position, e);
+        }
+        Ok(())
     }
 
     fn item(&self, needle: &str) -> Result<Item> {
@@ -337,7 +362,7 @@ mod tests {
         ]);
 
         let out = run(
-            &mut Session::open(&env, "t")?.with_today("2026-01-02"),
+            &mut Session::open(&env, "cli")?.with_today("2026-01-02"),
             &batch,
         )?;
 

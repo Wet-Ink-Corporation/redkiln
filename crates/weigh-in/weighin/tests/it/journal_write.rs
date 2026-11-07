@@ -3,6 +3,7 @@
 //! and each line once, in initialised git repositories only.
 
 use crate::scratch::{Repo, TestResult};
+use crate::support::{state_of, store_of};
 use serde_json::{Value, json};
 
 /// A batch that raises one question, triages it and dismisses it.
@@ -286,7 +287,7 @@ fn a_journal_failure_in_a_hook_is_logged_and_changes_nothing_else() -> TestResul
         (out.status.success(), &out.stdout, &out.stderr),
         (true, &expected.stdout, &expected.stderr)
     );
-    let log = std::fs::read_to_string(repo.root.join(".git/weighin/hook-errors.log"))?;
+    let log = std::fs::read_to_string(state_of(&repo.root).join("hook-errors.log"))?;
     assert!(log.contains("Stop: updating the session journal"), "{log}");
     Ok(())
 }
@@ -299,10 +300,7 @@ fn a_command_that_fails_before_writing_leaves_no_ledger_and_no_journal() -> Test
     let out = repo.run("s", &["batch"], Some("not json"))?;
 
     assert!(!out.status.success(), "bad JSON fails the batch");
-    let stores = [
-        repo.root.join(".git/weighin/ledger.sqlite3"),
-        repo.journal_dir(),
-    ];
+    let stores = [store_of(&repo.root), repo.journal_dir()];
     assert_eq!(stores.map(|p| p.exists()), [false, false]);
     Ok(())
 }

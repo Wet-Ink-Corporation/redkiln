@@ -375,7 +375,10 @@ fn a_fresh_clone_with_no_ledger_gets_its_report_and_no_store() -> TestResult {
     );
     let r: Value = serde_json::from_slice(&out.stdout)?;
     assert_eq!(r["open_items"].as_array().map(Vec::len), Some(1), "{r}");
-    let created = [store.exists(), clone.join(".git/weighin").exists()];
+    let created = [
+        store.exists(),
+        clone.join(".git/weighin").exists() || clone.join(".git/redkiln").exists(),
+    ];
     assert_eq!(created, [false, false], "no store, no state dir");
     Ok(())
 }

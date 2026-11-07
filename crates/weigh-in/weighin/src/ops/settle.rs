@@ -233,7 +233,7 @@ mod tests {
             {"op": "dismiss", "id": "@2", "why": "moot", "reason": "r"}
         ]);
 
-        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+        let out = run(&mut Session::open(&env, "cli")?, &batch)?;
 
         let two_way = id_of(TWO_WAY);
         let badge = id_of("Which colour for the badge?");

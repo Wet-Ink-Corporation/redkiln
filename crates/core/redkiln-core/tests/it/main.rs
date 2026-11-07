@@ -3,6 +3,10 @@
 #[cfg(test)]
 mod envelope;
 #[cfg(test)]
+mod existing;
+#[cfg(test)]
+mod fixtures;
+#[cfg(test)]
 mod journal;
 #[cfg(test)]
 mod legacy;

@@ -1,13 +1,28 @@
 //! Where the CLI is running: repository, common dir, worktree, branch, session and config.
 
-use anyhow::{Context, Result, bail};
+mod location;
+
+use anyhow::{Result, bail};
+use redkiln_core::ids::{Host, SessionId, WorktreeId};
+use redkiln_core::location::{LocateError, Workspace};
+use redkiln_core::store::Wait;
 use serde::{Deserialize, Serialize};
 use std::cell::OnceCell;
 use std::path::{Component, Path, PathBuf};
 use weighin_core::event::{EventEnvelope, LedgerEvent};
 
+pub(crate) use self::location::{Notice, StoreAt, Vars};
 use crate::git;
 use crate::text::Report;
+
+/// git's answer to `args` in `cwd`, trimmed; `None` when git fails or prints nothing (a branch
+/// on a detached head, a head before the first commit).
+fn git_line(cwd: &Path, args: &[&str]) -> Option<String> {
+    git::run(cwd, args)
+        .ok()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+}
 
 /// Whose repository a folder is (decision wi-7c21e4). A closed set, so a mistyped `client` is
 /// refused rather than taken for an own repository with the publishing board (#169).
@@ -324,12 +339,26 @@ pub(crate) struct Env {
     pub(crate) common_dir: Option<PathBuf>,
     pub(crate) branch: Option<String>,
     pub(crate) head: Option<String>,
+    /// The worktree's directory name, which the board names the repository by.
     pub(crate) worktree: Option<String>,
+    /// The worktree's id (ID-06), which events carry: two clones can share a directory name.
+    pub(crate) worktree_id: Option<WorktreeId>,
     pub(crate) session: Option<String>,
+    /// Why the session a surface gave cannot be used (D10): a command stops on it, a hook runs
+    /// with no session and `SessionStart` says so.
+    pub(crate) session_error: Option<String>,
     pub(crate) config: Config,
     pub(crate) config_source: ConfigSource,
-    /// `--store`, which wins over everything else.
-    pub(crate) store_override: Option<PathBuf>,
+    /// The store, or why it could not be located (ST-01): a command stops on it, a hook writes
+    /// nothing.
+    pub(crate) store: Result<StoreAt, LocateError>,
+    /// What locating the store took or found that the user should hear about.
+    pub(crate) notices: Vec<Notice>,
+    /// How long a durable write waits for another writer's lock (ST-09).
+    pub(crate) wait: Wait,
+    /// `--store` and the process values the store was located from, for [`Env::relocate`].
+    flag: Option<PathBuf>,
+    vars: Vars,
     /// The owner git names, for a folder with no usable config: asked of git only when an owner
     /// is needed (see [`Env::owner`]), so hooks and reads never spawn git for it.
     pub(crate) git_owner: OnceCell<String>,
@@ -394,76 +423,161 @@ pub(crate) fn split_anchor(at: &str) -> (&str, &str) {
         .map_or((at, ""), |position| (path, position))
 }
 
-/// `~/x` expanded with `HOME` (or `USERPROFILE` on Windows).
-fn expand_home(p: &str) -> PathBuf {
-    let rest = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\"));
-    match rest {
-        Some(rest) => std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map_or_else(|| PathBuf::from(p), |h| PathBuf::from(h).join(rest)),
-        None => PathBuf::from(p),
+/// The variables a session id is read from when the surface gave none, in order.
+const SESSION_VARS: [&str; 3] = [
+    "WEIGHIN_SESSION",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ID",
+];
+
+/// The first session a surface gives (`given`, from `given_by`, then [`SESSION_VARS`]), as
+/// written. An empty value, or a `${…}` a surface did not substitute, is no session and the next
+/// is read; a value the store refuses stops the search with an error naming where it came from
+/// (D10: never truncated, EV-11).
+fn find_session(given: Option<String>, given_by: &str) -> Result<Option<String>, String> {
+    let from_vars = SESSION_VARS
+        .iter()
+        .filter_map(|&name| std::env::var(name).ok().map(|value| (name, value)));
+    for (source, value) in given
+        .map(|value| (given_by, value))
+        .into_iter()
+        .chain(from_vars)
+    {
+        match SessionId::from_surface(&value) {
+            Ok(Some(_)) => return Ok(Some(value)),
+            Ok(None) => {}
+            Err(_) => {
+                return Err(format!(
+                    "the session id from {source} has a control character or is over 247 bytes, which the store refuses"
+                ));
+            }
+        }
     }
+    Ok(None)
 }
 
 impl Env {
-    /// Discover the environment from `cwd`. Outside a git repository the ledger lives in
-    /// `<cwd>/.weighin/` (Cowork folders, scratch directories).
+    /// Discover the environment from `cwd` (absolute): the store as [`location`] finds it, the
+    /// worktree, the config, and the session `given` by `given_by` (`--session`, or the hook's
+    /// `session_id`) or the process environment.
     #[must_use]
-    pub(crate) fn discover(cwd: &Path, session: Option<String>) -> Self {
-        let repo_root = git::run(cwd, &["rev-parse", "--show-toplevel"])
-            .ok()
-            .map(|s| PathBuf::from(s.trim()));
-        let common_dir = git::run(
-            cwd,
-            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-        )
-        .ok()
-        .map(|s| PathBuf::from(s.trim()));
-        let branch = git::run(cwd, &["symbolic-ref", "--quiet", "--short", "HEAD"])
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty());
-        let head = git::run(cwd, &["rev-parse", "--verify", "--quiet", "HEAD"])
-            .ok()
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty());
-        let worktree = repo_root
-            .as_ref()
-            .and_then(|r| r.file_name())
-            .map(|n| n.to_string_lossy().into_owned());
-        // An empty value, or a `${…}` a surface did not substitute, is no session.
-        let usable = |s: &str| !s.trim().is_empty() && !s.contains("${");
-        let var = |k: &str| std::env::var(k).ok().filter(|s| usable(s));
-        let session = session
-            .filter(|s| usable(s))
-            .or_else(|| var("WEIGHIN_SESSION"))
-            .or_else(|| var("CLAUDE_SESSION_ID"))
-            .or_else(|| var("CLAUDE_CODE_SESSION_ID"));
-        let root = repo_root.clone().unwrap_or_else(|| cwd.to_path_buf());
-        let (config, config_source) = match Config::load(&root) {
+    pub(crate) fn discover(
+        cwd: &Path,
+        given: Option<(String, &str)>,
+        flag: Option<PathBuf>,
+        vars: Vars,
+    ) -> Self {
+        let mut config = None;
+        let found = location::locate_store(cwd, flag.as_deref(), &vars, |root| {
+            let loaded = Config::load(root);
+            // Copied: the config keeps its own for `init` to save back.
+            let key = loaded
+                .as_ref()
+                .ok()
+                .and_then(Option::as_ref)
+                .and_then(|c| c.store.clone());
+            config = Some(loaded);
+            key
+        });
+        let (store, notices, workspace) = match found {
+            Ok(found) => (Ok(found.store), found.notices, Some(found.workspace)),
+            Err(e) => (Err(e), Vec::new(), None),
+        };
+        let (repo_root, common_dir) = match workspace {
+            Some(Workspace::Git { root, common_dir }) => (Some(root), Some(common_dir)),
+            Some(Workspace::Folder(_)) | None => (None, None),
+        };
+        let root = repo_root.as_deref().unwrap_or(cwd);
+        let (config, config_source) = match config.unwrap_or_else(|| Config::load(root)) {
             Ok(Some(config)) => (config, ConfigSource::File),
             Ok(None) => (Config::default(), ConfigSource::Absent),
             Err(e) => (Config::default(), ConfigSource::Broken(e)),
         };
+        let (given, given_by) = given.map_or((None, ""), |(value, by)| (Some(value), by));
+        let (session, session_error) = match find_session(given, given_by) {
+            Ok(session) => (session, None),
+            Err(e) => (None, Some(e)),
+        };
         Self {
             cwd: cwd.to_path_buf(),
+            branch: git_line(cwd, &["symbolic-ref", "--quiet", "--short", "HEAD"]),
+            head: git_line(cwd, &["rev-parse", "--verify", "--quiet", "HEAD"]),
+            worktree: repo_root
+                .as_ref()
+                .and_then(|r| r.file_name())
+                .map(|n| n.to_string_lossy().into_owned()),
+            // A toplevel ID-06 cannot hash (not UTF-8) writes no worktree.
+            worktree_id: repo_root
+                .as_deref()
+                .and_then(|r| WorktreeId::of_toplevel(r, Host::current()).ok()),
             repo_root,
             common_dir,
-            branch,
-            head,
-            worktree,
             session,
+            session_error,
             config,
             config_source,
-            store_override: None,
+            store,
+            notices,
+            wait: Wait::Command,
+            flag,
+            vars,
             git_owner: OnceCell::new(),
         }
     }
 
-    /// Use `store` as the ledger, whatever the config and environment say.
+    /// Locate the store again from this config, as the next command will: after `init` rewrote
+    /// its `store`.
+    pub(crate) fn relocate(&mut self) {
+        let key = self.config.store.as_deref();
+        let found = location::locate_store(&self.cwd, self.flag.as_deref(), &self.vars, |_| {
+            key.map(str::to_owned)
+        });
+        match found {
+            Ok(found) => {
+                self.store = Ok(found.store);
+                self.notices = found.notices;
+            }
+            // Whatever the last location found is not news about a store no longer located.
+            Err(e) => {
+                self.store = Err(e);
+                self.notices.clear();
+            }
+        }
+    }
+
+    /// An environment outside git with no git asked: no tree hash, `dir` is the root, the store
+    /// beside it as if `--store` named it, and `session` set.
+    #[cfg(test)]
+    pub(crate) fn outside_git(dir: &Path, session: &str) -> Self {
+        Self {
+            cwd: dir.to_path_buf(),
+            repo_root: None,
+            common_dir: None,
+            branch: None,
+            head: None,
+            worktree: None,
+            worktree_id: None,
+            session: Some(session.to_owned()),
+            session_error: None,
+            config: Config::default(),
+            config_source: ConfigSource::Absent,
+            store: Ok(StoreAt {
+                path: dir.join("events.sqlite3"),
+                source: redkiln_core::location::Source::Flag,
+            }),
+            notices: Vec::new(),
+            wait: Wait::Command,
+            flag: Some(dir.join("events.sqlite3")),
+            vars: Vars::default(),
+            // Set, so the test never asks the machine's git for an owner.
+            git_owner: Config::default().owner.into(),
+        }
+    }
+
+    /// The same environment, writing under `wait` (a hook's is [`Wait::Hook`]).
     #[must_use]
-    pub(crate) fn with_store(mut self, store: Option<PathBuf>) -> Self {
-        self.store_override = store;
+    pub(crate) fn with_wait(mut self, wait: Wait) -> Self {
+        self.wait = wait;
         self
     }
 
@@ -473,41 +587,44 @@ impl Env {
         self.repo_root.clone().unwrap_or_else(|| self.cwd.clone())
     }
 
-    /// The live ledger, first match wins: `--store`; `WEIGHIN_STORE`; the config's `store`;
-    /// `<git-common-dir>/weighin/ledger.sqlite3`, shared by every worktree and never committed
-    /// (decision wi-6e2a47); outside git, `<folder>/.weighin/ledger.sqlite3`.
-    #[must_use]
-    pub(crate) fn store_path(&self) -> PathBuf {
-        if let Some(p) = &self.store_override {
-            return p.clone();
-        }
-        if let Ok(p) = std::env::var("WEIGHIN_STORE")
-            && !p.trim().is_empty()
-        {
-            return expand_home(p.trim());
-        }
-        if let Some(p) = self.config.store.as_deref().map(str::trim)
-            && !p.is_empty()
-        {
-            let p = expand_home(p);
-            return if p.is_absolute() {
-                p
-            } else {
-                self.root().join(p)
-            };
-        }
-        match &self.common_dir {
-            Some(c) => c.join("weighin").join("ledger.sqlite3"),
-            None => self.cwd.join(".weighin").join("ledger.sqlite3"),
+    /// The store's file, as [`location`] found it.
+    ///
+    /// # Errors
+    /// Fails when the store could not be located.
+    pub(crate) fn store_path(&self) -> Result<&Path> {
+        match &self.store {
+            Ok(at) => Ok(&at.path),
+            Err(e) => Err(anyhow::anyhow!("locating the store: {}", Report(e))),
         }
     }
 
-    /// The directory holding the ledger: board exports and the hook error log go beside it.
+    /// weighin's own files (board exports, the hook error log): `<store's directory>/weighin/`
+    /// (decision D4), so they follow the store as they did in 1.x.
+    ///
+    /// # Errors
+    /// Fails when the store could not be located.
+    pub(crate) fn state_dir(&self) -> Result<PathBuf> {
+        let store = self.store_path()?;
+        let dir = store.parent().unwrap_or_else(|| Path::new(""));
+        Ok(dir.join("weighin"))
+    }
+
+    /// The state dir of the default store, `<git-common-dir>/redkiln/weighin/`: where a hook
+    /// logs a store Core refused to open, since nothing is written beside that file (D4, review
+    /// F2). `None` outside git, where it would be a `.redkiln/` made in the user's folder for a
+    /// store kept elsewhere.
     #[must_use]
-    pub(crate) fn state_dir(&self) -> PathBuf {
-        self.store_path()
-            .parent()
-            .map_or_else(|| self.root().join(".weighin"), Path::to_path_buf)
+    pub(crate) fn default_state_dir(&self) -> Option<PathBuf> {
+        Some(self.common_dir.as_deref()?.join("redkiln").join("weighin"))
+    }
+
+    /// Whether the store is a path the user gave (`--store`, a variable, a config's `store`)
+    /// rather than the default in `<git-common-dir>/redkiln/` or `<folder>/.redkiln/`, which
+    /// are redkiln's own directories.
+    #[must_use]
+    pub(crate) fn store_was_given(&self) -> bool {
+        use redkiln_core::location::Source;
+        matches!(&self.store, Ok(at) if matches!(at.source, Source::Flag | Source::Env | Source::Config))
     }
 
     #[must_use]
@@ -516,7 +633,7 @@ impl Env {
             event,
             actor: actor.to_owned(),
             session_id: self.session.clone(),
-            worktree: self.worktree.clone(),
+            worktree: self.worktree_id.as_ref().map(ToString::to_string),
             branch: self.branch.clone(),
             head: self.head.clone(),
             ts: now(),
@@ -596,14 +713,6 @@ impl Env {
     pub(crate) fn relative_anchor(&self, at: &str) -> String {
         let (path, position) = split_anchor(at);
         format!("{}{position}", self.relative(path))
-    }
-
-    /// # Errors
-    /// Fails when the state directory cannot be created.
-    pub(crate) fn ensure_state_dir(&self) -> Result<PathBuf> {
-        let d = self.state_dir();
-        std::fs::create_dir_all(&d).with_context(|| format!("creating {}", d.display()))?;
-        Ok(d)
     }
 }
 
@@ -704,7 +813,7 @@ mod tests {
         std::fs::create_dir_all(repo.join("docs")).expect("docs dir");
         std::fs::write(repo.join("docs/plan.md"), "# Plan\n").expect("plan written");
         git::run(&repo, &["init", "-q"]).expect("git init");
-        let env = Env::discover(&repo, None);
+        let env = Env::discover(&repo, None, None, Vars::default());
         (tmp, repo, env)
     }
 
@@ -978,7 +1087,7 @@ mod tests {
         let (_tmp, repo, _) = fixture();
         write_config(&repo, "{ not json");
 
-        let env = Env::discover(&repo, None);
+        let env = Env::discover(&repo, None, None, Vars::default());
 
         assert_eq!(env.config.board.mode, BoardMode::Artifact);
         assert!(
@@ -989,6 +1098,63 @@ mod tests {
             "{:?}",
             env.config_source
         );
+    }
+
+    #[test]
+    fn the_default_state_dir_is_in_the_git_common_dir_whatever_chose_the_store()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (_tmp, repo, _) = fixture();
+        let expected = std::fs::canonicalize(repo.join(".git"))?
+            .join("redkiln")
+            .join("weighin");
+        write_config(&repo, r#"{"store":"../elsewhere/ledger.sqlite3"}"#);
+        let by_key = Env::discover(&repo, None, None, Vars::default());
+        let by_flag = Env::discover(
+            &repo,
+            None,
+            Some(repo.join("flagged/events.sqlite3")),
+            Vars::default(),
+        );
+
+        for (env, chose) in [(&by_key, "config.json's store"), (&by_flag, "--store")] {
+            let dir = env
+                .default_state_dir()
+                .ok_or_else(|| format!("{chose}: no default state dir"))?;
+            let [redkiln, weighin] = ["redkiln", "weighin"].map(std::ffi::OsStr::new);
+            assert_eq!(dir.file_name(), Some(weighin), "{chose}: {}", dir.display());
+            let common = dir.parent().and_then(Path::parent).ok_or("two levels up")?;
+            assert_eq!(
+                dir.parent().and_then(Path::file_name),
+                Some(redkiln),
+                "{chose}"
+            );
+            assert_eq!(
+                std::fs::canonicalize(common)?
+                    .join("redkiln")
+                    .join("weighin"),
+                expected,
+                "{chose}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_relocation_that_fails_drops_the_notices_of_the_last_one()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let tmp = tempfile::tempdir()?;
+        std::fs::create_dir_all(tmp.path().join(".weighin"))?;
+        std::fs::write(tmp.path().join(".weighin/ledger.sqlite3"), b"1.x")?;
+        let mut env = Env::discover(tmp.path(), None, None, Vars::default());
+        assert_eq!(env.notices.len(), 1, "the old ledger: {:?}", env.notices);
+
+        // A `~/` key with no home directory cannot be resolved.
+        env.config.store = Some("~/proj.sqlite3".to_owned());
+        env.relocate();
+
+        assert!(env.store.is_err(), "{:?}", env.store);
+        assert_eq!(env.notices, [], "notices of a store no longer located");
+        Ok(())
     }
 
     #[test]

@@ -134,7 +134,7 @@ pub(crate) fn scan(env: &Env, a: ScanArgs, out: &mut impl Write) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::batch;
-    use crate::env::{Config, ConfigSource, Env};
+    use crate::env::Env;
     use crate::ops::read_ledger;
     use crate::{BatchArgs, Stdout, is_closed_stdout};
     use std::io;
@@ -162,20 +162,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn a_batch_whose_reader_stops_early_still_applies_every_operation() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
-        let env = Env {
-            cwd: dir.path().to_path_buf(),
-            repo_root: None,
-            common_dir: None,
-            branch: None,
-            head: None,
-            worktree: None,
-            session: Some("s1".into()),
-            config: Config::default(),
-            config_source: ConfigSource::Absent,
-            store_override: Some(dir.path().join("ledger.sqlite3")),
-            // Set, so the test never asks the machine's git for an owner.
-            git_owner: Config::default().owner.into(),
-        };
+        let env = Env::outside_git(dir.path(), "s1");
         let file = dir.path().join("batch.json");
         std::fs::write(
             &file,

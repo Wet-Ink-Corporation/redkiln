@@ -718,13 +718,11 @@ version = "1.2.0"
 dependencies = [
  "anyhow",
  "clap",
- "happenstance-core",
- "happenstance-sqlite",
+ "redkiln-core",
  "serde",
  "serde_json",
  "tempfile",
  "time",
- "tokio",
  "weighin-core",
 ]
 

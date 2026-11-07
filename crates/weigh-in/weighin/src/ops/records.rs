@@ -324,7 +324,7 @@ mod tests {
             {"op": "defer", "id": "@1", "flip": "a tenant asks", "trigger": "the tenant survey", "resolve_by": "2026-12-01", "default": "A"}
         ]);
 
-        let out = run(&mut Session::open(&env, "t")?, &batch)?;
+        let out = run(&mut Session::open(&env, "cli")?, &batch)?;
 
         let id = id_of(ONE_WAY);
         assert_eq!(
@@ -349,7 +349,7 @@ mod tests {
         ]);
 
         let out = run(
-            &mut Session::open(&env, "t")?.with_today("2026-10-07"),
+            &mut Session::open(&env, "cli")?.with_today("2026-10-07"),
             &batch,
         )?;
 
@@ -378,7 +378,7 @@ mod tests {
         let dir = tempfile::tempdir()?;
         let env = env_in(dir.path(), "s1");
         let decided = run(
-            &mut Session::open(&env, "t")?.with_today("2026-01-02"),
+            &mut Session::open(&env, "cli")?.with_today("2026-01-02"),
             &serde_json::json!([
                 {"op": "raise", "q": TWO_WAY, "door": "two-way"},
                 {"op": "ground", "id": "@1", "card": card()},
@@ -394,7 +394,7 @@ mod tests {
         let before = std::fs::read_to_string(dir.path().join(&rel))?;
 
         let out = run(
-            &mut Session::open(&env, "t")?.with_today("2026-04-10"),
+            &mut Session::open(&env, "cli")?.with_today("2026-04-10"),
             &serde_json::json!([{"op": "ack", "id": id.as_str()}]),
         )?;
 
