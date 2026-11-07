@@ -66,6 +66,15 @@ impl From<suite::RepoClass> for RepoClass {
     }
 }
 
+impl From<RepoClass> for suite::RepoClass {
+    fn from(class: RepoClass) -> Self {
+        match class {
+            RepoClass::Own => Self::Own,
+            RepoClass::Client => Self::Client,
+        }
+    }
+}
+
 impl std::fmt::Display for RepoClass {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())

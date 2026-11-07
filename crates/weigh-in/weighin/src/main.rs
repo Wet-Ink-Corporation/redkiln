@@ -7,6 +7,7 @@
 
 mod annotate;
 mod ci;
+mod cli_envelope;
 mod commands;
 mod context;
 mod env;
@@ -65,6 +66,47 @@ enum Cmd {
     },
     #[command(flatten)]
     Ledger(LedgerCmd),
+    /// Every ledger event as JSON lines; with a subcommand, the journal refs (SPEC JR-07).
+    Journal {
+        #[command(subcommand)]
+        cmd: Option<JournalCmd>,
+    },
+}
+
+/// The journal-ref commands. Each writes the CLI envelope with `--json` and exits with SPEC
+/// CLI-05's codes (`commands::journal`), unlike the other commands' 0 and 1.
+#[derive(Subcommand)]
+enum JournalCmd {
+    /// Export the store's events to their journal refs (or inbox branches) now.
+    Checkpoint(JsonArgs),
+    /// Import journal refs, broken refs and unrelayed inboxes into the store.
+    Import(JsonArgs),
+    /// Move one inbox branch of origin into its journal ref (the relay workflow runs this).
+    Relay(RelayArgs),
+    /// git's pre-push hook: the checkpoint, unless only journal refs are pushed; never fails the
+    /// push.
+    PrePush(PrePushArgs),
+}
+
+#[derive(Args)]
+struct RelayArgs {
+    /// The inbox branch, `redkiln/inbox/<name>`.
+    branch: String,
+    #[arg(long)]
+    json: bool,
+}
+
+/// git's pre-push arguments, as git gives them, so the hook script is one `exec`.
+#[derive(Args)]
+struct PrePushArgs {
+    /// The remote git pushes to. Unused: journal refs go to origin.
+    #[arg(value_name = "REMOTE")]
+    _remote: String,
+    /// The remote's URL. Unused.
+    #[arg(value_name = "URL")]
+    _url: Option<String>,
+    #[arg(long)]
+    json: bool,
 }
 
 /// Every command but `hook`: these report their errors and exit 1 on failure (a closed stdout
@@ -108,7 +150,9 @@ enum LedgerCmd {
         #[command(subcommand)]
         cmd: BoardCmd,
     },
-    /// Every ledger event as JSON lines; sessions keep their own in .kb/_ledger/journal/.
+    /// `weighin journal` with no subcommand (parsed as `Cmd::Journal`): every ledger event as
+    /// JSON lines; sessions keep their own in .kb/_ledger/journal/.
+    #[command(skip)]
     Journal,
     /// Branch report for CI: open items, decisions since --base, append-only journals.
     CiCheck(CiCheckArgs),
@@ -357,17 +401,19 @@ fn main() -> ExitCode {
         store,
         cmd,
     } = Cli::parse();
-    let cmd = match cmd {
-        Cmd::Hook { .. } => return run_hook_guarded(),
-        Cmd::Ledger(cmd) => cmd,
-    };
-    let stdout = io::stdout();
-    let mut out = Stdout(stdout.lock());
     let globals = Globals {
         session,
         dir,
         store,
     };
+    let cmd = match cmd {
+        Cmd::Hook { .. } => return run_hook_guarded(),
+        Cmd::Journal { cmd: Some(sub) } => return commands::journal::run(globals, sub),
+        Cmd::Journal { cmd: None } => LedgerCmd::Journal,
+        Cmd::Ledger(cmd) => cmd,
+    };
+    let stdout = io::stdout();
+    let mut out = Stdout(stdout.lock());
     let (result, warnings) = run(globals, cmd, &mut out);
     let code = match result.and_then(|()| out.flush().map_err(anyhow::Error::from)) {
         Ok(()) => ExitCode::SUCCESS,

@@ -34,6 +34,18 @@ impl Repo {
         Ok(repo)
     }
 
+    /// [`Repo::new`], with a bare `origin` beside it that holds this repository's one commit on
+    /// `main`; the remote's path.
+    pub(crate) fn with_remote(init: bool) -> TestResult<(Self, PathBuf)> {
+        let repo = Self::new(init)?;
+        let remote = repo.sibling("origin.git")?;
+        git(&remote, &["init", "-q", "--bare", "-b", "main"]);
+        let url = remote.to_string_lossy().into_owned();
+        git(&repo.root, &["remote", "add", "origin", &url]);
+        git(&repo.root, &["push", "-q", "origin", "main"]);
+        Ok((repo, remote))
+    }
+
     /// A folder beside the repository, for a clone or a folder outside git.
     pub(crate) fn sibling(&self, name: &str) -> TestResult<PathBuf> {
         let dir = self.temp.with_file_name(name);

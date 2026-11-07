@@ -6,6 +6,7 @@
 mod board;
 mod digest;
 mod init;
+pub(crate) mod journal;
 mod stats;
 mod view;
 mod write;

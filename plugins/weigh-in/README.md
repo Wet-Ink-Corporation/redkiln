@@ -166,6 +166,15 @@ weighin digest [--json]                  defaults taken without you
 weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide (ledger + committed journals)
 weighin journal                          every ledger event as JSON lines; sessions keep their own in
                                          .kb/_ledger/journal/ (B-28)
+weighin journal checkpoint [--json]      export the store's events to refs/redkiln/journal/<name> on
+                                         origin (or the inbox branch redkiln/inbox/<name> where refs
+                                         are refused)
+weighin journal import [--json]          import journal refs, broken refs and unrelayed inboxes
+weighin journal relay <branch> [--json]  move one inbox branch into its journal ref (exit 1: left
+                                         in place for a person)
+weighin journal pre-push <remote> [<url>] [--json]
+                                         pre-push git hook: export unless only journal refs are
+                                         pushed; always exits 0
 weighin ci-check --base <ref> [--json]   CI report: open items, decisions since <ref>, append-only
                                          journals (schema weighin.ci-check/1)
 weighin trailer <id>                     the commit trailer for a decided item
