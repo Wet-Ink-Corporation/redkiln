@@ -29,7 +29,13 @@ use std::time::{Duration, Instant};
 /// spawns only; a caller's `Command` on another thread can still inherit the lock file.
 static FORKS: RwLock<()> = RwLock::new(());
 
-/// Keeps this process from spawning a child until the guard drops. The guarded data is `()`, so
+/// Whether Core could spawn now: no store opener holds the guard for writing.
+#[cfg(test)]
+pub(crate) fn forks_free() -> bool {
+    FORKS.try_read().is_ok()
+}
+
+/// Keeps Core from spawning a child until the guard drops. The guarded data is `()`, so
 /// a poisoned lock is as good as a clean one.
 pub(crate) fn no_forks() -> RwLockWriteGuard<'static, ()> {
     FORKS.write().unwrap_or_else(PoisonError::into_inner)
@@ -205,7 +211,8 @@ pub(crate) struct Spooled {
 }
 
 /// [`run`] of `command`, its arguments already given, with `stdin` read from a file when given,
-/// and stdout left in its spool.
+/// and stdout left in its spool. The spawn first waits for any store opener in this process to
+/// let go of its lock ([`forking`]), and the timeout starts after that wait.
 pub(crate) fn run_spooled(
     mut command: Command,
     cwd: &Path,

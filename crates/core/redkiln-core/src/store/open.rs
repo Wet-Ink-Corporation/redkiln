@@ -100,7 +100,9 @@ fn refuse_found(found: &Found, mode: Mode) -> Result<(), OpenError> {
     }
 }
 
-/// The open lock, held until dropped. Its fields drop in order: the file first, which releases
+/// The open lock, held until dropped. [`open`] holds it through [`open_locked`], SQLite's own busy
+/// waits included, so Core spawns nothing for up to a few times `busy`; no Core path spawns while
+/// it holds a SQLite lock, so that wait ends. Its fields drop in order: the file first, which releases
 /// the lock, then the guard that kept Core from spawning while it was held.
 struct Locked {
     _file: File,
@@ -465,6 +467,47 @@ pub(crate) fn finish_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A second handle on `path`'s lock file, holding its lock.
+    fn hold_lock(path: &Path) -> File {
+        let file = File::create(sibling(path, LOCK_SUFFIX)).expect("lock file");
+        file.try_lock().expect("the lock is free");
+        file
+    }
+
+    #[test]
+    fn a_held_open_lock_keeps_core_from_spawning_until_it_is_let_go() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("store.db");
+        let locked = take_lock(&path, Duration::ZERO)
+            .expect("locks")
+            .expect("whole-file locks");
+        assert!(!crate::git::forks_free(), "no spawn while the lock is held");
+        let second = File::open(sibling(&path, LOCK_SUFFIX)).expect("lock file");
+        assert!(second.try_lock().is_err(), "the lock is held");
+        drop(locked);
+        drop(hold_lock(&path));
+    }
+
+    #[test]
+    fn a_waiting_opener_lets_core_spawn_between_attempts() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("store.db");
+        let other = hold_lock(&path);
+        std::thread::scope(|s| {
+            let waiter = std::thread::Builder::new()
+                .name("waiting-opener".into())
+                .spawn_scoped(s, || {
+                    take_lock(&path, Duration::from_secs(30)).map(|l| l.is_some())
+                })
+                .expect("the thread starts");
+            // Blocks until LockBusy if the waiter held the guard across its wait.
+            drop(crate::git::forking());
+            drop(other);
+            let taken = waiter.join().expect("the waiter returns");
+            assert!(matches!(taken, Ok(true)), "{taken:?}");
+        });
+    }
 
     /// A connection inside a transaction holding a row that breaks a deferred foreign key, so its
     /// `COMMIT` fails and leaves the transaction open.
