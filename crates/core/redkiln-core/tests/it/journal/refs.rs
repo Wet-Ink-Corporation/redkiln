@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use redkiln_core::journal::refs::{
-    Breach, RefsCheckpoint, RefsExported, RefsTarget, Relayed, checkpoint_refs, relay,
+    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, Relayed, checkpoint_refs, relay,
 };
 #[cfg(unix)]
 use redkiln_core::journal::refs::{Deleted, Refusal};
@@ -168,20 +168,7 @@ fn a_ref_breaking_jr_05_is_reported_and_left_alone() {
     let dir = tempfile::tempdir().expect("tempdir");
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
-    // A journal ref whose tree holds a second file.
-    let blob = git(&work, &["hash-object", "-w", "README.md"]);
-    let listing = format!("100644 blob {blob}\ta1.jsonl\n100644 blob {blob}\tother\n");
-    let tree = mktree(&work, &listing);
-    let commit = git(&work, &["commit-tree", &tree, "-m", "broken"]);
-    git(
-        &work,
-        &[
-            "push",
-            "-q",
-            "origin",
-            &format!("{commit}:refs/redkiln/journal/a1"),
-        ],
-    );
+    let commit = push_broken_ref(&work, "a1");
     let store = store_in(dir.path(), "store");
     let report = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
     assert_eq!(report.broken, vec![(name("a1"), Breach::Tree)]);
@@ -194,6 +181,113 @@ fn a_ref_breaking_jr_05_is_reported_and_left_alone() {
         2,
         "the other journals are still written"
     );
+}
+
+/// Pushes, from `work`, a journal ref for `name` whose tree holds a second file; its commit.
+fn push_broken_ref(work: &Path, name: &str) -> String {
+    let blob = git(work, &["hash-object", "-w", "README.md"]);
+    let listing = format!("100644 blob {blob}\t{name}.jsonl\n100644 blob {blob}\tother\n");
+    let tree = mktree(work, &listing);
+    let commit = git(work, &["commit-tree", &tree, "-m", "broken"]);
+    let spec = format!("{commit}:refs/redkiln/journal/{name}");
+    git(work, &["push", "-q", "origin", &spec]);
+    commit
+}
+
+#[test]
+fn once_a_person_moves_a_broken_ref_aside_the_next_write_starts_a_new_root() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let broken = push_broken_ref(&work, "a1");
+    let store = store_in(dir.path(), "store");
+    written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    let aside = format!("refs/redkiln/broken/a1/{broken}");
+    git(&remote, &["update-ref", &aside, &broken]);
+    git(&remote, &["update-ref", "-d", "refs/redkiln/journal/a1"]);
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!(report.direct, vec![name("a1")], "{report:?}");
+    assert!(report.broken.is_empty(), "{report:?}");
+    let parents = git(
+        &remote,
+        &["rev-list", "--parents", "-n1", "refs/redkiln/journal/a1"],
+    );
+    assert_eq!(parents.split(' ').count(), 1, "a new root commit");
+}
+
+#[test]
+fn past_its_deadline_a_checkpoint_defers_every_journal() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let late = RefsTarget {
+        deadline: Some(std::time::Instant::now()),
+        ..target(&work)
+    };
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &late).expect("ok"));
+    assert_eq!(report.deferred.len(), 3, "{report:?}");
+    assert!(
+        report
+            .deferred
+            .iter()
+            .all(|(_, why)| *why == Deferral::Late)
+    );
+    assert!(refs(&remote, "refs/redkiln").is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_remote_that_hangs_defers_the_journals_instead_of_failing_the_checkpoint() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let hook = remote.join("hooks/pre-receive");
+    std::fs::write(&hook, "#!/bin/sh\nsleep 5\n").expect("hook");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let store = store_in(dir.path(), "store");
+    let quick = RefsTarget {
+        timeout: Duration::from_secs(2),
+        ..target(&work)
+    };
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &quick).expect("not an error"));
+    assert!(report.relay_reason.is_some(), "{report:?}");
+    assert!(!report.deferred.is_empty(), "{report:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn the_relay_leaves_an_inbox_whose_journal_ref_is_broken() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    refuse_custom_refs(&remote);
+    let cloud = clone(dir.path(), &remote, "cloud");
+    let store = store_in(dir.path(), "store");
+    written(checkpoint_refs(&store, RepoClass::Own, &target(&cloud)).expect("ok"));
+    accept_custom_refs(&remote);
+    let actions = clone(dir.path(), &remote, "actions");
+    push_broken_ref(&actions, "a1");
+    let outcome = relay(&target(&actions), "redkiln/inbox/a1").expect("ran");
+    assert_eq!(outcome, Relayed::Broken(Breach::Tree));
+    assert!(
+        refs(&remote, "refs/heads/redkiln").contains(&"refs/heads/redkiln/inbox/a1".to_owned())
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_relay_refuses_an_inbox_commit_with_no_parent() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let blob = git(&work, &["hash-object", "-w", "README.md"]);
+    let tree = mktree(&work, &format!("100644 blob {blob}\tREADME.md\n"));
+    let root = git(&work, &["commit-tree", &tree, "-m", "orphan"]);
+    let spec = format!("{root}:refs/heads/redkiln/inbox/a1");
+    git(&work, &["push", "-q", "origin", &spec]);
+    let outcome = relay(&target(&work), "redkiln/inbox/a1").expect("ran");
+    assert_eq!(outcome, Relayed::Refused(Refusal::Parents(0)));
 }
 
 #[test]

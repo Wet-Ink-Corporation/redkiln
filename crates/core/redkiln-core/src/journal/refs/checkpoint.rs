@@ -55,6 +55,9 @@ pub enum Deferral {
     RetriesSpent,
     /// The remote default branch already holds `.redkiln/inbox/<name>.jsonl`.
     InboxOccupied,
+    /// The inbox branch's file is larger than [`crate::journal::MAX_JOURNAL_BYTES`], so it
+    /// cannot be merged; the relay refuses it too, and a person deletes it.
+    InboxTooLarge,
     /// A fetch or push failed, with what git said.
     Failed(String),
 }
@@ -65,8 +68,8 @@ pub enum Deferral {
 /// No journal is started after the target's deadline; those left are deferred.
 ///
 /// # Errors
-/// [`RefsError`] when the store cannot be read, git cannot run or fails at a local step, or a
-/// journal in git is larger than [`crate::journal::MAX_JOURNAL_BYTES`].
+/// [`RefsError`] when the store cannot be read, or git cannot run or fails at a local step. A
+/// journal ref or inbox that cannot be read whole is reported in the outcome, not as an error.
 pub fn checkpoint_refs(
     store: &Store,
     class: RepoClass,
@@ -170,7 +173,14 @@ fn relayed(
             return Ok(());
         }
     };
-    let deferral = match write_inbox(ctx, inbox, &name, own)? {
+    let written = match write_inbox(ctx, inbox, &name, own) {
+        Err(RefsError::TooLarge { .. }) => {
+            report.deferred.push((name, Deferral::InboxTooLarge));
+            return Ok(());
+        }
+        written => written?,
+    };
+    let deferral = match written {
         Inboxed::Same => return Ok(()),
         Inboxed::Pushed(added) => {
             report.appended = report.appended.saturating_add(added);
@@ -192,9 +202,11 @@ fn lacks(ctx: &Ctx<'_>, name: &JournalName, own: &[u8]) -> Result<bool, RefsErro
         State::Good { file, .. } => file,
         State::Absent | State::Broken(_) => Vec::new(),
     };
-    let known = match read_inbox(ctx.repo, name)? {
-        Some((_, inbox)) => merge(&journal, &inbox).bytes,
-        None => journal,
+    let known = match read_inbox(ctx.repo, name) {
+        Ok(Some((_, inbox))) => merge(&journal, &inbox).bytes,
+        // An inbox too large to read holds nothing this check can count on.
+        Ok(None) | Err(RefsError::TooLarge { .. }) => journal,
+        Err(e) => return Err(e),
     };
     Ok(merge(&known, own).added > 0)
 }

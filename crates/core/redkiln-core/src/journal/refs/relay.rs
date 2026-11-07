@@ -82,7 +82,7 @@ pub fn relay(target: &RefsTarget<'_>, branch: &str) -> Result<Relayed, RefsError
         Fetched::Missing => return Ok(Relayed::Gone),
         Fetched::Failed(said) => return Ok(Relayed::Failed(said)),
     }
-    let Some(tip) = ctx.repo.resolve(&local)? else {
+    let Some(tip) = ctx.repo.commit_of(&local)? else {
         return Ok(Relayed::Gone);
     };
     let file = match inbox_file(&ctx, &name, &tip)? {
@@ -144,7 +144,10 @@ fn inbox_file(
     let changes = match ctx.repo.changes(parent, tip) {
         Ok(changes) => changes,
         // A diff too large to list cannot be the one added file.
-        Err(RefsError::Git(crate::git::GitError::TooMuchOutput)) => {
+        Err(RefsError::Git {
+            source: crate::git::GitError::TooMuchOutput,
+            ..
+        }) => {
             return Ok(Err(Refusal::Changes("more than git lists".to_owned())));
         }
         Err(e) => return Err(e),

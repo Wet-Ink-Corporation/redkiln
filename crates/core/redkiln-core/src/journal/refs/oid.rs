@@ -6,7 +6,7 @@ use super::RefsError;
 
 /// A git object name, as git printed it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Oid(String);
+pub(crate) struct Oid(String);
 
 impl Oid {
     /// `text` when it is 40 or 64 lowercase hex digits.
@@ -16,7 +16,8 @@ impl Oid {
             Ok(Self(text.to_owned()))
         } else {
             Err(RefsError::Answer {
-                command: format!("an object name, not `{text}`"),
+                step: "an object name",
+                got: text.to_owned(),
             })
         }
     }
@@ -28,7 +29,7 @@ impl Oid {
 
     /// The name.
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }

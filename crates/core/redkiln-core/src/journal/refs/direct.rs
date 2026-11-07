@@ -39,10 +39,9 @@ pub(crate) fn merge_direct(
         if ctx.late() {
             return Ok(Direct::Late);
         }
-        let (parent, current) = match read_journal(ctx.repo, name)? {
-            State::Absent => (None, Vec::new()),
-            State::Good { tip, file } => (Some(tip), file),
-            State::Broken(breach) => return Ok(Direct::Broken(breach)),
+        let (parent, current) = match current_journal(ctx, name)? {
+            Ok(current) => current,
+            Err(done) => return Ok(done),
         };
         let merged = merge(&current, incoming);
         if merged.added == 0 {
@@ -53,15 +52,21 @@ pub(crate) fn merge_direct(
         let message = format!("redkiln journal {name} [skip ci]");
         let commit = ctx.repo.commit(&tree, parent.as_ref(), &message)?;
         let Some(remote) = ctx.remote else {
-            ctx.repo.set_ref(&refname, &commit)?;
-            return Ok(Direct::Moved(merged.added));
+            // With no remote the local ref is the ref of record: moved only from the commit
+            // read, or merged again on top of whatever another writer moved it to.
+            if ctx.repo.move_ref(&refname, &commit, parent.as_ref())? {
+                return Ok(Direct::Moved(merged.added));
+            }
+            continue;
         };
         match ctx
             .repo
             .push(remote, &format!("{commit}:{refname}"), None)?
         {
             Pushed::Done => {
-                ctx.repo.set_ref(&refname, &commit)?;
+                // The clone's copy follows unless another writer already moved it past the
+                // commit read; it is never moved back.
+                ctx.repo.move_ref(&refname, &commit, parent.as_ref())?;
                 return Ok(Direct::Moved(merged.added));
             }
             Pushed::Failed(said) => return Ok(Direct::Failed(said)),
@@ -74,6 +79,31 @@ pub(crate) fn merge_direct(
         }
     }
     Ok(Direct::Spent)
+}
+
+/// A journal ref as a write starts from: its tip (`None`: a root commit comes next) and file.
+type Current = (Option<Oid>, Vec<u8>);
+
+/// The clone's journal ref of `name`: its tip and file, or the outcome that ends the write.
+/// A copy that breaks JR-05 is fetched again first, since a person may have moved the remote
+/// ref aside to `refs/redkiln/broken/` (then it is absent, and the next commit is a root).
+fn current_journal(
+    ctx: &Ctx<'_>,
+    name: &JournalName,
+) -> Result<Result<Current, Direct>, RefsError> {
+    let mut state = read_journal(ctx.repo, name)?;
+    if let (State::Broken(_), Some(remote)) = (&state, ctx.remote) {
+        let refname = journal_ref(name);
+        if let Some(failed) = refetch(ctx, remote, &refname, &refname)? {
+            return Ok(Err(Direct::Failed(failed)));
+        }
+        state = read_journal(ctx.repo, name)?;
+    }
+    Ok(match state {
+        State::Absent => Ok((None, Vec::new())),
+        State::Good { tip, file } => Ok((Some(tip), file)),
+        State::Broken(breach) => Err(Direct::Broken(breach)),
+    })
 }
 
 /// How an inbox write ended.
@@ -109,7 +139,11 @@ pub(crate) fn write_inbox(
 ) -> Result<Inboxed, RefsError> {
     let Inbox { remote, base } = inbox_to;
     let path = inbox_path(name);
-    if !ctx.repo.entries(base, Some(&path))?.is_empty() {
+    if ctx
+        .repo
+        .entries(base, Some(&path))?
+        .is_none_or(|entries| !entries.is_empty())
+    {
         return Ok(Inboxed::Occupied);
     }
     let branch = inbox_branch(name);
@@ -131,7 +165,8 @@ pub(crate) fn write_inbox(
             .push(remote, &format!("{commit}:{branch}"), Some(&lease))?
         {
             Pushed::Done => {
-                ctx.repo.set_ref(&local, &commit)?;
+                // As for journal refs, the clone's copy is never moved back.
+                ctx.repo.move_ref(&local, &commit, expected.as_ref())?;
                 return Ok(Inboxed::Pushed(merged.added));
             }
             Pushed::Failed(said) => return Ok(Inboxed::Failed(said)),
@@ -201,7 +236,7 @@ pub(crate) fn prepare_relay(ctx: &Ctx<'_>, remote: &str) -> Result<Result<Oid, S
     if let Fetched::Failed(said) = ctx.repo.fetch(remote, &[inboxes], true)? {
         return Ok(Err(said));
     }
-    match ctx.repo.resolve(BASE_REF)? {
+    match ctx.repo.commit_of(BASE_REF)? {
         Some(tip) => Ok(Ok(tip)),
         None => Ok(Err("the default branch was not fetched".to_owned())),
     }
@@ -245,8 +280,122 @@ mod tests {
         ctx
     }
 
+    /// A bare remote whose `main` has one commit (holding `files`), and clones of it.
+    fn remote_with_clones<const N: usize>(
+        dir: &Path,
+        files: &[&str],
+        names: [&str; N],
+    ) -> [std::path::PathBuf; N] {
+        let remote = dir.join("remote.git");
+        std::fs::create_dir_all(&remote).expect("dir");
+        git(&remote, &["init", "-q", "--bare", "-b", "main"]);
+        let seed = dir.join("seed");
+        std::fs::create_dir_all(&seed).expect("dir");
+        git(&seed, &["init", "-q", "-b", "main"]);
+        for file in files.iter().chain(&["README.md"]) {
+            let path = seed.join(file);
+            std::fs::create_dir_all(path.parent().expect("a parent")).expect("dir");
+            std::fs::write(path, "").expect("write");
+        }
+        git(&seed, &["add", "-A"]);
+        let identity = ["-c", "user.name=t", "-c", "user.email=t@example.invalid"];
+        git(
+            &seed,
+            &[&identity[..], &["commit", "-q", "-m", "seed"]].concat(),
+        );
+        let url = remote.to_string_lossy().into_owned();
+        git(&seed, &["push", "-q", &url, "main"]);
+        names.map(|name| {
+            git(dir, &["clone", "-q", &url, name]);
+            dir.join(name)
+        })
+    }
+
+    fn target(repo: &Path) -> RefsTarget<'_> {
+        RefsTarget {
+            repo,
+            remote: "origin",
+            timeout: Duration::from_secs(30),
+            deadline: None,
+        }
+    }
+
+    /// `name`'s inbox written from `repo` with `own`, the relay prepared first.
+    fn inbox(repo: &Path, name: &JournalName, own: &str) -> Inboxed {
+        let target = target(repo);
+        let ctx = ctx(&target);
+        let base = prepare_relay(&ctx, "origin").expect("ran").expect("a base");
+        let to = Inbox {
+            remote: "origin",
+            base: &base,
+        };
+        write_inbox(&ctx, to, name, own.as_bytes()).expect("ran")
+    }
+
     #[test]
-    fn a_push_rejected_as_stale_is_retried_after_a_fetch_and_keeps_both_writers_lines() {
+    fn an_inbox_push_under_a_stale_lease_is_retried_after_a_fetch_and_keeps_both_inboxes() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let [first, second] = remote_with_clones(dir.path(), &[], ["first", "second"]);
+        let name = JournalName::parse("a1").expect("name");
+        assert_eq!(inbox(&first, &name, &line(1)), Inboxed::Pushed(1));
+        // The second clone fetches the first inbox, which then moves on before its push.
+        let second_target = target(&second);
+        let second_ctx = ctx(&second_target);
+        let base = prepare_relay(&second_ctx, "origin")
+            .expect("ran")
+            .expect("a base");
+        assert_eq!(inbox(&first, &name, &line(3)), Inboxed::Pushed(1));
+        let to = Inbox {
+            remote: "origin",
+            base: &base,
+        };
+        let outcome = write_inbox(&second_ctx, to, &name, line(2).as_bytes()).expect("ran");
+        assert_eq!(outcome, Inboxed::Pushed(1));
+        let remote = dir.path().join("remote.git");
+        let file = git(
+            &remote,
+            &["show", "redkiln/inbox/a1:.redkiln/inbox/a1.jsonl"],
+        ) + "\n";
+        assert_eq!(file, line(1) + &line(3) + &line(2));
+    }
+
+    #[test]
+    fn a_default_branch_already_holding_the_inbox_file_defers_the_journal() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let [work] = remote_with_clones(dir.path(), &[".redkiln/inbox/a1.jsonl"], ["work"]);
+        let name = JournalName::parse("a1").expect("name");
+        assert_eq!(inbox(&work, &name, &line(1)), Inboxed::Occupied);
+    }
+
+    #[test]
+    fn a_local_ref_moves_only_from_the_commit_the_writer_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let [work] = remote_with_clones(dir.path(), &[], ["work"]);
+        let repo = target(&work);
+        let repo = Ctx::local(&repo).repo;
+        let head = Oid::parse(&git(&work, &["rev-parse", "HEAD"])).expect("oid");
+        let tree = Oid::parse(&git(&work, &["rev-parse", "HEAD^{tree}"])).expect("oid");
+        let other = repo.commit(&tree, None, "other").expect("commit");
+        let name = "refs/redkiln/journal/a1";
+        assert!(repo.move_ref(name, &head, None).expect("ran"), "created");
+        assert!(
+            !repo.move_ref(name, &other, None).expect("ran"),
+            "exists already"
+        );
+        assert!(
+            !repo.move_ref(name, &other, Some(&other)).expect("ran"),
+            "not at other"
+        );
+        assert_eq!(repo.commit_of(name).expect("ran"), Some(head.clone()));
+        assert!(
+            repo.move_ref(name, &other, Some(&head)).expect("ran"),
+            "moved"
+        );
+        assert_eq!(repo.commit_of(name).expect("ran"), Some(other));
+    }
+
+    #[test]
+    fn a_push_that_is_not_a_fast_forward_is_retried_after_a_fetch_and_keeps_both_writers_lines() {
         let dir = tempfile::tempdir().expect("tempdir");
         let remote = dir.path().join("remote.git");
         std::fs::create_dir_all(&remote).expect("dir");

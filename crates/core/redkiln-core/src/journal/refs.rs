@@ -7,9 +7,9 @@
 //! `redkiln/inbox/<name>` instead, which [`relay`] (run by a repository's relay workflow) merges
 //! into the ref and deletes. Every write is a merge by `origin` (JR-07), so it only appends.
 //!
-//! A network failure is an outcome, not an error: the events stay in the store, and the next
-//! checkpoint exports them (JR-07). [`RefsError`] is kept for the store, local git and files over
-//! [`super::MAX_JOURNAL_BYTES`].
+//! A network failure, a timeout included, is an outcome, not an error: the events stay in the
+//! store, and the next checkpoint exports them (JR-07). So is a journal ref or inbox that cannot
+//! be read whole. [`RefsError`] is kept for the store and local git.
 
 mod checkpoint;
 mod direct;
@@ -21,10 +21,10 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use checkpoint::{Deferral, RefsCheckpoint, RefsExported, checkpoint_refs};
-pub use oid::Oid;
 pub use relay::{Deleted, Refusal, Relayed, relay};
 
-use self::git::Repo;
+use self::git::{Repo, Resolved};
+use self::oid::Oid;
 use super::export::MAX_JOURNAL_BYTES;
 use super::name::JournalName;
 use crate::git::GitError;
@@ -50,13 +50,21 @@ pub enum RefsError {
     #[error("reading the store")]
     Store(#[source] StoreError),
     /// git could not run, or failed at a local step (an object or a local ref).
-    #[error("running git")]
-    Git(#[source] GitError),
-    /// git printed something other than what the step expects.
-    #[error("git's answer was not {command}")]
+    #[error("running git {step}")]
+    Git {
+        /// The git subcommand.
+        step: String,
+        /// What went wrong.
+        #[source]
+        source: GitError,
+    },
+    /// git printed something the step cannot read.
+    #[error("git {step} printed `{got}`")]
     Answer {
-        /// What was expected.
-        command: String,
+        /// The git subcommand, or what was being read.
+        step: &'static str,
+        /// What it printed.
+        got: String,
     },
     /// A journal file in git is larger than [`MAX_JOURNAL_BYTES`].
     #[error("the journal {name} in git is larger than {MAX_JOURNAL_BYTES} bytes")]
@@ -75,10 +83,13 @@ pub enum RefsError {
 pub enum Breach {
     /// A commit reachable from it has more than one parent: not a single-parent chain.
     Merge,
-    /// Its tree holds something other than exactly the regular file `<name>.jsonl`.
+    /// It does not name a commit, or its tree holds something other than exactly the regular
+    /// file `<name>.jsonl`.
     Tree,
     /// Its file is not empty and its last byte is not `\n`.
     Unended,
+    /// Its file is larger than [`MAX_JOURNAL_BYTES`], so it cannot be merged.
+    TooLarge,
 }
 
 /// Where journal refs are written: a repository, the remote it pushes to and fetches from, and
@@ -150,20 +161,26 @@ pub(crate) fn inbox_path(name: &JournalName) -> String {
 
 /// The local journal ref of `name`, checked against JR-05.
 pub(crate) fn read_journal(repo: Repo<'_>, name: &JournalName) -> Result<State, RefsError> {
-    let Some(tip) = repo.resolve(&journal_ref(name))? else {
-        return Ok(State::Absent);
+    let tip = match repo.resolve(&journal_ref(name))? {
+        Resolved::Absent => return Ok(State::Absent),
+        Resolved::NotACommit => return Ok(State::Broken(Breach::Tree)),
+        Resolved::Commit(tip) => tip,
     };
     if repo.has_merge(&tip)? {
         return Ok(State::Broken(Breach::Merge));
     }
-    let entries = repo.entries(&tip, None)?;
+    let Some(entries) = repo.entries(&tip, None)? else {
+        return Ok(State::Broken(Breach::Tree));
+    };
     let blob = match entries.as_slice() {
         [only] if only.mode == "100644" && only.kind == "blob" && only.path == name.file_name() => {
             &only.oid
         }
         _ => return Ok(State::Broken(Breach::Tree)),
     };
-    let file = read_blob(repo, blob, name)?;
+    let Some(file) = repo.blob(blob, MAX_JOURNAL_BYTES)? else {
+        return Ok(State::Broken(Breach::TooLarge));
+    };
     if file.last().is_some_and(|last| *last != b'\n') {
         return Ok(State::Broken(Breach::Unended));
     }
@@ -171,22 +188,24 @@ pub(crate) fn read_journal(repo: Repo<'_>, name: &JournalName) -> Result<State, 
 }
 
 /// The local copy of `name`'s inbox branch: its tip and its file (empty when it holds none).
+///
+/// # Errors
+/// [`RefsError::TooLarge`] when its file is larger than [`MAX_JOURNAL_BYTES`]: the inbox cannot
+/// be merged, so its journal is deferred.
 pub(crate) fn read_inbox(
     repo: Repo<'_>,
     name: &JournalName,
 ) -> Result<Option<(Oid, Vec<u8>)>, RefsError> {
-    let Some(tip) = repo.resolve(&inbox_ref(name))? else {
+    let Some(tip) = repo.commit_of(&inbox_ref(name))? else {
         return Ok(None);
     };
     let path = inbox_path(name);
-    let file = match repo.entries(&tip, Some(&path))?.as_slice() {
-        [entry] if entry.kind == "blob" && entry.path == path => read_blob(repo, &entry.oid, name)?,
+    let file = match repo.entries(&tip, Some(&path))?.as_deref() {
+        Some([entry]) if entry.kind == "blob" && entry.path == path => repo
+            .blob(&entry.oid, MAX_JOURNAL_BYTES)?
+            // The error names the journal it stops.
+            .ok_or_else(|| RefsError::TooLarge { name: name.clone() })?,
         _ => Vec::new(),
     };
     Ok(Some((tip, file)))
-}
-
-fn read_blob(repo: Repo<'_>, oid: &Oid, name: &JournalName) -> Result<Vec<u8>, RefsError> {
-    repo.blob(oid, MAX_JOURNAL_BYTES)?
-        .ok_or_else(|| RefsError::TooLarge { name: name.clone() })
 }
