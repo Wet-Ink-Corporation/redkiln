@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 mod batches;
 mod git_fixture;
 mod lines;
+mod read;
 mod refs;
 
 const WAIT: Duration = Duration::from_secs(5);

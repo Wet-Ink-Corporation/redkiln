@@ -237,6 +237,32 @@ fn past_its_deadline_a_checkpoint_defers_every_journal() {
     assert!(refs(&remote, "refs/redkiln").is_empty());
 }
 
+#[test]
+fn past_its_deadline_a_checkpoint_does_not_fetch() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let gone = dir.path().join("gone");
+    git(
+        &work,
+        &["remote", "set-url", "origin", &gone.to_string_lossy()],
+    );
+    let store = store_in(dir.path(), "store");
+    let late = RefsTarget {
+        deadline: Some(std::time::Instant::now()),
+        ..target(&work)
+    };
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &late).expect("ok"));
+    assert_eq!(report.deferred.len(), 3, "{report:?}");
+    assert!(
+        report
+            .deferred
+            .iter()
+            .all(|(_, why)| *why == Deferral::Late),
+        "a fetch would have failed: {report:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn a_remote_that_hangs_defers_the_journals_instead_of_failing_the_checkpoint() {
@@ -264,7 +290,8 @@ fn a_remote_that_hangs_defers_the_journals_instead_of_failing_the_checkpoint() {
         report.direct.is_empty() && report.relayed.is_empty(),
         "{report:?}"
     );
-    assert!(!report.deferred.is_empty(), "{report:?}");
+    assert_eq!(report.deferred.len(), 3, "{report:?}");
+    assert!(report.broken.is_empty(), "{report:?}");
     for (name, deferral) in &report.deferred {
         assert!(
             matches!(deferral, Deferral::Failed(said) if timed_out(said)),
@@ -481,7 +508,7 @@ fn name(text: &str) -> redkiln_core::journal::JournalName {
 }
 
 /// `git mktree` of `listing` in `dir`.
-fn mktree(dir: &Path, listing: &str) -> String {
+pub(super) fn mktree(dir: &Path, listing: &str) -> String {
     use std::io::Write as _;
     let mut child = std::process::Command::new("git")
         .arg("mktree")

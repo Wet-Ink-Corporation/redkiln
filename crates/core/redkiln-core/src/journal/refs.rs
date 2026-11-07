@@ -6,6 +6,7 @@
 //! sessions' git proxy refuses anything outside `refs/heads/*`), it pushes the inbox branch
 //! `redkiln/inbox/<name>` instead, which [`relay`] (run by a repository's relay workflow) merges
 //! into the ref and deletes. Every write is a merge by `origin` (JR-07), so it only appends.
+//! [`import_refs`] reads them back, with refs set aside as broken and inboxes not yet relayed.
 //!
 //! A network failure, a timeout included, is an outcome, not an error: the events stay in the
 //! store, and the next checkpoint exports them (JR-07). So is a journal ref or inbox that cannot
@@ -15,17 +16,20 @@ mod checkpoint;
 mod direct;
 mod git;
 mod oid;
+mod read;
 mod relay;
 
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use checkpoint::{Deferral, RefsCheckpoint, RefsExported, checkpoint_refs};
+pub use read::{BROKEN_REFS, ImportedRef, RefsImport, import_refs};
 pub use relay::{Deleted, Refusal, Relayed, relay};
 
 use self::git::{Repo, Resolved};
 use self::oid::Oid;
 use super::export::MAX_JOURNAL_BYTES;
+use super::import::ImportError;
 use super::name::JournalName;
 use crate::git::GitError;
 use crate::store::StoreError;
@@ -40,6 +44,8 @@ pub const INBOX_REFS: &str = "refs/redkiln/inbox/";
 pub const INBOX_DIR: &str = ".redkiln/inbox/";
 /// Where a checkpoint keeps the remote default branch's tip, an inbox commit's parent.
 const BASE_REF: &str = "refs/redkiln/base";
+/// git's mode of a regular, non-executable file: the only kind a journal is read from.
+pub(crate) const REGULAR: &str = "100644";
 /// How many times a push rejected as not a fast-forward or a stale lease is retried (JR-07).
 pub const RETRIES: u32 = 3;
 
@@ -66,6 +72,9 @@ pub enum RefsError {
         /// What it printed.
         got: String,
     },
+    /// An import from git stopped; the imports stored before it stay.
+    #[error("importing a journal from git")]
+    Import(#[source] ImportError),
     /// The branch given to [`relay`] is not an inbox branch.
     #[error("`{0}` is not an inbox branch, redkiln/inbox/<name>")]
     NotInbox(String),
@@ -171,7 +180,7 @@ pub(crate) fn read_journal(ctx: &Ctx<'_>, name: &JournalName) -> Result<State, R
         return Ok(State::Broken(Breach::Tree));
     };
     let blob = match entries.as_slice() {
-        [only] if only.mode == "100644" && only.kind == "blob" && only.path == name.file_name() => {
+        [only] if only.mode == REGULAR && only.kind == "blob" && only.path == name.file_name() => {
             &only.oid
         }
         _ => return Ok(State::Broken(Breach::Tree)),
@@ -206,7 +215,7 @@ pub(crate) fn read_inbox(ctx: &Ctx<'_>, name: &JournalName) -> Result<InboxCopy,
     };
     let path = inbox_path(name);
     let file = match repo.entries(&tip, Some(&path))?.as_deref() {
-        Some([entry]) if entry.kind == "blob" && entry.path == path => {
+        Some([entry]) if entry.mode == REGULAR && entry.kind == "blob" && entry.path == path => {
             match repo.blob(&entry.oid, ctx.max_bytes)? {
                 Some(file) => file,
                 None => return Ok(InboxCopy::TooLarge),
