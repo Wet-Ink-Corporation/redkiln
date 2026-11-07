@@ -555,6 +555,7 @@ fn a_store_whose_only_new_event_is_an_import_record_touches_no_remote() {
 }
 
 /// What makes GitHub start no `on: push` workflow for a commit, in its message.
+#[cfg(unix)]
 const CI_SKIP_DIRECTIVES: [&str; 6] = [
     "[skip ci]",
     "[ci skip]",
