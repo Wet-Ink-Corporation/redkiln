@@ -1,6 +1,6 @@
 //! The repository class (ST-12, ST-13, #17 part 5b): read from `.redkiln/suite.toml`, else from
 //! weigh-in 1.x's `.kb/_ledger/config.json` with a warning (M1-F), else `client`; a `client`
-//! repository writes no session journal and exports no board for claude.ai (D8 A); `init` writes
+//! repository exports no journal ref and no board for claude.ai (D8 A); `init` writes
 //! the class to suite.toml, never to config.json.
 
 use crate::scratch::{Repo, TestResult};
@@ -70,7 +70,9 @@ fn config_jsons_class_below_no_suite_toml_is_used_and_said_on_stderr_and_at_sess
 
     let stderr = raise(&repo)?;
     let message = session_start_message(&repo)?;
+    let stop = repo.hook(&repo.stop("s"))?;
 
+    assert!(stop.status.success(), "the hook exits 0");
     let warnings: Vec<&str> = stderr
         .lines()
         .filter(|l| l.contains(LEGACY_WARNING))
@@ -84,16 +86,16 @@ fn config_jsons_class_below_no_suite_toml_is_used_and_said_on_stderr_and_at_sess
     );
     assert!(message.contains(LEGACY_WARNING), "{message}");
     assert!(
-        repo.journal_path("s").exists(),
-        "an own repository keeps its journal"
+        repo.has_ref("refs/redkiln/journal/s"),
+        "an own repository exports its journal ref"
     );
     Ok(())
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_client_repository_writes_no_journal_and_exports_no_board_and_an_own_one_does_both()
--> TestResult {
+fn a_client_repository_exports_no_journal_ref_and_no_board_and_an_own_one_does_both() -> TestResult
+{
     for class in ["client", "own"] {
         let repo = Repo::new(false)?;
         repo.ok(
@@ -110,10 +112,13 @@ fn a_client_repository_writes_no_journal_and_exports_no_board_and_an_own_one_doe
         let stderr = String::from_utf8(export.stderr)?;
         let board = state_of(&repo.root).join("board-state.json");
         if class == "own" {
-            assert!(repo.journal_path("s").exists(), "own: a journal");
+            assert!(repo.has_ref("refs/redkiln/journal/s"), "own: a journal ref");
             assert!(export.status.success() && board.exists(), "own: {stderr}");
         } else {
-            assert!(!repo.journal_dir().exists(), "client: no journal directory");
+            assert!(
+                !repo.has_ref("refs/redkiln/journal/s"),
+                "client: no journal ref"
+            );
             assert!(!export.status.success(), "client: export refused");
             assert!(
                 stderr.contains("`client`") && stderr.contains(SUITE),
@@ -133,13 +138,18 @@ fn a_suite_toml_that_does_not_parse_is_client_whatever_config_json_says() -> Tes
     write(&repo.root, SUITE, "[suite\nrepo_class = \"own\"\n")?;
 
     let stderr = raise(&repo)?;
+    let stop = repo.hook(&repo.stop("s"))?;
 
+    assert!(stop.status.success(), "the hook exits 0");
     assert!(
         stderr.contains("suite.toml is not used") && stderr.contains("the repository is client"),
         "{stderr}"
     );
     assert!(!stderr.contains(LEGACY_WARNING), "no fallback: {stderr}");
-    assert!(!repo.journal_dir().exists(), "client: no journal directory");
+    assert!(
+        !repo.has_ref("refs/redkiln/journal/s"),
+        "client: no journal ref"
+    );
     Ok(())
 }
 

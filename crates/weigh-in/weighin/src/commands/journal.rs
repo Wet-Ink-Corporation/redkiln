@@ -9,8 +9,10 @@
 //! | `relay <branch>` | gone, or merged with the branch deleted or a newer commit on it | the inbox was left in place | usage, or a branch that is no inbox | local git failed | output failed |
 //! | `pre-push` | always, every failure included (said on stderr) | none | usage | none | none |
 //!
-//! Errors and warnings go to stderr as `weighin: error: <chain>` and `weighin: warning: <chain>`
-//! (CLI-08). A closed stdout exits 0 without a word (CLI-07).
+//! Errors and warnings go to stderr as `weighin: error: <chain>` and `weighin: warning: <chain>`,
+//! each on one line (CLI-08). When stdout's reader has gone, a success exits 0 without a word
+//! and a failure keeps its CLI-05 code (CLI-07 read with CLI-05); stderr is a separate stream,
+//! so a failure's error, `--json` or not, and the store's notices are still said there.
 
 use std::fmt::Display;
 use std::io::{self, Write};
@@ -22,7 +24,7 @@ use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{Deleted, RefsError, RefsExported, RefsImport, Relayed};
 use serde::Serialize;
 
-use crate::cli_envelope::{Envelope, Exit, Finding, Severity};
+use crate::cli_envelope::{Envelope, Exit, Finding, Severity, one_line};
 use crate::env::Env;
 use crate::journal::pre_push::{self, Pushing};
 use crate::journal::refs::{self, Budget, Checkpointed, Imported, Skip};
@@ -233,8 +235,10 @@ fn output_failed(e: &io::Error, earned: Exit) -> Exit {
     )
 }
 
-/// `weighin: <level>: <message>` on stderr; `exit`, or 74 for a success that cannot be said.
+/// `weighin: <level>: <message>` on stderr, the message on one line (CLI-08); `exit`, or 74 for
+/// a success that cannot be said.
 fn say(level: &str, message: &dyn Display, exit: Exit) -> Exit {
+    let message = one_line(&message.to_string());
     match writeln!(io::stderr().lock(), "weighin: {level}: {message}") {
         Ok(()) => exit,
         // A failure keeps its own code: with stderr gone, the code is the only report left.

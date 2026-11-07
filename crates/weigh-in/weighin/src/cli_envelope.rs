@@ -73,7 +73,7 @@ impl Finding {
 const MAX_MESSAGE_CHARS: usize = 400;
 
 /// `text` on one line (each line break a space), cut to [`MAX_MESSAGE_CHARS`].
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     let flat: String = text
         .chars()
         .map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })

@@ -44,7 +44,7 @@ Codes 1 and 3 to 63 are each command's own (1 is "cycle" for one command and "te
 
 **CLI-06.** Whether findings fail a command is the command's to state. A gate exits non-zero when its findings fail it; a report (`ci-check`, `status`) exits 0 whenever it wrote its report, and its findings are data for the caller to judge (weigh-in `ci.rs`).
 
-**CLI-07.** When stdout is closed by its reader (a broken pipe, as in `weighin open | head`), the command exits 0 and writes nothing to stderr: the reader chose to stop. Any other output failure exits 74. This follows weigh-in; anneal exits 74 for both, and the SPEC prefers not to fail a pipeline its reader cut short.
+**CLI-07.** When stdout is closed by its reader (a broken pipe, as in `weighin open | head`), the command exits 0 and writes nothing to stderr: the reader chose to stop. Any other output failure exits 74. This follows weigh-in; anneal exits 74 for both, and the SPEC prefers not to fail a pipeline its reader cut short. This holds for a command that succeeded: one that failed keeps its CLI-05 code, and still says its error on stderr (CLI-08), which is a separate stream. A two-way clarification consistent with CLI-05 (2026-11-07, weighin `journal` commands).
 
 **CLI-08.** Errors and warnings go to stderr, one line each: `<binary>: error: <message>` and `<binary>: warning: <message>`, the message holding the cause chain joined by `: `. A usage error names every missing argument at once.
 

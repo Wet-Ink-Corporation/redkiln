@@ -285,7 +285,7 @@ fn a_ledger_that_cannot_be_read_after_an_edit_prints_nothing_and_is_logged() -> 
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_ledger_that_cannot_be_read_is_logged_once_for_the_journal_and_the_recall() -> TestResult {
+fn a_ledger_that_cannot_be_read_is_logged_once_for_the_recall() -> TestResult {
     let (_tmp, repo) = setup();
     let (ok, out) = weighin(&repo, "s1", &["init", "--class", "own"], None);
     assert!(ok, "{out}");

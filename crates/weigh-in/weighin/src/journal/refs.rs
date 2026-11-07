@@ -13,6 +13,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result};
 use redkiln_core::envelope::Timestamp;
+use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{
     Breach, Deferral, Deleted, JOURNAL_REFS, RefsCheckpoint, RefsError, RefsExported, RefsImport,
     RefsTarget, Refusal, Relayed, checkpoint_refs, import_refs,
@@ -34,7 +35,6 @@ const MAX_SAID_CHARS: usize = 200;
 
 /// Remote calls Core can still make on one journal after the deadline passes: the direct push,
 /// the relay base's `ls-remote` and fetch, and the inbox's fetch and push.
-#[cfg(test)]
 const CALLS_AFTER_DEADLINE: u32 = 5;
 
 /// How long a caller lets journal-ref work run (HK-5).
@@ -47,6 +47,12 @@ pub(crate) struct Budget {
 }
 
 impl Budget {
+    /// The Stop hook, inside its 20 s timeout in `hooks.json` (D3): worst case 17.5 s, leaving
+    /// time for the capture before it and the output after.
+    pub(crate) const STOP: Self = Self {
+        start_by: Some(Duration::from_secs(5)),
+        per_call: Duration::from_millis(2_500),
+    };
     /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook.
     pub(crate) const PRE_PUSH: Self = Self {
         start_by: Some(Duration::from_secs(5)),
@@ -75,13 +81,11 @@ impl Budget {
                 .map(|by| started.checked_add(by).unwrap_or(started)),
         }
     }
-}
 
-#[cfg(test)]
-impl Budget {
     /// The longest a checkpoint can run after it started: `start_by` plus every call Core can
-    /// still make after the deadline; `None` with no deadline, or on overflow.
-    fn worst_case(self) -> Option<Duration> {
+    /// still make after the deadline; `None` with no deadline, or on overflow. The Stop hook
+    /// logs a checkpoint that ran longer, which means Core's call pattern grew (plan risk 4).
+    pub(crate) fn worst_case(self) -> Option<Duration> {
         self.start_by?
             .checked_add(self.per_call.checked_mul(CALLS_AFTER_DEADLINE)?)
     }
@@ -153,7 +157,12 @@ pub(crate) fn checkpoint(env: &Env, budget: Budget, started: Instant) -> Result<
     if !env.config.journal {
         return Ok(Checkpointed::Skipped(Skip::OptedOut));
     }
-    let Some(store) = Store::open_existing(env.store_path()?, env.wait)? else {
+    // Every error here says what was being done: the Stop hook logs it as it is.
+    let opened = env
+        .store_path()
+        .and_then(|path| Store::open_existing(path, env.wait))
+        .context("exporting the journals")?;
+    let Some(store) = opened else {
         return Ok(Checkpointed::Skipped(Skip::NoStore));
     };
     let target = budget.target(repo, started);
@@ -226,18 +235,14 @@ pub(crate) fn checkpoint_findings(report: &RefsExported) -> Vec<Finding> {
     let broken = report.broken.iter().map(|(name, breach)| {
         Finding::new(
             format!("journal/broken:{name}"),
-            &format!(
-                "{JOURNAL_REFS}{name} breaks JR-05 ({}); move it aside to \
-                 refs/redkiln/broken/<name>/<sha>",
-                breach_name(*breach)
-            ),
+            &broken_message(name, *breach),
             Severity::Error,
         )
     });
     let deferred = report.deferred.iter().map(|(name, deferral)| {
         Finding::new(
             format!("journal/deferred:{name}"),
-            &format!("{name} deferred: {}", deferral_reason(deferral)),
+            &deferred_message(name, deferral),
             Severity::Warning,
         )
     });
@@ -252,6 +257,40 @@ pub(crate) fn checkpoint_findings(report: &RefsExported) -> Vec<Finding> {
         )
     });
     broken.chain(deferred).chain(unexportable).collect()
+}
+
+/// The checkpoint outcomes a person must act on, one line each, for the hook error log (HK-2):
+/// each broken ref, and each deferral that persists until someone acts (an occupied or too
+/// large inbox, a journal too large to merge). A late, retried-out or failed journal is retried
+/// by the next checkpoint and is not listed: an offline laptop is normal (D12).
+pub(crate) fn needs_a_person(report: &RefsExported) -> Vec<String> {
+    let broken = report
+        .broken
+        .iter()
+        .map(|(name, breach)| broken_message(name, *breach));
+    let lasting = report
+        .deferred
+        .iter()
+        .filter(|(_, deferral)| match deferral {
+            Deferral::InboxOccupied | Deferral::InboxTooLarge | Deferral::TooLarge => true,
+            Deferral::Late | Deferral::RetriesSpent | Deferral::Failed(_) => false,
+        })
+        .map(|(name, deferral)| deferred_message(name, deferral));
+    broken.chain(lasting).collect()
+}
+
+/// A broken journal ref, and what a person does about it.
+fn broken_message(name: &JournalName, breach: Breach) -> String {
+    format!(
+        "{JOURNAL_REFS}{name} breaks JR-05 ({}); move it aside to \
+         refs/redkiln/broken/<name>/<sha>",
+        breach_name(breach)
+    )
+}
+
+/// A journal deferred, and why.
+fn deferred_message(name: &JournalName, deferral: &Deferral) -> String {
+    format!("{name} deferred: {}", deferral_reason(deferral))
 }
 
 /// The findings of an import (CLI-03): rewritten refs, passed-over sources, failed fetches and
@@ -368,7 +407,7 @@ mod tests {
     };
     use redkiln_core::journal::{ImportReport, JournalName, LineError, Problem};
 
-    use super::{Budget, checkpoint_findings, import_findings, relay_findings};
+    use super::{Budget, checkpoint_findings, import_findings, needs_a_person, relay_findings};
     use crate::cli_envelope::{Exit, Finding, Severity};
 
     fn name(text: &str) -> JournalName {
@@ -388,6 +427,49 @@ mod tests {
         assert_eq!(Budget::PRE_PUSH.worst_case(), Some(Duration::from_secs(20)));
         assert_eq!(Budget::COMMAND.worst_case(), None);
         assert_eq!(Budget::RELAY.worst_case(), None);
+    }
+
+    /// `plugins/weigh-in/hooks/hooks.json`'s Stop timeout, which
+    /// `hooks_json_timeouts_match_the_budgets` pins in the file.
+    const STOP_HOOK_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// Time kept back for the hook's own work after the git calls: capture, logging, output.
+    const MARGIN: Duration = Duration::from_secs(2);
+
+    #[test]
+    fn every_hook_budget_ends_inside_its_hook_timeout() {
+        let worst = Budget::STOP.worst_case().expect("Stop has a deadline");
+        assert_eq!(worst, Duration::from_millis(17_500));
+        assert!(
+            worst.saturating_add(MARGIN) <= STOP_HOOK_TIMEOUT,
+            "{worst:?}"
+        );
+    }
+
+    #[test]
+    fn needs_a_person_lists_broken_refs_and_lasting_deferrals_only() {
+        let report = RefsExported {
+            broken: vec![(name("s1"), Breach::Tree)],
+            deferred: vec![
+                (name("s2"), Deferral::Late),
+                (name("s3"), Deferral::RetriesSpent),
+                (name("s4"), Deferral::InboxOccupied),
+                (name("s5"), Deferral::InboxTooLarge),
+                (name("s6"), Deferral::TooLarge),
+                (name("s7"), Deferral::Failed("fatal: offline".to_owned())),
+            ],
+            ..RefsExported::default()
+        };
+        assert_eq!(
+            needs_a_person(&report),
+            [
+                "refs/redkiln/journal/s1 breaks JR-05 (tree); move it aside to \
+                 refs/redkiln/broken/<name>/<sha>",
+                "s4 deferred: inbox-occupied",
+                "s5 deferred: inbox-too-large",
+                "s6 deferred: too-large",
+            ]
+        );
     }
 
     #[test]

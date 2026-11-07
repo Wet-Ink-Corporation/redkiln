@@ -2,21 +2,19 @@
 //!
 //! A cloud session's ledger goes with its container (D-0014), and with it every presentation,
 //! dismissal, deferral and default the pilot is judged on (#23); only decisions survive, as
-//! atoms. So every session keeps its own events in `<DIR>/<session>.jsonl`: the binary appends
-//! them after each capture hook and each command that changes the ledger ([`sync`], B-28), the
-//! file is committed with the session's work, and `stats` folds every journal with the ledger.
-//! An event held twice, in the ledger and a journal or in two journals, counts once.
-//! `weighin journal` prints the whole ledger in the same line format.
+//! atoms. Weigh-In 1.x kept each session's events in `<DIR>/<session>.jsonl`, committed with the
+//! session's work (B-28). Nothing writes those files any more; they are read as legacy records:
+//! `stats` folds every journal with the ledger, counting an event held twice once, and `ci-check`
+//! still sees a branch rewrite one. `weighin journal` prints the whole ledger in the same line
+//! format.
 //!
 //! Journal refs replace these files (SPEC JR-05 to JR-13): [`refs`] exports the store to
 //! `refs/redkiln/journal/<name>`, imports them back and relays inbox branches, all through
 //! `redkiln-core`, and [`pre_push`] reads git's pre-push input for `weighin journal pre-push`.
+//! The Stop hook exports at the end of each turn (D11).
 
-mod append;
 pub(crate) mod pre_push;
 pub(crate) mod refs;
-
-pub(crate) use append::{Skip, Synced, WAIT, kept, sync, sync_events};
 
 use anyhow::{Context as _, Result};
 use std::collections::HashSet;

@@ -1,11 +1,41 @@
 //! `weighin ci-check --base <ref>`: the branch report CI reads (B-28), from git and the checkout
 //! alone. Each test commits a base on `main`, works on a branch `feat`, and commits again.
+//!
+//! weighin no longer writes committed journals, but `ci-check` still reads the 1.x ones a branch
+//! carries (JR-05), so each test writes session `s`'s journal by hand, as the 1.x writer did,
+//! before it commits (D1 addendum, option A).
 
 use crate::scratch::{Repo, TestResult};
 use crate::support::git;
 use serde_json::{Value, json};
+use std::path::PathBuf;
 
 const JOURNAL: &str = ".kb/_ledger/journal/s.jsonl";
+
+/// Where session `s`'s committed journal lives.
+fn journal_path(repo: &Repo) -> PathBuf {
+    repo.root.join(JOURNAL)
+}
+
+/// Session `s`'s committed journal as the 1.x writer left it: every event of the session the
+/// store holds, as `weighin journal` prints it, in store order; no file when there is none.
+/// Rewriting it whole only appends, since the store only appends.
+fn write_journal(repo: &Repo) -> TestResult {
+    let lines = repo.printed_for("s")?;
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let path = journal_path(repo);
+    std::fs::create_dir_all(path.parent().ok_or("a journal directory")?)?;
+    std::fs::write(path, lines)?;
+    Ok(())
+}
+
+/// [`write_journal`], then `git add -A` and a commit with `message`; the new commit's sha.
+fn commit_journalled(repo: &Repo, message: &str) -> TestResult<String> {
+    write_journal(repo)?;
+    repo.commit(message)
+}
 
 /// An initialised repository whose `init` is committed on `main`, checked out on `feat`.
 fn on_a_branch() -> TestResult<Repo> {
@@ -26,7 +56,7 @@ fn report(repo: &Repo) -> TestResult<Value> {
 fn an_untriaged_item_raised_on_the_branch_is_reported_open_with_nothing_recorded() -> TestResult {
     let repo = on_a_branch()?;
     let id = repo.raise("s", "Keep three retries?")?;
-    let head = repo.commit("raise")?;
+    let head = commit_journalled(&repo, "raise")?;
 
     let r = report(&repo)?;
 
@@ -56,7 +86,7 @@ fn a_triaged_item_reports_the_triage_and_its_deadline_not_the_hints() -> TestRes
          "route": "present", "resolve_by": "before-merge", "reason": "clients call it"}
     ]);
     repo.ok("s", &["batch"], Some(&batch.to_string()))?;
-    repo.commit("triage")?;
+    commit_journalled(&repo, "triage")?;
 
     let r = report(&repo)?;
 
@@ -84,7 +114,7 @@ fn a_triaged_item_reports_the_triage_and_its_deadline_not_the_hints() -> TestRes
 fn a_trailer_alone_closes_the_item_and_names_its_commit() -> TestResult {
     let repo = on_a_branch()?;
     let id = repo.raise("s", "Keep three retries?")?;
-    repo.commit("raise")?;
+    commit_journalled(&repo, "raise")?;
     let decided = repo.commit(&format!("Settle the retries\n\nWeigh-In: {id} decided A\n"))?;
 
     let r = report(&repo)?;
@@ -103,7 +133,7 @@ fn dismissed_at_base(q: &str, reopen_at_base: bool) -> TestResult<(Repo, String)
     if reopen_at_base {
         repo.ok("s", &["reopen", &id], None)?;
     }
-    repo.commit("base")?;
+    commit_journalled(&repo, "base")?;
     git(&repo.root, &["checkout", "-q", "-b", "feat"]);
     Ok((repo, id))
 }
@@ -126,7 +156,7 @@ fn a_reopen_committed_after_the_trailer_keeps_the_item_open() -> TestResult {
     let (repo, id) = dismissed_at_base("Keep three retries?", false)?;
     repo.commit(&format!("Settle the retries\n\nWeigh-In: {id} decided A\n"))?;
     repo.ok("s", &["reopen", &id], None)?;
-    repo.commit("reopen")?;
+    commit_journalled(&repo, "reopen")?;
 
     let r = report(&repo)?;
 
@@ -156,7 +186,7 @@ fn write_atom(repo: &Repo, id: &str, name: &str) -> TestResult {
 fn an_atom_alone_closes_the_item_and_names_the_commit_that_added_it() -> TestResult {
     let repo = on_a_branch()?;
     let id = repo.raise("s", "Keep three retries?")?;
-    repo.commit("raise")?;
+    commit_journalled(&repo, "raise")?;
     write_atom(&repo, &id, &format!("{id}-three-retries.md"))?;
     let added = repo.commit("record")?;
 
@@ -173,7 +203,7 @@ fn an_atom_alone_closes_the_item_and_names_the_commit_that_added_it() -> TestRes
 fn an_atom_whose_name_git_would_quote_still_names_its_commit() -> TestResult {
     let repo = on_a_branch()?;
     let id = repo.raise("s", "Keep three retries?")?;
-    repo.commit("raise")?;
+    commit_journalled(&repo, "raise")?;
     write_atom(&repo, &id, &format!("{id}-réessais \"trois\".md"))?;
     let added = repo.commit("record")?;
 
@@ -191,7 +221,7 @@ fn a_decision_taken_in_the_session_is_one_entry_from_all_three_sources() -> Test
     let id = repo.raise("s", "Keep three retries?")?;
     repo.ok("s", &["decide", &id, "A"], None)?;
     let trailer = repo.ok("s", &["trailer", &id], None)?;
-    let decided = repo.commit(&format!("Settle the retries\n\n{trailer}"))?;
+    let decided = commit_journalled(&repo, &format!("Settle the retries\n\n{trailer}"))?;
 
     let r = report(&repo)?;
 
@@ -208,10 +238,10 @@ fn a_decision_taken_in_the_session_is_one_entry_from_all_three_sources() -> Test
 fn a_journal_the_branch_only_appends_to_is_ok() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("s", "Keep three retries?")?;
-    repo.commit("base")?;
+    commit_journalled(&repo, "base")?;
     git(&repo.root, &["checkout", "-q", "-b", "feat"]);
     repo.raise("s", "Keep the cache warm?")?;
-    repo.commit("more")?;
+    commit_journalled(&repo, "more")?;
 
     let r = report(&repo)?;
 
@@ -225,11 +255,11 @@ fn a_line_the_branch_deletes_is_a_violation_and_still_exits_zero() -> TestResult
     let repo = Repo::new(true)?;
     repo.raise("s", "Keep three retries?")?;
     repo.raise("s", "Keep the cache warm?")?;
-    repo.commit("base")?;
+    commit_journalled(&repo, "base")?;
     git(&repo.root, &["checkout", "-q", "-b", "feat"]);
-    let text = String::from_utf8(repo.journal("s")?)?;
+    let text = std::fs::read_to_string(journal_path(&repo))?;
     let first = text.lines().next().ok_or("a line")?;
-    std::fs::write(repo.journal_path("s"), format!("{first}\n"))?;
+    std::fs::write(journal_path(&repo), format!("{first}\n"))?;
     repo.commit("drop a line")?;
 
     let r = report(&repo)?;
@@ -246,7 +276,8 @@ fn a_cut_short_base_line_the_branch_rewrites_whole_is_ok() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("s", "Keep three retries?")?;
     repo.raise("s", "Keep the cache warm?")?;
-    let text = String::from_utf8(repo.journal("s")?)?;
+    write_journal(&repo)?;
+    let text = std::fs::read_to_string(journal_path(&repo))?;
     let mut lines = text.lines();
     let first = lines.next().ok_or("one line")?;
     let cut = lines
@@ -254,11 +285,12 @@ fn a_cut_short_base_line_the_branch_rewrites_whole_is_ok() -> TestResult {
         .ok_or("two lines")?
         .get(..30)
         .ok_or("a long line")?;
-    std::fs::write(repo.journal_path("s"), format!("{first}\n{cut}"))?;
+    std::fs::write(journal_path(&repo), format!("{first}\n{cut}"))?;
     repo.commit("base")?;
     git(&repo.root, &["checkout", "-q", "-b", "feat"]);
     repo.raise("s", "Shard the ledger?")?;
-    repo.commit("more")?;
+    // The 1.x writer replaced a cut-short last line with its whole event, then appended.
+    commit_journalled(&repo, "more")?;
 
     let r = report(&repo)?;
 
@@ -271,7 +303,7 @@ fn a_cut_short_base_line_the_branch_rewrites_whole_is_ok() -> TestResult {
 fn without_json_the_report_is_one_summary_line() -> TestResult {
     let repo = on_a_branch()?;
     repo.raise("s", "Keep three retries?")?;
-    let head = repo.commit("raise")?;
+    let head = commit_journalled(&repo, "raise")?;
     let base = repo.rev("main")?;
 
     let out = repo.ok("ci", &["ci-check", "--base", "main"], None)?;
@@ -295,7 +327,7 @@ fn a_reader_that_stops_early_is_not_a_failure_in_either_form() -> TestResult {
         .map(|n| json!({"op": "raise", "q": format!("Should cache tier {n} keep its entries warm across restarts?")}))
         .collect();
     repo.ok("s", &["batch"], Some(&Value::from(raises).to_string()))?;
-    repo.commit("raise")?;
+    commit_journalled(&repo, "raise")?;
 
     let outs = [
         repo.run_with_stdout_closed(&["ci-check", "--base", "main", "--json"])?,
@@ -348,7 +380,7 @@ fn outside_git_ci_check_exits_one() -> TestResult {
 fn a_fresh_clone_with_no_ledger_gets_its_report_and_no_store() -> TestResult {
     let repo = on_a_branch()?;
     repo.raise("s", "Keep three retries?")?;
-    repo.commit("raise")?;
+    commit_journalled(&repo, "raise")?;
     let clone = repo.sibling("clone")?.join("c");
     let (from, to) = (repo.root.to_string_lossy(), clone.to_string_lossy());
     git(&repo.root, &["clone", "-q", &from, &to]);

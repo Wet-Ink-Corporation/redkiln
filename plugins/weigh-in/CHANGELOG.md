@@ -54,8 +54,17 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `"journal": false` in config.json turns the export off. These commands exit with the suite's
   codes (0, 1 for an inbox the relay left in place, 2 for usage, 70 when they cannot run, 74 when
   output fails) and write `weighin: error:` and `weighin: warning:` lines; the other commands
-  are unchanged. Sessions still write `.kb/_ledger/journal/<session>.jsonl` for now.
+  are unchanged. Their errors and warnings are always one line.
 - Inbox branch commits no longer carry `[skip ci]`, so a push to one starts a relay workflow.
+- Sessions no longer write `.kb/_ledger/journal/<session>.jsonl`. At the end of each turn the
+  Stop hook exports the store's events to `refs/redkiln/journal/<session>` on `origin`, or where
+  that push is refused (Claude Code cloud sessions) to the branch `redkiln/inbox/<session>`.
+  `SubagentStop`, `PostToolUse` and the commands that change the ledger export nothing, and a
+  command no longer warns about its journal. Only a broken journal ref and an export that needs
+  a person are logged to `hook-errors.log`; a remote that hangs or refuses is retried at the
+  next Stop. Existing committed journals stay where they are; `stats` and `ci-check` still read
+  them.
+- The Stop hook's timeout is now 20 s, so its export ends inside it.
 
 ## 1.2.0 — 2026-11-01
 

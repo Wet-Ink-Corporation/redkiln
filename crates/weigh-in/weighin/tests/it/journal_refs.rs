@@ -294,6 +294,24 @@ fn relay_of_a_branch_that_is_no_inbox_exits_2_with_nothing_on_stdout() -> TestRe
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn relay_of_a_branch_with_a_line_break_says_its_refusal_on_one_line() -> TestResult {
+    let (repo, _remote) = Repo::with_remote(false)?;
+
+    let out = repo.run(
+        "ci",
+        &["journal", "relay", "main\nweighin: error: forged", "--json"],
+        None,
+    )?;
+
+    assert_eq!(code(&out), Some(2));
+    let said = stderr(&out);
+    assert_eq!(said.lines().count(), 1, "{said}");
+    assert!(said.starts_with("weighin: error: "), "{said}");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn relay_leaves_an_inbox_commit_that_changes_another_path_and_exits_1() -> TestResult {
     let (repo, remote) = Repo::with_remote(false)?;
     std::fs::write(repo.root.join("docs/plan.md"), "# Changed\n")?;
@@ -395,7 +413,9 @@ fn stats_counts_an_event_once_when_it_is_in_a_committed_journal_and_imported_fro
     repo.ok("s1", &["journal", "checkpoint"], None)?;
     let expected: Value = serde_json::from_str(repo.ok("s1", &["stats", "--json"], None)?.trim())?;
     let lines = stored_for(&repo, "s1")?;
-    let committed = repo.journal("s1")?;
+    // The committed journal the 1.x writer left: the session's events as `weighin journal`
+    // prints them (D1 addendum).
+    let committed = repo.printed_for("s1")?;
     let clone = own_clone(&repo, &remote)?;
     let dir = clone.join(".kb/_ledger/journal");
     std::fs::create_dir_all(&dir)?;

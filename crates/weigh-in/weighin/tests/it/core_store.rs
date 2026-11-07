@@ -267,7 +267,7 @@ fn a_read_beside_only_an_old_ledger_creates_no_store() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_written_events_worktree_is_its_toplevels_id_in_the_store_and_the_journal() -> TestResult {
+fn a_written_events_worktree_is_its_toplevels_id_in_the_store_and_the_journal_ref() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("s1", "Keep retention per series?")?;
     let toplevel = std::process::Command::new("git")
@@ -289,7 +289,14 @@ fn a_written_events_worktree_is_its_toplevels_id_in_the_store_and_the_journal() 
             Ok(envelope["worktree"].as_str().map(str::to_owned))
         })
         .collect::<TestResult<Vec<_>>>()?;
-    let written = String::from_utf8(repo.journal("s1")?)?;
+    repo.ok("s1", &["journal", "checkpoint"], None)?;
+    let exported = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&repo.root)
+        .args(["show", "refs/redkiln/journal/s1:s1.jsonl"])
+        .output()?;
+    assert!(exported.status.success(), "the journal ref holds s1.jsonl");
+    let written = String::from_utf8(exported.stdout)?;
     let journal = written
         .lines()
         .map(|l| {
@@ -310,8 +317,6 @@ fn a_written_events_worktree_is_its_toplevels_id_in_the_store_and_the_journal() 
         id,
         "the journal's worktree"
     );
-    // The line rebuilt from the store is the line written, so a reader of both counts it once.
-    assert_eq!(repo.printed_for("s1")?, written);
     Ok(())
 }
 

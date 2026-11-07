@@ -151,7 +151,7 @@ enum LedgerCmd {
         cmd: BoardCmd,
     },
     /// `weighin journal` with no subcommand (parsed as `Cmd::Journal`): every ledger event as
-    /// JSON lines; sessions keep their own in .kb/_ledger/journal/.
+    /// JSON lines, as 1.x committed them in .kb/_ledger/journal/.
     #[command(skip)]
     Journal,
     /// Branch report for CI: open items, decisions since --base, append-only journals.
@@ -507,19 +507,15 @@ fn run_hook_guarded() -> ExitCode {
 }
 
 /// Run `cmd`: its result, and the warnings to print after it whatever the result: what locating
-/// the store found (an old ledger, a 2.x fallback) and `journal_after`'s.
+/// the store found (an old ledger, a 2.x fallback). An appending command exports nothing: its
+/// events leave at the next Stop, `journal pre-push` or `journal checkpoint` (JR-08).
 fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Vec<String>) {
     let mut env = match environment(g) {
         Ok(env) => env,
         Err(e) => return (Err(e), Vec::new()),
     };
-    let appends = cmd.appends();
     let result = dispatch(&mut env, cmd, out);
-    let mut warnings: Vec<String> = env.notices.iter().map(ToString::to_string).collect();
-    // Whatever the result: a batch that failed in part has still applied its other operations.
-    if appends {
-        warnings.extend(journal_after(&env));
-    }
+    let warnings: Vec<String> = env.notices.iter().map(ToString::to_string).collect();
     (result, warnings)
 }
 
@@ -558,57 +554,10 @@ fn environment(g: Globals) -> Result<Env> {
     Ok(env)
 }
 
-impl LedgerCmd {
-    /// Whether the command can append ledger events, and so leave the session's journal behind.
-    fn appends(&self) -> bool {
-        match self {
-            Self::Raise(_)
-            | Self::Batch(_)
-            | Self::Decide(_)
-            | Self::Defer(_)
-            | Self::Dismiss(_)
-            | Self::Reopen(_)
-            | Self::Scan(_)
-            | Self::Board {
-                cmd: BoardCmd::Apply(_),
-            } => true,
-            Self::Prime
-            | Self::Init(_)
-            | Self::Open(_)
-            | Self::Show(_)
-            | Self::Context(_)
-            | Self::Digest(_)
-            | Self::Stats(_)
-            | Self::Trailer(_)
-            | Self::Decisions(_)
-            | Self::Board {
-                cmd: BoardCmd::Export(_),
-            }
-            | Self::Journal
-            | Self::CiCheck(_) => false,
-        }
-    }
-}
-
-/// Bring this session's journal up to date after a command that appended events (B-28): the
-/// warning to print when that failed or the journal was busy, else `None`. The command's own
-/// result stands either way.
-fn journal_after(env: &Env) -> Option<String> {
-    match journal::sync(env, journal::WAIT) {
-        Ok(journal::Synced::Skipped(journal::Skip::Busy)) => {
-            Some("session journal busy; the next command or hook catches it up".to_owned())
-        }
-        Ok(
-            journal::Synced::Skipped(_) | journal::Synced::UpToDate | journal::Synced::Appended(_),
-        ) => None,
-        Err(e) => Some(format!("session journal not updated: {e:#}")),
-    }
-}
-
 /// `weighin: warning: <warning>` on stderr, and the exit code the command already earned.
 fn warn(warning: &str, code: ExitCode) -> ExitCode {
     match writeln!(io::stderr().lock(), "weighin: warning: {warning}") {
-        // With stderr gone, as in `report`, the exit code stands; the journal catches up later.
+        // With stderr gone, as in `report`, the exit code stands.
         Ok(()) | Err(_) => code,
     }
 }
