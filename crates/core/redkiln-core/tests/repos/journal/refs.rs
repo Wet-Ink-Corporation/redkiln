@@ -554,6 +554,54 @@ fn a_store_whose_only_new_event_is_an_import_record_touches_no_remote() {
     );
 }
 
+/// What makes GitHub start no `on: push` workflow for a commit, in its message.
+#[cfg(unix)]
+const CI_SKIP_DIRECTIVES: [&str; 6] = [
+    "[skip ci]",
+    "[ci skip]",
+    "[no ci]",
+    "[skip actions]",
+    "[actions skip]",
+    "skip-checks",
+];
+
+/// An inbox push must start the relay workflow, so its commit asks GitHub to skip nothing.
+#[cfg(unix)]
+#[test]
+fn an_inbox_commit_carries_no_ci_skip_directive() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    refuse_custom_refs(&remote);
+    let work = clone(dir.path(), &remote, "work");
+    let store = one_event_store(dir.path(), "store");
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!(report.relayed, vec![name("a1")], "{report:?}");
+    let message = git(
+        &remote,
+        &["log", "-1", "--format=%B", "refs/heads/redkiln/inbox/a1"],
+    );
+    assert_eq!(message, "redkiln inbox a1");
+    for directive in CI_SKIP_DIRECTIVES {
+        assert!(!message.contains(directive), "{message}");
+    }
+}
+
+/// A journal-ref push starts no workflow either way; its marker documents the intent.
+#[test]
+fn a_journal_ref_commit_keeps_its_ci_skip_directive() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = one_event_store(dir.path(), "store");
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!(report.direct, vec![name("a1")], "{report:?}");
+    let message = git(
+        &remote,
+        &["log", "-1", "--format=%B", "refs/redkiln/journal/a1"],
+    );
+    assert_eq!(message, "redkiln journal a1 [skip ci]");
+}
+
 fn name(text: &str) -> redkiln_core::journal::JournalName {
     redkiln_core::journal::JournalName::parse(text).expect("a name")
 }

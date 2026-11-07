@@ -19,8 +19,9 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
-use redkiln_core::envelope::{Skip, Writer};
+use redkiln_core::envelope::{Actor, Author, Skip, Writer};
 use redkiln_core::store::{Appended, Condition, OpenError, StoreError, Wait};
+use redkiln_core::trust::Trust;
 use weighin_core::event::EventEnvelope;
 use weighin_core::{ItemId, Ledger};
 
@@ -94,6 +95,25 @@ impl Store {
             .map_err(refused)?
             .map(Self::over)
             .transpose()
+    }
+
+    /// Core's store, for the suite capabilities that read every plugin's events (journal refs).
+    pub(crate) fn core(&self) -> &redkiln_core::store::Store {
+        &self.inner
+    }
+
+    /// Who an envelope this binary writes says acted: `actor` (`hook`, `cli`), asserted, by
+    /// weighin.
+    ///
+    /// # Errors
+    /// `actor` is not one of EV-01's forms.
+    pub(crate) fn author(&self, actor: &str) -> Result<Author> {
+        Ok(Author {
+            actor: Actor::parse(actor).with_context(|| format!("the actor {actor}"))?,
+            trust: Trust::asserted(),
+            // The author owns its writer: two short words.
+            writer: self.writer.clone(),
+        })
     }
 
     fn over(inner: redkiln_core::store::Store) -> Result<Self> {

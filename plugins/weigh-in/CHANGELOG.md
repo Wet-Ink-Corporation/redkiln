@@ -43,6 +43,19 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   It refuses a `--class` other than the one an existing suite.toml gives, and an `--owner` other
   than suite.toml's `owner`, writing nothing. Its receipt names where the class came from.
 - The owner is suite.toml's `owner` when it sets one, then config.json's, then git's user.
+- New commands for the journal refs (`refs/redkiln/journal/<session>`), each with `--json`:
+  `weighin journal checkpoint` exports the store's events to them on `origin` now (where that
+  push is refused, as in Claude Code cloud sessions, it pushes the branch
+  `redkiln/inbox/<session>` instead); `weighin journal import` reads other clones' journal refs,
+  broken refs and unrelayed inboxes into the store; `weighin journal relay <branch>` moves one
+  inbox branch into its journal ref, for a relay workflow; and `weighin journal pre-push` is a
+  `pre-push` git hook (`exec <path>/weighin journal pre-push "$@"`) that exports unless only
+  journal refs are pushed, and never stops the push. Nothing installs that hook for you.
+  `"journal": false` in config.json turns the export off. These commands exit with the suite's
+  codes (0, 1 for an inbox the relay left in place, 2 for usage, 70 when they cannot run, 74 when
+  output fails) and write `weighin: error:` and `weighin: warning:` lines; the other commands
+  are unchanged. Sessions still write `.kb/_ledger/journal/<session>.jsonl` for now.
+- Inbox branch commits no longer carry `[skip ci]`, so a push to one starts a relay workflow.
 
 ## 1.2.0 — 2026-11-01
 

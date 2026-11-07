@@ -7,8 +7,14 @@
 //! file is committed with the session's work, and `stats` folds every journal with the ledger.
 //! An event held twice, in the ledger and a journal or in two journals, counts once.
 //! `weighin journal` prints the whole ledger in the same line format.
+//!
+//! Journal refs replace these files (SPEC JR-05 to JR-13): [`refs`] exports the store to
+//! `refs/redkiln/journal/<name>`, imports them back and relays inbox branches, all through
+//! `redkiln-core`, and [`pre_push`] reads git's pre-push input for `weighin journal pre-push`.
 
 mod append;
+pub(crate) mod pre_push;
+pub(crate) mod refs;
 
 pub(crate) use append::{Skip, Synced, WAIT, kept, sync, sync_events};
 

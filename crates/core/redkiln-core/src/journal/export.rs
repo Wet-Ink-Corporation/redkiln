@@ -1,5 +1,6 @@
 //! The export checkpoint (SPEC JR-08, JR-09) into a directory of journal files,
-//! `<dir>/<name>.jsonl`: every durable event a journal lacks is appended to it, in store order.
+//! `<dir>/<name>.jsonl`: every durable event except import records that a journal lacks is
+//! appended to it, in store order.
 //!
 //! This is the file half of the checkpoint; the journal refs and the cloud inbox (JR-07) are
 //! Move 1's step 7, and build on the same lines. A journal file is append-only (JR-05): a
@@ -62,8 +63,8 @@ pub struct Exported {
     pub journals: Vec<JournalName>,
     /// Journals another writer held for the whole wait; the next checkpoint catches up.
     pub busy: Vec<JournalName>,
-    /// Events that are not envelopes, so have no line. Import records, which are never
-    /// exported, are not counted.
+    /// Events left out because they are not envelopes, so have no line. Import records are
+    /// left out too (JR-13), and are not counted here.
     pub unexportable: u64,
 }
 

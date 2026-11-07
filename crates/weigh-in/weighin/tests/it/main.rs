@@ -11,6 +11,7 @@ mod cli;
 mod core_store;
 mod eval_seed;
 mod journal;
+mod journal_refs;
 mod journal_write;
 mod owner;
 mod pane;
