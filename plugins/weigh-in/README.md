@@ -41,10 +41,13 @@ Where the store lives, first match wins: `--store <file>`; `$REDKILN_STORE`; `$W
 `init --ledger <path>`, relative to the folder or absolute); the git common dir
 (`<git-common-dir>/redkiln/events.sqlite3`); outside git, `<folder>/.redkiln/events.sqlite3`.
 `$WEIGHIN_STORE` and config.json's `store` name a 1.x ledger: the store goes beside it, at
-`<parent>/<stem>.events.sqlite3`, with a warning. It runs under a TRUNCATE journal, not WAL:
+`<parent>/<stem>.events.sqlite3`, with a warning (worded as a path with no file when none is
+there). `init --ledger` still writes config.json's `store` until Weigh-In's settings move into
+suite.toml, so it is for a 1.x ledger's place; a new setup sets `store` in `.redkiln/suite.toml`
+(`[suite]` table, the store file's own path). It runs under a TRUNCATE journal, not WAL:
 WAL and SQLite's default both delete files beside the database, and Cowork's connected folders
 refuse deletes. For a folder synced by OneDrive or Dropbox and used from more than one computer,
-point `store` outside the synced tree.
+put the store outside the synced tree with suite.toml's `store`.
 
 A weighin 1.x ledger (`<git-common-dir>/weighin/ledger.sqlite3`, or `<folder>/.weighin/`) is
 never opened or changed: every command and SessionStart names it, and its items are listed

@@ -21,7 +21,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   imported. `--store` or `$REDKILN_STORE` naming a 1.x ledger is refused.
 - `$REDKILN_STORE` names the store and wins over `$WEIGHIN_STORE`. `$WEIGHIN_STORE` and
   config.json's `store` still work, naming the 1.x ledger: the store goes beside it, at
-  `<parent>/<stem>.events.sqlite3`, with a warning.
+  `<parent>/<stem>.events.sqlite3`, with a warning. `init --ledger` still writes config.json's
+  `store`; for a new setup, set `store` in `.redkiln/suite.toml` instead. A hook given a store
+  path that is refused (a 1.x ledger, another program's database) writes nothing beside it: it
+  logs in `<git-common-dir>/redkiln/weighin/`, and SessionStart says so.
 - A git failure other than "not a repository" (a broken `.git` file, dubious ownership) now stops
   a command instead of falling back to the folder; hooks carry on and SessionStart says so.
 - A session id the store refuses (control characters, over 247 bytes) stops a command; a hook

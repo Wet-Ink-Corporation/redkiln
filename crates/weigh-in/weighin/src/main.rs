@@ -138,7 +138,7 @@ struct InitArgs {
     #[arg(long)]
     owner: Option<String>,
     /// A 1.x ledger's place, kept in config.json's `store`: the store goes beside it (relative to
-    /// the folder, or absolute).
+    /// the folder, or absolute). A new setup sets `store` in .redkiln/suite.toml instead.
     #[arg(long = "ledger")]
     ledger: Option<String>,
 }

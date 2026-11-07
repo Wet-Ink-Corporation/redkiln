@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use redkiln_core::location::{LocateError, Source};
 
-use super::{Found, Notice, Vars, locate_store};
+use super::{Fallback, Found, Notice, Vars, locate_store};
 use crate::git;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -124,7 +124,7 @@ fn weighin_store_names_the_old_ledger_and_the_store_goes_beside_it() {
 
     assert_eq!(set.store.source, Source::Env);
     assert_at(&set.store.path, &repo, &["x", "proj.events.sqlite3"]);
-    let [Notice::WeighinStore { old, store }] = set.notices.as_slice() else {
+    let [Notice::WeighinStore(Fallback { old, store, .. })] = set.notices.as_slice() else {
         panic!("one WeighinStore notice: {:?}", set.notices);
     };
     assert_at(old, &repo, &["x", "proj.sqlite3"]);
@@ -161,7 +161,7 @@ fn suite_store_wins_over_the_config_key_which_alone_puts_the_store_beside_its_le
         &repo,
         &["ledger", "proj.events.sqlite3"],
     );
-    let [Notice::LegacyStoreKey { old, store }] = legacy.notices.as_slice() else {
+    let [Notice::LegacyStoreKey(Fallback { old, store, .. })] = legacy.notices.as_slice() else {
         panic!("one LegacyStoreKey notice: {:?}", legacy.notices);
     };
     assert_at(old, &repo, &["ledger", "proj.sqlite3"]);
@@ -169,6 +169,35 @@ fn suite_store_wins_over_the_config_key_which_alone_puts_the_store_beside_its_le
     assert_eq!(suite.store.source, Source::Config);
     assert_at(&suite.store.path, &repo, &["s", "events.sqlite3"]);
     assert_eq!(texts(&suite), Vec::<String>::new());
+    Ok(())
+}
+
+#[test]
+fn a_fallback_naming_no_file_is_not_called_a_1x_ledger() -> TestResult {
+    let (_tmp, repo) = repo();
+    let none = vars(None, None);
+    let missing = |found: &Found| -> Vec<String> {
+        texts(found)
+            .into_iter()
+            .filter(|t| !t.starts_with("a weighin 1.x ledger is at"))
+            .collect()
+    };
+
+    let new_key = found(&repo, None, Some("ledger/proj.sqlite3"), &none);
+    let new_var = found(&repo, None, None, &vars(None, Some("x/proj.sqlite3")));
+    std::fs::create_dir_all(repo.join("ledger"))?;
+    std::fs::write(repo.join("ledger/proj.sqlite3"), b"1.x")?;
+    let old_key = found(&repo, None, Some("ledger/proj.sqlite3"), &none);
+
+    for found in [&new_key, &new_var] {
+        let [text] = missing(found).try_into().map_err(|t| format!("{t:?}"))?;
+        assert!(
+            !text.contains("1.x ledger") && text.contains("no file is there"),
+            "{text}"
+        );
+    }
+    let [text] = missing(&old_key).try_into().map_err(|t| format!("{t:?}"))?;
+    assert!(text.contains("names the 1.x ledger"), "{text}");
     Ok(())
 }
 

@@ -55,9 +55,9 @@ pub(crate) struct StoreAt {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Notice {
     /// `$WEIGHIN_STORE` placed the store (2.x only, ST-01).
-    WeighinStore { old: PathBuf, store: PathBuf },
+    WeighinStore(Fallback),
     /// `config.json`'s `store` placed the store (2.x only).
-    LegacyStoreKey { old: PathBuf, store: PathBuf },
+    LegacyStoreKey(Fallback),
     /// A weighin 1.x ledger is here, and is not read until it is imported.
     OldLedger { path: PathBuf },
     /// suite.toml, or one of its keys, could not be used.
@@ -67,17 +67,13 @@ pub(crate) enum Notice {
 impl fmt::Display for Notice {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::WeighinStore { old, store } => write!(
+            Self::WeighinStore(fallback) => {
+                fallback.describe(f, "$WEIGHIN_STORE", "$REDKILN_STORE")
+            }
+            Self::LegacyStoreKey(fallback) => fallback.describe(
                 f,
-                "$WEIGHIN_STORE names the 1.x ledger {}; the store is beside it, at {} (set $REDKILN_STORE instead)",
-                old.display(),
-                store.display()
-            ),
-            Self::LegacyStoreKey { old, store } => write!(
-                f,
-                "`store` in .kb/_ledger/config.json names the 1.x ledger {}; the store is beside it, at {} (set `store` in .redkiln/suite.toml instead)",
-                old.display(),
-                store.display()
+                "`store` in .kb/_ledger/config.json",
+                "`store` in .redkiln/suite.toml",
             ),
             Self::OldLedger { path } => write!(
                 f,
@@ -85,6 +81,58 @@ impl fmt::Display for Notice {
                 path.display()
             ),
             Self::Suite(text) => f.write_str(text),
+        }
+    }
+}
+
+/// What is at the path a 2.x fallback names: a 1.x ledger, or, for a setup made after 1.x
+/// (`init --ledger`), nothing yet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum There {
+    /// A file, taken for the 1.x ledger (one whose existence cannot be checked counts).
+    File,
+    /// No file.
+    Nothing,
+}
+
+impl There {
+    /// What is at `path`: looked at, never opened.
+    fn at(path: &Path) -> Self {
+        match path.try_exists() {
+            Ok(false) => Self::Nothing,
+            Ok(true) | Err(_) => Self::File,
+        }
+    }
+}
+
+/// A 2.x fallback's answer: the path it named, the store beside it, and what is at that path.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Fallback {
+    pub(crate) old: PathBuf,
+    pub(crate) store: PathBuf,
+    pub(crate) there: There,
+}
+
+impl Fallback {
+    /// The fallback that named `old` and put the store at `store`, `old` looked at.
+    fn new((old, store): (PathBuf, PathBuf)) -> Self {
+        let there = There::at(&old);
+        Self { old, store, there }
+    }
+
+    /// The notice: `setting` named the path, and `instead` is the setting to use. Only a file
+    /// that is there is called a 1.x ledger.
+    fn describe(&self, f: &mut fmt::Formatter<'_>, setting: &str, instead: &str) -> fmt::Result {
+        let (old, store) = (self.old.display(), self.store.display());
+        match self.there {
+            There::File => write!(
+                f,
+                "{setting} names the 1.x ledger {old}; the store is beside it, at {store} (set {instead} instead)"
+            ),
+            There::Nothing => write!(
+                f,
+                "{setting} is {old} and no file is there; the store is beside that path, at {store} (set {instead} instead)"
+            ),
         }
     }
 }
@@ -138,26 +186,22 @@ pub(crate) fn locate_store(
         None => Workspace::discover(cwd, GIT_TIMEOUT)?,
     };
     let key = legacy_key(workspace.root());
+    // The path a fallback named is also an old ledger, so it is named twice when it is there.
     let mut named = None;
-    if let Some((old, path)) = weighin {
-        notices.push(Notice::WeighinStore {
-            old: old.clone(),
-            store: path,
-        });
-        named = Some(old);
+    if let Some(found) = weighin {
+        let fallback = Fallback::new(found);
+        named = Some(fallback.old.clone());
+        notices.push(Notice::WeighinStore(fallback));
     } else if matches!(store.source, Source::GitCommonDir | Source::Folder)
         && let Some(key) = key.as_deref().filter(|k| !k.trim().is_empty())
     {
-        let (old, path) = legacy_key_store(workspace.root(), key, home)?;
+        let fallback = Fallback::new(legacy_key_store(workspace.root(), key, home)?);
         store = StoreAt {
-            path: path.clone(),
+            path: fallback.store.clone(),
             source: Source::Config,
         };
-        notices.push(Notice::LegacyStoreKey {
-            old: old.clone(),
-            store: path,
-        });
-        named = Some(old);
+        named = Some(fallback.old.clone());
+        notices.push(Notice::LegacyStoreKey(fallback));
     }
     notices.extend(old_ledgers(named, &workspace));
     notices.extend(
@@ -229,7 +273,7 @@ fn old_ledgers(named: Option<PathBuf>, workspace: &Workspace) -> Vec<Notice> {
     }
     paths
         .into_iter()
-        .filter(|path| !matches!(path.try_exists(), Ok(false)))
+        .filter(|path| There::at(path) == There::File)
         .map(|path| Notice::OldLedger { path })
         .collect()
 }
