@@ -6,19 +6,21 @@
 | --- | --- |
 | [README.md](README.md) | Gate status, corrections to the frozen plan, open calls |
 | [move-1-weigh-in.md](move-1-weigh-in.md) | The Move 1 runbook: Weigh-In 1.2.0 into `rk-weigh-in` 2.0.0, with `redkiln-core` extracted from its store |
+| [move-3-review.md](move-3-review.md) | Draft Move 3 runbook: assay into `rk-review` and `deploy/review/`, written early because assay finished its preparation and is frozen |
+| [rust-2.md](rust-2.md) | Draft Redkiln Rust 2.0 runbook: temper's import and port, beside temper's own import manifest (`docs/plans/redkiln-move.md` there) |
 
-Each later move gets its own runbook here when it is next, written from its plugin document in `references/docs/` and the same template.
+Each later move gets its own runbook here when it is next, written from its plugin document in `references/docs/` and the same template. Move 3 and Rust 2.0 have drafts early: assay and temper finished their preparation and Ryan froze both repositories on 2026-11-08 until their moves, so their facts will not drift. Each draft is re-checked when its move is next. Move 2's runbook comes next.
 
-## Where each gate stands (2026-11-01)
+## Where each gate stands (2026-11-08)
 
 | Step | Gate | State | Evidence |
 | --- | --- | --- | --- |
 | Phase 0 | Skeleton, SPEC v1 draft, five spikes | Skeleton done (#2, #5). SPEC v1 draft merged with OW-1 to OW-15 confirmed (#6, #7). Org-sync spike done (wi-f041fb; packaging rows in `docs/decisions.md`). Refs spike done, OW-13 settled (#9). Core edges hub-only (#8). CLI first, harness second (#10). Field guide (#11). **Open:** R-SQLITE, the cloud bootstrap at pinned versions, `libexec/` in Cowork | redkiln `main` at `a32e1d9` |
-| Move 1, Weigh-In | 1.1 with `ci-check --json` released (WI call C) | **Clear.** 1.1.0 shipped `ci-check` (#145, tagged 2026-10-29); 1.2.0 is the current release (2026-11-01, `v1.2.0`, weigh-in `8587f57`); no open PR, one open issue (#27, the slice 2 backlog). `weigh-in-plugin` serves 1.2.0 (`7db2726`) | [move-1-weigh-in.md](move-1-weigh-in.md), Preconditions |
+| Move 1, Weigh-In | 1.1 with `ci-check --json` released (WI call C) | **Clear; the move is in progress.** Import (#14), steps 2 (#17), 7 (#41 to #45) and 8 (#46, #47) done; step 3 being built. Before 2.0.0: `ci-check` must read journal refs (#48, wi-e41ab9) | [move-1-weigh-in.md](move-1-weigh-in.md); Initiative #16 |
 | Move 2, Bench | anneal's calibration report (#44) | Not clear: #44 open; Ryan's dogfood labels (#27) and the Tier 3 "seed a workspace" fix outstanding | anneal #44 |
-| Move 3, Review | The in-place rename to `review` | Not started; owner setup already exists under assay names (four ordered steps in `references/README.md`) | assay `main` |
+| Move 3, Review | The in-place rename to `review` | **Clear.** Rename merged by Ryan 2026-11-07 (assay #399), trust paths and the architecture test narrowed to Review's crates; ruleset `25356300` requires `review / verdict`. The Weigh-In adapter runs `weighin ci-check` (#372). assay frozen since 2026-11-08. Still to confirm by Ryan: the App and environment secret renames. Waits its turn after Move 2 | [move-3-review.md](move-3-review.md), Preconditions; assay `eeb2a45` |
 | Move 4, Loop | M5, `build/phase-0-to-1` on `main` (#24), #79 checklists | Not clear: s8j in progress, branch not landed | redkiln-rs #24, #79 |
-| Rust 2.0 | temper 1.4.0 and Core 1.0 | 1.4.0 done; Core 1.0 waits for Move 2; port plan not amended for the monorepo | temper `docs/plans/temper-2-rust-port.md` |
+| Rust 2.0 | temper 1.4.0 and Core 1.0 | temper side ready: 1.6.0 released, port paused after Phase 3, plan amended for the monorepo and an import manifest written (wi-187aa7, wi-14cf95). temper frozen since 2026-11-08. Core 1.0 waits for Move 2; the import's slot is an open call | [rust-2.md](rust-2.md); temper `ab78a31`, `docs/plans/redkiln-move.md` |
 
 Of the three open spikes, none gates Move 1 (the runbook says why, under Preconditions). R-SQLITE must run before Move 2, because Core 1.0 freezes ST-05's TRUNCATE rule there, and Loop's store (Move 4) depends on its result.
 
@@ -39,6 +41,10 @@ Each row names the frozen text, what replaced it and where that is recorded. The
 | Step 4: "the four vendored `.claude/temper/` copies are deleted"; temper 1.4.0 vendored at the root | The root copy is already in place (phase 0). Each move deletes its own copy (weigh-in's is temper 1.3.0) and re-baselines at the new paths; weigh-in's baseline totals 0, so Move 1 adds no baseline entries | `AGENTS.md`, Commands; weigh-in `.claude/temper-baseline.json` |
 | Weigh-In's own plan to move "into redkiln-rs" (weigh-in wi-b4c1d8, B-22; its README and charter still say so) | Superseded by the suite decision (2026-10-13): Weigh-In moves into this repository as `rk-weigh-in`; Loop's gates become Weigh-In requests (Blueprint call 7) | `references/decisions/README.md`; weigh-in #27 says it is settled on the redkiln side |
 | `weigh-in-plugin` "nothing until the org-sync spike" | The spike passed (wi-f041fb). Ryan decided on 2026-11-01 to rename it to `redkiln-plugins`, the suite's release repository, at Move 1, ahead of the plan's Train 1 (runbook M1-G). Today it serves `weigh` and `weigh-mod` 1.2.0 | [move-1-weigh-in.md](move-1-weigh-in.md), Release and cutover |
+| Rust 2.0: "Not here: any Rust code for 2.0. The port starts in the monorepo"; "the Node 1.x is not imported as code" (migration plan) | The port was built in temper through Phase 3 and paused there; temper `main` is imported whole by read-tree, its four crates as they stand and the Node engine at `tools/rust/engine-1x/` as the parity oracle; Phases 4 to 8 are built here on Core 1.0 | temper wi-187aa7, wi-14cf95 (Ryan, 2026-11-08); [rust-2.md](rust-2.md) |
+| Rust 2.0: "Amend `docs/plans/temper-2-rust-port.md` for the monorepo" (temper checklist, open) and Rust 2.0 "with 1.4.0 as its parity oracle" | Done: D1, D2, D3, D4, D10, D13, D14, D17 and Invariant 3 amended. The oracle is 1.x `main` (now 1.6.0), which carries the pilot fixes | temper port plan, "Status and monorepo amendments" |
+| Move 3's gate: the trust path "narrowed to `crates/review/**`"; Review call A also renames labels, commands and `.review/` config | Narrowed to `crates/review-*/**` and `crates/review/**`, so it holds before and after the import. The binary, `/assay` commands, `assay:*` labels, `.assay/`, `refs/assay/*` and the environments keep their names until the door rename (M3-A) | assay #399, its `AGENTS.md` Move 3 row |
+| assay's Weigh-In adapter reads `.kb/` files directly and must switch before Weigh-In 2.0 (Move 1 runbook, Consumers) | Switched: it runs the pinned `weighin ci-check --json` (assay #372). Its journal-refs fetch lands in the monorepo at Move 3, with #48 on Weigh-In's side | [move-3-review.md](move-3-review.md), Code work |
 | Field guide: D-0021 "is designed, not built (weigh-in #171)" (`docs/guide/plugins-and-surfaces.md`) | Built and released in 1.2.0: `plugin/libexec/cowork-fetch.sh`, tested, confirmed in a Cowork sitting | weigh-in `CHANGELOG.md`, 1.2.0 |
 
 ## Open calls for Ryan
@@ -49,4 +55,7 @@ Each call below has a recommendation; the work proceeds on the two-way ones and 
 | --- | --- | --- | --- |
 | Migration B, D, E | Two-way | Proceed on their recommendations, as the handover says | `references/decisions/README.md` |
 | Field guide T1, T2, T4, T6, T7, T8, T10 | As listed | Each is handled at the move that needs it; T3 and T9 are Move 1's and sit in its runbook; T5 (agent identity) waits for Review | `docs/guide/README.md`, Tensions |
+| When temper is imported: right after Move 2 (Core 1.0), before Move 3; or after Move 3; or after Move 4 | Plan change (decision card, 2026-11-08) | Right after Move 2, before Move 3: Core 1.0 is the import's only gate, the paused port resumes soonest and runs beside Moves 3 and 4 as the plan intended, and Review then pins the temper engine already in this repository | [rust-2.md](rust-2.md), When |
+| `toml` 1.1 and `sha2` 0.11 at the root, in place of 0.9.12 and 0.10 | One-way (H-16; reopens the 2026-11-02 `toml` 0.9 row) | Step the root up in one PR before Move 2 freezes Core 1.0: assay, temper and Loop are all on 1.1 and 0.11, only Weigh-In's code (ours, here) and anneal's `sha2` are on the older lines | assay and temper `Cargo.toml`; redkiln-rs `build/phase-0-to-1` |
+| temper's open Weigh-In questions wi-b1bfb5 (telemetry branch), wi-39f19a (temper #193 GHCR artifact) and wi-0924e6 (#172, #173 in 1.x or 2.0) | As each says | Answered at the import, since temper is frozen; wi-39f19a recommended "pin inside the monorepo" | [rust-2.md](rust-2.md) |
 | Turn the plan into issues here (an Initiative per move, an Epic per gate, Backlog's body contract) | Two-way | Do it for Move 1 when its import PR opens, so the board has real data from the first move | `references/README.md`, Where to invest next |
