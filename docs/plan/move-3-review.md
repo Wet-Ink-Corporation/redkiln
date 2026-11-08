@@ -56,7 +56,7 @@ Diff in the import PR; anything missing is an H-16 or H-05 call, not a silent me
 | `proptest` 1.12, `syn` 2 (`parsing`, dev) | Absent | H-16 rows (both are assay pre-approvals, not redkiln's) |
 | `rust-version` 1.96 | 1.98.1 | Already decided: products take the suite's one pin (Blueprint call 5, signed off 2026-10-18). Clippy may raise new MSRV-gated lints, fixed in the import PR |
 | No licence field: private code (assay decisions log, 2026-10-11) | Every member inherits `license = "MIT OR Apache-2.0"` | Importing relicenses the crates and docs: Ryan's call at Move 3 (M3-F) |
-| No baseline (as strict as `-D warnings`) under temper 1.3.0 | temper 1.4.0 at the root (or later, if [rust-2.md](rust-2.md) R-4 lands first) | Expect no re-baseline; any finding 1.4.0 adds is fixed or baselined at the new paths |
+| No baseline (as strict as `-D warnings`) under temper 1.3.0 | temper 1.4.0 at the root (or later, if [rust-2.md](rust-2.md) R-4 lands first) | Expect no re-baseline; any finding the root's temper adds is fixed or baselined at the new paths |
 
 ## Code work, in order (sketch)
 

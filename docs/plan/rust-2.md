@@ -18,7 +18,7 @@ The open flag from the merge briefing (the port was being built in temper's repo
 | Install (D1, D13, D14, D17) | npm retired; builds in `libexec/<target>/` behind the shared launcher | temper wi-02195d, wi-12d8ef |
 | crates.io (D2) | Not published; names kept | temper wi-0eea27 |
 | MSRV (D4) | 1.98.1 from the import | temper wi-a2240a |
-| Dependencies (D10) | The suite's set (`redkiln-core`, `clap`, `time`) from the import. The `toml` and `sha2` version splits are settled separately: the root steps up before Move 2 (Ryan, 2026-11-08) | temper wi-fa59d1 |
+| Dependencies (D10) | The suite's set (`redkiln-core`, `clap`, `time`) from the import. The `toml` and `sha2` version splits are settled separately: the root steps up before Move 2 (Ryan, 2026-11-08) | temper wi-fa59d1; the version splits: redkiln `docs/decisions.md`, 2026-11-08 |
 | Old state (Invariant 3) | 2.0 reads 1.x state until it imports it once into the shared log | temper wi-f4c3ac |
 
 These amend the migration plan's "Not here: any Rust code for 2.0. The port starts in the monorepo" and "the Node 1.x is not imported as code": the whole of temper `main` is imported, and the Node engine lands at `tools/rust/engine-1x/` as the parity oracle until the cutover deletes it (D11).
