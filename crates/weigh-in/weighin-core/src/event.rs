@@ -509,7 +509,8 @@ pub struct Linked {
 pub struct RecordWritten {
     /// The item recorded.
     pub item_id: ItemId,
-    /// Repo-relative path of the atom file (under `.kb/_intake/`).
+    /// Repo-relative path of the atom file: under `.kb/<kind>/` since 2.0, under `.kb/_intake/`
+    /// in records 1.x wrote.
     pub path: String,
     /// The atom's id, as in its frontmatter.
     pub atom_id: String,

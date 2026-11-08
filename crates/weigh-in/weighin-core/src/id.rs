@@ -1,18 +1,19 @@
 //! Item ids: `wi-` plus lowercase hex of `sha256(session \n normalised question)`.
 //!
 //! Hash ids instead of sequence numbers because parallel sessions and worktrees mint ids with
-//! no coordinator; sequential ids are what collided in beads, `beads_rust` and Backlog.md. Six hex
-//! characters by default; a writer that finds a different question under the same id extends to
-//! eight ([`ItemId::mint_with_len`]).
+//! no coordinator; sequential ids are what collided in beads, `beads_rust` and Backlog.md. Ten hex
+//! characters by default (SPEC ID-04); a writer that finds a different question under the same
+//! id extends to twelve ([`ItemId::mint_with_len`]). Ids written at 6 or 8 hex before 2.0 stay
+//! valid, and a 10-hex id is the 6-hex id of the same input, extended.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-/// Default number of hex characters after the `wi-` prefix.
-pub const DEFAULT_HEX_LEN: usize = 6;
-/// Length used after a collision is detected.
-pub const EXTENDED_HEX_LEN: usize = 8;
+/// Default number of hex characters after the `wi-` prefix (ID-04's 10).
+pub const DEFAULT_HEX_LEN: usize = 10;
+/// Length used after a collision is detected (ID-04's 12).
+pub const EXTENDED_HEX_LEN: usize = 12;
 
 /// A ledger item id: `wi-` plus lowercase hex. The same session and question always mint the
 /// same id (see the [module docs](self)); [`ItemId::parse`] accepts one typed by a person or read
@@ -30,7 +31,7 @@ impl ItemId {
     /// use weighin_core::ItemId;
     ///
     /// let id = ItemId::mint("session-1", "Should retention attach per record?");
-    /// assert_eq!(id.as_str().len(), "wi-".len() + 6);
+    /// assert_eq!(id.as_str().len(), "wi-".len() + 10);
     ///
     /// // Spacing, case and trailing punctuation do not change the question.
     /// assert_eq!(id, ItemId::mint("session-1", "  should retention  attach per record "));
@@ -139,7 +140,7 @@ mod tests {
         let a = ItemId::mint("s1", "Should retention attach per record?");
         let b = ItemId::mint("s1", "  should   retention attach per record ");
         assert_eq!(a, b);
-        assert_eq!(a.as_str().len(), 9);
+        assert_eq!(a.as_str().len(), 13);
     }
 
     #[test]
@@ -165,11 +166,13 @@ mod tests {
     #[test]
     fn minted_ids_are_pinned() {
         let q = "Should retention attach per record?";
-        assert_eq!(ItemId::mint("s1", q).as_str(), "wi-1b5df8");
+        assert_eq!(ItemId::mint("s1", q).as_str(), "wi-1b5df8ca7d");
+        assert_eq!(ItemId::mint_with_len("s1", q, 6).as_str(), "wi-1b5df8");
         assert_eq!(ItemId::mint_with_len("s1", q, 4).as_str(), "wi-1b5d");
+        assert_eq!(ItemId::mint_with_len("s1", q, 8).as_str(), "wi-1b5df8ca");
         assert_eq!(
             ItemId::mint_with_len("s1", q, EXTENDED_HEX_LEN).as_str(),
-            "wi-1b5df8ca"
+            "wi-1b5df8ca7d8d"
         );
         assert_eq!(
             ItemId::mint_with_len("s1", q, 16).as_str(),

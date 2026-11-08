@@ -1,7 +1,8 @@
-//! What a decision or a deferral writes back beside the ledger: `.kb` atoms in `_intake`, the
-//! open-question atom a decision supersedes, and the arrow on the line a question came from.
+//! What a decision or a deferral writes back beside the ledger: `.kb` atoms in `.kb/<kind>/`,
+//! the open-question atom a decision supersedes, and the arrow on the line a question came from.
 
 use anyhow::{Context as _, Result};
+use knowledge_contract::Kind;
 use std::fmt::Write as _;
 use weighin_core::atom::{self, RenderContext};
 use weighin_core::event::{LedgerEvent, RecordWritten};
@@ -65,7 +66,7 @@ impl Session<'_> {
                 path: rel.clone(),
                 atom_id: atom::decision_atom_id(&item),
                 atom_kind: "decision".into(),
-                reason: "decision rendered to .kb/_intake for kb-ingest".into(),
+                reason: "decision rendered to .kb/decision".into(),
             })],
         )?;
         Ok(Some(rel))
@@ -108,11 +109,8 @@ impl Session<'_> {
         else {
             return Ok(None);
         };
-        let path = self.env.root().join(&record.path);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        let Some((rel, text)) = self.read_recorded_atom(&record.path)? else {
+            return Ok(None);
         };
         let settled = Settled {
             option,
@@ -122,8 +120,8 @@ impl Session<'_> {
         let Some(closed) = superseded_open_question(&text, &settled)? else {
             return Ok(None);
         };
-        self.write_file(&record.path, &closed)?;
-        Ok(Some(record.path.clone()))
+        self.write_file(&rel, &closed)?;
+        Ok(Some(rel))
     }
 
     /// Move the `last_reviewed` date of the decision atom written for `id` to today, after a
@@ -138,17 +136,30 @@ impl Session<'_> {
         }) else {
             return Ok(None);
         };
-        let path = self.env.root().join(&record.path);
-        let text = match std::fs::read_to_string(&path) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+        let Some((rel, text)) = self.read_recorded_atom(&record.path)? else {
+            return Ok(None);
         };
         let Some(reviewed) = reviewed_atom(&text, &self.today)? else {
             return Ok(None);
         };
-        self.write_file(&record.path, &reviewed)?;
-        Ok(Some(record.path.clone()))
+        self.write_file(&rel, &reviewed)?;
+        Ok(Some(rel))
+    }
+
+    /// The atom a ledger record names, with the path it was found at: the recorded path, or,
+    /// when a 1.x atom recorded under `.kb/_intake/` is no longer there, the same file name in its
+    /// kind's folder, where the move to `.kb/<kind>/` put it (Knowledge call B). `None` when
+    /// neither exists.
+    fn read_recorded_atom(&self, recorded: &str) -> Result<Option<(String, String)>> {
+        for rel in std::iter::once(recorded.to_owned()).chain(moved_from_intake(recorded)) {
+            let path = self.env.root().join(&rel);
+            match std::fs::read_to_string(&path) {
+                Ok(text) => return Ok(Some((rel, text))),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+            }
+        }
+        Ok(None)
     }
 
     /// spec-kit's write-back: the line the question came from gets an arrow, so it is not raised
@@ -297,6 +308,22 @@ enum Annotation {
     Skipped(String, Skip),
 }
 
+/// Where the move to `.kb/<kind>/` put a 1.x atom recorded at `recorded`: the same file name in
+/// its kind's folder. `None` for a path outside 1.x's two intake folders.
+fn moved_from_intake(recorded: &str) -> Option<String> {
+    [
+        (".kb/_intake/decisions/", Kind::Decision),
+        (".kb/_intake/open_questions/", Kind::OpenQuestion),
+    ]
+    .into_iter()
+    .find_map(|(intake, kind)| {
+        recorded
+            .strip_prefix(intake)
+            .filter(|name| !name.is_empty() && !name.contains('/'))
+            .map(|name| format!("{}/{name}", kind.dir()))
+    })
+}
+
 fn render_ctx(today: &str) -> RenderContext {
     RenderContext {
         date: today.to_owned(),
@@ -309,9 +336,11 @@ fn render_ctx(today: &str) -> RenderContext {
 mod tests {
     use anyhow::Result;
 
-    use super::{Settled, reviewed_atom, superseded_open_question};
+    use super::{Settled, moved_from_intake, reviewed_atom, superseded_open_question};
     use crate::ops::Session;
-    use crate::ops::test_support::{ONE_WAY, TWO_WAY, card, env_in, id_of, run};
+    use crate::ops::test_support::{ONE_WAY, TWO_WAY, atom_key, card, env_in, id_of, run};
+    use knowledge_contract::Kind;
+    use weighin_core::event::{LedgerEvent, RecordWritten};
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
@@ -327,10 +356,11 @@ mod tests {
         let out = run(&mut Session::open(&env, "cli")?, &batch)?;
 
         let id = id_of(ONE_WAY);
+        let oq = atom_key(Kind::OpenQuestion, &id);
         assert_eq!(
             out.get(2),
             Some(&format!(
-                "✓ deferred {id} until the tenant survey (default A by 2026-12-01) · tracking atom .kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+                "✓ deferred {id} until the tenant survey (default A by 2026-12-01) · tracking atom .kb/open-question/{oq}-should-retention-attach-per-record-or-per-series.md"
             ))
         );
         Ok(())
@@ -354,9 +384,12 @@ mod tests {
         )?;
 
         let id = id_of(ONE_WAY);
-        let rel = format!(
-            ".kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+        let (oq, dk) = (
+            atom_key(Kind::OpenQuestion, &id),
+            atom_key(Kind::Decision, &id),
         );
+        let rel =
+            format!(".kb/open-question/{oq}-should-retention-attach-per-record-or-per-series.md");
         assert!(
             out.get(3)
                 .is_some_and(|r| r.contains(&format!(" · superseded {rel} · trailer"))),
@@ -366,7 +399,7 @@ mod tests {
         assert_eq!(
             atom,
             format!(
-                "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nresolution_ref: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
+                "---\nid: \"kb-open-question-{oq}\"\ntitle: \"{ONE_WAY}\"\nkind: open-question\nstatus: superseded\nsuperseded_by: \"kb-decision-{dk}\"\nresolution_ref: \"kb-decision-{dk}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{dk}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{dk}`. The deferral above no longer applies.\n"
             )
         );
         Ok(())
@@ -386,7 +419,10 @@ mod tests {
             ]),
         )?;
         let id = id_of(TWO_WAY);
-        let rel = format!(".kb/_intake/decisions/{id}-name-the-helper-apply-or-run.md");
+        let rel = format!(
+            ".kb/decision/{}-name-the-helper-apply-or-run.md",
+            atom_key(Kind::Decision, &id)
+        );
         assert!(
             decided.get(2).is_some_and(|r| r.contains(&rel)),
             "{decided:?}"
@@ -414,6 +450,81 @@ mod tests {
         );
         assert_ne!(after, before, "the date moved");
         Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn a_review_finds_an_atom_its_1_x_record_names_under_intake_where_the_move_put_it() -> Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        run(
+            &mut Session::open(&env, "cli")?.with_today("2026-01-02"),
+            &serde_json::json!([
+                {"op": "raise", "q": TWO_WAY, "door": "two-way"},
+                {"op": "ground", "id": "@1", "card": card()},
+                {"op": "decide", "id": "@1", "option": "A"}
+            ]),
+        )?;
+        let id = id_of(TWO_WAY);
+        let name = format!(
+            "{}-name-the-helper-apply-or-run.md",
+            atom_key(Kind::Decision, &id)
+        );
+        let moved = format!(".kb/decision/{name}");
+        let before = std::fs::read_to_string(dir.path().join(&moved))?;
+        // The ledger's last decision record names the 1.x path, as records imported from 1.x do.
+        Session::open(&env, "cli")?.write(
+            &id,
+            vec![LedgerEvent::RecordWritten(RecordWritten {
+                item_id: id.clone(),
+                path: format!(".kb/_intake/decisions/{name}"),
+                atom_id: format!("kb-decision-{}", atom_key(Kind::Decision, &id)),
+                atom_kind: "decision".into(),
+                reason: "written by 1.x".into(),
+            })],
+        )?;
+
+        let out = run(
+            &mut Session::open(&env, "cli")?.with_today("2026-04-10"),
+            &serde_json::json!([{"op": "ack", "id": id.as_str()}]),
+        )?;
+
+        assert_eq!(
+            out,
+            [format!(
+                "✓ reviewed decision on {id}: still holds · atom {moved}"
+            )]
+        );
+        let after = std::fs::read_to_string(dir.path().join(&moved))?;
+        assert_eq!(
+            after,
+            before.replace(
+                "last_reviewed: \"2026-01-02\"",
+                "last_reviewed: \"2026-04-10\""
+            )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_1_x_intake_path_moves_to_its_kinds_folder_with_its_name() {
+        assert_eq!(
+            moved_from_intake(".kb/_intake/decisions/wi-1-q.md").as_deref(),
+            Some(".kb/decision/wi-1-q.md")
+        );
+        assert_eq!(
+            moved_from_intake(".kb/_intake/open_questions/wi-1-q.md").as_deref(),
+            Some(".kb/open-question/wi-1-q.md")
+        );
+        for other in [
+            ".kb/decision/wi-1-q.md",
+            ".kb/_intake/decisions/",
+            ".kb/_intake/decisions/a/b.md",
+            "docs/x.md",
+        ] {
+            assert_eq!(moved_from_intake(other), None, "{other}");
+        }
     }
 
     #[test]

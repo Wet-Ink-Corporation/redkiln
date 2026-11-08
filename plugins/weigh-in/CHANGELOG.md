@@ -6,6 +6,18 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Atoms go where Knowledge keeps them: decisions in `.kb/decision/`, deferred one-way questions in
+  `.kb/open-question/` (frontmatter `kind: open-question`), no longer under `.kb/_intake/`. Atoms
+  1.x wrote stay where they are and still count: `ci-check` reads every atom under `.kb/`. The
+  frontmatter is written through the new `knowledge-contract` crate; decision atoms are byte for
+  byte what 1.x wrote.
+- Context packs list Weigh-In's own decision atoms on their `.kb:` line as soon as they are
+  written, since they no longer start in `_intake`; atoms are never counted among a symbol's
+  references. A review (`ack`) or a decision still finds an atom a 1.x record names under
+  `.kb/_intake/` once it has moved to `.kb/<kind>/` under the same file name.
+- New item ids have 10 hex characters (`wi-0123456789`); 6- and 8-hex ids stay valid. Atoms of a
+  10-hex item take a hashed id, `kb-decision-<10 hex>`, while items with shorter ids keep
+  `kb-decision-<wi-id>`.
 - Weigh-In now lives in the redkiln monorepo (Move 1). The plugin installs as `rk-weigh-in` and
   the mod as `rk-weigh-in-mod`; the skill is still `/weigh-in` and the binary still `weighin`.
   The Cowork fetch script is `libexec/weighin-cowork-fetch.sh`.

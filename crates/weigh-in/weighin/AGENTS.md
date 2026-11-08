@@ -7,7 +7,7 @@ The `weighin` CLI, and the single writer of the Weigh-In decision ledger. Every 
 binary. The composition root holds the store, git, context packs, environment discovery and the Claude Code hook entry point. Output is written for a model to read at the lowest token cost: short lines, and `--json` where a structure is needed.
 
 ## Allowed dependencies
-- Workspace crates: `weighin-core`, and `redkiln-core`, the suite's store, its location and the envelope (since #17 PR 5a).
+- Workspace crates: `weighin-core`, `knowledge-contract` (reading atoms' frontmatter in `ci`), and `redkiln-core`, the suite's store, its location and the envelope (since #17 PR 5a).
 - Third-party:
   - `clap` (CLI), `anyhow` (binary errors), `time` (timestamps), `tempfile` (temporary indexes and files on the temp disk);
   - `serde` and `serde_json`;

@@ -107,7 +107,8 @@ fn has_rg() -> bool {
     *RG.get_or_init(|| has("rg"))
 }
 
-/// `path:line` hits for a whole-word symbol, excluding generated trees.
+/// `path:line` hits for a whole-word symbol, excluding generated trees and `.kb` (atoms are
+/// listed by [`matching_atoms`], not as references).
 fn references(root: &Path, sym: &str) -> Vec<String> {
     // An explicit `.` and a null stdin: ripgrep searches stdin, not the tree, whenever stdin is
     // not a terminal, which is always the case inside hooks and tool calls.
@@ -127,7 +128,7 @@ fn references(root: &Path, sym: &str) -> Vec<String> {
                 "-g",
                 "!.git",
                 "-g",
-                "!.kb/_intake",
+                "!.kb",
                 "-F",
                 "--",
                 sym,

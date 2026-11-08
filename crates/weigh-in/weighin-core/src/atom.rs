@@ -1,114 +1,82 @@
 //! `.kb` atoms rendered from ledger items.
 //!
-//! An atom is valid against Redkiln's `KbFrontmatter` (`src/schema/kb.ts`): `id`, `title`,
-//! `kind`, `status`, `authority_tier`, `summary`, `depends_on`, `related`, `source_paths` and
-//! `last_reviewed`, plus decision-only fields. The schema is `.passthrough()`, so the Weigh-In
-//! lineage keys survive validation.
+//! The frontmatter, the atom ids and the paths are Knowledge's, written through
+//! `knowledge-contract`: the ten required keys, the decision-only keys, then Weigh-In's lineage
+//! keys (`weighin_item`, `door`, `decider`, …). Atoms live at `.kb/decision/` and
+//! `.kb/open-question/` (Knowledge calls A and B). An item whose `wi-` id is shorter than 10 hex
+//! keeps its atom id, `kb-decision-<wi-id>`; a longer one gets a hashed id (call C).
 //!
-//! The body of a decision atom is MADR 4 (context, drivers, considered options, outcome,
-//! consequences, confirmation) plus "why this might be wrong". YAML strings are written as JSON
-//! strings, which are valid YAML scalars, so no value can break the frontmatter.
+//! The body, Weigh-In's rendering, is MADR 4 (context, drivers, considered options, outcome,
+//! consequences, confirmation) plus "why this might be wrong".
 
 use crate::card::{Card, CardOption};
 use crate::event::Deferred;
 use crate::marker::Door;
 use crate::projection::{Decision, Item};
+use knowledge_contract::{
+    AtomId, AuthorityTier, Field, Frontmatter, HashLen, Kind, Reversibility, Status, Value,
+    yaml_str,
+};
 use std::fmt::{self, Display, Formatter};
+
+pub use knowledge_contract::slug;
+
+/// The `wi-` hex length from which an item's atoms take hashed ids (Knowledge call C).
+const HASHED_FROM: usize = 10;
+
+/// The id of the item's atom of `kind`.
+///
+/// `kb-<kind>-<wi-id>` for an item whose id has fewer than 10 hex characters, else `kb-<kind>-`
+/// and the 10-hex hash of the `wi-` id. A 10-hex collision between two items is not extended
+/// here; it is left to the duplicate-id check that Knowledge call C puts in CI (Move 1 step 4).
+#[must_use]
+pub fn atom_id(kind: Kind, item: &Item) -> AtomId {
+    let key = item.id.as_str();
+    let short = key
+        .strip_prefix("wi-")
+        .is_some_and(|hex| hex.len() < HASHED_FROM);
+    short
+        .then(|| AtomId::kept(kind, key))
+        .flatten()
+        .unwrap_or_else(|| AtomId::hashed(kind, key, HashLen::Ten))
+}
 
 /// Where a decision atom is written, relative to the repository root.
 #[must_use]
 pub fn decision_path(item: &Item) -> String {
-    format!(
-        ".kb/_intake/decisions/{}-{}.md",
-        item.id,
-        slug(&item.question)
-    )
+    atom_id(Kind::Decision, item).path(&item.question)
 }
 
 /// Where an open-question atom is written, relative to the repository root.
 #[must_use]
 pub fn open_question_path(item: &Item) -> String {
-    format!(
-        ".kb/_intake/open_questions/{}-{}.md",
-        item.id,
-        slug(&item.question)
-    )
+    atom_id(Kind::OpenQuestion, item).path(&item.question)
 }
 
 /// The `id` of the decision atom for an item.
 #[must_use]
 pub fn decision_atom_id(item: &Item) -> String {
-    format!("kb-decision-{}", item.id)
+    atom_id(Kind::Decision, item).to_string()
 }
 
 /// The `id` of the open-question atom for an item.
 #[must_use]
 pub fn open_question_atom_id(item: &Item) -> String {
-    format!("kb-open-question-{}", item.id)
+    atom_id(Kind::OpenQuestion, item).to_string()
 }
 
-/// Lowercase ASCII slug of at most 48 characters on a word boundary.
-#[must_use]
-pub fn slug(s: &str) -> String {
-    let mut out = String::new();
-    let mut dash = false;
-    for c in s.chars() {
-        if c.is_ascii_alphanumeric() {
-            out.push(c.to_ascii_lowercase());
-            dash = false;
-        } else if !dash && !out.is_empty() {
-            out.push('-');
-            dash = true;
-        }
-    }
-    let out = out.trim_end_matches('-').to_owned();
-    if out.len() <= 48 {
-        return out;
-    }
-    // `out` holds only ASCII alphanumerics and `-`, so every offset is a char boundary and
-    // `get` never misses; the fallbacks keep the function total without a panic path.
-    let cut = out.get(..48).unwrap_or(&out);
-    cut.rfind('-')
-        .and_then(|i| cut.get(..i))
-        .unwrap_or(cut)
-        .to_owned()
-}
-
-/// A YAML-safe double-quoted scalar. JSON escaping covers C0 controls, quotes and backslashes;
-/// YAML also refuses DEL, the C1 controls, U+FFFE/U+FFFF and treats U+2028/U+2029 as line breaks,
-/// so those are escaped too.
-fn q(s: &str) -> String {
-    let json = serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
-    json.chars()
-        .map(|c| {
-            let u = u32::from(c);
-            if (0x7f..=0x9f).contains(&u) || matches!(u, 0x2028 | 0x2029 | 0xfffe | 0xffff) {
-                format!("\\u{u:04x}")
-            } else {
-                c.to_string()
-            }
-        })
-        .collect()
-}
-
-fn list(items: &[String]) -> String {
-    if items.is_empty() {
-        "[]".into()
-    } else {
-        format!(
-            "[{}]",
-            items.iter().map(|s| q(s)).collect::<Vec<_>>().join(", ")
-        )
-    }
-}
-
-/// Reversibility for `KbFrontmatter`: one-way doors are `low`, unsure `medium`, two-way `high`.
+/// An atom's `reversibility` (Knowledge's frontmatter): one-way doors are `low`, unsure
+/// `medium`, two-way `high`.
 #[must_use]
 pub fn reversibility(door: Door) -> &'static str {
+    reversibility_of(door).as_str()
+}
+
+fn reversibility_of(door: Door) -> Reversibility {
     match door {
-        Door::OneWay => "low",
-        Door::Unsure => "medium",
-        Door::TwoWay => "high",
+        Door::OneWay => Reversibility::Low,
+        Door::Unsure => Reversibility::Medium,
+        Door::TwoWay => Reversibility::High,
     }
 }
 
@@ -249,49 +217,50 @@ impl<'a> DecisionAtom<'a> {
             .filter(|r| r.atom_kind == "open_question")
             .map(|r| r.atom_id.clone())
             .collect();
-        writeln!(f, "---")?;
-        writeln!(f, "id: {}", q(&decision_atom_id(self.item)))?;
-        writeln!(f, "title: {}", q(&self.title))?;
-        writeln!(
-            f,
-            "kind: decision\nstatus: accepted\nauthority_tier: decision"
-        )?;
-        writeln!(f, "summary: {}", q(&y_statement(self.item)))?;
-        writeln!(f, "depends_on: {}", list(&self.ctx.depends_on))?;
-        writeln!(f, "related: {}", list(&related))?;
-        writeln!(
-            f,
-            "source_paths: {}",
-            list(&source_list(self.item, self.ctx))
-        )?;
-        writeln!(f, "last_reviewed: {}", q(&self.ctx.date))?;
-        writeln!(f, "reversibility: {}", reversibility(self.item.door()))?;
-        writeln!(f, "phase: null\nsupersedes: []\nsuperseded_by: null")?;
-        self.decision_fields(f)?;
-        writeln!(f, "---\n")
+        let id = atom_id(Kind::Decision, self.item);
+        let sources = source_list(self.item, self.ctx);
+        let lineage = self.lineage();
+        let fm = Frontmatter {
+            id: &id,
+            title: &self.title,
+            status: Status::Accepted,
+            authority_tier: AuthorityTier::Decision,
+            summary: &y_statement(self.item),
+            depends_on: &self.ctx.depends_on,
+            related: &related,
+            source_paths: &sources,
+            last_reviewed: &self.ctx.date,
+            reversibility: Some(reversibility_of(self.item.door())),
+            lineage: &lineage,
+        };
+        writeln!(f, "{fm}")
     }
 
-    fn decision_fields(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    /// Weigh-In's keys after Knowledge's, in their order.
+    fn lineage(&self) -> Vec<Field<'_>> {
         let (item, dec) = (self.item, self.dec);
-        writeln!(f, "weighin_item: {}", q(item.id.as_str()))?;
-        writeln!(f, "question: {}", q(&item.question))?;
-        writeln!(f, "door: {}", item.door().as_str())?;
+        let field = |key, value| Field { key, value };
+        let mut out = vec![
+            field("weighin_item", Value::Str(item.id.as_str())),
+            field("question", Value::Str(&item.question)),
+            field("door", Value::Word(item.door().as_str())),
+        ];
         if let Some(b) = item.blast {
-            writeln!(f, "blast_radius: {}", b.as_str())?;
+            out.push(field("blast_radius", Value::Word(b.as_str())));
         }
-        writeln!(f, "decider: {}", q(&dec.decider))?;
-        writeln!(f, "provenance: {}", dec.provenance.as_str())?;
-        writeln!(f, "decided_at: {}", q(&dec.ts))?;
+        out.push(field("decider", Value::Str(&dec.decider)));
+        out.push(field("provenance", Value::Word(dec.provenance.as_str())));
+        out.push(field("decided_at", Value::Str(&dec.ts)));
         if let Some(t) = &dec.tree_hash {
-            writeln!(f, "tree_hash: {}", q(t))?;
+            out.push(field("tree_hash", Value::Str(t)));
         }
         if let Some(r) = self.card.map(|c| &c.recommendation) {
-            writeln!(f, "recommended: {}", q(&r.option))?;
+            out.push(field("recommended", Value::Str(&r.option)));
             if !r.flip.is_empty() {
-                writeln!(f, "flip_condition: {}", q(&r.flip))?;
+                out.push(field("flip_condition", Value::Str(&r.flip)));
             }
         }
-        Ok(())
+        out
     }
 
     fn problem(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -403,7 +372,7 @@ impl<'a> DecisionAtom<'a> {
         writeln!(
             f,
             "- Verbatim: {}",
-            q(item.quote.lines().next().unwrap_or(""))
+            yaml_str(item.quote.lines().next().unwrap_or(""))
         )
     }
 }
@@ -485,32 +454,38 @@ struct OpenQuestionAtom<'a> {
 impl OpenQuestionAtom<'_> {
     fn frontmatter(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let (item, d) = (self.item, self.deferral);
-        writeln!(f, "---")?;
-        writeln!(f, "id: {}", q(&open_question_atom_id(item)))?;
-        writeln!(f, "title: {}", q(&item.question))?;
-        writeln!(
-            f,
-            "kind: open_question\nstatus: proposed\nauthority_tier: note"
-        )?;
-        writeln!(
-            f,
-            "summary: {}",
-            q(&format!(
-                "Open until {}: {}. Default if unresolved: {}.",
-                d.trigger, item.question, d.default_option
-            ))
-        )?;
-        writeln!(f, "depends_on: {}", list(&self.ctx.depends_on))?;
-        writeln!(f, "related: []")?;
-        writeln!(f, "source_paths: {}", list(&source_list(item, self.ctx)))?;
-        writeln!(f, "last_reviewed: {}", q(&self.ctx.date))?;
-        writeln!(f, "tracks: {}", q(item.id.as_str()))?;
-        writeln!(f, "resolve_by: {}", q(&d.resolve_by))?;
-        writeln!(f, "trigger: {}", q(&d.trigger))?;
-        writeln!(f, "default_if_unresolved: {}", q(&d.default_option))?;
-        writeln!(f, "owner: {}", q(&d.owner))?;
-        writeln!(f, "flip_condition: {}", q(&d.flip))?;
-        writeln!(f, "---\n")
+        let id = atom_id(Kind::OpenQuestion, item);
+        let summary = format!(
+            "Open until {}: {}. Default if unresolved: {}.",
+            d.trigger, item.question, d.default_option
+        );
+        let sources = source_list(item, self.ctx);
+        let field = |key, text| Field {
+            key,
+            value: Value::Str(text),
+        };
+        let lineage = [
+            field("tracks", item.id.as_str()),
+            field("resolve_by", &d.resolve_by),
+            field("trigger", &d.trigger),
+            field("default_if_unresolved", &d.default_option),
+            field("owner", &d.owner),
+            field("flip_condition", &d.flip),
+        ];
+        let fm = Frontmatter {
+            id: &id,
+            title: &item.question,
+            status: Status::Proposed,
+            authority_tier: AuthorityTier::Note,
+            summary: &summary,
+            depends_on: &self.ctx.depends_on,
+            related: &[],
+            source_paths: &sources,
+            last_reviewed: &self.ctx.date,
+            reversibility: None,
+            lineage: &lineage,
+        };
+        writeln!(f, "{fm}")
     }
 }
 
@@ -796,7 +771,7 @@ Chosen option: **A**, overriding the recommendation (?).
     const GOLDEN_OPEN_QUESTION: &str = r#"---
 id: "kb-open-question-wi-4dfe38"
 title: "Where should the ledger live?"
-kind: open_question
+kind: open-question
 status: proposed
 authority_tier: note
 summary: "Open until the pilot ends: Where should the ledger live?. Default if unresolved: A."
@@ -831,7 +806,7 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
     const GOLDEN_OPEN_QUESTION_NO_CARD: &str = r#"---
 id: "kb-open-question-wi-4dfe38"
 title: "Where should the ledger live?"
-kind: open_question
+kind: open-question
 status: proposed
 authority_tier: note
 summary: "Open until the pilot ends: Where should the ledger live?. Default if unresolved: A."
@@ -917,8 +892,17 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
         })
     }
 
+    /// A decided item raised before 2.0, under a 6-hex id, so the goldens below are atoms as 1.x
+    /// wrote them.
     fn decided_item() -> Item {
-        let id = ItemId::mint("s", "Where should the ledger live?");
+        decided_item_under(&ItemId::mint_with_len(
+            "s",
+            "Where should the ledger live?",
+            6,
+        ))
+    }
+
+    fn decided_item_under(id: &ItemId) -> Item {
         let env = |event| EventEnvelope {
             event,
             actor: "t".into(),
@@ -929,10 +913,10 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
             ts: "2026-09-26T18:00:00Z".into(),
         };
         let mut l = Ledger::default();
-        l.apply(1, &env(raised_event(&id)));
-        l.apply(2, &env(grounded_event(&id)));
-        l.apply(3, &env(decided_event(&id)));
-        l.get(&id).unwrap().clone()
+        l.apply(1, &env(raised_event(id)));
+        l.apply(2, &env(grounded_event(id)));
+        l.apply(3, &env(decided_event(id)));
+        l.get(id).unwrap().clone()
     }
 
     #[test]
@@ -1083,6 +1067,68 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
     }
 
     #[test]
+    fn a_ten_hex_item_takes_hashed_atom_ids_and_keeps_its_id_as_lineage() {
+        let id = ItemId::mint("s", "Where should the ledger live?");
+        let item = decided_item_under(&id);
+        let hash = AtomId::hashed(
+            knowledge_contract::Kind::Decision,
+            id.as_str(),
+            HashLen::Ten,
+        );
+
+        let text = render_decision(&item, &ctx()).expect("a decided item");
+
+        assert_eq!(id.as_str().len(), "wi-".len() + 10);
+        assert_eq!(
+            decision_atom_id(&item),
+            format!("kb-decision-{}", hash.key())
+        );
+        assert_eq!(
+            decision_path(&item),
+            format!(
+                ".kb/decision/{}-where-should-the-ledger-live.md",
+                hash.key()
+            )
+        );
+        assert!(
+            text.starts_with(&format!("---\nid: \"kb-decision-{}\"\n", hash.key())),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!("\nweighin_item: \"{id}\"\n")),
+            "{text}"
+        );
+        let open = AtomId::hashed(
+            knowledge_contract::Kind::OpenQuestion,
+            id.as_str(),
+            HashLen::Ten,
+        );
+        assert_eq!(
+            open_question_path(&item),
+            format!(
+                ".kb/open-question/{}-where-should-the-ledger-live.md",
+                open.key()
+            )
+        );
+    }
+
+    #[test]
+    fn a_six_hex_item_keeps_its_atom_ids_under_the_new_folders() {
+        let item = decided_item();
+
+        assert_eq!(decision_atom_id(&item), "kb-decision-wi-4dfe38");
+        assert_eq!(open_question_atom_id(&item), "kb-open-question-wi-4dfe38");
+        assert_eq!(
+            decision_path(&item),
+            ".kb/decision/wi-4dfe38-where-should-the-ledger-live.md"
+        );
+        assert_eq!(
+            open_question_path(&item),
+            ".kb/open-question/wi-4dfe38-where-should-the-ledger-live.md"
+        );
+    }
+
+    #[test]
     fn open_question_atom_is_byte_exact() {
         let text = render_open_question(&deferred_item(true), &ctx()).unwrap();
         assert_eq!(text, GOLDEN_OPEN_QUESTION);
@@ -1194,20 +1240,5 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
         for absent in ["Good, because", "Bad, because", "Holds if", "If wrong"] {
             assert!(!text.contains(absent), "{absent:?} in:\n{text}");
         }
-    }
-
-    #[test]
-    fn yaml_hostile_characters_are_escaped() {
-        let v = q("a\u{7f}b\u{85}c\u{2028}d\u{ffff}");
-        assert_eq!(v, "\"a\\u007fb\\u0085c\\u2028d\\uffff\"");
-    }
-
-    #[test]
-    fn slug_is_bounded() {
-        assert_eq!(
-            slug("Where should the ledger live?"),
-            "where-should-the-ledger-live"
-        );
-        assert!(slug(&"word ".repeat(40)).len() <= 48);
     }
 }
