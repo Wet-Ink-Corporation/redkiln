@@ -55,7 +55,7 @@ Each call below has a recommendation; the work proceeds on the two-way ones and 
 
 | Call | Door | Recommendation | Source |
 | --- | --- | --- | --- |
-| Migration B, D, E | Two-way | Proceed on their recommendations, as the handover says | `references/decisions/README.md` |
+| Migration B, D, E (E amended: the root's temper is bumped after Move 1, #52) | Two-way | Proceed on their recommendations, as the handover says | `references/decisions/README.md` |
 | Field guide T1, T2, T4, T6, T7, T8, T10 | As listed | Each is handled at the move that needs it; T3 and T9 are Move 1's and sit in its runbook; T5 (agent identity) waits for Review | `docs/guide/README.md`, Tensions |
 | temper's open Weigh-In questions wi-b1bfb5 (telemetry branch), wi-39f19a (temper #193 GHCR artifact) and wi-0924e6 (#172, #173 in 1.x or 2.0) | As each says | Answered at the import, since temper is frozen; wi-39f19a recommended "pin inside the monorepo" | [rust-2.md](rust-2.md) |
 | Turn the plan into issues here (an Initiative per move, an Epic per gate, Backlog's body contract) | Two-way | Done for Move 1 (Initiative #16, #17 to #27, #48); each later move gets its Initiative when its import PR opens | `references/README.md`, Where to invest next |
