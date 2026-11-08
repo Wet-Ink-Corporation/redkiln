@@ -8,63 +8,69 @@ Correctness: **PASS** (no event lost, duplicated or invented; no file deleted be
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| open (creates or waits) | 160 | 106.3 | 187.9 | 209.4 | 209.6 |
-| append | 160 | 0.8 | 1.0 | 8.1 | 8.5 |
+| open (creates or waits) | 160 | 88.4 | 174.7 | 253.7 | 274.1 |
+| append | 160 | 1.9 | 15.7 | 61.6 | 62.7 |
 
 ## busy: 4 hook lanes, 2 commands (batch 5) every 10 ms, 2 racers every 5 ms (30 s)
 
 | Check | Result | Detail |
 |---|---|---|
 | every writer process reported every operation (none crashed) | pass |  |
-| every open and write succeeded, or lost a claim cleanly | pass |  |
-| positions run 1..N with no gap | pass | N = 10362 |
-| every reported append is stored exactly once, and nothing else | pass | 9318 reported, 9318 stored, 0 missing, 0 duplicated, 0 stored but reported failed |
-| conditioned appends: one winner per subject | pass | 1044 won, 585 lost, 1044 claims stored, 0 subjects claimed twice |
+| no open or write failed other than on a busy lock | pass |  |
+| no open or write refused on a busy lock past its timeout | **busy** | 1 x busy:append__appending_to_the_store__the_store_was_busy_and_refused_the_append_before_writing_anything__SQLite_failed__database_is_locked__database_is_locked__Error_code_5__database_is_locked |
+| positions run 1..N with no gap | pass | N = 5533 |
+| every reported append is stored exactly once, and nothing else | pass | 5082 reported, 5082 stored, 0 missing, 0 duplicated, 0 stored but reported failed, 0 unrecognised |
+| conditioned appends: one winner per subject | pass | 451 won, 202 lost, 451 claims stored, 0 subjects claimed twice |
 | TRUNCATE layout afterwards: empty -journal, no -wal or -shm, rollback header | pass | -journal 0 bytes, -wal false, -shm false, header versions Some([1, 1]) (1 = rollback, 2 = WAL) |
-| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 17685 polls: -journal present on 17685, missing after first seen on 0, -wal or -shm on 0 |
+| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 16981 polls: -journal present on 16981, missing after first seen on 0, -wal or -shm on 0 |
 | PRAGMA integrity_check | pass | ok |
 
-1923 hook processes, 1479 command appends, 1629 claims; 10362 durable events (~345/s). Telemetry: 1425 written, 498 dropped on a busy lock.
+773 hook processes, 862 command appends, 653 claims; 5533 durable events (~184/s). Telemetry: 551 written, 222 dropped on a busy lock.
 
-Hook durable path (open + append) over 250 ms: 42, over 1 s: 6, over 2 s: 0.
+Long-lived writers that opened the store and ran: 4 of 4.
+
+Hook durable path (open + append) over 250 ms: 76, over 1 s: 19, over 2 s: 4.
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| hook open | 1923 | 2.7 | 99.0 | 136.8 | 260.3 |
-| hook append | 1923 | 1.4 | 123.4 | 367.3 | 1784.9 |
-| hook open + append | 1923 | 22.4 | 174.2 | 397.3 | 1807.8 |
-| hook telemetry | 1923 | 2.3 | 28.3 | 44.9 | 77.0 |
-| hook process, spawn to exit | 1923 | 32.8 | 187.2 | 420.2 | 1817.8 |
-| command open | 4 | 57.9 | 205.3 | 205.3 | 205.3 |
-| command append (batch) | 1479 | 1.8 | 118.1 | 295.3 | 1265.9 |
-| conditioned claim | 1629 | 1.2 | 139.7 | 430.0 | 1208.7 |
+| hook open | 773 | 21.8 | 125.4 | 190.6 | 230.6 |
+| hook append | 773 | 4.2 | 448.5 | 1578.5 | 2729.3 |
+| hook open + append | 773 | 47.5 | 512.8 | 1608.7 | 2815.4 |
+| hook telemetry | 773 | 4.9 | 63.3 | 78.9 | 112.0 |
+| hook process, spawn to exit | 773 | 79.5 | 522.6 | 1676.4 | 2859.1 |
+| command open | 4 | 8.2 | 210.4 | 210.4 | 210.4 |
+| command append (batch) | 862 | 4.9 | 245.4 | 791.1 | 2025.1 |
+| conditioned claim | 653 | 14.5 | 376.2 | 1357.4 | 2415.1 |
 
 ## import: 6 hook lanes every 100 ms, 2 commands appending 256-event chunks back to back (30 s)
 
 | Check | Result | Detail |
 |---|---|---|
 | every writer process reported every operation (none crashed) | pass |  |
-| every open and write succeeded, or lost a claim cleanly | **busy** | 7 x err:append__appending_to_the_store__the_store_was_busy_and_refused_the_append_before_writing_anything__SQLite_failed__database_is_locked__database_is_locked__Error_code_5__database_is_locked |
-| positions run 1..N with no gap | pass | N = 1125122 |
-| every reported append is stored exactly once, and nothing else | pass | 1125122 reported, 1125122 stored, 0 missing, 0 duplicated, 0 stored but reported failed |
+| no open or write failed other than on a busy lock | pass |  |
+| no open or write refused on a busy lock past its timeout | **busy** | 13 x busy:append__appending_to_the_store__the_store_was_busy_and_refused_the_append_before_writing_anything__SQLite_failed__database_is_locked__database_is_locked__Error_code_5__database_is_locked |
+| positions run 1..N with no gap | pass | N = 530755 |
+| every reported append is stored exactly once, and nothing else | pass | 530755 reported, 530755 stored, 0 missing, 0 duplicated, 0 stored but reported failed, 0 unrecognised |
 | conditioned appends: one winner per subject | pass | 0 won, 0 lost, 0 claims stored, 0 subjects claimed twice |
 | TRUNCATE layout afterwards: empty -journal, no -wal or -shm, rollback header | pass | -journal 0 bytes, -wal false, -shm false, header versions Some([1, 1]) (1 = rollback, 2 = WAL) |
-| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 19540 polls: -journal present on 19540, missing after first seen on 0, -wal or -shm on 0 |
+| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 18914 polls: -journal present on 18914, missing after first seen on 0, -wal or -shm on 0 |
 | PRAGMA integrity_check | pass | ok |
 
-521 hook processes, 4393 command appends, 0 claims; 1125122 durable events (~37504/s). Telemetry: 478 written, 43 dropped on a busy lock.
+336 hook processes, 2072 command appends, 0 claims; 530755 durable events (~17691/s). Telemetry: 294 written, 42 dropped on a busy lock.
 
-Hook durable path (open + append) over 250 ms: 117, over 1 s: 32, over 2 s: 9.
+Long-lived writers that opened the store and ran: 2 of 2.
+
+Hook durable path (open + append) over 250 ms: 115, over 1 s: 47, over 2 s: 23.
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| hook open | 521 | 0.9 | 30.1 | 43.5 | 64.4 |
-| hook append | 521 | 45.5 | 1172.1 | 2308.9 | 2393.6 |
-| hook open + append | 521 | 48.6 | 1176.8 | 2309.6 | 2415.0 |
-| hook telemetry | 521 | 2.3 | 4.7 | 29.8 | 50.3 |
-| hook process, spawn to exit | 521 | 58.7 | 1189.3 | 2318.6 | 2424.3 |
-| command open | 2 | 1.2 | 21.2 | 21.2 | 21.2 |
-| command append (batch) | 4393 | 5.2 | 11.4 | 117.0 | 3178.9 |
+| hook open | 336 | 1.7 | 57.9 | 96.8 | 183.2 |
+| hook append | 336 | 110.7 | 2182.0 | 2417.4 | 2483.7 |
+| hook open + append | 336 | 128.5 | 2195.6 | 2436.0 | 2485.0 |
+| hook telemetry | 336 | 4.4 | 41.1 | 79.9 | 96.9 |
+| hook process, spawn to exit | 336 | 152.3 | 2208.8 | 2475.0 | 2515.0 |
+| command open | 2 | 1.5 | 82.9 | 82.9 | 82.9 |
+| command append (batch) | 2072 | 10.8 | 69.1 | 407.0 | 3353.4 |
 | conditioned claim | 0 | - | - | - | - |
 
 ## import, yielding: as import, with 25 ms between chunks (30 s)
@@ -72,27 +78,30 @@ Hook durable path (open + append) over 250 ms: 117, over 1 s: 32, over 2 s: 9.
 | Check | Result | Detail |
 |---|---|---|
 | every writer process reported every operation (none crashed) | pass |  |
-| every open and write succeeded, or lost a claim cleanly | pass |  |
-| positions run 1..N with no gap | pass | N = 427188 |
-| every reported append is stored exactly once, and nothing else | pass | 427188 reported, 427188 stored, 0 missing, 0 duplicated, 0 stored but reported failed |
+| no open or write failed other than on a busy lock | pass |  |
+| no open or write refused on a busy lock past its timeout | pass |  |
+| positions run 1..N with no gap | pass | N = 234683 |
+| every reported append is stored exactly once, and nothing else | pass | 234683 reported, 234683 stored, 0 missing, 0 duplicated, 0 stored but reported failed, 0 unrecognised |
 | conditioned appends: one winner per subject | pass | 0 won, 0 lost, 0 claims stored, 0 subjects claimed twice |
 | TRUNCATE layout afterwards: empty -journal, no -wal or -shm, rollback header | pass | -journal 0 bytes, -wal false, -shm false, header versions Some([1, 1]) (1 = rollback, 2 = WAL) |
-| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 19254 polls: -journal present on 19254, missing after first seen on 0, -wal or -shm on 0 |
+| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 17626 polls: -journal present on 17626, missing after first seen on 0, -wal or -shm on 0 |
 | PRAGMA integrity_check | pass | ok |
 
-1460 hook processes, 1663 command appends, 0 claims; 427188 durable events (~14239/s). Telemetry: 1335 written, 125 dropped on a busy lock.
+955 hook processes, 913 command appends, 0 claims; 234683 durable events (~7822/s). Telemetry: 691 written, 264 dropped on a busy lock.
 
-Hook durable path (open + append) over 250 ms: 4, over 1 s: 0, over 2 s: 0.
+Long-lived writers that opened the store and ran: 2 of 2.
+
+Hook durable path (open + append) over 250 ms: 28, over 1 s: 2, over 2 s: 0.
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| hook open | 1460 | 0.7 | 21.4 | 58.7 | 82.6 |
-| hook append | 1460 | 1.4 | 44.7 | 91.5 | 268.5 |
-| hook open + append | 1460 | 2.5 | 56.1 | 115.4 | 282.0 |
-| hook telemetry | 1460 | 2.2 | 3.3 | 30.3 | 88.6 |
-| hook process, spawn to exit | 1460 | 11.5 | 68.4 | 130.4 | 287.7 |
-| command open | 2 | 1.0 | 41.3 | 41.3 | 41.3 |
-| command append (batch) | 1663 | 6.3 | 35.3 | 68.3 | 137.0 |
+| hook open | 955 | 5.0 | 73.7 | 106.8 | 152.8 |
+| hook append | 955 | 22.4 | 174.0 | 380.7 | 1869.5 |
+| hook open + append | 955 | 47.0 | 206.0 | 440.8 | 1902.6 |
+| hook telemetry | 955 | 4.6 | 45.8 | 64.5 | 97.2 |
+| hook process, spawn to exit | 955 | 65.7 | 225.5 | 453.2 | 1914.9 |
+| command open | 2 | 1.5 | 72.8 | 72.8 | 72.8 |
+| command append (batch) | 913 | 16.8 | 126.5 | 191.5 | 600.1 |
 | conditioned claim | 0 | - | - | - | - |
 
 ## stress: 4 hook lanes, 2 commands (batch 5), 2 racers, no pauses (30 s)
@@ -100,53 +109,59 @@ Hook durable path (open + append) over 250 ms: 4, over 1 s: 0, over 2 s: 0.
 | Check | Result | Detail |
 |---|---|---|
 | every writer process reported every operation (none crashed) | pass |  |
-| every open and write succeeded, or lost a claim cleanly | **busy** | 27 x err:append__appending_to_the_store__the_store_was_busy_and_refused_the_append_before_writing_anything__SQLite_failed__database_is_locked__database_is_locked__Error_code_5__database_is_locked |
-| positions run 1..N with no gap | pass | N = 94903 |
-| every reported append is stored exactly once, and nothing else | pass | 91734 reported, 91734 stored, 0 missing, 0 duplicated, 0 stored but reported failed |
-| conditioned appends: one winner per subject | pass | 3169 won, 3129 lost, 3169 claims stored, 0 subjects claimed twice |
+| no open or write failed other than on a busy lock | pass |  |
+| no open or write refused on a busy lock past its timeout | **busy** | 26 x busy:append__appending_to_the_store__the_store_was_busy_and_refused_the_append_before_writing_anything__SQLite_failed__database_is_locked__database_is_locked__Error_code_5__database_is_locked |
+| positions run 1..N with no gap | pass | N = 27729 |
+| every reported append is stored exactly once, and nothing else | pass | 24410 reported, 24410 stored, 0 missing, 0 duplicated, 0 stored but reported failed, 0 unrecognised |
+| conditioned appends: one winner per subject | pass | 3319 won, 428 lost, 3319 claims stored, 0 subjects claimed twice |
 | TRUNCATE layout afterwards: empty -journal, no -wal or -shm, rollback header | pass | -journal 0 bytes, -wal false, -shm false, header versions Some([1, 1]) (1 = rollback, 2 = WAL) |
-| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 19206 polls: -journal present on 19206, missing after first seen on 0, -wal or -shm on 0 |
+| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 18859 polls: -journal present on 18859, missing after first seen on 0, -wal or -shm on 0 |
 | PRAGMA integrity_check | pass | ok |
 
-191 hook processes, 18314 command appends, 6298 claims; 94903 durable events (~3163/s). Telemetry: 146 written, 45 dropped on a busy lock.
+101 hook processes, 4867 command appends, 3747 claims; 27729 durable events (~924/s). Telemetry: 63 written, 38 dropped on a busy lock.
 
-Hook durable path (open + append) over 250 ms: 67, over 1 s: 47, over 2 s: 32.
+Long-lived writers that opened the store and ran: 4 of 4.
+
+Hook durable path (open + append) over 250 ms: 54, over 1 s: 38, over 2 s: 33.
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| hook open | 191 | 1.1 | 175.2 | 543.2 | 929.1 |
-| hook append | 191 | 8.7 | 2615.7 | 2720.9 | 2781.7 |
-| hook open + append | 191 | 23.0 | 2668.4 | 2856.7 | 2926.0 |
-| hook telemetry | 191 | 2.2 | 32.3 | 62.4 | 100.8 |
-| hook process, spawn to exit | 191 | 36.0 | 2687.0 | 2907.0 | 2961.8 |
-| command open | 4 | 428.1 | 809.4 | 809.4 | 809.4 |
-| command append (batch) | 18314 | 1.2 | 1.5 | 2.8 | 7440.2 |
-| conditioned claim | 6298 | 0.5 | 1.1 | 1.4 | 6822.1 |
+| hook open | 101 | 42.3 | 635.0 | 1149.0 | 1637.8 |
+| hook append | 101 | 162.9 | 2859.9 | 2918.8 | 3000.3 |
+| hook open + append | 101 | 310.9 | 3348.6 | 3995.5 | 4556.7 |
+| hook telemetry | 101 | 4.5 | 48.5 | 65.5 | 126.0 |
+| hook process, spawn to exit | 101 | 349.4 | 3375.8 | 4056.5 | 4564.4 |
+| command open | 4 | 324.4 | 1342.8 | 1342.8 | 1342.8 |
+| command append (batch) | 4867 | 3.4 | 6.4 | 19.4 | 7855.0 |
+| conditioned claim | 3747 | 2.5 | 3.9 | 18.3 | 9631.9 |
 
 ## hooks only: 8 hook lanes, no pauses (30 s)
 
 | Check | Result | Detail |
 |---|---|---|
 | every writer process reported every operation (none crashed) | pass |  |
-| every open and write succeeded, or lost a claim cleanly | pass |  |
-| positions run 1..N with no gap | pass | N = 3433 |
-| every reported append is stored exactly once, and nothing else | pass | 3433 reported, 3433 stored, 0 missing, 0 duplicated, 0 stored but reported failed |
+| no open or write failed other than on a busy lock | pass |  |
+| no open or write refused on a busy lock past its timeout | pass |  |
+| positions run 1..N with no gap | pass | N = 1859 |
+| every reported append is stored exactly once, and nothing else | pass | 1859 reported, 1859 stored, 0 missing, 0 duplicated, 0 stored but reported failed, 0 unrecognised |
 | conditioned appends: one winner per subject | pass | 0 won, 0 lost, 0 claims stored, 0 subjects claimed twice |
 | TRUNCATE layout afterwards: empty -journal, no -wal or -shm, rollback header | pass | -journal 0 bytes, -wal false, -shm false, header versions Some([1, 1]) (1 = rollback, 2 = WAL) |
-| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 16888 polls: -journal present on 16888, missing after first seen on 0, -wal or -shm on 0 |
+| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 16742 polls: -journal present on 16742, missing after first seen on 0, -wal or -shm on 0 |
 | PRAGMA integrity_check | pass | ok |
 
-3433 hook processes, 0 command appends, 0 claims; 3433 durable events (~114/s). Telemetry: 1548 written, 1885 dropped on a busy lock.
+1859 hook processes, 0 command appends, 0 claims; 1859 durable events (~61/s). Telemetry: 487 written, 1372 dropped on a busy lock.
 
-Hook durable path (open + append) over 250 ms: 88, over 1 s: 0, over 2 s: 0.
+Long-lived writers that opened the store and ran: 0 of 0.
+
+Hook durable path (open + append) over 250 ms: 192, over 1 s: 0, over 2 s: 0.
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| hook open | 3433 | 30.1 | 186.6 | 326.8 | 615.3 |
-| hook append | 3433 | 1.3 | 32.9 | 65.6 | 363.9 |
-| hook open + append | 3433 | 41.5 | 201.3 | 329.3 | 616.7 |
-| hook telemetry | 3433 | 0.1 | 24.5 | 42.0 | 76.6 |
-| hook process, spawn to exit | 3433 | 49.4 | 213.1 | 337.9 | 640.8 |
+| hook open | 1859 | 68.4 | 308.7 | 461.6 | 651.1 |
+| hook append | 1859 | 3.5 | 58.5 | 98.1 | 712.1 |
+| hook open + append | 1859 | 86.9 | 321.8 | 485.2 | 843.1 |
+| hook telemetry | 1859 | 0.1 | 41.5 | 60.3 | 94.4 |
+| hook process, spawn to exit | 1859 | 99.9 | 336.0 | 495.8 | 851.6 |
 | command open | 0 | - | - | - | - |
 | command append (batch) | 0 | - | - | - | - |
 | conditioned claim | 0 | - | - | - | - |
@@ -156,26 +171,29 @@ Hook durable path (open + append) over 250 ms: 88, over 1 s: 0, over 2 s: 0.
 | Check | Result | Detail |
 |---|---|---|
 | every writer process reported every operation (none crashed) | pass |  |
-| every open and write succeeded, or lost a claim cleanly | pass |  |
-| positions run 1..N with no gap | pass | N = 7283 |
-| every reported append is stored exactly once, and nothing else | pass | 6120 reported, 6120 stored, 0 missing, 0 duplicated, 0 stored but reported failed |
-| conditioned appends: one winner per subject | pass | 1163 won, 1163 lost, 1163 claims stored, 0 subjects claimed twice |
+| no open or write failed other than on a busy lock | pass |  |
+| no open or write refused on a busy lock past its timeout | pass |  |
+| positions run 1..N with no gap | pass | N = 4653 |
+| every reported append is stored exactly once, and nothing else | pass | 4020 reported, 4020 stored, 0 missing, 0 duplicated, 0 stored but reported failed, 0 unrecognised |
+| conditioned appends: one winner per subject | pass | 633 won, 589 lost, 633 claims stored, 0 subjects claimed twice |
 | TRUNCATE layout afterwards: empty -journal, no -wal or -shm, rollback header | pass | -journal 0 bytes, -wal false, -shm false, header versions Some([1, 1]) (1 = rollback, 2 = WAL) |
-| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 18948 polls: -journal present on 18948, missing after first seen on 0, -wal or -shm on 0 |
+| nothing deleted, and no -wal or -shm created, while the writers ran | pass | 16952 polls: -journal present on 16952, missing after first seen on 0, -wal or -shm on 0 |
 | PRAGMA integrity_check | pass | ok |
 
-1000 hook processes, 1024 command appends, 2326 claims; 7283 durable events (~242/s). Telemetry: 949 written, 51 dropped on a busy lock.
+720 hook processes, 660 command appends, 1222 claims; 4653 durable events (~155/s). Telemetry: 605 written, 115 dropped on a busy lock.
 
-Hook durable path (open + append) over 250 ms: 0, over 1 s: 0, over 2 s: 0.
+Long-lived writers that opened the store and ran: 4 of 4.
+
+Hook durable path (open + append) over 250 ms: 5, over 1 s: 0, over 2 s: 0.
 
 | Step (ms) | n | p50 | p95 | p99 | max |
 |---|---|---|---|---|---|
-| hook open | 1000 | 0.6 | 32.5 | 62.0 | 102.8 |
-| hook append | 1000 | 1.2 | 16.1 | 46.3 | 92.9 |
-| hook open + append | 1000 | 1.9 | 42.9 | 93.6 | 126.4 |
-| hook telemetry | 1000 | 2.1 | 27.0 | 44.8 | 59.4 |
-| hook process, spawn to exit | 1000 | 9.8 | 59.0 | 102.4 | 147.1 |
-| command open | 4 | 21.7 | 62.3 | 62.3 | 62.3 |
-| command append (batch) | 1024 | 1.4 | 45.6 | 76.0 | 107.9 |
-| conditioned claim | 2326 | 1.0 | 34.9 | 76.0 | 152.3 |
+| hook open | 720 | 5.1 | 83.0 | 127.8 | 210.0 |
+| hook append | 720 | 3.3 | 81.7 | 161.0 | 418.9 |
+| hook open + append | 720 | 22.2 | 137.2 | 234.5 | 491.9 |
+| hook telemetry | 720 | 4.6 | 60.5 | 77.5 | 92.6 |
+| hook process, spawn to exit | 720 | 52.8 | 170.6 | 249.4 | 525.6 |
+| command open | 4 | 22.0 | 91.8 | 91.8 | 91.8 |
+| command append (batch) | 660 | 23.4 | 147.1 | 205.1 | 312.9 |
+| conditioned claim | 1222 | 4.3 | 112.7 | 210.8 | 406.0 |
 
