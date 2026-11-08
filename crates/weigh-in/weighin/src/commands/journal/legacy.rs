@@ -2,6 +2,7 @@
 //! (`legacy_import`): `data.legacy` and `data.legacy_waiting` of `weighin.journal-import/1`
 //! (decision H6), its findings, and its part of the summary line.
 
+use redkiln_core::StoreId;
 use serde::Serialize;
 
 use crate::cli_envelope::{Finding, Severity};
@@ -11,10 +12,10 @@ use crate::legacy_import::{
 
 /// One 1.x source in `data.legacy`.
 #[derive(Serialize)]
-pub(super) struct LegacyData<'a> {
+pub(super) struct LegacyData {
     kind: &'static str,
     path: String,
-    store_id: Option<&'a str>,
+    store_id: Option<StoreId>,
     outcome: &'static str,
     read: u64,
     imported: u64,
@@ -23,7 +24,7 @@ pub(super) struct LegacyData<'a> {
 }
 
 /// `data.legacy`: each 1.x source the import looked at; empty when nothing was due.
-pub(super) fn data(legacy: &Legacy) -> Vec<LegacyData<'_>> {
+pub(super) fn data(legacy: &Legacy) -> Vec<LegacyData> {
     report(legacy).map_or_else(Vec::new, |report| {
         report.sources.iter().map(source_data).collect()
     })
@@ -72,7 +73,7 @@ fn report(legacy: &Legacy) -> Option<&LegacyReport> {
     }
 }
 
-fn source_data(source: &SourceRun) -> LegacyData<'_> {
+fn source_data(source: &SourceRun) -> LegacyData {
     let (outcome, counts) = match &source.outcome {
         SourceOutcome::Completed { report, .. } => ("completed", Some(report)),
         SourceOutcome::Stopped { report, .. } => ("stopped", Some(report)),
@@ -86,7 +87,7 @@ fn source_data(source: &SourceRun) -> LegacyData<'_> {
             SourceKind::Journal => "journal",
         },
         path: source.path.to_string_lossy().into_owned(),
-        store_id: source.store_id.as_deref(),
+        store_id: source.store_id,
         outcome,
         read: count(|r| r.read),
         imported: count(|r| r.imported),

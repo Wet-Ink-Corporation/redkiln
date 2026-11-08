@@ -97,7 +97,7 @@ fn legacy_records(events: &[Stored]) -> Vec<(String, String)> {
         .events
         .into_iter()
         .filter_map(|e| match e.data.source {
-            ImportSource::Legacy { path, store_id } => Some((path, store_id)),
+            ImportSource::Legacy { path, store_id } => Some((path, store_id.to_string())),
             _ => None,
         })
         .collect()

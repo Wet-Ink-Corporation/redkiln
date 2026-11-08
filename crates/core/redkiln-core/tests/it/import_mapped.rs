@@ -11,7 +11,7 @@ use redkiln_core::EventId;
 use redkiln_core::envelope::{
     Actor, Author, Class, Envelope, Payload, Timestamp, Writer, decode_all,
 };
-use redkiln_core::ids::{SessionId, parse_event_ref};
+use redkiln_core::ids::{SessionId, parse_event_ref, parse_store_id};
 use redkiln_core::journal::{
     ImportCompleted, ImportSource, LineError, Mapped, MappedImport, Recording, import,
     import_mapped,
@@ -19,7 +19,7 @@ use redkiln_core::journal::{
 use redkiln_core::store::{CoreKey, Filter, NewEvent, Store, Stored, Tag, Wait};
 use redkiln_core::trust::{Level, Trust, Via};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The first 32 hex of `sha256("weighin-1x-journal")`, the store id M1-A gives 1.x journal lines.
 const FOREIGN: &str = "8f161dc3d6d01eac2c7949e3b17ffa04";
@@ -87,7 +87,7 @@ fn recording(path: &str) -> Recording {
     Recording {
         source: ImportSource::Legacy {
             path: path.to_owned(),
-            store_id: FOREIGN.to_owned(),
+            store_id: parse_store_id(FOREIGN).expect("ID-01"),
         },
         ts: ts(),
         author: author(Trust::asserted()),
@@ -367,4 +367,27 @@ fn a_second_mapped_import_appends_only_its_record() {
         before.saturating_add(1),
         "its record only"
     );
+}
+
+#[test]
+fn a_legacy_source_reads_its_store_id_only_as_id_01_writes_it() {
+    let written = json!({"legacy": {"path": "/r/ledger.sqlite3", "store_id": FOREIGN}});
+    let source: ImportSource = serde_json::from_value(written.clone()).expect("ID-01's form");
+
+    assert_eq!(
+        serde_json::to_value(&source).expect("writes"),
+        written,
+        "written back as it was read"
+    );
+    for wrong in [
+        FOREIGN.to_uppercase(),
+        "8f161dc3-d6d0-1eac-2c79-49e3b17ffa04".to_owned(),
+        "not a store id".to_owned(),
+    ] {
+        let text = json!({"legacy": {"path": "/r/ledger.sqlite3", "store_id": wrong}});
+        assert!(
+            serde_json::from_value::<ImportSource>(text).is_err(),
+            "{wrong} is not a store id (review F5)"
+        );
+    }
 }

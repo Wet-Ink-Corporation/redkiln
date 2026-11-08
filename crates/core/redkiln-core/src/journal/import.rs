@@ -14,7 +14,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
-use happenstance_core::EventId;
+use happenstance_core::{EventId, StoreId};
 use serde::{Deserialize, Serialize};
 
 use super::line::{LineError, MAX_LINE_BYTES, ReadLine, read_line};
@@ -58,8 +58,8 @@ pub enum ImportSource {
     Legacy {
         /// The source's path, as the importer found it.
         path: String,
-        /// The store id, written as ID-01 says (32 lowercase hex).
-        store_id: String,
+        /// The store id, written as ID-01 says (32 lowercase hex) and read only in that form.
+        store_id: StoreId,
     },
 }
 

@@ -12,8 +12,8 @@
 use std::num::NonZeroU64;
 
 use anyhow::{Context as _, Result};
-use redkiln_core::EventId;
 use redkiln_core::ids::{Digest, parse_event_ref};
+use redkiln_core::{EventId, StoreId};
 use weighin_core::EventEnvelope;
 
 /// The text the journal store id is the sha256 of (M1-A).
@@ -21,8 +21,11 @@ use weighin_core::EventEnvelope;
 const JOURNAL_STORE_SEED: &[u8] = b"weighin-1x-journal";
 
 /// The first 32 hex of sha256("weighin-1x-journal"): the store id of every 1.x journal line no
-/// held event matches (M1-A). The tests recompute it from its seed.
-pub(crate) const JOURNAL_STORE: &str = "8f161dc3d6d01eac2c7949e3b17ffa04";
+/// held event matches (M1-A), `8f161dc3d6d01eac2c7949e3b17ffa04`. The tests recompute it from
+/// its seed.
+pub(crate) const JOURNAL_STORE: StoreId = StoreId::from_bytes([
+    0x8f, 0x16, 0x1d, 0xc3, 0xd6, 0xd0, 0x1e, 0xac, 0x2c, 0x79, 0x49, 0xe3, 0xb1, 0x7f, 0xfa, 0x04,
+]);
 
 /// 2^63 - 1: the largest position happenstance 0.4.5 stores, and the rule's modulus (H2).
 const MODULUS: NonZeroU64 = match NonZeroU64::new(0x7fff_ffff_ffff_ffff) {
@@ -99,7 +102,14 @@ mod tests {
     #[test]
     fn the_journal_store_id_is_the_first_32_hex_of_sha256_of_its_seed() {
         let digest = Digest::sha256(JOURNAL_STORE_SEED);
-        assert_eq!(digest.hex().get(..32), Some(JOURNAL_STORE));
+        assert_eq!(
+            digest.hex().get(..32),
+            Some(JOURNAL_STORE.to_string().as_str())
+        );
+        assert_eq!(
+            JOURNAL_STORE.to_string(),
+            "8f161dc3d6d01eac2c7949e3b17ffa04"
+        );
     }
 
     #[test]

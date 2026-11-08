@@ -22,6 +22,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result};
+use redkiln_core::StoreId;
 use redkiln_core::envelope::{Author, Payload as _, Timestamp, decode_all};
 use redkiln_core::journal::{ImportCompleted, ImportReport, ImportSource, MappedImport, Recording};
 use redkiln_core::store::Filter;
@@ -82,6 +83,19 @@ pub(crate) struct LegacyReport {
     pub(crate) left: usize,
 }
 
+impl LegacyReport {
+    /// Whether the run read a source into the store, whole or until its deadline: what spends a
+    /// hook's budget. A run that only found sources too large, unreadable or failing did not.
+    pub(crate) fn imported_a_source(&self) -> bool {
+        self.sources.iter().any(|source| {
+            matches!(
+                source.outcome,
+                SourceOutcome::Completed { .. } | SourceOutcome::Stopped { .. }
+            )
+        })
+    }
+}
+
 /// A 1.x ledger or a 1.x journal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceKind {
@@ -95,7 +109,7 @@ pub(crate) struct SourceRun {
     pub(crate) kind: SourceKind,
     pub(crate) path: PathBuf,
     /// The ledger's store id, or [`JOURNAL_STORE`]; `None` for a ledger that could not be read.
-    pub(crate) store_id: Option<String>,
+    pub(crate) store_id: Option<StoreId>,
     pub(crate) outcome: SourceOutcome,
 }
 
@@ -228,6 +242,17 @@ impl Run<'_> {
                 return Ok(());
             }
         }
+        if journals.is_empty() {
+            return Ok(());
+        }
+        // A hook past its deadline reads no more: not even the store's events (review F3).
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            report.waiting = Some(Waiting::Deadline);
+            return Ok(());
+        }
         // After every ledger, so this run's ledger events are among those a line can equal.
         let held = self.store.held()?;
         for path in journals {
@@ -243,12 +268,12 @@ impl Run<'_> {
     }
 
     /// How the source at `path`, whose events take `store_id`, is imported and recorded.
-    fn import(&self, path: &Path, store_id: &str) -> Import {
+    fn import(&self, path: &Path, store_id: StoreId) -> Import {
         Import {
             recording: Recording {
                 source: ImportSource::Legacy {
                     path: path.to_string_lossy().into_owned(),
-                    store_id: store_id.to_owned(),
+                    store_id,
                 },
                 // Each record owns its time and author: a few short words per source.
                 ts: self.ts.clone(),
@@ -273,10 +298,10 @@ impl Run<'_> {
                 return source(None, SourceOutcome::Failed(e));
             }
         };
-        let store_id = ledger.store_id.to_string();
+        let store_id = ledger.store_id;
         let imported = self
             .store
-            .import_ledger(&ledger.events, self.import(path, &store_id));
+            .import_ledger(&ledger.events, self.import(path, store_id));
         source(Some(store_id), outcome(imported, path))
     }
 
@@ -294,7 +319,7 @@ impl Run<'_> {
         SourceRun {
             kind: SourceKind::Journal,
             path: path.to_path_buf(),
-            store_id: Some(JOURNAL_STORE.to_owned()),
+            store_id: Some(JOURNAL_STORE),
             outcome,
         }
     }

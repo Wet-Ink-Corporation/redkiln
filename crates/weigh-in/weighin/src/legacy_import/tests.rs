@@ -171,7 +171,7 @@ fn a_record_ingested_from_another_store_does_not_mark_a_source_done() {
     let elsewhere = ImportCompleted {
         source: ImportSource::Legacy {
             path: path.to_string_lossy().into_owned(),
-            store_id: JOURNAL_STORE.to_owned(),
+            store_id: JOURNAL_STORE,
         },
         read: 1,
         imported: 1,
@@ -341,4 +341,27 @@ fn the_hook_past_its_deadline_records_nothing_and_the_next_run_finishes() {
     let count = u64::try_from(events).expect("fits");
     assert_eq!(counts(source), (count, count, 0, 0));
     assert_eq!(records(&env).len(), 1);
+}
+
+#[test]
+fn the_hook_past_its_deadline_reads_no_journal_and_leaves_them_waiting() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    write_journal(dir.path(), "a.jsonl", &[OWN_LINE]);
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    assert!(
+        report.sources.is_empty(),
+        "the store's events are not read for a journal past the deadline (review F3): {:?}",
+        report.sources
+    );
+    assert_eq!(report.waiting, Some(Waiting::Deadline));
+    assert!(!report.imported_a_source(), "no budget spent on a source");
+    assert_eq!(records(&env), Vec::new());
 }

@@ -384,7 +384,7 @@ struct ImportData<'a> {
     /// The 1.x sources the one-time import looked at first (decision H6); left out when there
     /// were none, so a repository with no 1.x source keeps the envelope it had.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    legacy: Vec<legacy::LegacyData<'a>>,
+    legacy: Vec<legacy::LegacyData>,
     /// Why the rest of the 1.x import waits; left out when nothing waits.
     #[serde(skip_serializing_if = "Option::is_none")]
     legacy_waiting: Option<&'static str>,

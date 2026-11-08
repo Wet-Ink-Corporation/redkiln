@@ -1,8 +1,9 @@
 use std::num::NonZeroUsize;
 use std::path::Path;
 
+use redkiln_core::StoreId;
 use redkiln_core::envelope::Timestamp;
-use redkiln_core::ids::parse_event_ref;
+use redkiln_core::ids::{parse_event_ref, parse_store_id};
 use redkiln_core::journal::{ImportReport, ImportSource};
 use redkiln_core::legacy::{LegacyLedger, read_ledger};
 use redkiln_core::store::Wait;
@@ -35,12 +36,12 @@ fn ledger(name: &str) -> LegacyLedger {
 }
 
 /// An import with no deadline, recorded as from `path` under `store_id`.
-fn recording(store: &Store, path: &str, store_id: &str) -> Import {
+fn recording(store: &Store, path: &str, store_id: StoreId) -> Import {
     Import {
         recording: Recording {
             source: ImportSource::Legacy {
                 path: path.to_owned(),
-                store_id: store_id.to_owned(),
+                store_id,
             },
             ts: Timestamp::parse("2026-11-08T10:00:00Z").expect("valid"),
             author: store.author("cli").expect("an author"),
@@ -111,11 +112,10 @@ fn content_id(line: &str) -> EventId {
 fn a_ledgers_events_keep_their_store_id_and_position_as_weighin_types() {
     let (_dir, store) = store();
     let old = ledger("weighin-1.2.0.sqlite3");
-    let store_id = old.store_id.to_string();
 
     let (report, problems) = completed(
         store
-            .import_ledger(&old.events, recording(&store, "ledger", &store_id))
+            .import_ledger(&old.events, recording(&store, "ledger", old.store_id))
             .expect("imported"),
     );
 
@@ -149,7 +149,10 @@ fn a_ledger_event_core_refuses_is_skipped_as_malformed_not_fatal() {
 
     let (report, problems) = completed(
         store
-            .import_ledger(&events, recording(&store, "ledger", at))
+            .import_ledger(
+                &events,
+                recording(&store, "ledger", parse_store_id(at).expect("ID-01")),
+            )
             .expect("imported"),
     );
 
@@ -168,7 +171,10 @@ fn a_journal_line_equal_to_a_held_event_takes_its_identity_and_adds_nothing() {
     let events = [stored_at(&format!("{at}:5"), RAISED)];
     let _ledger = completed(
         store
-            .import_ledger(&events, recording(&store, "ledger", at))
+            .import_ledger(
+                &events,
+                recording(&store, "ledger", parse_store_id(at).expect("ID-01")),
+            )
             .expect("imported"),
     );
     let held = store.held().expect("held");
@@ -193,10 +199,7 @@ fn a_journal_line_matching_nothing_takes_the_content_identity() {
     assert_eq!((report.read, report.imported), (1, 1));
     let ids: Vec<_> = weighin_events(&store).iter().map(|s| s.id).collect();
     assert_eq!(ids, [content_id(PRESENTED)]);
-    assert_eq!(
-        ids.first().map(|id| id.store().to_string()),
-        Some(JOURNAL_STORE.to_owned())
-    );
+    assert_eq!(ids.first().map(|id| id.store()), Some(JOURNAL_STORE));
 }
 
 #[test]
@@ -267,7 +270,10 @@ fn a_line_differing_only_in_worktree_from_a_ledger_event_adds_nothing() {
     let events = [stored_at(&format!("{at}:1"), PRESENTED)];
     let _ledger = completed(
         store
-            .import_ledger(&events, recording(&store, "ledger", at))
+            .import_ledger(
+                &events,
+                recording(&store, "ledger", parse_store_id(at).expect("ID-01")),
+            )
             .expect("imported"),
     );
     let elsewhere = PRESENTED.replace(r#""worktree":"repo""#, r#""worktree":"other-checkout""#);

@@ -167,12 +167,13 @@ impl Hook {
                     .and_then(Value::as_str)
                     .unwrap_or("startup");
                 // The imports come first, so the items they bring count in the prime. When the
-                // 1.x import ran, the journal refs wait for the next session or command, so the
-                // hook keeps to its budget (decision H12).
-                let notes = match self.legacy() {
-                    Some(notes) => notes,
-                    None => self.imported(),
-                };
+                // 1.x import read a source, the journal refs wait for the next session or
+                // command, so the hook keeps to its budget (decision H12); a run that read none
+                // holds them back no session (review F1).
+                let (mut notes, spent) = self.legacy();
+                if !spent {
+                    notes.extend(self.imported());
+                }
                 return session_start(env, source, notes);
             }
             "Stop" => self.checkpointed(capture(env, payload)),
@@ -248,31 +249,33 @@ impl Hook {
     }
 
     /// `SessionStart`'s one-time import of the weighin 1.x sources inside its budget
-    /// (`legacy_import`, ST-15), and what the user should hear of it; `None` when it did not run
-    /// (nothing due, or it failed). Each record it skipped is logged, and a failure is logged
-    /// except a store that cannot be located or opened, which `session_start` tells or logs
-    /// itself. A run past the session start's worst case is logged.
-    fn legacy(&self) -> Option<Vec<String>> {
+    /// (`legacy_import`, ST-15), what the user should hear of it, and whether it spent the
+    /// session start's budget importing a source ([`legacy_import::LegacyReport::imported_a_source`]). Each
+    /// record it skipped is logged, and a failure is logged except a store that cannot be
+    /// located or opened, which `session_start` tells or logs itself. A run past the session
+    /// start's worst case is logged.
+    fn legacy(&self) -> (Vec<String>, bool) {
         let mode = legacy_import::Mode::Hook {
             started: self.started,
         };
-        let notes = match legacy_import::import_due(&self.env, mode, "hook") {
-            Ok(Legacy::NothingDue) => return None,
+        let (notes, spent) = match legacy_import::import_due(&self.env, mode, "hook") {
+            Ok(Legacy::NothingDue) => return (Vec::new(), false),
             Ok(Legacy::Ran(report)) => {
                 for line in legacy_import::problem_lines(&report) {
                     self.log(&anyhow::anyhow!("{line}"));
                 }
-                legacy_import::notes(&report)
+                let notes = legacy_import::notes(&report)
                     .into_iter()
                     .map(|note| format!("Weigh-In: {note}."))
-                    .collect()
+                    .collect();
+                (notes, report.imported_a_source())
             }
             Err(e) => {
                 let unopened = e.downcast_ref::<legacy_import::StoreUnopened>().is_some();
                 if self.env.store.is_ok() && !unopened {
                     self.log(&e);
                 }
-                return None;
+                return (Vec::new(), false);
             }
         };
         let took = self.started.elapsed();
@@ -284,7 +287,7 @@ impl Hook {
                  budget's worst case of {worst:?}"
             ));
         }
-        Some(notes)
+        (notes, spent)
     }
 
     /// `SessionStart`'s import of the journal sources inside its budget (JR-10, D10), and what

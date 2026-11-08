@@ -192,3 +192,23 @@ fn a_store_that_cannot_be_opened_is_logged_once_by_session_start() -> TestResult
     assert_eq!(lines.len(), 1, "the prime's failure only: {lines:?}");
     Ok(())
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_1x_journal_too_large_for_the_hook_does_not_hold_back_the_journal_refs() -> TestResult {
+    let (_exporter, remote) = exporting()?;
+    let reader = other_clone(&remote, true)?;
+    // A 1.x journal past what SessionStart imports: the hook leaves it for a command, every
+    // session, having opened no source (review F1). A sparse file: its length is what counts.
+    let dir = reader.root.join(".kb/_ledger/journal");
+    std::fs::create_dir_all(&dir)?;
+    std::fs::File::create(dir.join("old.jsonl"))?.set_len(9 * 1024 * 1024)?;
+
+    let (_message, context) = started(&reader, "b")?;
+
+    assert!(
+        context.contains("1 open in repo"),
+        "the journal ref was imported all the same: {context}"
+    );
+    Ok(())
+}
