@@ -11,13 +11,14 @@ cold build, and runs:
 target/debug/weighin journal relay --json "$GITHUB_REF_NAME"
 ```
 
-It merges the inbox file into `refs/redkiln/journal/<session>` by `origin` (JR-05) and deletes
-the branch under a lease. Ryan approved the file under D8 A (build `weighin` from the default
-branch on every run, estimated at 3 to 6 Actions minutes per inbox push; the first real run took 31 s, 16 s of it the build) and D13 (`GITHUB_TOKEN` with
-`contents: write` only, no secret). Every run is a cold build: the cache restore D8 A named could
-never hit, since a cache key holds the job's name and environment, which `ci.yml`'s jobs do not
-share, so the step was dropped (an agent call, 2026-11-08). D8 B, sharing `ci.yml`'s cache
-through a common key, stays open for the owner if the minutes matter.
+It merges the inbox file into `refs/redkiln/journal/<session>` by `origin` (JR-05) and deletes the
+branch under a lease. Ryan approved the file under D8 A (build `weighin` from the default branch on
+every run, about 3 to 6 Actions minutes per inbox push; the first real run took 31 s, 16 s of it the
+build) and D13 (`GITHUB_TOKEN` with `contents: write` only, no secret). Every run is a cold build:
+the cache restore D8 A named could never hit, since a cache key holds the job's name and
+environment, which `ci.yml`'s jobs do not share, so the step was dropped (an agent call,
+2026-11-08). D8 B, sharing `ci.yml`'s cache through a common key, stays open for the owner if the
+minutes matter.
 
 Because it builds `weighin` from source, the workflow works only in a repository that holds the
 `weighin` crate: this one. D8 C, a released binary fetched by digest once `rk-weigh-in` 2.0.0 is
