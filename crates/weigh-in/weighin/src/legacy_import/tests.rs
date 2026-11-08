@@ -456,6 +456,94 @@ fn a_late_hook_still_tells_a_journal_over_the_cap() {
 }
 
 #[test]
+fn a_late_hook_reports_a_settled_journal_and_leaves_an_importable_one_waiting() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    write_journal(dir.path(), "a.jsonl", &[OWN_LINE]);
+    let big = sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    let [source] = report.sources.as_slice() else {
+        panic!("only the settled journal: {:?}", report.sources);
+    };
+    assert_eq!(source.path, big);
+    assert!(
+        matches!(source.outcome, SourceOutcome::TooLarge { .. }),
+        "{source:?}"
+    );
+    assert_eq!(report.waiting, Some(Waiting::Deadline));
+    let told = notes(&report);
+    assert!(
+        told.iter()
+            .any(|n| n.contains("big.jsonl") && n.contains("not imported")),
+        "{told:?}"
+    );
+    assert_eq!(records(&env), Vec::new(), "nothing recorded");
+}
+
+/// A report of one source that failed, decided as `decided` says.
+fn failed(kind: SourceKind, decided: Decided, waiting: Option<Waiting>) -> LegacyReport {
+    LegacyReport {
+        sources: vec![SourceRun {
+            kind,
+            path: PathBuf::from("/old/source"),
+            store_id: None,
+            outcome: SourceOutcome::Failed(anyhow::anyhow!("disk error")),
+            decided,
+        }],
+        waiting,
+        left: 0,
+        fits_hook: true,
+    }
+}
+
+#[test]
+fn a_command_tells_a_journal_that_failed_while_importing() {
+    let report = failed(SourceKind::Journal, Decided::ByImport, None);
+
+    let told = command_notes(&report);
+
+    assert_eq!(
+        told,
+        notes(&report),
+        "an import-time failure is told (review round 3 F2)"
+    );
+    assert!(
+        told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_command_tells_a_ledger_that_failed_while_importing_and_what_it_holds_back() {
+    let report = failed(SourceKind::Ledger, Decided::ByImport, Some(Waiting::Ledger));
+
+    let told = command_notes(&report);
+
+    assert_eq!(told, notes(&report));
+    assert!(told.iter().any(|n| n.contains("wait until")), "{told:?}");
+}
+
+#[test]
+fn a_command_leaves_out_a_source_that_failed_before_importing() {
+    let ledger = failed(
+        SourceKind::Ledger,
+        Decided::BeforeImport,
+        Some(Waiting::Ledger),
+    );
+    let journal = failed(SourceKind::Journal, Decided::BeforeImport, None);
+
+    assert_eq!(command_notes(&ledger), Vec::<String>::new());
+    assert_eq!(command_notes(&journal), Vec::<String>::new());
+}
+
+#[test]
 fn a_command_leaves_out_the_journals_a_failing_ledger_holds_back_past_the_file_cap() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");

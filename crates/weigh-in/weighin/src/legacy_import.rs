@@ -120,6 +120,17 @@ pub(crate) struct SourceRun {
     /// The ledger's store id, or [`JOURNAL_STORE`]; `None` for a ledger that could not be read.
     pub(crate) store_id: Option<StoreId>,
     pub(crate) outcome: SourceOutcome,
+    /// When its outcome was decided.
+    pub(crate) decided: Decided,
+}
+
+/// When a source's outcome was decided: before its import, by what the file is (over the cap,
+/// not openable, a ledger Core cannot read), which stays so until the file changes; or by the
+/// import itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Decided {
+    BeforeImport,
+    ByImport,
 }
 
 /// What became of one source.
@@ -315,24 +326,25 @@ impl Run<'_> {
 
     /// The 1.x ledger at `path`, read from Core's copy (ST-15).
     fn ledger(&self, path: &Path) -> SourceRun {
-        let source = |store_id, outcome| SourceRun {
+        let source = |store_id, outcome, decided| SourceRun {
             kind: SourceKind::Ledger,
             path: path.to_path_buf(),
             store_id,
             outcome,
+            decided,
         };
         let ledger = match redkiln_core::legacy::read_ledger(path) {
             Ok(ledger) => ledger,
             Err(e) => {
                 let e = anyhow::Error::new(e).context(format!("reading {}", path.display()));
-                return source(None, SourceOutcome::Failed(e));
+                return source(None, SourceOutcome::Failed(e), Decided::BeforeImport);
             }
         };
         let store_id = ledger.store_id;
         let imported = self
             .store
             .import_ledger(&ledger.events, self.import(path, store_id));
-        source(Some(store_id), outcome(imported, path))
+        source(Some(store_id), outcome(imported, path), Decided::ByImport)
     }
 
     /// The 1.x journal at `path`, opened read-only.
@@ -351,6 +363,7 @@ impl Run<'_> {
             path: path.to_path_buf(),
             store_id: Some(JOURNAL_STORE),
             outcome,
+            decided: Decided::ByImport,
         }
     }
 }

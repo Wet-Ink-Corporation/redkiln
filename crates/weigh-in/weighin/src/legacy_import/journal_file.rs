@@ -7,7 +7,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use super::{JOURNAL_STORE, MAX_JOURNAL_FILE_BYTES, SourceKind, SourceOutcome, SourceRun};
+use super::{Decided, JOURNAL_STORE, MAX_JOURNAL_FILE_BYTES, SourceKind, SourceOutcome, SourceRun};
 
 /// A due journal as checked before the store's events are read.
 pub(super) enum Checked<'p> {
@@ -31,8 +31,11 @@ impl Checked<'_> {
 /// failing; else due.
 pub(super) fn check(path: &Path) -> Checked<'_> {
     let measured = File::open(path)
-        .and_then(|file| file.metadata())
-        .with_context(|| format!("opening {}", path.display()));
+        .with_context(|| format!("opening {}", path.display()))
+        .and_then(|file| {
+            file.metadata()
+                .with_context(|| format!("measuring {}", path.display()))
+        });
     let outcome = match measured {
         Ok(meta) if meta.len() > MAX_JOURNAL_FILE_BYTES => {
             SourceOutcome::TooLarge { bytes: meta.len() }
@@ -45,6 +48,7 @@ pub(super) fn check(path: &Path) -> Checked<'_> {
         path: path.to_path_buf(),
         store_id: Some(JOURNAL_STORE),
         outcome,
+        decided: Decided::BeforeImport,
     })
 }
 

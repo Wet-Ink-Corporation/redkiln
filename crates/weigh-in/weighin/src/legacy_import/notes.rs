@@ -2,8 +2,8 @@
 //! the hook error log.
 
 use super::{
-    LegacyReport, MAX_JOURNAL_FILE_BYTES, MAX_JOURNAL_FILES, SourceKind, SourceOutcome, SourceRun,
-    Waiting,
+    Decided, LegacyReport, MAX_JOURNAL_FILE_BYTES, MAX_JOURNAL_FILES, SourceKind, SourceOutcome,
+    SourceRun, Waiting,
 };
 
 /// One line for the user per thing they should hear: a ledger imported once, records skipped, a
@@ -24,8 +24,8 @@ pub(crate) fn command_notes(report: &LegacyReport) -> Vec<String> {
     told(report, Standing::Left)
 }
 
-/// Whether the notes tell of a source that stays due: one over the journal cap, one that could
-/// not be read or imported, and the journals a ledger that did not import holds back.
+/// Whether the notes tell of a source that stays due ([`stays_due`]), and of the journals such
+/// a ledger holds back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Standing {
     Told,
@@ -36,14 +36,15 @@ enum Standing {
 fn told(report: &LegacyReport, standing: Standing) -> Vec<String> {
     // A session start that cannot reach the sources tells none of them: then a command does.
     let leave = standing == Standing::Left && report.fits_hook;
-    let held_back = report.waiting == Some(Waiting::Ledger);
+    // Held back by a ledger whose failure stays until the file changes.
+    let held_back = report.waiting == Some(Waiting::Ledger)
+        && report
+            .sources
+            .iter()
+            .any(|s| s.kind == SourceKind::Ledger && stays_due(s));
     let mut notes = Vec::new();
     for source in &report.sources {
-        let stays_due = matches!(
-            source.outcome,
-            SourceOutcome::TooLarge { .. } | SourceOutcome::Failed(_)
-        );
-        if stays_due && leave {
+        if stays_due(source) && leave {
             continue;
         }
         match &source.outcome {
@@ -88,6 +89,17 @@ fn told(report: &LegacyReport, standing: Standing) -> Vec<String> {
         notes.extend(report.waiting.map(waiting));
     }
     notes
+}
+
+/// Whether `source` stays due until its file changes: over the cap, or failed before its import
+/// (not openable, a ledger Core cannot read). A failure of the import itself may pass, so a
+/// command tells it (review round 3 F2).
+fn stays_due(source: &SourceRun) -> bool {
+    match source.outcome {
+        SourceOutcome::TooLarge { .. } => true,
+        SourceOutcome::Failed(_) => source.decided == Decided::BeforeImport,
+        SourceOutcome::Completed { .. } | SourceOutcome::Stopped { .. } => false,
+    }
 }
 
 /// Each record skipped as malformed, one line each, naming its source and where in it: for the
