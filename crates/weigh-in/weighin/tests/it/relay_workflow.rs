@@ -47,8 +47,17 @@ fn the_relay_runs_on_inbox_pushes_with_contents_write_only() -> TestResult {
 
     assert_eq!(
         block(&text, "on:"),
-        ["  push:", "    branches: ['redkiln/inbox/**']"],
-        "inbox pushes only"
+        ["  push:", "    branches: ['redkiln/inbox/*']"],
+        "inbox pushes only: `*` matches no `/`, so a nested name starts no run"
+    );
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    assert!(
+        lines.contains(&"ref: ${{ github.event.repository.default_branch }}"),
+        "the checkout builds the default branch, never the inbox commit"
+    );
+    assert!(
+        lines.contains(&"if: ${{ !github.event.deleted }}"),
+        "a deleted branch starts no relay"
     );
     assert_eq!(block(&text, "permissions:"), ["  contents: write"]);
     assert_eq!(

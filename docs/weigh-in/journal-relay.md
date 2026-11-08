@@ -3,8 +3,9 @@
 `.github/workflows/redkiln-journal-relay.yml` moves the inbox branches of Claude Code cloud
 sessions into their journal refs (SPEC JR-07). A cloud session's proxy refuses
 `refs/redkiln/journal/*`, so its Stop hook pushes `redkiln/inbox/<session>` instead, a branch
-whose one commit adds `.redkiln/inbox/<session>.jsonl`. The workflow runs on each such push,
-builds `weighin` from the default branch, and runs:
+whose one commit adds `.redkiln/inbox/<session>.jsonl`. The workflow runs on each such push
+(`redkiln/inbox/*`: a nested name starts no run), builds `weighin` from the default branch in a
+cold build, and runs:
 
 ```sh
 target/debug/weighin journal relay --json "$GITHUB_REF_NAME"
@@ -12,9 +13,11 @@ target/debug/weighin journal relay --json "$GITHUB_REF_NAME"
 
 It merges the inbox file into `refs/redkiln/journal/<session>` by `origin` (JR-05) and deletes
 the branch under a lease. Ryan approved the file under D8 A (build `weighin` from the default
-branch on every run, restoring the Rust cache but never saving it; about 3 to 6 Actions minutes
-per inbox push, coalesced per branch) and D13 (the file as drafted: `GITHUB_TOKEN` with
-`contents: write` only, no secret).
+branch on every run, about 3 to 6 Actions minutes per inbox push) and D13 (`GITHUB_TOKEN` with
+`contents: write` only, no secret). Every run is a cold build: the cache restore D8 A named could
+never hit, since a cache key holds the job's name and environment, which `ci.yml`'s jobs do not
+share, so the step was dropped (an agent call, 2026-11-08). D8 B, sharing `ci.yml`'s cache
+through a common key, stays open for the owner if the minutes matter.
 
 Because it builds `weighin` from source, the workflow works only in a repository that holds the
 `weighin` crate: this one. D8 C, a released binary fetched by digest once `rk-weigh-in` 2.0.0 is
@@ -35,17 +38,20 @@ says what happened.
 | `broken` | 1 | The journal ref breaks JR-05 | Move it aside to `refs/redkiln/broken/<session>/<sha>` (JR-05), then rerun |
 | `refused`, `too-large` | 1 | The inbox commit is not one the relay moves, or merging it would make the journal too large | Read the finding; import by hand (`weighin journal import`) or delete the branch |
 
-Exit 2, 70 or 74 is usage, could not run, or output failed (SPEC CLI-05): read the log and rerun.
+Exit 2 means the branch name is not an inbox: `redkiln/inbox/` and a valid journal name
+(`NotInbox`). Delete the branch; rerunning never helps. Exit 70 or 74 is could not run, or output
+failed (SPEC CLI-05): read the log and rerun.
 
 An inbox left in place is not lost: `weighin journal import` also reads inbox branches not yet
 relayed (SPEC JR-07, "Readers"), and the next push to the branch starts another run.
 
 ## Behaviour to know
 
-- The relay's own pushes use `GITHUB_TOKEN`, which starts no workflow, so it never triggers
-  itself; its branch delete is skipped by the job's `if`.
-- Runs for one branch queue and never cancel each other (`concurrency` on the ref,
-  `cancel-in-progress: false`), so a second push waits for the first relay.
+- The relay's own pushes and deletes use `GITHUB_TOKEN`, which starts no workflow, so it never
+  triggers itself. The job's `if` only guards a branch deleted by anyone else.
+- A branch has at most one running and one pending run (`concurrency` on the ref,
+  `cancel-in-progress: false`); a newer push replaces the pending one. Nothing is lost: a run
+  relays the branch tip it reads when it starts.
 - `actions/checkout` leaves `GITHUB_TOKEN` in the clone's local git config, which Core's git
   reads: Core drops only the `GIT_DIR` family and command-line config from git's environment.
 
