@@ -55,6 +55,12 @@ anyhow = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 tempfile = "3"
 
+# Test-only: validates the SPEC's golden fixtures against their JSON Schemas (Move 1 step 3,
+# #18). Default features off: no HTTP, TLS or file resolution; every schema is read from
+# spec/schemas/ and handed over as a value. A dev-dependency only, never a normal one
+# (Ryan, 2026-11-08, docs/decisions.md).
+jsonschema = { version = "0.58.6", default-features = false }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"                                  # H-01
 missing_docs = "warn"                                   # H-15 / API-15

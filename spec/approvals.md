@@ -29,7 +29,7 @@ Core holds one approval record, so that an approval given in one plugin can answ
 The time is the envelope's `ts`, and the decider's trust is the envelope's `trust` ([trust.md](trust.md)). The event carries the tags `subject:<method>:<hash>` and, when `request` is set, `item:<id>`.
 
 ```json
-{"type":"core.approval_recorded","version":1,"ts":"2026-11-02T10:04:00Z","actor":"human:ryan","trust":{"level":"witnessed","via":"ask-user-question","ref":"toolu_01AbC"},"writer":{"binary":"bench","version":"0.1.0","spec":"1.0.0"},"session":"4c1d…","worktree":"wt-5d41402abc4b","data":{"subject":{"kind":"plan","method":"sha256","hash":"sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08","locator":"docs/plans/retention.md"},"verdict":"approved","scope":"repository","gates":["bench.plan","loop.planning"],"decider":"human:ryan"}}
+{"type":"core.approval_recorded","version":1,"ts":"2026-11-02T10:04:00Z","actor":"human:ryan","trust":{"level":"witnessed","via":"ask-user-question","ref":"toolu_01AbC"},"writer":{"binary":"bench","version":"0.1.0","spec":"1.0.0"},"session":"4c1d8f2e-6b3a-4f7c-9d2e-1a5b7c3d9e0f","worktree":"wt-5d41402abc4b","data":{"subject":{"kind":"plan","method":"sha256","hash":"sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08","locator":"docs/plans/retention.md"},"verdict":"approved","scope":"repository","gates":["bench.plan","loop.planning"],"decider":"human:ryan"}}
 ```
 
 ## Using one

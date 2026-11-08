@@ -50,7 +50,8 @@ struct LineTags {
 /// The caller tags the line `text` carries; none when it has no `tags` key.
 ///
 /// # Errors
-/// [`LineError::Envelope`] when `tags` is not a list of strings; [`LineError::TooManyTags`] past
+/// [`LineError::Envelope`] when `tags` is not a list of strings sorted, each once (JR-02: not
+/// such a list is malformed, JR-10); [`LineError::TooManyTags`] past
 /// [`MAX_LINE_TAGS`]; [`LineError::CallerTag`] for a tag that is not `key:value`, names a key
 /// Core sets (a line never sets its own trust), or a registered key with a value not its kind.
 pub(crate) fn read(text: &[u8]) -> Result<Vec<Tag>, LineError> {
@@ -59,6 +60,12 @@ pub(crate) fn read(text: &[u8]) -> Result<Vec<Tag>, LineError> {
     let tags = tags.unwrap_or_default();
     if tags.len() > MAX_LINE_TAGS {
         return Err(LineError::TooManyTags { count: tags.len() });
+    }
+    // JR-02: sorted, each once, as `member` writes them; strictly increasing says both.
+    if !tags.is_sorted_by(|a, b| a < b) {
+        return Err(LineError::Envelope(crate::envelope::Unusable::Json(
+            serde::de::Error::custom("a line's tags are sorted, each once"),
+        )));
     }
     tags.iter()
         .map(|text| {
@@ -126,6 +133,46 @@ mod tests {
         let read = read(br#"{"tags":["item:wi-3fa9c01b2e","later.key:v"]}"#).expect("read");
         let read: Vec<&str> = read.iter().map(Tag::as_str).collect();
         assert_eq!(read, ["item:wi-3fa9c01b2e", "later.key:v"]);
+    }
+
+    #[test]
+    fn a_line_whose_tags_are_not_sorted_each_once_is_malformed() {
+        for bad in [
+            &br#"{"tags":["weighin.channel:request","item:wi-3fa9c01b2e"]}"#[..],
+            br#"{"tags":["item:wi-3fa9c01b2e","item:wi-3fa9c01b2e"]}"#,
+            br#"{"tags":["task:b","task:a","task:c"]}"#,
+        ] {
+            assert!(
+                matches!(read(bad), Err(LineError::Envelope(_))),
+                "JR-02: {}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        let sorted = read(br#"{"tags":["task:a","task:b","task:c"]}"#).expect("sorted");
+        assert_eq!(sorted.len(), 3);
+    }
+
+    #[test]
+    fn what_a_line_writes_reads_back() {
+        let stored = [
+            tag("weighin.channel:chat"),
+            tag("task:b"),
+            tag("item:wi-3fa9c01b2e"),
+            tag("task:b"),
+        ];
+        let written = member(&stored).expect("written").expect("tags");
+        let mut line = b"{".to_vec();
+        line.extend_from_slice(&written);
+        line.push(b'}');
+        let read: Vec<String> = read(&line)
+            .expect("read")
+            .iter()
+            .map(|t| t.as_str().to_owned())
+            .collect();
+        assert_eq!(
+            read,
+            ["item:wi-3fa9c01b2e", "task:b", "weighin.channel:chat"]
+        );
     }
 
     #[test]

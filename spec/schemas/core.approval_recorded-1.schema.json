@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:core.approval_recorded:1",
+  "title": "The data of core.approval_recorded, version 1 (SPEC AP-01)",
+  "type": "object",
+  "required": [
+    "subject",
+    "verdict",
+    "decider"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "verdict": {
+      "enum": [
+        "approved",
+        "rejected",
+        "withdrawn"
+      ]
+    },
+    "scope": {
+      "description": "Absent reads as repository.",
+      "enum": [
+        "worktree",
+        "branch",
+        "repository"
+      ]
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+      }
+    },
+    "decider": {
+      "type": "string",
+      "pattern": "^(github|human):[^\\s\\x00-\\x1f\\x7f-\\x9f]+$"
+    },
+    "expires": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    },
+    "request": {
+      "description": "ID-04: a wi- item id.",
+      "type": "string",
+      "pattern": "^wi-[0-9a-f]{6,16}$"
+    }
+  },
+  "$defs": {
+    "subject": {
+      "description": "AP-01: what was approved, bound to the hash of its subject by a method of ID-09. Copied into decision-request-1.",
+      "type": "object",
+      "required": [
+        "kind",
+        "method",
+        "hash",
+        "locator"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^(plan|spec|design|brief|change|pull_request|dependency|lint_exception|test_removal|(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.[a-z][a-z0-9_]*)$"
+        },
+        "method": {
+          "enum": [
+            "sha256",
+            "git-commit",
+            "git-tree",
+            "patch-id",
+            "rust-fingerprint"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+          "description": "AP-01: a worktree-relative path, pr:<number>, or a commit."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "sha256"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "git-commit"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^git-commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "git-tree"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^git-tree:([0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "patch-id"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^patch-id:([0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "rust-fingerprint"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^rust-fingerprint:[0-9a-f]+$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Redkiln Core SPEC
 
-The SPEC is the part of Redkiln Core that is text: the formats every Redkiln binary reads and writes, so that the suite's shared data means the same thing whichever plugin wrote it. `redkiln-core` is the code that implements it, and the conformance kit is the code that checks it. Neither exists yet. Move 1 (Weigh-In) gives this text its first code.
+The SPEC is the part of Redkiln Core that is text: the formats every Redkiln binary reads and writes, so that the suite's shared data means the same thing whichever plugin wrote it. `redkiln-core` is the code that implements it, and the golden fixtures and schemas under [fixtures/](fixtures/README.md) and `schemas/` are what check it; `redkiln-core`'s tests read every one. Move 1 (Weigh-In) gave this text its first code.
 
 **Version: 1.0.0-draft.1** (2026-10-31). The SPEC is versioned on its own (semver), and each plugin declares the SPEC version it conforms to in its `status --json` ([cli.md](cli.md)). It freezes as 1.0.0 at Move 2, when Bench's ledger conforms and Core has two real users (migration plan, Work sequence). Until then every section may change; the one-way items below are the ones that become expensive to change once events are written, so they are the ones to read first.
 
@@ -16,6 +16,8 @@ The SPEC is the part of Redkiln Core that is text: the formats every Redkiln bin
 | [decision-requests.md](decision-requests.md) | The one shape for a plugin's question to the human, and its answer | DR |
 | [journals.md](journals.md) | The JSONL export of durable facts, its checkpoint and idempotent import | JR |
 | [cli.md](cli.md) | The CLI result envelope, exit codes, stderr, hooks and `status --json` | CLI |
+
+[`fixtures/`](fixtures/) holds a golden file for every JSON document these sections define (`status --json` follows with its first command, Move 1 step 6), and [`schemas/`](schemas/) a JSON Schema for each (Draft 2020-12); `redkiln-core`'s tests read both, and [`fixtures/README.md`](fixtures/README.md) indexes them.
 
 Each requirement has an id (`ST-03`, `EV-11`) so that a conformance fixture, a test or a review comment can cite it. Ids are permanent: a dropped requirement keeps its id, marked withdrawn, and is never reused.
 
@@ -33,7 +35,6 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 | Artifact rendering (Layout C) and spec artifact homes | Move 4 | Loop ADR-0005, ADR-0189; pressure-test call E |
 | Process-catalog format | Move 4 | Loop's catalog; pressure-test recommendation 16 |
 | Capacity leases and calibration records (`core.*` types) | Move 2 (calibration), Move 3 (capacity) | Blueprint, Redkiln Core |
-| Schemas and golden fixtures | Move 1, beside the code | assay's schema and fixture discipline |
 
 ## One-way items
 

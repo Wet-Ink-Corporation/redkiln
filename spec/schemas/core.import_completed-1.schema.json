@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:core.import_completed:1",
+  "title": "The data of core.import_completed, version 1 (SPEC JR-13, ST-15)",
+  "type": "object",
+  "required": [
+    "source",
+    "read",
+    "imported",
+    "present",
+    "malformed"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "description": "JR-13: exactly one of a path, a ref and commit, an artifact, or an old plugin source with the store id its events take (ST-15).",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+          "description": "A journal file, by its path."
+        },
+        "ref": {
+          "type": "object",
+          "required": [
+            "name",
+            "commit"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string",
+              "pattern": "^refs/redkiln/journal/[a-z0-9_-]+$"
+            },
+            "commit": {
+              "type": "string",
+              "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+            }
+          }
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+          "description": "A workflow artifact, by its name."
+        },
+        "legacy": {
+          "type": "object",
+          "required": [
+            "path",
+            "store_id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+              "description": "The old source's path."
+            },
+            "store_id": {
+              "description": "ID-01: 32 lowercase hex.",
+              "type": "string",
+              "pattern": "^[0-9a-f]{32}$"
+            }
+          }
+        }
+      }
+    },
+    "read": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "imported": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "present": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "malformed": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

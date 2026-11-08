@@ -24,7 +24,8 @@ deny = [
   # that still use them. When a newly approved dependency pulls one in (`cargo tree -i <crate>`),
   # add the crate that uses it here as part of that H-16 decision.
   { name = "lazy_static", wrappers = ["sharded-slab"], reason = "MOD-03: use std::sync::LazyLock" },
-  { name = "once_cell", wrappers = ["insta", "tempfile", "tracing-core", "tracing-log", "tracing-subscriber"], reason = "MOD-03: use std::sync::{OnceLock, LazyLock}" },
+  # ahash arrives with jsonschema, a dev-dependency (D1b option A, Ryan 2026-11-08, docs/decisions.md).
+  { name = "once_cell", wrappers = ["ahash", "insta", "tempfile", "tracing-core", "tracing-log", "tracing-subscriber"], reason = "MOD-03: use std::sync::{OnceLock, LazyLock}" },
   { name = "failure", reason = "unmaintained; use thiserror" },
   { name = "error-chain", reason = "unmaintained; use thiserror" },
 ]

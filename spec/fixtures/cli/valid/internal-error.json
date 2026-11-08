@@ -1,0 +1,1 @@
+{"schema":"weighin.journal-checkpoint/1","ok":false,"command":"journal checkpoint","data":{},"findings":[{"key":"internal","message":"opening the store: the file is not a Redkiln store","severity":"error"}]}

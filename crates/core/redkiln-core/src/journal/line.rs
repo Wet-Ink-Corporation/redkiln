@@ -24,7 +24,8 @@ pub const MAX_LINE_BYTES: usize = 2 * MAX_ENVELOPE_BYTES;
 /// Why a stored event has no line, or a line is not one an import can store.
 #[derive(Debug, thiserror::Error)]
 pub enum LineError {
-    /// Not an envelope (EV-01), or one that breaks a rule of a typed read.
+    /// Not an envelope (EV-01), one that breaks a rule of a typed read, or a line whose `tags`
+    /// is not a list of strings sorted, each once (JR-02).
     #[error("not an envelope")]
     Envelope(#[source] Unusable),
     /// The envelope's `type` is not the stored event's.

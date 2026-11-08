@@ -1,0 +1,1 @@
+{"type":"core.import_completed","version":1,"ts":"2026-11-08T09:00:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"weighin","version":"2.0.0","spec":"1.0.0"},"data":{"source":{"path":"journal/jr-02-item-raised.jsonl"},"read":1,"imported":1,"present":0,"malformed":0}}

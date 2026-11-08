@@ -1,0 +1,1 @@
+{"type":"weighin.item_raised","version":1,"ts":"2026-10-31T04:12:40Z","actor":"cli","trust":{"level":"asserted","via":null,"ref":null},"writer":{"binary":"weighin","version":"2.0.0","spec":"1.0.0"},"session":null,"worktree":null,"branch":null,"head":null,"origin":null,"cites":null,"data":{"item":"wi-3fa9c01b2e","question":"Which journal location?"}}

@@ -1,0 +1,1 @@
+{"type":"acme.thing_done","version":1,"ts":"2026-10-31T05:00:00Z","actor":"agent","trust":{"level":"asserted"},"writer":{"binary":"acme","version":"0.3.0","spec":"1.2.0"},"session":"8b6fb94b-0975-5275-b434-6c9e60544265","origin":"9e107d9d372bb6826bd81d3542a419d6:3","data":{"thing":"t1"}}
