@@ -56,11 +56,10 @@ fn a_stop_whose_capture_fails_notes_it_in_its_system_message() -> TestResult {
         )),
         "{message}"
     );
+    // Canonical, as the hook names it: macOS's temp folder is under the `/var` symlink.
+    let log_path = std::fs::canonicalize(state_of(&repo).join("hook-errors.log"))?;
     assert!(
-        message.ends_with(&format!(
-            "Logged in {}.",
-            state_of(&repo).join("hook-errors.log").display()
-        )),
+        message.ends_with(&format!("Logged in {}.", log_path.display())),
         "{message}"
     );
     Ok(())
