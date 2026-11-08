@@ -58,6 +58,56 @@ fn hook_takes_the_event_name_hooks_json_passes() {
     assert!(out.starts_with("Weigh-In (startup): session s1"), "{out}");
 }
 
+/// The plugin's hook rules (`docs/weigh-in/hooks.md`; SPEC CLI-09): every `hooks.json` entry is
+/// `hook <event>` and runs through the binary, and no Weigh-In hook blocks or stops the session,
+/// so the Stop hook spends none of the shared Stop budget. The Stop payload carries a one-way
+/// marker, so it takes the nudge path, the one Stop that prints anything.
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn every_hooks_json_entry_is_hook_event_runs_and_never_blocks() {
+    let (_tmp, repo) = setup();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../plugins/weigh-in/hooks/hooks.json");
+    let manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("hooks.json is readable"))
+            .expect("hooks.json is JSON");
+    let events = manifest["hooks"].as_object().expect("hooks is an object");
+    assert!(!events.is_empty());
+    for (event, groups) in events {
+        let entries = groups.as_array().expect("each event holds groups");
+        for entry in entries
+            .iter()
+            .flat_map(|g| g["hooks"].as_array().into_iter().flatten())
+        {
+            let args: Vec<&str> = entry["args"]
+                .as_array()
+                .expect("exec form has args")
+                .iter()
+                .map(|a| a.as_str().expect("args are strings"))
+                .collect();
+            assert_eq!(args, ["hook", event.as_str()], "{event}");
+            let payload = json!({
+                "hook_event_name": event, "session_id": "s1", "cwd": repo, "source": "startup",
+                "last_assistant_message": MESSAGE,
+                "tool_name": "Write", "tool_input": {"file_path": repo.join("docs/plan.md"), "content": "# Plan\n"},
+            });
+            let (ok, out) = weighin(&repo, "s1", &args, Some(&payload.to_string()));
+            assert!(ok, "{event}: {out}");
+            if event == "Stop" {
+                assert!(
+                    out.contains("systemMessage") && out.contains("one-way"),
+                    "{out}"
+                );
+            }
+            for line in out.lines().filter(|l| l.starts_with('{')) {
+                let response: Value = serde_json::from_str(line).expect("a JSON response line");
+                assert_eq!(response.get("decision"), None, "{event}: {line}");
+                assert_eq!(response.get("continue"), None, "{event}: {line}");
+            }
+        }
+    }
+}
+
 /// The board state is one db document, capped at 256 KiB, and every default used to go into it:
 /// about 700 overflowed it (#19). The export now carries the newest unacknowledged defaults up
 /// to the cap, with the total, and the digest covers the rest (wi-c34fb3).
