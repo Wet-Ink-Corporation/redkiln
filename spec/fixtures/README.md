@@ -13,7 +13,7 @@ Each file is the exact bytes. A `.json` golden is one compact JSON line ended by
 | Class | Schema | Core |
 | --- | --- | --- |
 | `valid/` | passes | reads it; where Core writes the shape, writes these bytes back |
-| `lenient/` | fails, except where JSON Schema cannot see the fault (unsorted tags) | reads it: a writer must not write it, a reader takes it (EV-01 `null`, EV-09, JR-10) |
+| `lenient/` | fails | reads it: a writer must not write it, a reader takes it (EV-01 `null`, EV-09, JR-10) |
 | `invalid/` | fails at exactly the `(instance path, keyword)` pairs its table row lists | refuses it, where Core reads the shape |
 | `invalid-data/` | the `data` of Core's own types, failing that type's schema | refuses the `core.import_completed` ones; Core has no reader of `core.approval_recorded` yet |
 | `scenario/` | not checked as a whole | journals of several lines, some malformed or torn on purpose |
@@ -40,8 +40,7 @@ A schema describes what a writer writes (EV-05): optional keys absent, never `nu
 | `journal/valid/<line>.imported.json` | JR-12, TR-06, EV-02: the stored envelope, `asserted` with the line's level in `claimed`, without `origin` or `tags` | `journal.rs` |
 | `journal/valid/<line>.reexported.jsonl` | that event exported again: a fixed point of import then export | `journal.rs` |
 | `journal/lenient/future-namespace.jsonl` | JR-10: an unregistered namespace is imported, tagged `plugin:acme` | `journal.rs` |
-| `journal/lenient/unsorted-tags.jsonl` | JR-02 tags out of order: read, and sorted on export | `journal.rs` |
-| `journal/invalid/*.jsonl` | JR-11 (`no-origin`), JR-02 (`tags-*`), JR-10 (`origin-past-max`) | `journal.rs`, `schema.rs` |
+| `journal/invalid/*.jsonl` | JR-11 (`no-origin`), JR-02 (`tags-*`, and `unsorted-tags` and `duplicate-tags`: a line's tags are sorted, each once, or the line is malformed), JR-10 (`origin-past-max`) | `journal.rs`, `schema.rs` |
 | `journal/scenario/ev-08-foreign-and-unusable.jsonl` | EV-08's foreign-events-are-skipped fixture, and EV-10's count | `journal.rs` |
 | `journal/scenario/jr-10-malformed.jsonl` | JR-10: malformed lines skipped and reported by number | `journal.rs` |
 | `journal/scenario/jr-03-torn-tail.jsonl` | JR-03: a torn last line, and the same journal in CRLF | `journal.rs` |
@@ -73,7 +72,7 @@ These are pinned by Core's tests, and by fixtures a schema passes and Core refus
 
 - a key named twice (`envelope/invalid/duplicate-key.json`): JSON Schema sees the parsed object, so the last value wins; Core refuses the envelope;
 - a position past 2^63 - 1 in an event ref (`journal/invalid/origin-past-max.jsonl`);
-- tags sorted, and `tags` and `origin` before `data` (`journal/lenient/unsorted-tags.jsonl`);
+- tags sorted (`journal/invalid/unsorted-tags.jsonl`; duplicates are the schema's `uniqueItems`), and `tags` and `origin` before `data`;
 - a `ts` that is a real moment (a 30 February passes the pattern);
 - byte lengths: EV-16's 64 KiB, EV-03's 64-byte type and EV-11's 255-byte tag are counted in characters by `maxLength`, which equals bytes only for ASCII;
 - DR-04's cross-field guards (`recommendation` and `default` name an option, option ids in order, `deadline` after the event's `ts`, a CI raiser asks for `attested`), which are `weighin-contract`'s (Move 1 step 5);

@@ -4,7 +4,8 @@
 //! fixtures fail it at exactly the `(instance path, keyword)` pairs their row lists, and
 //! `lenient/` fixtures fail it while Core reads them (EV-01 `null`, EV-09, JR-10). A fixture
 //! that passes its schema but that Core refuses shows what JSON cannot say (a key named twice,
-//! a position past 2^63 - 1). The tables here are the index of every fixture file.
+//! a position past 2^63 - 1, tags out of order). The tables here are the index of every fixture
+//! file.
 
 use std::collections::BTreeSet;
 
@@ -84,7 +85,6 @@ const VALID: &[(&str, &str)] = &[
 ];
 
 /// Fixtures a writer must not write and a reader reads: their schema, and where they break it.
-/// Sorting tags is beyond JSON Schema, so `unsorted-tags` passes its schema.
 const LENIENT: &[(&str, &str, Expected)] = &[
     (
         "envelope/lenient/null-optional-keys.json",
@@ -110,7 +110,6 @@ const LENIENT: &[(&str, &str, Expected)] = &[
         "journal-line-1",
         &[("/type", "pattern")],
     ),
-    ("journal/lenient/unsorted-tags.jsonl", "journal-line-1", &[]),
 ];
 
 /// Fixtures that break the SPEC: their schema, where they break it, and what Core makes of them.
@@ -222,6 +221,18 @@ const INVALID: &[(&str, &str, Expected, Reader)] = &[
         "journal/invalid/origin-past-max.jsonl",
         "journal-line-1",
         &[],
+        Reader::Refuses,
+    ),
+    (
+        "journal/invalid/unsorted-tags.jsonl",
+        "journal-line-1",
+        &[],
+        Reader::Refuses,
+    ),
+    (
+        "journal/invalid/duplicate-tags.jsonl",
+        "journal-line-1",
+        &[("/tags", "uniqueItems")],
         Reader::Refuses,
     ),
     (
@@ -601,7 +612,8 @@ fn reader_only_fixtures_pass_the_schema_and_core_refuses_them() {
         reader_only,
         [
             "envelope/invalid/duplicate-key.json",
-            "journal/invalid/origin-past-max.jsonl"
+            "journal/invalid/origin-past-max.jsonl",
+            "journal/invalid/unsorted-tags.jsonl",
         ]
     );
 }

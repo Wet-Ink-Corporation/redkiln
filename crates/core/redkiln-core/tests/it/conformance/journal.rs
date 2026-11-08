@@ -169,16 +169,6 @@ fn lenient_lines_import() {
         "{:?}",
         stored.tags
     );
-
-    let rel = "journal/lenient/unsorted-tags.jsonl";
-    let (_dir, store, report) = imported_alone(rel);
-    assert_eq!(report.imported, 1);
-    let exported = encode_line(&stored_under_origin(&store, rel)).expect("exports");
-    assert!(
-        text(&exported).contains(r#""tags":["item:wi-3fa9c01b2e","weighin.channel:request"]"#),
-        "Core's export sorts them"
-    );
-    lines_conform(&exported);
 }
 
 /// Whether a reason is the one a fixture expects.
@@ -191,6 +181,12 @@ const INVALID: &[(&str, Reason)] = &[
         matches!(e, LineError::CallerTag(_))
     }),
     ("tags-not-list.jsonl", |e| {
+        matches!(e, LineError::Envelope(_))
+    }),
+    ("unsorted-tags.jsonl", |e| {
+        matches!(e, LineError::Envelope(_))
+    }),
+    ("duplicate-tags.jsonl", |e| {
         matches!(e, LineError::Envelope(_))
     }),
     ("tags-too-many.jsonl", |e| {
