@@ -360,6 +360,32 @@ fn a_source_that_stays_due_is_told_at_session_start_not_by_every_command() -> Te
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_failing_ledger_session_start_cannot_reach_is_told_by_the_command() -> TestResult {
+    let repo = Repo::new(true)?;
+    let old = with_old_ledger(&repo, "weighin-1.2.0.sqlite3")?;
+    let mut hot = old.into_os_string();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress")?;
+    // Over the 8 MiB a session start imports: the hook tries no source.
+    sparse_journal(&repo.root, "big.jsonl", 9 * 1024 * 1024)?;
+
+    let started = session_start(&repo)?.to_string();
+    let open = repo.run("s1", &["open"], None)?;
+
+    assert!(
+        started.contains("the next weighin command imports them"),
+        "{started}"
+    );
+    let stderr = String::from_utf8_lossy(&open.stderr);
+    assert!(
+        stderr.contains("could not import the weighin 1.x ledger"),
+        "the command is the only place it can be told (review F1): {stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_command_imports_and_tells_what_was_too_large_for_the_hook() -> TestResult {
     let repo = Repo::new(true)?;
     with_old_ledger(&repo, "weighin-1.2.0.sqlite3")?;

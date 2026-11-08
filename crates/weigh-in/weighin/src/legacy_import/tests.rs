@@ -292,7 +292,10 @@ fn the_hook_leaves_sources_over_its_cap_for_a_command_and_says_so() {
     let env = Env::outside_git(dir.path(), "s1");
     sparse_journal(dir.path(), MAX_HOOK_SOURCE_BYTES.saturating_add(1));
     let hook = Mode::Hook {
-        started: Instant::now(),
+        // In the future, so the deadline cannot pass while the test runs (TST-10).
+        started: Instant::now()
+            .checked_add(Duration::from_secs(60))
+            .expect("the clock reaches a minute from now"),
     };
 
     let report = ran(import_due(&env, hook, "hook").expect("ran"));
@@ -408,6 +411,27 @@ fn a_command_does_not_repeat_a_ledger_that_fails_to_read() {
 }
 
 #[test]
+fn a_command_tells_a_failing_ledger_when_session_start_cannot_reach_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let mut hot = old.as_os_str().to_owned();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress").expect("written");
+    // Over what a session start imports, under the journal cap: the hook tries no source.
+    sparse_journal(dir.path(), MAX_HOOK_SOURCE_BYTES.saturating_add(1));
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!(report.waiting, Some(Waiting::Ledger));
+    let told = command_notes(&report);
+    assert_eq!(told, notes(&report), "told nowhere else (review F1)");
+    assert!(
+        told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+}
+
+#[test]
 fn a_command_still_tells_the_ledger_it_imports() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (env, _old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
@@ -429,7 +453,10 @@ fn a_journal_over_the_cap_does_not_hold_the_hook_back() {
     let env = Env::outside_git(dir.path(), "s1");
     sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
     let hook = Mode::Hook {
-        started: Instant::now(),
+        // In the future, so the deadline cannot pass while the test runs (TST-10).
+        started: Instant::now()
+            .checked_add(Duration::from_secs(60))
+            .expect("the clock reaches a minute from now"),
     };
 
     let report = ran(import_due(&env, hook, "hook").expect("ran"));

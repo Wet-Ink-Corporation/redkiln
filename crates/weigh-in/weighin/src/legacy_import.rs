@@ -84,6 +84,10 @@ pub(crate) struct LegacyReport {
     pub(crate) waiting: Option<Waiting>,
     /// Due journal files past [`MAX_JOURNAL_FILES`], left for the next run.
     pub(crate) left: usize,
+    /// Whether the due sources fit what a `SessionStart` imports ([`MAX_HOOK_SOURCE_BYTES`]), so
+    /// that it reaches them and tells a source that stays due; when they do not, only a command
+    /// can tell it ([`command_notes`], review F1).
+    pub(crate) fits_hook: bool,
 }
 
 impl LegacyReport {
@@ -173,12 +177,13 @@ pub(crate) fn import_due(env: &Env, mode: Mode, actor: &str) -> Result<Legacy> {
         ..LegacyReport::default()
     };
     journals.truncate(MAX_JOURNAL_FILES);
-    if let Mode::Hook { .. } = mode {
-        let bytes = due_bytes(&ledgers, &journals);
-        if bytes > MAX_HOOK_SOURCE_BYTES {
-            report.waiting = Some(Waiting::TooLargeForHook { bytes });
-            return Ok(Legacy::Ran(report));
-        }
+    // Measured in both modes: a command tells a source that stays due only when no session
+    // start could reach it (review F1).
+    let bytes = due_bytes(&ledgers, &journals);
+    report.fits_hook = bytes <= MAX_HOOK_SOURCE_BYTES;
+    if matches!(mode, Mode::Hook { .. }) && !report.fits_hook {
+        report.waiting = Some(Waiting::TooLargeForHook { bytes });
+        return Ok(Legacy::Ran(report));
     }
     let store = match existing {
         Some(store) => store,

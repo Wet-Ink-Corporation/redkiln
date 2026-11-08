@@ -18,7 +18,8 @@ pub(crate) fn notes(report: &LegacyReport) -> Vec<String> {
 
 /// [`notes`] less those of a source that stays due: one no run completes, which `SessionStart`
 /// tells once per session start rather than every command (wi-fd5345). What this run imported,
-/// and what the next run imports, is still said.
+/// and what the next run imports, is still said; and when the due sources are more than a
+/// session start imports, so it never reaches them, every note is (review F1).
 pub(crate) fn command_notes(report: &LegacyReport) -> Vec<String> {
     told(report, Standing::Left)
 }
@@ -33,13 +34,16 @@ enum Standing {
 
 /// The notes of `report`, those of a source that stays due as `standing` says.
 fn told(report: &LegacyReport, standing: Standing) -> Vec<String> {
+    // A session start that cannot reach the sources tells none of them: then a command does.
+    let leave = standing == Standing::Left && report.fits_hook;
+    let held_back = report.waiting == Some(Waiting::Ledger);
     let mut notes = Vec::new();
     for source in &report.sources {
         let stays_due = matches!(
             source.outcome,
             SourceOutcome::TooLarge { .. } | SourceOutcome::Failed(_)
         );
-        if stays_due && standing == Standing::Left {
+        if stays_due && leave {
             continue;
         }
         match &source.outcome {
@@ -73,14 +77,14 @@ fn told(report: &LegacyReport, standing: Standing) -> Vec<String> {
             )),
         }
     }
-    if report.left > 0 {
+    // Journals held back by a ledger that stays due wait with it (review F2).
+    if report.left > 0 && !(held_back && leave) {
         notes.push(format!(
             "{} more weighin 1.x journal(s) wait: one run imports at most {MAX_JOURNAL_FILES}, and the next imports the rest",
             report.left
         ));
     }
-    let held_back = report.waiting == Some(Waiting::Ledger);
-    if !(held_back && standing == Standing::Left) {
+    if !(held_back && leave) {
         notes.extend(report.waiting.map(waiting));
     }
     notes

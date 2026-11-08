@@ -26,7 +26,8 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   `weighin journal import --json` lists each 1.x source it read (`data.legacy`).
   `--store` or `$REDKILN_STORE` naming a 1.x ledger is refused.
 - A 1.x source the import can never finish (a journal over 32 MiB, a journal or ledger that
-  cannot be read) is told to you at the start of each session, not by every weighin command.
+  cannot be read) is told to you at the start of each session, not by every weighin command,
+  unless the 1.x sources are more than a session start imports.
   Each command still tries it again quietly, and `weighin journal import --json` still lists it.
 - `$REDKILN_STORE` names the store and wins over `$WEIGHIN_STORE`. `$WEIGHIN_STORE` and
   config.json's `store` still work, naming the 1.x ledger: the store goes beside it, at
