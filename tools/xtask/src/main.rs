@@ -4,7 +4,8 @@
 //!   atom, each atom in its kind's folder, one question per `wi-` id.
 //! - `layers`: check the workspace against the layer rules in `AGENTS.md`.
 //! - `plugins`: check `plugins/` against the plugin rules in `AGENTS.md` (CLI first, harness
-//!   second).
+//!   second), and `crates/` against its rule that harness protocol stays in one adapter module
+//!   per binary.
 //!
 //! Each exits 0 when the repository follows its rules, 1 with one line per violation when it does
 //! not, and 2 when it cannot check.
@@ -16,7 +17,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{ids, layers, plugins};
+use xtask::{harness, ids, layers, plugins};
 
 const USAGE: &str = "usage: cargo xtask <ids|layers|plugins>";
 
@@ -65,12 +66,20 @@ fn run_layers() -> Result<ExitCode, String> {
     conclude("layers", &violations, "workspace members", packages.len())
 }
 
-/// Checks this repository's `plugins/` against the plugin rules.
+/// Checks this repository's `plugins/` against the plugin rules, then its `crates/` against the
+/// rule that harness protocol stays in an adapter module (`harness`).
 fn run_plugins() -> Result<ExitCode, String> {
     let plugins = plugins::read_plugins(&repository().join("plugins"))
         .map_err(|error| error_chain(&error))?;
-    let violations = plugins::check(&plugins);
-    conclude("plugins", &violations, "plugins", plugins.len())
+    let sources =
+        harness::read_sources(&repository().join("crates")).map_err(|error| error_chain(&error))?;
+    let violations: Vec<String> = plugins::check(&plugins)
+        .iter()
+        .map(ToString::to_string)
+        .chain(harness::check(&sources).iter().map(ToString::to_string))
+        .collect();
+    let checked = format!("{}, Rust files checked: {}", plugins.len(), sources.len());
+    conclude("plugins", &violations, "plugins", checked)
 }
 
 /// Reports `violations` on stderr, or an ok line on stdout naming how many `things` were checked.
@@ -78,7 +87,7 @@ fn conclude(
     task: &str,
     violations: &[impl Display],
     things: &str,
-    checked: usize,
+    checked: impl Display,
 ) -> Result<ExitCode, String> {
     let mut out = io::stderr().lock();
     for violation in violations {
