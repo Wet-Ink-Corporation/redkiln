@@ -1,6 +1,6 @@
 //! The decision an accepted decision atom in `.kb` records, read from its front matter.
 
-use std::borrow::Cow;
+use knowledge_contract::read::frontmatter;
 use weighin_core::ItemId;
 
 /// The decision an accepted decision atom records.
@@ -14,49 +14,17 @@ pub(crate) struct AtomDecision {
 }
 
 /// The decision an accepted decision atom records, or `None` when `text` is not one. The front
-/// matter is the lines between a first line `---` and the next line `---`, one leading byte
-/// order mark and each line's `\r` passed over. It needs `kind: decision`, `status: accepted`
-/// and a `weighin_item` that [`ItemId::parse`] accepts.
+/// matter is read by Knowledge's reader (`knowledge_contract::read`), wherever under `.kb/` the
+/// atom sits. It needs `kind: decision`, `status: accepted` and a `weighin_item` that
+/// [`ItemId::parse`] accepts.
 pub(crate) fn parse(text: &str) -> Option<AtomDecision> {
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let mut lines = text.lines().map(|l| l.strip_suffix('\r').unwrap_or(l));
-    if lines.next()? != "---" {
+    let fm = frontmatter(text)?;
+    let is = |key, want| fm.get(key).as_deref() == Some(want);
+    if !(is("kind", "decision") && is("status", "accepted")) {
         return None;
     }
-    let (mut kind, mut status, mut item) = (None, None, None);
-    for line in lines.by_ref() {
-        if line == "---" {
-            return match (kind.as_deref(), status.as_deref(), item) {
-                (Some("decision"), Some("accepted"), Some(id)) => {
-                    Some(AtomDecision { id, option: None })
-                }
-                _ => None,
-            };
-        }
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        match key {
-            "kind" => kind = Some(scalar(value)),
-            "status" => status = Some(scalar(value)),
-            "weighin_item" => item = ItemId::parse(&scalar(value)),
-            _ => {}
-        }
-    }
-    // No closing `---`: not front matter.
-    None
-}
-
-/// A front-matter scalar: a JSON string, as the atom writer quotes values, decoded; anything
-/// else trimmed.
-fn scalar(value: &str) -> Cow<'_, str> {
-    let v = value.trim();
-    if v.starts_with('"')
-        && let Ok(s) = serde_json::from_str::<String>(v)
-    {
-        return Cow::Owned(s);
-    }
-    Cow::Borrowed(v)
+    let id = ItemId::parse(&fm.get("weighin_item")?)?;
+    Some(AtomDecision { id, option: None })
 }
 
 #[cfg(test)]

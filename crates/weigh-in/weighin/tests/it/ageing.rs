@@ -102,7 +102,7 @@ fn digest_json(repo: &Path) -> TestResult<Value> {
 
 /// The one decision atom's path and text.
 fn atom_text(repo: &Path) -> TestResult<(PathBuf, String)> {
-    let atom = std::fs::read_dir(repo.join(".kb/_intake/decisions"))?
+    let atom = std::fs::read_dir(repo.join(".kb/decision"))?
         .next()
         .ok_or("the decision wrote an atom")??
         .path();

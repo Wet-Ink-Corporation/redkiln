@@ -1,0 +1,16 @@
+[package]
+name = "knowledge-contract"
+description = "Knowledge's atom contract: kinds, status, ids, paths, the frontmatter writer and reader. No I/O."
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

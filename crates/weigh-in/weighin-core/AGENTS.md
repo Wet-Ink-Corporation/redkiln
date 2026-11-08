@@ -7,7 +7,7 @@ The ledger domain of Weigh-In: the event vocabulary, `wi-` item ids, the `weigh-
 domain. Pure: nothing here reads a clock, a file, a process or the environment, and there is no async runtime.
 
 ## Allowed dependencies
-- Workspace crates: none.
+- Workspace crates: `knowledge-contract`, Knowledge's atom contract (pure), through which `atom` writes frontmatter, ids and paths (Move 1 step 4).
 - Third-party: `serde` and `serde_json` (events, cards and board documents are JSON); `sha2` (item ids hash the session and the normalised question); `thiserror` (typed errors).
 - Never: `weighin`, happenstance, tokio, clap, anyhow, `time` or anything that does I/O. Timestamps arrive as values from the caller.
 
@@ -17,7 +17,7 @@ The modules `atom`, `board`, `card`, `event`, `id`, `marker`, `projection` and `
 ## Invariants
 - Current state is a fold of events in store-position order. Nothing trusts timestamps for ordering (`projection`).
 - An item id is `wi-` plus lowercase hex of `sha256(session \n normalised question)`, so parallel sessions and worktrees mint ids without coordination (`id`).
-- Rendered atoms validate against Redkiln's `KbFrontmatter` (`atom`).
+- Atoms are written through `knowledge-contract` (`atom`): frontmatter, ids and paths are Knowledge's; the MADR body is Weigh-In's rendering. Decision atoms of 6- and 8-hex items are byte for byte what 1.x wrote.
 - A card has 2 to 4 options with unique ids, and it never recommends an option that fails a MUST or is flagged as evasive (`card::CardError`).
 - Card field names are the board's, so `board.html` renders a card as-is (`card`).
 

@@ -1138,21 +1138,22 @@ fn a_context_pack_lists_a_decided_atom_on_the_same_file() {
     let decided = raise("Keep overrides per series?", "src/retention.rs:6");
     let (ok, out) = weighin(&repo, "s1", &["decide", &decided, "yes"], None);
     assert!(ok, "{out}");
-    // Promoted out of `_intake`, which context packs skip, as an accepted atom would be.
-    let intake = repo.join(".kb/_intake/decisions");
-    let atom = std::fs::read_dir(&intake).unwrap().next().unwrap().unwrap();
-    std::fs::create_dir_all(repo.join(".kb/decisions")).unwrap();
-    std::fs::rename(
-        atom.path(),
-        repo.join(".kb/decisions").join(atom.file_name()),
-    )
-    .unwrap();
+    // Written straight to `.kb/decision/`, outside the `_intake` context packs skip.
+    assert!(
+        repo.join(".kb/decision").is_dir(),
+        "the decision wrote its atom"
+    );
     let open = raise("Cap overrides per tenant?", "src/retention.rs:13");
 
     let (ok, ctx) = weighin(&repo, "s1", &["context", &open], None);
 
     assert!(ok, "{ctx}");
-    let listed = format!(".kb: kb-decision-{decided} [accepted] Keep overrides per series: yes");
+    let atom = knowledge_contract::AtomId::hashed(
+        knowledge_contract::Kind::Decision,
+        &decided,
+        knowledge_contract::HashLen::Ten,
+    );
+    let listed = format!(".kb: {atom} [accepted] Keep overrides per series: yes");
     assert!(ctx.lines().any(|l| l == listed), "{ctx}");
 }
 

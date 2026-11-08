@@ -65,7 +65,7 @@ impl Session<'_> {
                 path: rel.clone(),
                 atom_id: atom::decision_atom_id(&item),
                 atom_kind: "decision".into(),
-                reason: "decision rendered to .kb/_intake for kb-ingest".into(),
+                reason: "decision rendered to .kb/decision".into(),
             })],
         )?;
         Ok(Some(rel))
@@ -311,7 +311,8 @@ mod tests {
 
     use super::{Settled, reviewed_atom, superseded_open_question};
     use crate::ops::Session;
-    use crate::ops::test_support::{ONE_WAY, TWO_WAY, card, env_in, id_of, run};
+    use crate::ops::test_support::{ONE_WAY, TWO_WAY, atom_key, card, env_in, id_of, run};
+    use knowledge_contract::Kind;
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
@@ -327,10 +328,11 @@ mod tests {
         let out = run(&mut Session::open(&env, "cli")?, &batch)?;
 
         let id = id_of(ONE_WAY);
+        let oq = atom_key(Kind::OpenQuestion, &id);
         assert_eq!(
             out.get(2),
             Some(&format!(
-                "✓ deferred {id} until the tenant survey (default A by 2026-12-01) · tracking atom .kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+                "✓ deferred {id} until the tenant survey (default A by 2026-12-01) · tracking atom .kb/open-question/{oq}-should-retention-attach-per-record-or-per-series.md"
             ))
         );
         Ok(())
@@ -354,9 +356,12 @@ mod tests {
         )?;
 
         let id = id_of(ONE_WAY);
-        let rel = format!(
-            ".kb/_intake/open_questions/{id}-should-retention-attach-per-record-or-per-series.md"
+        let (oq, dk) = (
+            atom_key(Kind::OpenQuestion, &id),
+            atom_key(Kind::Decision, &id),
         );
+        let rel =
+            format!(".kb/open-question/{oq}-should-retention-attach-per-record-or-per-series.md");
         assert!(
             out.get(3)
                 .is_some_and(|r| r.contains(&format!(" · superseded {rel} · trailer"))),
@@ -366,7 +371,7 @@ mod tests {
         assert_eq!(
             atom,
             format!(
-                "---\nid: \"kb-open-question-{id}\"\ntitle: \"{ONE_WAY}\"\nkind: open_question\nstatus: superseded\nsuperseded_by: \"kb-decision-{id}\"\nresolution_ref: \"kb-decision-{id}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{id}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{id}`. The deferral above no longer applies.\n"
+                "---\nid: \"kb-open-question-{oq}\"\ntitle: \"{ONE_WAY}\"\nkind: open-question\nstatus: superseded\nsuperseded_by: \"kb-decision-{dk}\"\nresolution_ref: \"kb-decision-{dk}\"\nauthority_tier: note\nsummary: \"Settled on 2026-10-07: decided B (kb-decision-{dk}).\"\ndepends_on: []\nrelated: []\nsource_paths: []\nlast_reviewed: \"2026-10-07\"\ntracks: \"{id}\"\nresolve_by: \"2026-12-01\"\ntrigger: \"the tenant survey\"\ndefault_if_unresolved: \"A\"\nowner: \"ryan\"\nflip_condition: \"a tenant asks\"\n---\n\n# {ONE_WAY}\n\nDeferred on purpose. Waiting for: the tenant survey. Resolve by: 2026-12-01. If nobody acts, **A** applies.\n\n## Resolution\n\nSettled on 2026-10-07: decided **B**, recorded in `kb-decision-{dk}`. The deferral above no longer applies.\n"
             )
         );
         Ok(())
@@ -386,7 +391,10 @@ mod tests {
             ]),
         )?;
         let id = id_of(TWO_WAY);
-        let rel = format!(".kb/_intake/decisions/{id}-name-the-helper-apply-or-run.md");
+        let rel = format!(
+            ".kb/decision/{}-name-the-helper-apply-or-run.md",
+            atom_key(Kind::Decision, &id)
+        );
         assert!(
             decided.get(2).is_some_and(|r| r.contains(&rel)),
             "{decided:?}"

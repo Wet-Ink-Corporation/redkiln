@@ -3,7 +3,7 @@
 Every decision behind Weigh-In so far, with where it was taken and who took it. The design phase
 predates the tool, so these are kept here by hand: board decisions as one MADR record each, named
 by their ledger id, and decisions taken in chat in [`build-decisions.md`](build-decisions.md).
-In other repositories Weigh-In writes its own records to `.kb/_intake/decisions/`.
+In other repositories Weigh-In writes its own records to `.kb/decision/` (`.kb/_intake/decisions/` before 2.0).
 
 Settled decisions are not reopened without new evidence; when one is, the record says what
 changed it and links the decision that replaced it.

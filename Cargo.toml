@@ -14,7 +14,7 @@ resolver = "3"
 # sits in one of these places and that its edges point the allowed way. Cargo refuses a glob that
 # matches nothing or a folder without a manifest, so the first crate of each layer adds its
 # `crates/<layer>/*` glob here, and tools are listed one by one (tools/ also holds scripts).
-members = ["crates/core/*", "crates/weigh-in/*", "tools/xtask"]
+members = ["crates/core/*", "crates/knowledge/*", "crates/weigh-in/*", "tools/xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -48,6 +48,8 @@ toml = { version = "0.9.12", default-features = false, features = ["std", "parse
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
 # 1.2.0's requirements; tokio, sha2, clap and time are M1-B.
 weighin-core = { path = "crates/weigh-in/weighin-core" }
+# Knowledge's atom contract (Move 1 step 4): weighin-core renders atoms through it.
+knowledge-contract = { path = "crates/knowledge/knowledge-contract" }
 tokio = { version = "1", default-features = false, features = ["rt"] }
 sha2 = "0.10"
 clap = { version = "4", features = ["derive"] }

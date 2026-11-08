@@ -335,7 +335,7 @@ mod tests {
     use std::path::Path;
 
     use super::Session;
-    use super::test_support::{ONE_WAY, after, card, env_in, id_of, raised, run};
+    use super::test_support::{ONE_WAY, after, atom_key, card, env_in, id_of, raised, run};
 
     /// A CRLF source file whose line asks [`ONE_WAY`], for the decision to annotate.
     fn source(dir: &Path) -> Result<()> {
@@ -368,7 +368,8 @@ mod tests {
 
         let id = id_of(ONE_WAY);
         let atom = format!(
-            ".kb/_intake/decisions/{id}-should-retention-attach-per-record-or-per-series.md"
+            ".kb/decision/{}-should-retention-attach-per-record-or-per-series.md",
+            atom_key(knowledge_contract::Kind::Decision, &id)
         );
         assert_eq!(
             out,

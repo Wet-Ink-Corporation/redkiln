@@ -2,6 +2,7 @@
 //! and carries exactly the expected fields, each reading back to the value it was generated from.
 
 use crate::support::{CASES, Rng, TestResult, adversarial};
+use knowledge_contract::{AtomId, HashLen, Kind as AtomKind};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use weighin_core::atom::{RenderContext, render_decision, render_open_question, y_statement};
@@ -149,11 +150,23 @@ struct Generated {
     card: Option<Card>,
 }
 
+/// The atom id Knowledge call C gives an item: `kb-<kind>-<wi-id>` below 10 hex, else the
+/// hashed id of the `wi-` id.
+fn atom_id(kind: AtomKind, item: &str) -> String {
+    let hex = item.strip_prefix("wi-").unwrap_or(item);
+    if hex.len() < 10 {
+        format!("kb-{kind}-{item}")
+    } else {
+        AtomId::hashed(kind, item, HashLen::Ten).to_string()
+    }
+}
+
 /// A raised item, folded: triaged, grounded and then decided or deferred, each at random.
 fn item(rng: &mut Rng) -> TestResult<Generated> {
     const DOORS: [Door; 3] = [Door::OneWay, Door::TwoWay, Door::Unsure];
     let question = text(rng);
-    let id = ItemId::mint("s", &question);
+    // Ids as 1.x minted them (6 and 8 hex) keep their atom ids; 2.0's (10 and 12) are hashed.
+    let id = ItemId::mint_with_len("s", &question, *rng.pick(&[6, 8, 10, 12]));
     let mut door = *rng.pick(&DOORS);
     let mut events = vec![raised(rng, id.clone(), question, door)];
     let mut blast = None;
@@ -333,7 +346,7 @@ fn expected_decision(
         |o| o.title.clone(),
     );
     let mut expected = BTreeMap::from([
-        ("id", v(format!("kb-decision-{}", item.id))),
+        ("id", v(atom_id(AtomKind::Decision, item.id.as_str()))),
         ("title", v(title)),
         ("kind", v("decision")),
         ("status", v("accepted")),
@@ -387,9 +400,9 @@ fn expected_open_question(
         d.trigger, item.question, d.default_option
     );
     Ok([
-        ("id", v(format!("kb-open-question-{}", item.id))),
+        ("id", v(atom_id(AtomKind::OpenQuestion, item.id.as_str()))),
         ("title", v(item.question.as_str())),
-        ("kind", v("open_question")),
+        ("kind", v("open-question")),
         ("status", v("proposed")),
         ("authority_tier", v("note")),
         ("summary", v(summary)),

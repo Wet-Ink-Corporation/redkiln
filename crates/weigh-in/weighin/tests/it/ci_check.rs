@@ -170,14 +170,41 @@ fn a_reopen_committed_after_the_trailer_keeps_the_item_open() -> TestResult {
     Ok(())
 }
 
-/// Write an accepted decision atom for `id` as `.kb/_intake/decisions/<name>`.
+/// Write an accepted decision atom for `id` as `.kb/_intake/decisions/<name>`, where 1.x wrote
+/// atoms.
 fn write_atom(repo: &Repo, id: &str, name: &str) -> TestResult {
-    let dir = repo.root.join(".kb/_intake/decisions");
+    write_atom_in(repo, ".kb/_intake/decisions", id, name)
+}
+
+/// Write an accepted decision atom for `id` as `<dir>/<name>`.
+fn write_atom_in(repo: &Repo, dir: &str, id: &str, name: &str) -> TestResult {
+    let dir = repo.root.join(dir);
     std::fs::create_dir_all(&dir)?;
     let atom = format!(
         "---\nid: \"kb-decision-{id}\"\nkind: decision\nstatus: accepted\nweighin_item: \"{id}\"\n---\n\n# Three retries\n"
     );
     std::fs::write(dir.join(name), atom)?;
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn an_atom_where_2_x_writes_it_closes_the_item_too() -> TestResult {
+    let repo = on_a_branch()?;
+    let id = repo.raise("s", "Keep three retries?")?;
+    commit_journalled(&repo, "raise")?;
+    write_atom_in(
+        &repo,
+        ".kb/decision",
+        &id,
+        &format!("{id}-three-retries.md"),
+    )?;
+    let added = repo.commit("record")?;
+
+    let r = report(&repo)?;
+
+    let expected = json!([{"id": id, "option": null, "commit": added, "sources": ["atom"]}]);
+    assert_eq!((&r["open_items"], &r["decisions"]), (&json!([]), &expected));
     Ok(())
 }
 

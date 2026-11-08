@@ -43,6 +43,14 @@ pub(super) fn id_of(q: &str) -> ItemId {
     ItemId::mint("s1", q)
 }
 
+/// The key of the hashed atom id of `kind` for `id`, a 10-hex item (Knowledge call C): what
+/// follows `kb-<kind>-` in the id and starts the atom's file name.
+pub(super) fn atom_key(kind: knowledge_contract::Kind, id: &ItemId) -> String {
+    knowledge_contract::AtomId::hashed(kind, id.as_str(), knowledge_contract::HashLen::Ten)
+        .key()
+        .to_owned()
+}
+
 /// Run `setup`, then `ops`, in one batch; return only the lines `ops` printed, failing when a
 /// setup op was refused.
 pub(super) fn after(setup: &[serde_json::Value], ops: &[serde_json::Value]) -> Result<Vec<String>> {

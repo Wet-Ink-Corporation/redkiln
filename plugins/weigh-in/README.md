@@ -25,7 +25,7 @@ It stands on its own until it moves into the `redkiln` monorepo as `rk-weigh-in`
 | Past decisions anchored at an edited file, at most three lines per edit | `PostToolUse` command hook | ~40 per line shown |
 | Convention and open counts | `SessionStart` command hook | ~150 per session |
 | Sweep, five filters, grounding, cards | `/weigh-in` skill, in the chat that raised them | one sitting, 3–4 requests |
-| Record | `weighin` CLI: event, atom in `.kb/_intake/`, source annotation | 0 |
+| Record | `weighin` CLI: event, atom in `.kb/decision/` or `.kb/open-question/`, source annotation | 0 |
 | Ledger band and `/wi` commands, Claude Code only | the mod, its own plugin `weigh-mod` (`plugin-mod/`, B-35) | 0 |
 | Local board pane: decide, defer, dismiss, reopen or ack grounded cards and defaults | the mod, through `board export --stdout` and `board apply --surface pane` | 0 |
 | Toast for past decisions at an edited file, for the person | the mod's `tool.call` hook | 0 |
@@ -80,7 +80,7 @@ the session; your files are on your computer, behind its shell. So in Cowork:
   marker convention and `Stop` still nudges on one-way markers. Edits to your folder go through
   the computer's shell, so `PostToolUse` never sees them; the sitting scans the files the
   conversation changed instead.
-- Decisions land as atoms in `<folder>/.kb/_intake/decisions/`, and in the folder's own ruling
+- Decisions land as atoms in `<folder>/.kb/decision/`, and in the folder's own ruling
   or decision log when it keeps one.
 
 ## Docs

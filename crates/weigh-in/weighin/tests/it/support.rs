@@ -449,13 +449,13 @@ pub(crate) fn sit_and_decide(repo: &Path, one_way: &str) {
         ],
         None,
     );
-    assert!(ok && out.contains("atom .kb/_intake/decisions/"), "{out}");
+    assert!(ok && out.contains("atom .kb/decision/"), "{out}");
     assert_eq!(
         weighin(repo, "s1", &["trailer", one_way], None),
         (true, format!("Weigh-In: {one_way} decided A\n")),
         "the trailer command prints the decide receipt's trailer"
     );
-    let atom_dir = repo.join(".kb/_intake/decisions");
+    let atom_dir = repo.join(".kb/decision");
     let atom = std::fs::read_dir(&atom_dir)
         .unwrap()
         .next()
