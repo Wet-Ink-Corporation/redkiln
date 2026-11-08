@@ -143,7 +143,7 @@ fn skipped(source: &SourceRun, malformed: u64, problems: &[(u64, String)]) -> Op
 fn waiting(waiting: Waiting) -> String {
     match waiting {
         Waiting::TooLargeForHook { bytes } => format!(
-            "the weighin 1.x ledger and journals here hold {bytes} bytes, more than a session start imports; the next weighin command imports them"
+            "the weighin 1.x ledger and journals here hold {bytes} bytes, more than a session start imports; the next weighin command imports them, or says why it cannot"
         ),
         Waiting::Ledger => "the weighin 1.x journals wait until the 1.x ledger is imported".to_owned(),
         Waiting::Deadline => "the weighin 1.x import ran out of time; the next weighin command or session start finishes it".to_owned(),

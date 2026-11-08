@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use redkiln_core::envelope::{Actor, Envelope};
 use redkiln_core::ids::parse_event_ref;
 use redkiln_core::journal::{Mapped, import_mapped};
@@ -427,6 +429,51 @@ fn a_command_tells_a_failing_ledger_when_session_start_cannot_reach_it() {
     assert_eq!(told, notes(&report), "told nowhere else (review F1)");
     assert!(
         told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_late_hook_still_tells_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    let told = notes(&report);
+    assert!(
+        told.iter()
+            .any(|n| n.contains("big.jsonl") && n.contains("not imported")),
+        "settled before the deadline matters, since commands leave it out (review round 2 F1): {told:?}"
+    );
+    assert_eq!(report.waiting, None, "no journal left to import");
+}
+
+#[test]
+fn a_command_leaves_out_the_journals_a_failing_ledger_holds_back_past_the_file_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let mut hot = old.as_os_str().to_owned();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress").expect("written");
+    for n in 0..=MAX_JOURNAL_FILES {
+        write_journal(dir.path(), &format!("{n:05}.jsonl"), &[]);
+    }
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!((report.waiting, report.left), (Some(Waiting::Ledger), 1));
+    assert_eq!(command_notes(&report), Vec::<String>::new());
+    let told = notes(&report);
+    assert!(
+        told.iter()
+            .any(|n| n.contains("more weighin 1.x journal(s) wait")),
         "{told:?}"
     );
 }

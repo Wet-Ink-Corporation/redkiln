@@ -17,8 +17,7 @@
 //! `SessionStart`, not by every command (wi-fd5345, [`command_notes`]).
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::{ErrorKind, Read as _};
+use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -35,7 +34,10 @@ use crate::store::Store;
 use crate::store::legacy::identity::JOURNAL_STORE;
 use crate::store::legacy::{Held, HeldRead, Import, OldImport};
 
+mod journal_file;
 mod notes;
+
+use journal_file::{Checked, Read, check, read_journal};
 
 pub(crate) use notes::{command_notes, notes, place, problem_lines};
 
@@ -250,27 +252,47 @@ impl Run<'_> {
                 return Ok(());
             }
         }
-        if journals.is_empty() {
+        self.journals(journals, report)
+    }
+
+    /// Imports `journals` into `report`, in order. One over the cap or that cannot be opened is
+    /// settled first, needing no held event, so even a hook past its deadline tells it (review
+    /// round 2 F1); the store's events are read only when a journal may import.
+    ///
+    /// # Errors
+    /// The store cannot be read for the events it holds.
+    fn journals(&self, journals: &[&PathBuf], report: &mut LegacyReport) -> Result<()> {
+        let checked: Vec<Checked<'_>> = journals.iter().map(|path| check(path)).collect();
+        if !checked.iter().any(|c| matches!(c, Checked::Due(_))) {
+            report
+                .sources
+                .extend(checked.into_iter().filter_map(Checked::settled));
             return Ok(());
         }
         // After every ledger, so this run's ledger events are among those a line can equal. A
         // hook past its deadline reads no more, neither a page of the store's events nor a
         // journal (review F3, wi-233b23).
         let held = match self.store.held(self.deadline)? {
-            HeldRead::All(held) => held,
-            HeldRead::PastDeadline => {
-                report.waiting = Some(Waiting::Deadline);
-                return Ok(());
-            }
+            HeldRead::All(held) => Some(held),
+            HeldRead::PastDeadline => None,
         };
-        for path in journals {
-            let source = self.journal(path, &held);
-            let stopped = matches!(source.outcome, SourceOutcome::Stopped { .. });
-            report.sources.push(source);
-            if stopped {
-                report.waiting = Some(Waiting::Deadline);
-                break;
+        let mut importing = held.as_ref();
+        for checked in checked {
+            match (checked, importing) {
+                (Checked::Settled(source), _) => report.sources.push(source),
+                (Checked::Due(path), Some(held)) => {
+                    let source = self.journal(path, held);
+                    if matches!(source.outcome, SourceOutcome::Stopped { .. }) {
+                        importing = None;
+                    }
+                    report.sources.push(source);
+                }
+                // Past the deadline: it waits, and only settled journals are still told.
+                (Checked::Due(_), None) => {}
             }
+        }
+        if importing.is_none() {
+            report.waiting = Some(Waiting::Deadline);
         }
         Ok(())
     }
@@ -346,34 +368,6 @@ fn outcome(imported: Result<OldImport>, path: &Path) -> SourceOutcome {
         }) => SourceOutcome::Stopped { report, problems },
         Err(e) => SourceOutcome::Failed(e.context(format!("importing {}", path.display()))),
     }
-}
-
-/// A journal file as read.
-enum Read {
-    Bytes(Vec<u8>),
-    TooLarge(u64),
-}
-
-/// The bytes of the journal at `path`, unless it is over [`MAX_JOURNAL_FILE_BYTES`].
-fn read_journal(path: &Path) -> Result<Read> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let len = file
-        .metadata()
-        .with_context(|| format!("reading {}", path.display()))?
-        .len();
-    if len > MAX_JOURNAL_FILE_BYTES {
-        return Ok(Read::TooLarge(len));
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_JOURNAL_FILE_BYTES.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .with_context(|| format!("reading {}", path.display()))?;
-    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    if read > MAX_JOURNAL_FILE_BYTES {
-        // It grew past the cap while it was read.
-        return Ok(Read::TooLarge(read));
-    }
-    Ok(Read::Bytes(bytes))
 }
 
 /// Every `*.jsonl` file directly under `<root>/.kb/_ledger/journal/`, in name order; no
