@@ -193,6 +193,7 @@ impl Log {
         Read::take(&mut file, SEEN_HEAD_BYTES)
             .read_to_end(&mut start)
             .with_context(|| format!("reading {}", path.display()))?;
+        // `split` yields at least one piece, so the default is never taken.
         let line = start.split(|&b| b == b'\n').next().unwrap_or_default();
         let head = String::from_utf8_lossy(line).into_owned();
         Ok(Some(Self { file, len, head }))
@@ -232,6 +233,7 @@ impl Log {
             .read_to_end(&mut bytes)
             .context("reading the error log")?;
         if cut {
+            // No newline after a cut start: no whole line was read, so nothing is counted.
             let whole = bytes.splitn(2, |&b| b == b'\n').nth(1).unwrap_or_default();
             bytes = whole.to_vec();
         }

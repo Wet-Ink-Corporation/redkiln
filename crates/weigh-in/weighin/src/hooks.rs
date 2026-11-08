@@ -13,8 +13,9 @@
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
 //! hook exits 0. A failing hook also says so in its own output (CLI-09, [`Hook::note`]), and the
-//! adapter tells output it could not write in one line on stderr. A store path the user gave that Core refuses (a 1.x ledger, another program's
-//! database) gets nothing beside it: its refusal goes to the default store's state dir,
+//! adapter tells output it could not write in one line on stderr. A store path the user gave
+//! that Core refuses (a 1.x ledger, another program's database) gets nothing beside it: its
+//! refusal goes to the default store's state dir,
 //! `<git-common-dir>/redkiln/weighin/` (outside git nowhere), and `SessionStart` reports it.
 //! Input that cannot be read or parsed is logged only inside a git repository:
 //! outside one, the state dir would be a `.weighin/` the hook creates in whatever folder it was
@@ -24,7 +25,8 @@
 //!
 //! In Cowork (as the adapter detects it) hooks run in the cloud workspace, whose
 //! project directory is a scratch folder deleted with the session, while the user's files and
-//! ledger are on their computer. There the hooks write nothing, not even the error log:
+//! ledger are on their computer. There the hooks write nothing to disk, not even the error log
+//! (a failure is noted in the output only):
 //! `SessionStart` prints the convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps
 //! the conversation and records through the computer's shell.
 
