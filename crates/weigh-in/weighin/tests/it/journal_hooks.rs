@@ -392,9 +392,10 @@ fn a_watermark_written_for_another_store_is_ignored() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_watermark_that_cannot_be_written_is_one_warning_and_one_logged_line() -> TestResult {
+fn a_watermark_that_cannot_be_read_is_one_warning_and_one_logged_line() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("u", "Keep the cache warm?")?;
+    // A directory where the file goes: reading it fails with something other than "not found".
     std::fs::create_dir_all(watermark(&repo))?;
 
     let out = repo.run("cli", &["journal", "checkpoint", "--json"], None)?;
@@ -418,7 +419,18 @@ fn a_watermark_that_cannot_be_written_is_one_warning_and_one_logged_line() -> Te
     exited_0(&repo.hook(&repo.stop("s"))?)?;
     let log = logged(&repo)?;
     assert_eq!(log.len(), 1, "{log:?}");
-    assert!(log.iter().all(|l| l.contains("watermark")), "{log:?}");
+    assert!(
+        log.iter()
+            .all(|l| l.contains("reading the export watermark")),
+        "{log:?}"
+    );
+    let finding = envelope["findings"][0]["message"]
+        .as_str()
+        .ok_or("a message")?;
+    assert!(
+        finding.contains("reading the export watermark"),
+        "{finding}"
+    );
     Ok(())
 }
 
@@ -443,6 +455,51 @@ fn a_stop_finding_a_broken_ref_leaves_the_watermark_unchanged() -> TestResult {
         watermark_at(&repo)?,
         before,
         "t is not settled, so nothing after it is"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_sweep_cut_short_writes_new_work_first_and_never_moves_the_watermark_back() -> TestResult {
+    let (repo, remote) = Repo::with_remote(true)?;
+    for n in 0..8 {
+        repo.raise(&format!("old{n}"), "Keep three retries?")?;
+    }
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    let before = watermark_at(&repo)?;
+    // History to write again: the old journals lose their refs on both sides.
+    for name in refs(&remote, "refs/redkiln/journal")? {
+        git(&remote, &["update-ref", "-d", &name]);
+        git(&repo.root, &["update-ref", "-d", &name]);
+    }
+    repo.raise("t", "Shard the ledger by tenant?")?;
+    // Each push takes a second, so pre-push's deadline passes long before the history is done.
+    pre_receive(&remote, "#!/bin/sh\ncat >/dev/null\nsleep 1\n")?;
+    let url = remote.to_string_lossy();
+    let pushing = format!(
+        "refs/heads/main {} refs/heads/main {}\n",
+        "1".repeat(40),
+        "0".repeat(40)
+    );
+
+    let out = repo.run(
+        "cli",
+        &["journal", "pre-push", "origin", &url],
+        Some(&pushing),
+    )?;
+
+    assert_eq!(out.status.code(), Some(0));
+    let pushed = refs(&remote, "refs/redkiln/journal")?;
+    assert!(
+        pushed.contains(&"refs/redkiln/journal/t".to_owned()),
+        "new work first: {pushed:?}"
+    );
+    assert!(pushed.len() < 9, "cut short: {pushed:?}");
+    assert!(
+        watermark_at(&repo)? >= before,
+        "the watermark only moves forward"
     );
     Ok(())
 }

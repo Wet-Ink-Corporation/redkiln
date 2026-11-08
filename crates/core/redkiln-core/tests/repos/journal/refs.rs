@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use redkiln_core::journal::refs::{
     Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs,
-    checkpoint_refs_since, import_refs,
+    checkpoint_refs_since, import_refs, sweep_refs_since,
 };
 // Every relay test needs a git hook script, so runs only on unix.
 #[cfg(unix)]
@@ -375,6 +375,46 @@ fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished
         checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
     assert_eq!(rest.through, 5, "the whole store");
     assert_eq!(written(rest.outcome).direct.len(), 2, "the store's and a1");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_sweep_writes_the_journals_past_its_position_first_and_settles_only_those() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), 0).expect("ok");
+    assert_eq!(first.through, 5);
+    // a1 and the store's journal lose their refs, so a sweep has them to write again; b2 gains
+    // an event past the position, so it is the one new journal.
+    for name in refs(&remote, "refs/redkiln/journal") {
+        if !name.ends_with("/b2") {
+            git(&remote, &["update-ref", "-d", &name]);
+            git(&work, &["update-ref", "-d", &name]);
+        }
+    }
+    store
+        .append(
+            vec![raised("wi-000006", Some("b2"), Trust::asserted())],
+            None,
+        )
+        .expect("appended");
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
+    );
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        ..target(&work)
+    };
+
+    let swept = sweep_refs_since(&store, RepoClass::Own, &cut, first.through).expect("ok");
+
+    assert_eq!(swept.through, 6, "the journal past the position is settled");
+    let report = written(swept.outcome);
+    assert_eq!(report.direct, [name("b2")], "new work first: {report:?}");
+    assert_eq!(report.deferred.len(), 2, "the older two, late: {report:?}");
 }
 
 #[cfg(unix)]

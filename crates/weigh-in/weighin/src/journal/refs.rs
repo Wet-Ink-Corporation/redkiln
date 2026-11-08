@@ -17,6 +17,7 @@ use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{
     Breach, Deferral, Deleted, JOURNAL_REFS, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsError,
     RefsExported, RefsImport, RefsTarget, Refusal, Relayed, checkpoint_refs_since, import_refs,
+    sweep_refs_since,
 };
 use redkiln_core::location::GIT_TIMEOUT;
 use serde::{Serialize, Serializer};
@@ -129,7 +130,8 @@ impl Serialize for Skip {
 /// Which journals [`checkpoint`] examines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Scope {
-    /// Every journal: `journal checkpoint` and `journal pre-push`, the sweep.
+    /// Every journal, those past the watermark first: `journal checkpoint` and `journal
+    /// pre-push`, the sweep.
     All,
     /// Only the journals with an event after the watermark: the Stop hook.
     SinceWatermark,
@@ -140,9 +142,10 @@ pub(crate) enum Scope {
 pub(crate) enum Marked {
     /// To the position up to which the store is settled (Core's `through`).
     Moved,
-    /// Already there: nothing more is settled, so the next checkpoint looks again.
+    /// Already there or past it: it never moves back.
     Kept,
-    /// It could not be written; the next Stop examines every journal again.
+    /// It could not be read (so it was not written) or written; the next Stop may examine
+    /// every journal again.
     Failed(anyhow::Error),
 }
 
@@ -164,9 +167,11 @@ pub(crate) enum Imported {
 
 /// Export the store's durable events that their journals lack (JR-08), from the journals
 /// `scope` names. Skips, in this order: not in git, a `client` repository, opted out, then no
-/// store (none is created). Every run, whatever its scope, moves the watermark to the position
-/// up to which it settled the store: every journal whose last event is at or before it was
-/// examined and neither deferred nor broken.
+/// store (none is created). Every run, whatever its scope, moves the watermark forward to the
+/// position up to which it settled the store (every journal whose last event is at or before
+/// it was examined and neither deferred nor broken), never back; a sweep examines the journals
+/// past it first, then the rest. A watermark that exists but cannot be read is reported and
+/// left alone, and every journal is examined.
 ///
 /// # Errors
 /// The store cannot be located, opened or read, or git fails locally.
@@ -196,33 +201,38 @@ pub(crate) fn checkpoint(
     };
     let target = budget.target(repo, started);
     let watermark = Watermark::of(env, repo, store.core().store_id())?;
-    let recorded = watermark.read();
-    let since = match scope {
-        Scope::All => 0,
-        Scope::SinceWatermark => recorded,
+    let (mut recorded, unread) = match watermark.read() {
+        Ok(at) => (at, None),
+        Err(e) => (0, Some(e)),
     };
     let export = |since| {
-        checkpoint_refs_since(store.core(), class.into(), &target, since)
-            .context("exporting the journals")
+        match scope {
+            Scope::All => sweep_refs_since(store.core(), class.into(), &target, since),
+            Scope::SinceWatermark => {
+                checkpoint_refs_since(store.core(), class.into(), &target, since)
+            }
+        }
+        .context("exporting the journals")
     };
-    let mut scoped = export(since)?;
-    if scoped.through < since {
+    let mut scoped = export(recorded)?;
+    if scoped.through < recorded {
         // A store behind its watermark is not the one it was written for (a store recreated
         // since): nothing it holds is known to be exported.
+        recorded = 0;
         scoped = export(0)?;
     }
     Ok(match scoped.outcome {
         RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
         RefsCheckpoint::Written(report) => {
-            // Core's `through` already stops before the first journal deferred or broken, so a
-            // run cut short still records the journals it settled, and a sweep that found a
-            // broken ref may move it back.
-            let marked = if scoped.through == recorded {
-                Marked::Kept
-            } else {
-                watermark
+            // Core's `through` stops before the first journal past the watermark that was
+            // deferred or broken, so a run cut short still records what it settled; what a
+            // sweep finds below the watermark is in its report, not a reason to move back.
+            let marked = match unread {
+                Some(e) => Marked::Failed(e),
+                None if scoped.through <= recorded => Marked::Kept,
+                None => watermark
                     .write(scoped.through)
-                    .map_or_else(Marked::Failed, |()| Marked::Moved)
+                    .map_or_else(Marked::Failed, |()| Marked::Moved),
             };
             Checkpointed::Ran(report, marked)
         }

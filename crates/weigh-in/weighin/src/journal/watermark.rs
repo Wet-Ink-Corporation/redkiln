@@ -1,16 +1,18 @@
 //! How far the store's events are exported: the store position up to which a checkpoint
 //! settled the store (Core's `ScopedCheckpoint::through`), kept in the state dir (D4) as
 //! `journal-watermark`, so the Stop hook examines only the journals with a later event instead
-//! of every journal the store ever held (PR B review F1). Every journal whose last event is at
-//! or before it was in its journal ref or inbox, as far as this clone could tell then.
+//! of every journal the store ever held. Every journal whose last event is at or before it was
+//! in its journal ref or inbox, as far as this clone could tell then. It only moves forward:
+//! what a sweep finds below it is reported by the sweep, not handed back to the Stop.
 //!
 //! The file holds the position, the repository and the store it was written for, one per line.
-//! It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is. A missing,
-//! unreadable or torn file, or one written for another repository sharing the store or for
-//! another store at this path (one recreated since), reads as no watermark: the next checkpoint
-//! examines every journal.
+//! It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is. A missing
+//! or torn file, or one written for another repository sharing the store or for another store
+//! at this path (one recreated since), reads as no watermark: the next checkpoint examines
+//! every journal. A file that exists but cannot be read is an error, and is not written over.
 
 use std::fmt::Display;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -42,13 +44,21 @@ impl Watermark {
         })
     }
 
-    /// The position recorded for this repository and store; 0, which examines every journal,
-    /// when none can be read (module doc).
-    pub(crate) fn read(&self) -> u64 {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|text| position(&text, &self.owner))
-            .unwrap_or(0)
+    /// The position recorded for this repository and store: 0, which examines every journal,
+    /// when there is no file, or it is torn or another's (module doc).
+    ///
+    /// # Errors
+    /// The file exists but cannot be read; the caller then examines every journal and must not
+    /// write, since it cannot tell whether that would move the watermark back.
+    pub(crate) fn read(&self) -> Result<u64> {
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => Ok(position(&text, &self.owner).unwrap_or(0)),
+            Err(e) if e.kind() == ErrorKind::NotFound => Ok(0),
+            Err(e) => Err(anyhow::Error::new(e).context(format!(
+                "reading the export watermark in {}",
+                self.path.display()
+            ))),
+        }
     }
 
     /// Records `through` for this repository and store.

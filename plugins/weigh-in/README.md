@@ -215,8 +215,9 @@ it pushes the branch `redkiln/inbox/<session>` instead, and `weighin journal rel
 relay workflow) moves it into the ref. The export runs inside a budget that ends before the
 hook's 20 s timeout (an 18 s worst case). It looks only at the journals that gained an event
 since the store was last settled, oldest first, and records how far it settled it even when its
-deadline cuts it short, so the next Stop goes on from there; `journal checkpoint` and `journal
-pre-push` look at every journal. The store is still read whole on every Stop, and a journal
+deadline cuts it short, so the next Stop goes on from there; that record only moves forward.
+`journal checkpoint` and `journal pre-push` write those journals first, then look at every other
+journal and report what they find there. The store is still read whole on every Stop, and a journal
 that stays broken or deferred holds every later journal in the Stop's scope until it is fixed. A remote that hangs or refuses is retried at the next Stop, unlogged. Only what
 needs a person goes to `hook-errors.log`: a journal ref that breaks JR-05 (move it aside to
 `refs/redkiln/broken/<session>/<sha>`), an export that cannot go on by itself (an occupied or

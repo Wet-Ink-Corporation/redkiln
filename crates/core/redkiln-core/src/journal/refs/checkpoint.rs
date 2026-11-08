@@ -127,6 +127,45 @@ pub fn checkpoint_refs_since(
     target: &RefsTarget<'_>,
     since: u64,
 ) -> Result<ScopedCheckpoint, RefsError> {
+    scoped(store, class, target, Scope::Skipping(since))
+}
+
+/// [`checkpoint_refs_since`], then every journal at or before `since` too: a sweep that writes
+/// new work before it checks history again.
+///
+/// The journals past `since` go first, oldest last event first, then the others in the same
+/// order. `through` is settled over the journals past `since` only, so it is never below
+/// `since` whatever the older journals give: those are reported, and a later sweep tries them
+/// again.
+///
+/// # Errors
+/// As [`checkpoint_refs`].
+pub fn sweep_refs_since(
+    store: &Store,
+    class: RepoClass,
+    target: &RefsTarget<'_>,
+    since: u64,
+) -> Result<ScopedCheckpoint, RefsError> {
+    scoped(store, class, target, Scope::Sweeping(since))
+}
+
+/// The store position a scoped checkpoint starts after, and what it does with the journals whose
+/// last event is at or before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// Leaves them unexamined.
+    Skipping(u64),
+    /// Examines them after the others.
+    Sweeping(u64),
+}
+
+fn scoped(
+    store: &Store,
+    class: RepoClass,
+    target: &RefsTarget<'_>,
+    scope: Scope,
+) -> Result<ScopedCheckpoint, RefsError> {
+    let (Scope::Skipping(since) | Scope::Sweeping(since)) = scope;
     if class == RepoClass::Client {
         return Ok(ScopedCheckpoint {
             outcome: RefsCheckpoint::Client,
@@ -134,43 +173,44 @@ pub fn checkpoint_refs_since(
         });
     }
     let grouped = grouped(store).map_err(RefsError::Store)?;
-    let mut journals: Vec<(JournalName, Group)> = grouped
+    let (mut newer, mut earlier): (Vec<(JournalName, Group)>, Vec<_>) = grouped
         .journals
         .into_iter()
-        .filter(|(_, group)| group.last > since)
-        .collect();
+        .partition(|(_, group)| group.last > since);
     // Oldest last event first, so a checkpoint cut short still settles a prefix of positions
     // and the next one, scoped since it, goes on from there.
-    journals.sort_by_key(|(_, group)| group.last);
+    newer.sort_by_key(|(_, group)| group.last);
     // The names go to the writers and into the report; this copy maps them back to positions.
-    let order: Vec<(JournalName, u64)> = journals
+    let positions: Vec<(JournalName, u64)> = newer
         .iter()
         .map(|(name, group)| (name.clone(), group.last))
         .collect();
+    if matches!(scope, Scope::Sweeping(_)) {
+        earlier.sort_by_key(|(_, group)| group.last);
+        newer.append(&mut earlier);
+    }
     let report = refs_of(
         target,
-        journals
-            .into_iter()
-            .map(|(name, group)| (name, group.lines)),
+        newer.into_iter().map(|(name, group)| (name, group.lines)),
         grouped.unexportable,
     )?;
-    let through = settled(&order, &report).unwrap_or(grouped.through);
+    let through = settled(&positions, &report).unwrap_or(grouped.through);
     Ok(ScopedCheckpoint {
         outcome: RefsCheckpoint::Written(report),
         through,
     })
 }
 
-/// The position just before the last event of the first journal of `order` that `report`
+/// The position just before the last event of the first journal of `positions` that `report`
 /// deferred or found broken; `None` when it deferred and broke none.
-fn settled(order: &[(JournalName, u64)], report: &RefsExported) -> Option<u64> {
+fn settled(positions: &[(JournalName, u64)], report: &RefsExported) -> Option<u64> {
     let unsettled: HashSet<&JournalName> = report
         .deferred
         .iter()
         .map(|(name, _)| name)
         .chain(report.broken.iter().map(|(name, _)| name))
         .collect();
-    order
+    positions
         .iter()
         .find(|(name, _)| unsettled.contains(name))
         .map(|(_, last)| last.saturating_sub(1))
