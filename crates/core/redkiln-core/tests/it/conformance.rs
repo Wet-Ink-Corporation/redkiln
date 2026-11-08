@@ -173,13 +173,10 @@ fn files_under(dir: &Path, prefix: &str, out: &mut BTreeSet<String>) {
 #[test]
 fn every_fixture_and_schema_is_listed() {
     let mut on_disk = BTreeSet::new();
-    for area in ["envelope", "journal", "cli", "decision-request"] {
-        files_under(
-            &spec_dir().join("fixtures").join(area),
-            &format!("fixtures/{area}/"),
-            &mut on_disk,
-        );
-    }
+    files_under(&spec_dir().join("fixtures"), "fixtures/", &mut on_disk);
+    // The index, and ID-09's recipe check, which CI runs as a script.
+    on_disk.remove("fixtures/README.md");
+    on_disk.retain(|rel| !rel.starts_with("fixtures/patch-id/"));
     files_under(&spec_dir().join("schemas"), "schemas/", &mut on_disk);
     let listed: BTreeSet<String> = schema::listed().collect();
     assert_eq!(

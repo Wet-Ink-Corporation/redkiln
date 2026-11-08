@@ -20,6 +20,8 @@ Each file is the exact bytes. A `.json` golden is one compact JSON line ended by
 
 A schema describes what a writer writes (EV-05): optional keys absent, never `null`, and no key the SPEC does not define. `data` stays an open object in `envelope-1` and `cli-envelope-1`, since its type's owner defines it; Core's own types have a schema for their `data`.
 
+Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-1` gives `cites` `minItems: 1`, since a writer leaves out an empty list as it leaves out any absent optional key (Core writes no `cites` when there are none), and `cli-envelope-1` limits `command` to printable characters with no control character. Each may be dropped if the SPEC says otherwise.
+
 ## Files
 
 | File | Covers | Read by (in `conformance/`) |
