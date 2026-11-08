@@ -1,0 +1,71 @@
+# R-SQLITE: eight concurrent writers, hooks included, on one TRUNCATE store (SPEC ST-05, ST-09),
+# on Linux, Windows and macOS. Advisory: not part of `ci / ok`, never a required check. It runs
+# by hand and on pull requests that touch the spike or Core's store; its report is the job
+# summary and the `r-sqlite-<os>` artifact. It fails only when a correctness check fails (a lost,
+# duplicated or invented event, a file deleted beside the store, a WAL, a failed integrity
+# check); busy refusals under load are reported, never failed. spikes/r-sqlite/README.md.
+name: r-sqlite
+on:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per mixed scenario
+        default: "30"
+  pull_request:
+    paths:
+      - spikes/r-sqlite/**
+      - crates/core/redkiln-core/src/store.rs
+      - crates/core/redkiln-core/src/store/**
+      - .github/workflows/r-sqlite.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r-sqlite-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  run:
+    name: R-SQLITE (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+        working-directory: spikes/r-sqlite
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, 2026-09-28
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: spikes/r-sqlite
+      - name: Build
+        run: cargo build --release --locked
+      - name: Run
+        env:
+          SECONDS_PER_MIX: ${{ inputs.seconds || '30' }}
+        run: |
+          ./target/release/r-sqlite run --dir "$RUNNER_TEMP/r-sqlite" \
+            --seconds "$SECONDS_PER_MIX" --rounds 20 --report "$RUNNER_TEMP/report.md" > /dev/null
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/report.md" ]; then cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: r-sqlite-${{ matrix.os }}
+          path: ${{ runner.temp }}/report.md
+          if-no-files-found: warn
