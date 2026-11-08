@@ -7,6 +7,7 @@
 | [`research/shipping-native-binaries.md`](research/shipping-native-binaries.md) | (2026-10-01) What the research on shipping a Rust binary in a Claude Code plugin found for Weigh-In; the full report and notes moved to [temper](https://github.com/Wet-Ink-Corporation/temper/blob/main/docs/research/shipping-native-binaries/README.md) |
 | [`decisions/`](decisions/README.md) | Every decision so far: settled questions, the board sitting, defaults, and the calls made while building |
 | [`install.md`](install.md) | Installing, updating and removing a release: the organization sync of `weigh-in-plugin`, Claude Code from the `marketplace` branch, Cowork, the ledger, `hook-errors.log`, capture off, Windows `ENOENT` |
+| [`journal-relay.md`](journal-relay.md) | (2026-11-08) The journal relay workflow: what a run's outcome means, what to fix when it leaves an inbox branch, and what to verify on the first real run |
 | [`releasing.md`](releasing.md) | The release checklist: the bump PR and its dry run, Ryan's tag, and the checks after the workflow |
 | [`roadmap.md`](roadmap.md) | What is not yet verified, known gaps, and slice 2 |
 | [`v1-plan.md`](v1-plan.md) | (2026-10-02) Evaluation of the repository at 0.2.2 and the plan to v1 in active use, starting with source control |
