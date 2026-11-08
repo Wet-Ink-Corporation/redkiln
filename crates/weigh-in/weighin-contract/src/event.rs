@@ -11,7 +11,7 @@
 
 use crate::card::Card;
 use crate::id::ItemId;
-use crate::marker::{Authority, Door, Kind};
+use crate::vocab::{Authority, Door, Kind};
 use serde::{Deserialize, Serialize};
 
 /// Where a raised item came from, in falling order of precision.
@@ -642,8 +642,8 @@ impl LedgerEvent {
 /// # Examples
 ///
 /// ```
-/// use weighin_core::event::{Acknowledged, EventEnvelope, LedgerEvent};
-/// use weighin_core::id::ItemId;
+/// use weighin_contract::event::{Acknowledged, EventEnvelope, LedgerEvent};
+/// use weighin_contract::id::ItemId;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     let envelope = EventEnvelope {

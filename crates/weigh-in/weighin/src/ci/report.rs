@@ -1,92 +1,17 @@
 //! The `ci-check` report: its wire format (`weighin.ci-check/1`), the rules that build it from
 //! the folded journals and the attested decisions, and its one-line text form. No I/O.
 
-use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::io::Write;
-use weighin_core::marker::{Authority, Door};
+use weighin_contract::ci_check::{Decision, JournalCheck, OpenItem, Report, SCHEMA};
 use weighin_core::{Item, ItemId, Ledger};
 
-pub(crate) use super::verify::{Reason, Violation};
+// The report's wire types are Weigh-In's contract since Move 1 step 5 (`weighin.ci-check/1`).
+pub(crate) use weighin_contract::ci_check::{Blocks, Reason, Source, Violation};
 
-/// The schema name and version the JSON report carries.
-pub(crate) const SCHEMA: &str = "weighin.ci-check/1";
-
-/// The report `ci-check` writes (OUT-01), a view of what [`build`] read: field order is wire
-/// order.
-#[derive(Debug, Serialize)]
-pub(crate) struct CiReport<'a> {
-    schema: &'static str,
-    base: &'a str,
-    head: &'a str,
-    open_items: Vec<OpenItem<'a>>,
-    decisions: Vec<DecisionOut<'a>>,
-    journal: JournalCheck<'a>,
-}
-
-/// An item still open at head.
-#[derive(Debug, Serialize)]
-struct OpenItem<'a> {
-    id: &'a ItemId,
-    status: &'static str,
-    kind: &'static str,
-    /// The triaged door, or `null` before triage; never the raiser's hint.
-    door: Option<&'static str>,
-    /// The triaged authority, or `null` before triage; never the raiser's hint.
-    authority: Option<&'static str>,
-    blocks: Blocks,
-    /// The deadline [`blocks_of`] read: the deferral's when deferred, else the triage's.
-    resolve_by: Option<&'a str>,
-    question: &'a str,
-}
-
-/// What an open item holds up.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Blocks {
-    /// It must be settled before the branch merges.
-    Merge,
-    /// It must be settled before the next release.
-    Release,
-    /// It has a date deadline, which holds up neither.
-    None,
-    /// Nothing recorded says.
-    Unknown,
-}
-
-/// One decision the branch adds.
-#[derive(Debug, Serialize)]
-struct DecisionOut<'a> {
-    id: &'a ItemId,
-    option: Option<&'a str>,
-    commit: Option<&'a str>,
-    sources: Vec<Source>,
-}
-
-/// Where a decision is attested. The derive order is the output order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Source {
-    /// An `item_decided` event added to a committed journal.
-    Journal,
-    /// A decision atom added under `.kb`.
-    Atom,
-    /// A `Weigh-In:` trailer in a commit message.
-    Trailer,
-}
-
-impl Source {
-    /// Which source's commit the report names first: the trailer's, then the atom's, then the
-    /// journal line's.
-    const COMMIT_PRIORITY: [Self; 3] = [Self::Trailer, Self::Atom, Self::Journal];
-}
-
-/// The append-only result.
-#[derive(Debug, Serialize)]
-struct JournalCheck<'a> {
-    ok: bool,
-    violations: Vec<&'a Violation>,
-}
+/// Which source's commit the report names first: the trailer's, then the atom's, then the
+/// journal line's.
+const COMMIT_PRIORITY: [Source; 3] = [Source::Trailer, Source::Atom, Source::Journal];
 
 /// One source's word that an item was decided in the range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +43,7 @@ pub(crate) struct Inputs<'a> {
 }
 
 /// The report: open items by id, decisions by (id, option), violations by (path, line).
-pub(crate) fn build(inputs: Inputs<'_>) -> CiReport<'_> {
+pub(crate) fn build(inputs: Inputs<'_>) -> Report {
     let Inputs {
         base,
         head,
@@ -135,12 +60,13 @@ pub(crate) fn build(inputs: Inputs<'_>) -> CiReport<'_> {
         .filter(|i| still_open(closing.get(&i.id).copied(), reopens.get(&i.id).copied()))
         .map(|i| open_item(i, ledger))
         .collect();
-    let mut violations: Vec<&Violation> = violations.iter().collect();
+    // The report is its own document, so it owns a copy of what it names (H-08).
+    let mut violations = violations.to_vec();
     violations.sort();
-    CiReport {
-        schema: SCHEMA,
-        base,
-        head,
+    Report {
+        schema: SCHEMA.to_owned(),
+        base: base.to_owned(),
+        head: head.to_owned(),
         open_items,
         decisions: decisions(attested),
         journal: JournalCheck {
@@ -175,23 +101,23 @@ fn still_open(closing: Option<When>, reopen: Option<When>) -> bool {
     }
 }
 
-fn open_item<'a>(i: &'a Item, ledger: &Ledger) -> OpenItem<'a> {
+fn open_item(i: &Item, ledger: &Ledger) -> OpenItem {
     OpenItem {
-        id: &i.id,
-        status: i.status.as_str(),
-        kind: i.kind.as_str(),
-        door: i.door.map(Door::as_str),
-        authority: i.authority.map(Authority::as_str),
+        id: i.id.clone(),
+        status: i.status,
+        kind: i.kind,
+        door: i.door,
+        authority: i.authority,
         blocks: blocks_of(i, ledger),
-        resolve_by: deadline(i),
-        question: &i.question,
+        resolve_by: deadline(i).map(str::to_owned),
+        question: i.question.clone(),
     }
 }
 
 /// The attestations as one entry per (item, option). An option-less attestation joins the one
 /// optioned entry of its item when there is exactly one, and otherwise stands as the item's
 /// entry with no option; two sources naming different options give two entries.
-fn decisions(attested: &[Attested]) -> Vec<DecisionOut<'_>> {
+fn decisions(attested: &[Attested]) -> Vec<Decision> {
     let mut by_item: BTreeMap<&ItemId, Vec<&Attested>> = BTreeMap::new();
     for a in attested {
         by_item.entry(&a.id).or_default().push(a);
@@ -221,17 +147,17 @@ fn decisions(attested: &[Attested]) -> Vec<DecisionOut<'_>> {
     out
 }
 
-fn decision<'a>(id: &'a ItemId, option: Option<&'a str>, list: &[&'a Attested]) -> DecisionOut<'a> {
+fn decision(id: &ItemId, option: Option<&str>, list: &[&Attested]) -> Decision {
     let sources: BTreeSet<Source> = list.iter().map(|a| a.source).collect();
-    let commit = Source::COMMIT_PRIORITY.iter().find_map(|s| {
+    let commit = COMMIT_PRIORITY.iter().find_map(|s| {
         list.iter()
             .filter(|a| a.source == *s)
             .find_map(|a| a.commit.as_deref())
     });
-    DecisionOut {
-        id,
-        option,
-        commit,
+    Decision {
+        id: id.clone(),
+        option: option.map(str::to_owned),
+        commit: commit.map(str::to_owned),
         sources: sources.into_iter().collect(),
     }
 }
@@ -316,7 +242,7 @@ pub(crate) fn blame_lines(porcelain: &str) -> HashMap<u64, String> {
 ///
 /// # Errors
 /// Fails when `out` cannot be written.
-pub(crate) fn render_text(r: &CiReport<'_>, out: &mut impl Write) -> std::io::Result<()> {
+pub(crate) fn render_text(r: &Report, out: &mut impl Write) -> std::io::Result<()> {
     let count = |b: Blocks| r.open_items.iter().filter(|i| i.blocks == b).count();
     let journal = if r.journal.ok {
         "journal ok".to_owned()
@@ -326,8 +252,8 @@ pub(crate) fn render_text(r: &CiReport<'_>, out: &mut impl Write) -> std::io::Re
     writeln!(
         out,
         "ci-check {}..{}: {} open ({} block merge, {} block release, {} unknown) · {} decision(s) · {journal}",
-        short(r.base),
-        short(r.head),
+        short(&r.base),
+        short(&r.head),
         r.open_items.len(),
         count(Blocks::Merge),
         count(Blocks::Release),

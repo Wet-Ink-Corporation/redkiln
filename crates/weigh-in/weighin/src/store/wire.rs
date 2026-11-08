@@ -3,26 +3,19 @@
 //!
 //! weighin-core's [`EventEnvelope`] stays the in-memory model (the projection, the 1.x journal
 //! lines and `stats` read it); this module maps it to and from the envelope the store keeps. The
-//! payload types and this table move to `weighin-contract` at Move 1 step 5, which implements
-//! [`Payload`] on them directly; until then [`Wire`] carries the impls past the orphan rule.
+//! payloads are Core [`Payload`]s in `weighin-contract` (`names`, Move 1 step 5).
 
 use anyhow::{Context as _, Result};
 use redkiln_core::envelope::{
-    Actor, Author, Class, Envelope, Namespace, Payload, Skip, Timestamp, Writer, decode,
+    Actor, Author, Envelope, Namespace, Payload, Skip, Timestamp, Writer, decode,
 };
 use redkiln_core::ids::{SessionId, WorktreeId};
 use redkiln_core::store::{CoreKey, Filter, NewEvent, StoreError, Stored, Tag};
 use redkiln_core::trust::Trust;
-use serde::{Deserialize, Serialize};
 use weighin_core::event::{
     Acknowledged, Decided, Defaulted, Deferred, Dismissed, EventEnvelope, Grounded, LedgerEvent,
     Linked, Presented, Raised, RecordWritten, Reopened, Superseded, Triaged,
 };
-
-/// A weighin-core payload as the `data` of a Core envelope.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub(super) struct Wire<T>(pub(super) T);
 
 /// The binary every envelope weighin writes names (EV-01's `writer`).
 ///
@@ -32,34 +25,25 @@ pub(super) fn writer() -> Result<Writer> {
     Writer::new("weighin", env!("CARGO_PKG_VERSION")).context("naming weighin as the writer")
 }
 
-/// One table of `(variant, payload, 1.x name)` for the impls, the type list and both
-/// dispatches (ARC-15).
+/// One table of `(variant, payload)` for the type list and both dispatches (ARC-15).
 macro_rules! wire_types {
-    ($($variant:ident($payload:ty) = $name:literal,)+) => {
-        $(
-            impl Payload for Wire<$payload> {
-                const TYPE: &'static str = concat!("weighin.", $name);
-                const VERSION: u32 = 1;
-                const CLASS: Class = Class::Durable;
-            }
-        )+
-
-        /// Every weighin type, in weighin-core's `EVENT_TYPES` order.
-        pub(super) const TYPES: [&str; 13] = [$(concat!("weighin.", $name)),+];
+    ($($variant:ident($payload:ty),)+) => {
+        /// Every weighin type of the ledger, in weighin-core's `EVENT_TYPES` order.
+        pub(super) const TYPES: [&str; 13] = [$(<$payload as Payload>::TYPE),+];
 
         /// Each type's declaration, for the test that pins the table.
         #[cfg(test)]
-        const DECLARED: [(&str, u32, Class); 13] = [$((
-            <Wire<$payload> as Payload>::TYPE,
-            <Wire<$payload> as Payload>::VERSION,
-            <Wire<$payload> as Payload>::CLASS,
+        const DECLARED: [(&str, u32, redkiln_core::envelope::Class); 13] = [$((
+            <$payload as Payload>::TYPE,
+            <$payload as Payload>::VERSION,
+            <$payload as Payload>::CLASS,
         )),+];
 
         /// The stored event of `event` in `frame`, and both handed back for the ledger.
         fn encode(frame: Frame, event: LedgerEvent, tags: Vec<Tag>) -> Result<(NewEvent, Frame, LedgerEvent)> {
             match event {
                 $(LedgerEvent::$variant(payload) => {
-                    let (stored, frame, Wire(payload)) = frame.event(Wire(payload), tags)?;
+                    let (stored, frame, payload) = frame.event(payload, tags)?;
                     Ok((stored, frame, LedgerEvent::$variant(payload)))
                 })+
             }
@@ -72,8 +56,8 @@ macro_rules! wire_types {
         /// [`Skip::Unusable`] for a weighin type this build cannot use (EV-10).
         pub(super) fn from_stored(stored: &Stored) -> Result<EventEnvelope, Skip> {
             $(
-                if stored.event_type == <Wire<$payload> as Payload>::TYPE {
-                    return decode::<Wire<$payload>>(stored)
+                if stored.event_type == <$payload as Payload>::TYPE {
+                    return decode::<$payload>(stored)
                         .map(|read| to_ledger(read, LedgerEvent::$variant));
                 }
             )+
@@ -83,23 +67,23 @@ macro_rules! wire_types {
 }
 
 wire_types! {
-    ItemRaised(Raised) = "item_raised",
-    ItemTriaged(Triaged) = "item_triaged",
-    ItemGrounded(Grounded) = "item_grounded",
-    ItemPresented(Presented) = "item_presented",
-    ItemDecided(Decided) = "item_decided",
-    ItemDeferred(Deferred) = "item_deferred",
-    ItemDefaulted(Defaulted) = "item_defaulted",
-    ItemDismissed(Dismissed) = "item_dismissed",
-    ItemReopened(Reopened) = "item_reopened",
-    ItemSuperseded(Superseded) = "item_superseded",
-    ItemLinked(Linked) = "item_linked",
-    RecordWritten(RecordWritten) = "record_written",
-    ItemAcknowledged(Acknowledged) = "item_acknowledged",
+    ItemRaised(Raised),
+    ItemTriaged(Triaged),
+    ItemGrounded(Grounded),
+    ItemPresented(Presented),
+    ItemDecided(Decided),
+    ItemDeferred(Deferred),
+    ItemDefaulted(Defaulted),
+    ItemDismissed(Dismissed),
+    ItemReopened(Reopened),
+    ItemSuperseded(Superseded),
+    ItemLinked(Linked),
+    RecordWritten(RecordWritten),
+    ItemAcknowledged(Acknowledged),
 }
 
 /// The type `item_raised` is written as: the `NotYetRaised` guard's.
-pub(super) const RAISED: &str = <Wire<Raised> as Payload>::TYPE;
+pub(super) const RAISED: &str = <Raised as Payload>::TYPE;
 
 /// Every weighin event, of any of the 13 types.
 ///
@@ -250,9 +234,9 @@ impl Frame {
 }
 
 /// weighin-core's envelope of a read `envelope`, its payload wrapped by `variant`.
-fn to_ledger<P>(envelope: Envelope<Wire<P>>, variant: fn(P) -> LedgerEvent) -> EventEnvelope {
+fn to_ledger<P>(envelope: Envelope<P>, variant: fn(P) -> LedgerEvent) -> EventEnvelope {
     EventEnvelope {
-        event: variant(envelope.data.0),
+        event: variant(envelope.data),
         actor: envelope.actor.to_string(),
         session_id: envelope.session.map(|s| s.as_str().to_owned()),
         worktree: envelope.worktree.map(|w| w.as_str().to_owned()),

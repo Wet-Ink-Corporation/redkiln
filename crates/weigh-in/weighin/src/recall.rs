@@ -74,9 +74,9 @@ impl<'p> Edit<'p> {
     }
 }
 
-/// What the `PostToolUse` hook adds after `edit`: the hook output carrying at most [`PER_EDIT`]
-/// decisions in `ledger` anchored at the edited file as `additionalContext`, or `None` when there
-/// are none. Reads the file only when a decision is anchored at it; never writes.
+/// What the `PostToolUse` hook adds to the model's context after `edit`: at most [`PER_EDIT`]
+/// decisions in `ledger` anchored at the edited file, one line each, or `None` when there are
+/// none. Reads the file only when a decision is anchored at it; never writes.
 pub(crate) fn edit_context(env: &Env, ledger: &Ledger, edit: &Edit<'_>) -> Option<String> {
     let mut found = anchored_at(ledger, &edit.rel);
     if found.is_empty() {
@@ -88,13 +88,7 @@ pub(crate) fn edit_context(env: &Env, ledger: &Ledger, edit: &Edit<'_>) -> Optio
         .and_then(|on_disk| edited_line(&on_disk, &edit.edited));
     rank(&mut found, line);
     let lines: Vec<String> = found.iter().take(PER_EDIT).map(Anchored::line).collect();
-    let output = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": lines.join("\n"),
-        },
-    });
-    Some(output.to_string())
+    Some(lines.join("\n"))
 }
 
 /// One decision as `decisions --json` prints it.

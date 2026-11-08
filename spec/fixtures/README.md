@@ -50,8 +50,8 @@ Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-
 | `cli/valid/ok-with-warning.json` | CLI-03, CLI-06: a report with a warning finding and its `at` | `cli.rs` |
 | `cli/valid/internal-error.json` | CLI-05: weighin's exit-70 envelope | `cli.rs` |
 | `cli/invalid/*.json` | CLI-02, CLI-03 | `schema.rs`, `cli.rs` |
-| `decision-request/valid/dr-02.json` | DR-02's example | `decision_request.rs`, `spec_text.rs` |
-| `decision-request/invalid/*.json` | DR-02: options, option ids, door, `default` on a one-way item, subject hash form | `schema.rs` |
+| `decision-request/valid/dr-02.json` | DR-02's example | `decision_request.rs`, `spec_text.rs`; `weighin-contract`'s `request` tests |
+| `decision-request/invalid/*.json` | DR-02: options, option ids, door, `default` on a one-way item, subject hash form | `schema.rs`; `weighin-contract`'s `request` tests |
 
 The tables in `conformance/schema.rs` give each `invalid/` and `lenient/` file's exact violations. weighin's integration tests (`crates/weigh-in/weighin/tests/it/cli_conformance.rs`) validate its real `--json` output against `cli-envelope-1`.
 
@@ -77,5 +77,5 @@ These are pinned by Core's tests, and by fixtures a schema passes and Core refus
 - tags sorted (`journal/invalid/unsorted-tags.jsonl`; duplicates are the schema's `uniqueItems`), and `tags` and `origin` before `data`;
 - a `ts` that is a real moment (a 30 February passes the pattern);
 - byte lengths: EV-16's 64 KiB, EV-03's 64-byte type and EV-11's 255-byte tag are counted in characters by `maxLength`, which equals bytes only for ASCII;
-- DR-04's cross-field guards (`recommendation` and `default` name an option, option ids in order, `deadline` after the event's `ts`, a CI raiser asks for `attested`), which are `weighin-contract`'s (Move 1 step 5);
+- DR-04's cross-field guards (a text that is only whitespace, `recommendation` and `default` name an option, option ids in order, `deadline` after the event's `ts`, a CI raiser asks for `attested`), which are `weighin-contract`'s (`Request::check`);
 - AP-02's checks, which a gate makes when it runs.

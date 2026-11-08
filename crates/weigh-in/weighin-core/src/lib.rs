@@ -16,14 +16,12 @@
 
 pub mod atom;
 pub mod board;
-pub mod card;
-pub mod event;
-pub mod id;
 pub mod marker;
 pub mod projection;
 pub mod scan;
 
-pub use card::Card;
-pub use event::{EventEnvelope, LedgerEvent};
-pub use id::ItemId;
 pub use projection::{Item, Ledger, Status};
+// The vocabulary, ids, card and events are Weigh-In's contract since Move 1 step 5; they keep
+// their paths here so the domain reads as it did.
+pub use weighin_contract::{Card, EventEnvelope, ItemId, LedgerEvent};
+pub use weighin_contract::{card, event, id};

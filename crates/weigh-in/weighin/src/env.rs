@@ -14,6 +14,7 @@ use weighin_core::event::{EventEnvelope, LedgerEvent};
 
 pub(crate) use self::location::{Notice, StoreAt, Vars};
 use crate::git;
+use crate::harness::claude_code;
 use crate::text::Report;
 
 /// git's answer to `args` in `cwd`, trimmed; `None` when git fails or prints nothing (a branch
@@ -393,32 +394,17 @@ pub(crate) struct Env {
     pub(crate) git_owner: OnceCell<String>,
 }
 
-/// Whether this process runs inside Cowork's cloud workspace, where the project directory is a
-/// scratch folder deleted with the session and the user's files are on their computer.
-#[must_use]
-pub(crate) fn cowork() -> bool {
-    harness() == Harness::Cowork
-}
-
-/// Where this process runs, as Claude Code's `CLAUDE_CODE_ENTRYPOINT` says.
+/// Where this process runs, as the harness adapter detects it
+/// (`harness::claude_code::detect`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Harness {
     /// A Claude Code session on this computer, whose hooks run here (`SessionStart` included).
     ClaudeCode,
-    /// Cowork's cloud workspace (`remote_cowork`): hooks run there, not beside the user's files.
+    /// Cowork's cloud workspace, where the project directory is a scratch folder deleted with
+    /// the session: hooks run there, not beside the user's files.
     Cowork,
     /// No Claude Code session: a terminal, a script or another harness.
     Other,
-}
-
-/// The [`Harness`] this process runs in; the one place weighin reads `CLAUDE_CODE_ENTRYPOINT`.
-#[must_use]
-pub(crate) fn harness() -> Harness {
-    match std::env::var("CLAUDE_CODE_ENTRYPOINT") {
-        Ok(v) if v == "remote_cowork" => Harness::Cowork,
-        Ok(v) if !v.is_empty() => Harness::ClaudeCode,
-        Ok(_) | Err(_) => Harness::Other,
-    }
 }
 
 /// `path` with its directory resolved: the nearest existing ancestor of its parent is
@@ -473,21 +459,18 @@ pub(crate) fn split_anchor(at: &str) -> (&str, &str) {
         .map_or((at, ""), |position| (path, position))
 }
 
-/// The variables a session id is read from when the surface gave none, in order.
-const SESSION_VARS: [&str; 3] = [
-    "WEIGHIN_SESSION",
-    "CLAUDE_SESSION_ID",
-    "CLAUDE_CODE_SESSION_ID",
-];
+/// The variable a session id is read from first when the surface gave none; the harness's
+/// own ([`claude_code::SESSION_VARS`]) follow, in order.
+const SESSION_VAR: &str = "WEIGHIN_SESSION";
 
-/// The first session a surface gives (`given`, from `given_by`, then [`SESSION_VARS`]), as
-/// written. An empty value, or a `${…}` a surface did not substitute, is no session and the next
-/// is read; a value the store refuses stops the search with an error naming where it came from
-/// (D10: never truncated, EV-11).
+/// The first session a surface gives (`given`, from `given_by`, then [`SESSION_VAR`] and the
+/// harness's [`claude_code::SESSION_VARS`]), as written. An empty value, or a `${…}` a surface
+/// did not substitute, is no session and the next is read; a value the store refuses stops the
+/// search with an error naming where it came from (D10: never truncated, EV-11).
 fn find_session(given: Option<String>, given_by: &str) -> Result<Option<String>, String> {
-    let from_vars = SESSION_VARS
-        .iter()
-        .filter_map(|&name| std::env::var(name).ok().map(|value| (name, value)));
+    let from_vars = std::iter::once(SESSION_VAR)
+        .chain(claude_code::SESSION_VARS)
+        .filter_map(|name| std::env::var(name).ok().map(|value| (name, value)));
     for (source, value) in given
         .map(|value| (given_by, value))
         .into_iter()
