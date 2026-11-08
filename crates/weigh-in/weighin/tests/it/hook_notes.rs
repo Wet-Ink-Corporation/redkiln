@@ -56,10 +56,17 @@ fn a_stop_whose_capture_fails_notes_it_in_its_system_message() -> TestResult {
         )),
         "{message}"
     );
-    // Canonical, as the hook names it: macOS's temp folder is under the `/var` symlink.
-    let log_path = std::fs::canonicalize(state_of(&repo).join("hook-errors.log"))?;
-    assert!(
-        message.ends_with(&format!("Logged in {}.", log_path.display())),
+    // The path the note names is the log, compared canonically on both sides: macOS's temp
+    // folder sits under the `/var` symlink, and Windows canonicalises to a `\\?\` path.
+    let (_, named) = message
+        .rsplit_once("Logged in ")
+        .ok_or("the note names where it logged")?;
+    let named = named
+        .strip_suffix('.')
+        .ok_or("the note ends with a period")?;
+    assert_eq!(
+        std::fs::canonicalize(named)?,
+        std::fs::canonicalize(state_of(&repo).join("hook-errors.log"))?,
         "{message}"
     );
     Ok(())
