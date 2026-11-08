@@ -12,6 +12,7 @@ mod commands;
 mod context;
 mod env;
 mod git;
+mod harness;
 mod hooks;
 mod journal;
 mod legacy_import;
@@ -38,11 +39,7 @@ use crate::text::Report;
 #[derive(Parser)]
 #[command(name = "weighin", version, about = "Weigh-In decision ledger")]
 struct Cli {
-    #[arg(
-        long,
-        global = true,
-        help = "Session key (defaults to $WEIGHIN_SESSION, $CLAUDE_SESSION_ID, $CLAUDE_CODE_SESSION_ID)"
-    )]
+    #[arg(long, global = true, help = harness::claude_code::SESSION_HELP)]
     session: Option<String>,
     /// Work as if run from this directory.
     #[arg(long, global = true)]
@@ -498,10 +495,10 @@ fn is_closed_stdout(e: &anyhow::Error) -> bool {
 fn run_hook_guarded() -> ExitCode {
     std::panic::set_hook(Box::new(|_| {}));
     let outcome = std::panic::catch_unwind(|| {
-        hooks::entry(&mut io::stdin().lock(), &mut io::stdout().lock());
+        harness::claude_code::entry(&mut io::stdin().lock(), &mut io::stdout().lock());
     });
     match outcome {
-        // `hooks::entry` logs its own failures; a panic went to the silent panic hook above.
+        // `entry` logs its own failures; a panic went to the silent panic hook above.
         // Either way the session goes on.
         Ok(()) | Err(_) => ExitCode::SUCCESS,
     }
@@ -534,7 +531,7 @@ fn legacy_warnings(env: &Env) -> Vec<String> {
     match legacy_import::import_due(env, legacy_import::Mode::Command, "cli") {
         Ok(legacy_import::Legacy::NothingDue) => Vec::new(),
         Ok(legacy_import::Legacy::Ran(report)) => {
-            legacy_import::command_notes(&report, env::harness())
+            legacy_import::command_notes(&report, harness::claude_code::detect())
         }
         Err(e) => vec![format!("the weighin 1.x import did not run: {e:#}")],
     }

@@ -4,7 +4,7 @@
 The `weighin` CLI, and the single writer of the Weigh-In decision ledger. Every write, from a command, a hook or the `batch` entry point, goes through `ops::Session`; read-only commands use `ops::read_ledger`, which never creates the store, and `ops::Session` creates it only with its first append, so a command that fails before writing leaves none behind (B-01). That write path reads the ledger, validates, appends under a guard, and then performs the side effects of a decision, such as writing atoms and annotating sources.
 
 ## Layer
-binary. The composition root holds the store, git, context packs, environment discovery and the Claude Code hook entry point. Output is written for a model to read at the lowest token cost: short lines, and `--json` where a structure is needed.
+binary. The composition root holds the store, git, context packs, environment discovery and the hooks, behind one adapter per harness (`harness::claude_code`, the only module that speaks Claude Code's protocol, CLI-13). Output is written for a model to read at the lowest token cost: short lines, and `--json` where a structure is needed.
 
 ## Allowed dependencies
 - Workspace crates: `weighin-core`, `weighin-contract` with `core` (payloads, `open` and `ci-check` JSON, the default guard; step 5), `knowledge-contract` (reading atoms' frontmatter in `ci`), and `redkiln-core`, the suite's store, its location and the envelope (since #17 PR 5a).
@@ -15,7 +15,7 @@ binary. The composition root holds the store, git, context packs, environment di
 - Never: a second writer of the ledger, `happenstance-*`, `rusqlite` or `tokio` (only Core opens the store), or a git library. Git goes through the command line (`git.rs`).
 
 ## Public surface
-None. This is a binary crate; its modules are private (`annotate`, `ci`, `cli_envelope`, `commands`, `context`, `env`, `git`, `hooks`, `journal`, `legacy_import`, `ops`, `pane`, `recall`, `shell_bin`, `store`, `text`).
+None. This is a binary crate; its modules are private (`annotate`, `ci`, `cli_envelope`, `commands`, `context`, `env`, `git`, `harness`, `hooks`, `journal`, `legacy_import`, `ops`, `pane`, `recall`, `shell_bin`, `store`, `text`).
 
 ## Invariants
 - **One write path.** Every change to the ledger goes through `ops::Session`; imports go through Core's.
