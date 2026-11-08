@@ -45,6 +45,7 @@ Each row names the frozen text, what replaced it and where that is recorded. The
 | Rust 2.0: "Amend `docs/plans/temper-2-rust-port.md` for the monorepo" (temper checklist, open) and Rust 2.0 "with 1.4.0 as its parity oracle" | Done: D1, D2, D3, D4, D10, D13, D14, D17 and Invariant 3 amended. The oracle is 1.x `main` (now 1.6.0), which carries the pilot fixes | temper port plan, "Status and monorepo amendments" |
 | Move 3's gate: the trust path "narrowed to `crates/review/**`"; Review call A also renames labels, commands and `.review/` config | Narrowed to `crates/review-*/**` and `crates/review/**`, so it holds before and after the import. The binary, `/assay` commands, `assay:*` labels, `.assay/` (to become `.review/`, as Review call A said), `refs/assay/*` and the environments keep their names until the door rename (M3-A) | assay #399, its `AGENTS.md` Move 3 row |
 | assay's Weigh-In adapter reads `.kb/` files directly and must switch before Weigh-In 2.0 (Move 1 runbook, Consumers) | Switched: it runs the pinned `weighin ci-check --json` (assay #372). Its journal-refs fetch lands in the monorepo at Move 3, with #48 on Weigh-In's side | [move-3-review.md](move-3-review.md), Code work |
+| Migration call E: "temper 1.4.0, vendored once at the root" | Bumped to the latest 1.x in its own PR after Move 1 closes, before Move 2's re-baseline (#52) | `docs/decisions.md`, 2026-11-08 |
 | Rust 2.0 "starts after move 2" and "runs alongside moves 3 and 4", with no import slot | temper is imported right after Move 2, before Move 3; its port then runs beside Moves 3 and 4. The root steps up to `toml` 1.1 and `sha2` 0.11 before Move 2 | `docs/decisions.md`, 2026-11-08 |
 | Field guide: D-0021 "is designed, not built (weigh-in #171)" (`docs/guide/plugins-and-surfaces.md`) | Built and released in 1.2.0: `plugin/libexec/cowork-fetch.sh`, tested, confirmed in a Cowork sitting | weigh-in `CHANGELOG.md`, 1.2.0 |
 
@@ -54,8 +55,7 @@ Each call below has a recommendation; the work proceeds on the two-way ones and 
 
 | Call | Door | Recommendation | Source |
 | --- | --- | --- | --- |
-| Migration B, D, E | Two-way | Proceed on their recommendations, as the handover says | `references/decisions/README.md` |
+| Migration B, D, E (E amended: the root's temper is bumped after Move 1, #52) | Two-way | Proceed on their recommendations, as the handover says | `references/decisions/README.md` |
 | Field guide T1, T2, T4, T6, T7, T8, T10 | As listed | Each is handled at the move that needs it; T3 and T9 are Move 1's and sit in its runbook; T5 (agent identity) waits for Review | `docs/guide/README.md`, Tensions |
-| Bump the root's vendored temper 1.4.0 to the latest 1.x | Changes migration call E and the gate's behaviour, so Ryan's | After Move 1 closes, before Move 2's re-baseline, in its own PR, so Bench is baselined once under the newer engine | [rust-2.md](rust-2.md), R-4 |
 | temper's open Weigh-In questions wi-b1bfb5 (telemetry branch), wi-39f19a (temper #193 GHCR artifact) and wi-0924e6 (#172, #173 in 1.x or 2.0) | As each says | Answered at the import, since temper is frozen; wi-39f19a recommended "pin inside the monorepo" | [rust-2.md](rust-2.md) |
 | Turn the plan into issues here (an Initiative per move, an Epic per gate, Backlog's body contract) | Two-way | Done for Move 1 (Initiative #16, #17 to #27, #48); each later move gets its Initiative when its import PR opens | `references/README.md`, Where to invest next |
