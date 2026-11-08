@@ -9,7 +9,7 @@ use weighin_core::Ledger;
 use weighin_core::marker::Door;
 
 use super::errors::new_errors;
-use super::{log_error, refused_given_store};
+use super::{HookOutput, log_error, refused_given_store};
 use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{self, read_ledger};
 use crate::shell_bin;
@@ -19,7 +19,7 @@ use crate::text::{Report, clip};
 /// session, the config is broken or the import has `journal` notes, a one-line message for the
 /// user. A prime that fails is logged and reported with the rest, and Claude still gets the
 /// convention. A broken config is reported here, once a session, and never logged.
-pub(super) fn session_start(env: &Env, source: &str, journal: Vec<String>) -> String {
+pub(super) fn session_start(env: &Env, source: &str, journal: Vec<String>) -> HookOutput {
     let broken = broken_config(env);
     let (primed, unusable) = match ops::loaded(env) {
         Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
@@ -51,18 +51,9 @@ pub(super) fn session_start(env: &Env, source: &str, journal: Vec<String>) -> St
         .chain(journal)
         .chain(new_errors(env))
         .collect();
-    let message = (!parts.is_empty()).then(|| parts.join(" "));
-    match message {
-        // Plain stdout reaches only Claude; `systemMessage` is shown to the user.
-        Some(message) => serde_json::json!({
-            "systemMessage": message,
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": context,
-            },
-        })
-        .to_string(),
-        None => context,
+    HookOutput {
+        context: Some(context),
+        message: (!parts.is_empty()).then(|| parts.join(" ")),
     }
 }
 
