@@ -307,9 +307,10 @@ fn the_named_ledger_of_weighin_store_is_imported() -> TestResult {
     drop(store);
     let records = legacy_records(&all);
     let paths: Vec<&str> = records.iter().map(|(p, _)| p.as_str()).collect();
+    let named_resolved = resolved(&named);
     assert_eq!(
         paths.first().copied(),
-        Some(named_text.as_str()),
+        Some(named_resolved.as_str()),
         "{records:?}"
     );
     // The store is written beside the named ledger; the ledger itself is left as it was.
