@@ -6,14 +6,16 @@ Weigh-In's hooks are all observers: SessionStart primes, Stop and SubagentStop c
 
 ## The rules
 
-**CLI-09. Exec form, `hook <event>`, fail open.** Every `hooks.json` entry is a command hook running `${CLAUDE_PLUGIN_ROOT}/libexec/weighin` with args `["hook", "<event>"]`, never through a shell. A hook notes its failure in its output, or in `hook-errors.log` when it cannot (see HK-2), and exits 0, even on a panic (`run_hook_guarded`). Its usage errors still exit 2 (clap).
-- *Met.* `cargo xtask plugins` checks exec form, the launcher copy and `hook` as the first argument. `every_hooks_json_entry_is_hook_event_runs_and_never_blocks` (`tests/it/cli.rs`) checks that every entry's args are `hook <event>` and runs each through the binary with its event's payload. Step 9 made Stop, SubagentStop and PostToolUse pass their event name; the binary still reads the event from stdin (`hook_event_name`), and the name on the command line is for the launcher and Windows (B-16).
+**CLI-09. Exec form, `hook <event>`, fail open.** As written: "A hook is `<binary> hook <event>`, called by path in exec form from `hooks.json` (`${CLAUDE_PLUGIN_ROOT}/libexec/<binary>`), never through a shell. Hooks fail open: a hook notes its failure in its output, or in one stderr line when stdout cannot be written, and exits 0, even on a bug. Its usage errors still exit 2, so a test runs every `hooks.json` entry's arguments through the binary."
+- *Met:* exec form by path, `hook <event>` on every entry, exit 0 even on a panic (`run_hook_guarded`), usage errors exit 2 (clap). `cargo xtask plugins` checks exec form, the launcher copy and `hook` as the first argument. `every_hooks_json_entry_is_hook_event_runs_and_never_blocks` (`tests/it/cli.rs`) checks that every entry's args are `hook <event>` and runs each through the binary with its event's payload. Step 9 made Stop, SubagentStop and PostToolUse pass their event name; the binary still reads the event from stdin (`hook_event_name`), and the name on the command line is for the launcher and Windows (B-16).
+- *Diverges:* Weigh-In does not note a failure in the hook's output, and nothing goes to stderr. Every failure, a stdout write failure included, is appended to `hook-errors.log` and reported to the person at the next SessionStart (HK-2), because a hook's error output would reach the session (`hooks.rs`, `serve`). Step 6's adapter module brings this in line with the SPEC, or Move 2's hook section takes the deferred report as an allowed form.
 
 **CLI-10. A guard fails closed.** It denies what it cannot judge with a deny decision on stdout and exit 0, and exits 2 with one stderr line only when it cannot write that decision.
 - *Not applicable today:* Weigh-In ships no guard. A guard added later declares `onFailure: "block"` and carries a manifest test for it (field guide HK-1).
 
 **CLI-11. No build, no block.** With no `weighin` build present at all, the launcher copies (`libexec/weighin`, `libexec/weighin.cmd`, from `tools/launcher/`) let every hook through, and `hook SessionStart` says once that the plugin is off (not in Cowork).
-- *Met* by the shared launcher and its tests (`sh tools/launcher/test.sh`). The Windows exec-form path needs the release-only root `libexec/weighin.exe` (M1-E, field guide T9).
+- *Met on Linux and macOS* by the sh launcher and its tests (`sh tools/launcher/test.sh`).
+- *Not met on Windows.* An exec-form hook there resolves `libexec/weighin` only to `libexec/weighin.exe`, a build packaged at release (M1-E). A `.cmd` cannot be spawned that way (`EINVAL`, B-16), so `weighin.cmd` serves calls through a shell, such as the skill's, and never a hook. With no build at all there is no `.exe`: the spawn fails with `ENOENT`, no launcher runs, and no "off" message is printed. Claude Code reports a hook error, so the plugin is not off silently, but CLI-11's promise does not hold. A guard declared `onFailure: "block"` may then block every call; whether `onFailure` fires on a failed spawn is unverified (M1-E, field guide T9). Weigh-In has no guard, so it is not exposed, but a guard must not be added here until this is settled.
 
 **HK-2. Never off without a word.** Every hook error is appended to `hook-errors.log` in the state dir (`<git-common-dir>/redkiln/weighin/`), and the hook exits 0. The next SessionStart counts the lines past the offset in `hook-errors.seen` and tells the person through `systemMessage`, since plain SessionStart stdout reaches only the model. A launcher with no build prints its fixed JSON line itself.
 - *Met* (`hooks.rs`, module doc). Two places stay silent by design: input failures outside a git repository, where logging would create a state dir in the user's folder (field guide HK-10), and Cowork, where hooks write nothing.
@@ -37,5 +39,7 @@ Weigh-In's hooks are all observers: SessionStart primes, Stop and SubagentStop c
 
 | Rule | Gap | Where it lands |
 |---|---|---|
+| CLI-09 | Failures go to `hook-errors.log` and the next SessionStart, not the hook's output or one stderr line | Step 6's adapter module, or Move 2's hook section |
+| CLI-11 | On Windows with no build, the exec-form spawn fails (`ENOENT`): no launcher runs and no "off" message is printed | Move 2, with the SPEC's hook section and before Bench brings guards (M1-E) |
 | HK-5 | No heartbeat to tell a timed-out hook from an interrupted one | Step 6, with the adapter module |
 | HK-6 | Stdin read uncapped; state files not checked as regular files | Step 6, with the adapter module |
