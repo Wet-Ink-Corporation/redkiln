@@ -1,6 +1,6 @@
 //! The decision request golden (`spec/fixtures/decision-request/`, DR-02). Its shape is the
 //! schema's (`schema.rs`); here its subject is tied to Core's subjects (ID-09). DR-04's guards
-//! are `weighin-contract`'s, which reads this golden when it arrives (Move 1 step 5).
+//! are `weighin-contract`'s, whose `request` tests read these goldens (Move 1 step 5).
 
 use redkiln_core::subject::Subject;
 

@@ -16,9 +16,9 @@ use std::path::Path;
 use weighin_core::{EventEnvelope, ItemId, LedgerEvent};
 
 use self::report::{Attested, Inputs, Source, When};
-use self::verify::Violation;
 use crate::env::Env;
 use crate::{git, journal};
+use weighin_contract::ci_check::Violation;
 
 /// Write the report on the branch at HEAD against `base`: JSON when `json`, else one summary
 /// line and a line per violation.

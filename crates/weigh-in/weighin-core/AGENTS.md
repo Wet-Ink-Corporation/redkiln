@@ -1,18 +1,18 @@
 # Crate charter: `weighin-core`
 
 ## Purpose
-The ledger domain of Weigh-In: the event vocabulary, `wi-` item ids, the `weigh-in` marker parser, document and TODO scanning, the grounded decision card, the projection fold, `.kb` atom rendering and the board exchange format. It is its own crate so that it carries no I/O and can be linked into redkiln-rs unchanged (`lib.rs`, wi-b4c1d8).
+The ledger domain of Weigh-In: the `weigh-in` marker parser, document and TODO scanning, the projection fold, `.kb` atom rendering and the board exchange format. The event vocabulary, `wi-` item ids and the decision card are `weighin-contract`'s since Move 1 step 5, re-exported here at their old paths. It is its own crate so that it carries no I/O and can be linked into redkiln-rs unchanged (`lib.rs`, wi-b4c1d8).
 
 ## Layer
 domain. Pure: nothing here reads a clock, a file, a process or the environment, and there is no async runtime.
 
 ## Allowed dependencies
-- Workspace crates: `knowledge-contract`, Knowledge's atom contract (pure), through which `atom` writes frontmatter, ids and paths (Move 1 step 4).
-- Third-party: `serde` and `serde_json` (events, cards and board documents are JSON); `sha2` (item ids hash the session and the normalised question); `thiserror` (typed errors).
+- Workspace crates: `weighin-contract` without its `core` feature, so pure (events, ids, cards, `open` JSON; Move 1 step 5); `knowledge-contract`, Knowledge's atom contract (pure), through which `atom` writes frontmatter, ids and paths (Move 1 step 4).
+- Third-party: `serde` and `serde_json` (events, cards and board documents are JSON); `thiserror` (typed errors). Item ids hash in `weighin-contract` since step 5.
 - Never: `weighin`, happenstance, tokio, clap, anyhow, `time` or anything that does I/O. Timestamps arrive as values from the caller.
 
 ## Public surface
-The modules `atom`, `board`, `card`, `event`, `id`, `marker`, `projection` and `scan`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
+The modules `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `event` and `id` re-exported from `weighin-contract`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
 
 ## Invariants
 - Current state is a fold of events in store-position order. Nothing trusts timestamps for ordering (`projection`).

@@ -13,6 +13,7 @@ mod ci_check;
 mod cli;
 mod cli_conformance;
 mod core_store;
+mod decision_request;
 mod eval_seed;
 mod journal;
 mod journal_hooks;

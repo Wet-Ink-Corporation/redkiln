@@ -6,8 +6,8 @@
 //! ([`wire::to_new_event`], EV-01) with its 1.x `worktree` dropped, and goes through
 //! [`import_mapped`], which stores it as a journal line is stored (`asserted`, JR-12). A record
 //! that cannot be mapped is skipped and reported, never fatal (JR-10). Records are produced
-//! lazily, so memory is the source and one batch. This mapping moves to `weighin-contract` with
-//! [`wire`] at step 5.
+//! lazily, so memory is the source and one batch. The payloads are `weighin-contract`'s since
+//! step 5; mapping a 1.x record onto them stays here, since only weighin reads 1.x records.
 
 pub(crate) mod identity;
 

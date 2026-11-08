@@ -7,7 +7,7 @@ The `weighin` CLI, and the single writer of the Weigh-In decision ledger. Every 
 binary. The composition root holds the store, git, context packs, environment discovery and the Claude Code hook entry point. Output is written for a model to read at the lowest token cost: short lines, and `--json` where a structure is needed.
 
 ## Allowed dependencies
-- Workspace crates: `weighin-core`, `knowledge-contract` (reading atoms' frontmatter in `ci`), and `redkiln-core`, the suite's store, its location and the envelope (since #17 PR 5a).
+- Workspace crates: `weighin-core`, `weighin-contract` with `core` (payloads, `open` and `ci-check` JSON, the default guard; step 5), `knowledge-contract` (reading atoms' frontmatter in `ci`), and `redkiln-core`, the suite's store, its location and the envelope (since #17 PR 5a).
 - Third-party:
   - `clap` (CLI), `anyhow` (binary errors), `time` (timestamps), `tempfile` (temporary indexes and files on the temp disk);
   - `serde` and `serde_json`;
@@ -20,7 +20,7 @@ None. This is a binary crate; its modules are private (`annotate`, `ci`, `cli_en
 ## Invariants
 - **One write path.** Every change to the ledger goes through `ops::Session`; imports go through Core's.
 - **Conditioned writes (DCB).** Raising an item fails if that item already exists. Every later event for an item fails if the item changed since the writer read it, so two sessions cannot both decide the same item (`store.rs`).
-- **The store is Core's.** weighin opens, locates and writes it only through `redkiln-core` (`Store::open`, `open_existing`, `append`, `read`), as `weighin.<type>` envelopes, version 1, `asserted` (`store/wire.rs`, which moves to `weighin-contract` at step 5); a read never creates it. It lives at `<git-common-dir>/redkiln/events.sqlite3`, the state dir at `redkiln/weighin/` beside it (D4). A weighin event this build cannot use is skipped and counted; another namespace's never conflicts a write (EV-08 to EV-10).
+- **The store is Core's.** weighin opens, locates and writes it only through `redkiln-core` (`Store::open`, `open_existing`, `append`, `read`), as `weighin.<type>` envelopes, version 1, `asserted` (`store/wire.rs`, over `weighin-contract`'s payload types); a read never creates it. It lives at `<git-common-dir>/redkiln/events.sqlite3`, the state dir at `redkiln/weighin/` beside it (D4). A weighin event this build cannot use is skipped and counted; another namespace's never conflicts a write (EV-08 to EV-10).
 - **Old ledgers are never opened.** A 1.x ledger (`<common>/weighin/ledger.sqlite3`, `.weighin/`, or the one `$WEIGHIN_STORE` or config.json's `store` names, the store going beside it, D2) is imported once from Core's copy, before 1.x journals, by any command but `ci-check` (`legacy_import`); a store path naming one is refused. Nothing is deleted beside the store, and temporary files stay on the temp disk (B-01).
 - **Hooks never fail a session.** Errors are appended to `<state dir>/hook-errors.log`, and the hook exits 0 with no error output (`hooks.rs`).
 - **`PostToolUse` only adds context beyond capture.** After the scan, it adds the decisions still standing that are anchored at the edited file, at most three lines, as `additionalContext`, and raises nothing more; it reads the ledger once per edit and never writes for this, nor touches a journal (`recall.rs`, `hooks.rs`, #116).

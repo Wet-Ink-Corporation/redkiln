@@ -1,8 +1,9 @@
 use std::num::NonZeroUsize;
 
-use redkiln_core::envelope::TypeName;
+use redkiln_core::envelope::{Class, TypeName};
 use redkiln_core::store::{Store, Wait};
 use serde_json::{Value, json};
+use weighin_contract::names::ITEM_EVENTS;
 use weighin_core::event::EVENT_TYPES;
 
 use super::*;
@@ -100,6 +101,7 @@ fn the_table_is_weighin_cores_types_in_the_weighin_namespace_at_version_one_and_
 
     assert_eq!(TYPES.to_vec(), expected);
     assert_eq!(DECLARED.map(|(ty, ..)| ty), TYPES);
+    assert_eq!(ITEM_EVENTS.map(|e| e.name), TYPES, "the contract's table");
     for (ty, version, class) in DECLARED {
         let name = TypeName::parse(ty).expect("a valid type name");
         assert_eq!(

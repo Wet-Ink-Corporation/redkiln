@@ -5,37 +5,11 @@
 //! branches, and the hook script appends a whole-ledger dump to it, so one event can rightly
 //! appear twice.
 
-use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use weighin_contract::ci_check::{Reason, Violation};
 use weighin_core::EventEnvelope;
 
 use crate::journal::lines;
-
-/// Why a journal breaks the append-only rule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Reason {
-    /// The file is gone at head.
-    Removed,
-    /// A complete base line's event is nowhere in the head file.
-    Missing,
-    /// As `Missing`, and the head line at that number holds an event the base file did not.
-    Altered,
-    /// A complete head line that is not an event.
-    Undecodable,
-}
-
-/// One break of the append-only rule.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-pub(crate) struct Violation {
-    /// The journal, relative to the worktree root.
-    pub(crate) path: String,
-    /// The 1-based line: the base line for `Missing` and `Altered`, the head line for
-    /// `Undecodable`, and none for `Removed`.
-    pub(crate) line: Option<u64>,
-    /// What is wrong.
-    pub(crate) reason: Reason,
-}
 
 /// The comparison key of a journal line: the event re-encoded when the line decodes, else the
 /// raw bytes. Two lines of one event compare equal whatever their key order or spacing.

@@ -48,6 +48,8 @@ toml = { version = "0.9.12", default-features = false, features = ["std", "parse
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
 # 1.2.0's requirements; tokio, sha2, clap and time are M1-B.
 weighin-core = { path = "crates/weigh-in/weighin-core" }
+# Weigh-In's contract (Move 1 step 5): members turn on `core` where they need Core's half.
+weighin-contract = { path = "crates/weigh-in/weighin-contract" }
 # Knowledge's atom contract (Move 1 step 4): weighin-core renders atoms through it.
 knowledge-contract = { path = "crates/knowledge/knowledge-contract" }
 tokio = { version = "1", default-features = false, features = ["rt"] }
