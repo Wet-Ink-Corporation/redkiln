@@ -1,6 +1,6 @@
 # Redkiln Core SPEC
 
-The SPEC is the part of Redkiln Core that is text: the formats every Redkiln binary reads and writes, so that the suite's shared data means the same thing whichever plugin wrote it. `redkiln-core` is the code that implements it, and the conformance kit is the code that checks it. Neither exists yet. Move 1 (Weigh-In) gives this text its first code.
+The SPEC is the part of Redkiln Core that is text: the formats every Redkiln binary reads and writes, so that the suite's shared data means the same thing whichever plugin wrote it. `redkiln-core` is the code that implements it, and the golden fixtures and schemas under [fixtures/](fixtures/README.md) and `schemas/` are what check it; `redkiln-core`'s tests read every one. Move 1 (Weigh-In) gave this text its first code.
 
 **Version: 1.0.0-draft.1** (2026-10-31). The SPEC is versioned on its own (semver), and each plugin declares the SPEC version it conforms to in its `status --json` ([cli.md](cli.md)). It freezes as 1.0.0 at Move 2, when Bench's ledger conforms and Core has two real users (migration plan, Work sequence). Until then every section may change; the one-way items below are the ones that become expensive to change once events are written, so they are the ones to read first.
 
