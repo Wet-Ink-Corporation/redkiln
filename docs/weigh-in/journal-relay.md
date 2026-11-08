@@ -13,7 +13,7 @@ target/debug/weighin journal relay --json "$GITHUB_REF_NAME"
 
 It merges the inbox file into `refs/redkiln/journal/<session>` by `origin` (JR-05) and deletes
 the branch under a lease. Ryan approved the file under D8 A (build `weighin` from the default
-branch on every run, about 3 to 6 Actions minutes per inbox push) and D13 (`GITHUB_TOKEN` with
+branch on every run, estimated at 3 to 6 Actions minutes per inbox push; the first real run took 31 s, 16 s of it the build) and D13 (`GITHUB_TOKEN` with
 `contents: write` only, no secret). Every run is a cold build: the cache restore D8 A named could
 never hit, since a cache key holds the job's name and environment, which `ci.yml`'s jobs do not
 share, so the step was dropped (an agent call, 2026-11-08). D8 B, sharing `ci.yml`'s cache
@@ -55,8 +55,11 @@ relayed (SPEC JR-07, "Readers"), and the next push to the branch starts another 
 - `actions/checkout` leaves `GITHUB_TOKEN` in the clone's local git config, which Core's git
   reads: Core drops only the `GIT_DIR` family and command-line config from git's environment.
 
-## To verify on the first real inbox push
+## First real run (2026-11-08)
 
-- GitHub starts the run for a branch the cloud proxy pushed under the session's identity.
-- `GITHUB_TOKEN` may push `refs/redkiln/journal/*` and delete the branch under the repository's
-  rulesets.
+Verified with [run 42443311075](https://github.com/Wet-Ink-Corporation/redkiln/actions/runs/42443311075):
+a cloud session's `weighin journal checkpoint` had its direct push of `refs/redkiln/journal/*`
+refused by the proxy (HTTP 403) and pushed `redkiln/inbox/<session>` instead. GitHub started the
+run for that push, and `GITHUB_TOKEN` pushed the journal ref and deleted the branch under the
+repository's rulesets (`outcome: "merged"`, `deleted: "yes"`). A second fresh clone's
+`weighin journal import` then read the item back from the ref.
