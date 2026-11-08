@@ -28,7 +28,7 @@ impl ItemId {
     /// # Examples
     ///
     /// ```
-    /// use weighin_core::ItemId;
+    /// use weighin_contract::ItemId;
     ///
     /// let id = ItemId::mint("session-1", "Should retention attach per record?");
     /// assert_eq!(id.as_str().len(), "wi-".len() + 10);
@@ -56,7 +56,7 @@ impl ItemId {
     /// # Examples
     ///
     /// ```
-    /// use weighin_core::ItemId;
+    /// use weighin_contract::ItemId;
     ///
     /// let minted = ItemId::mint("session-1", "Use Postgres?");
     /// let parsed = ItemId::parse(minted.as_str()).ok_or("a minted id parses")?;

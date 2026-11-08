@@ -559,6 +559,28 @@ fn a_bare_defer_next_to_a_decide_in_one_batch_applies_both() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn open_json_is_weighin_contract_s_type_byte_for_byte() {
+    let (_tmp, repo) = setup();
+    let batch = json!([
+        {"op": "raise", "q": "Which store for sessions?", "door": "two-way", "channel": "sweep"},
+        {"op": "triage", "id": "@1", "door": "two-way", "blast": "module", "route": "present", "reason": "r"},
+        {"op": "ground", "id": "@1", "card": {"options": [{"id": "A", "title": "Postgres"}, {"id": "B", "title": "SQLite"}], "recommendation": {"option": "A"}}},
+        {"op": "raise", "q": "Keep three retries?", "door": "one-way"}
+    ]);
+    let (ok, out) = weighin(&repo, "s4", &["batch"], Some(&batch.to_string()));
+    assert!(ok, "{out}");
+
+    let (ok, json) = weighin(&repo, "s4", &["open", "--json"], None);
+    assert!(ok, "{json}");
+    let items: Vec<weighin_contract::open::OpenItem> =
+        serde_json::from_str(json.trim()).expect("open --json reads as the contract's type");
+
+    assert_eq!(items.len(), 2, "{json}");
+    assert_eq!(serde_json::to_string(&items).unwrap(), json.trim());
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_answer_to_an_older_card_is_refused() {
     let (_tmp, repo) = setup();
     // #2: an answer to an older card is refused.

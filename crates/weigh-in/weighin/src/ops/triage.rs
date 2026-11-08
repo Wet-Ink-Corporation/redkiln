@@ -2,6 +2,7 @@
 //! presenting records that it was shown.
 
 use anyhow::{Result, anyhow, bail};
+use weighin_contract::guard::may_route_to_default;
 use weighin_core::Item;
 use weighin_core::card::Card;
 use weighin_core::event::{Blast, Grounded, LedgerEvent, Presented, Route, Triaged};
@@ -45,7 +46,8 @@ pub(super) fn triage_event(item: &Item, t: &TriageOp) -> Result<Change> {
         .authority
         .as_deref()
         .map_or_else(|| item.authority(), Authority::parse);
-    if route == Route::Default && (door != Door::TwoWay || authority != Authority::Judgment) {
+    // The contract's guard decides; the receipt keeps 1.x's words, which the skill reads.
+    if route == Route::Default && may_route_to_default(door, authority).is_err() {
         bail!(
             "{}: only a judgment-bound two-way door may be defaulted (door {}, {})",
             item.id,

@@ -53,6 +53,21 @@ fn report(repo: &Repo) -> TestResult<Value> {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn the_report_is_weighin_contract_s_type_byte_for_byte() -> TestResult {
+    let repo = on_a_branch()?;
+    repo.raise("s", "Keep three retries?")?;
+    commit_journalled(&repo, "raise")?;
+
+    let out = repo.ok("ci", &["ci-check", "--base", "main", "--json"], None)?;
+    let report: weighin_contract::ci_check::Report = serde_json::from_str(&out)?;
+
+    assert_eq!(serde_json::to_string(&report)?, out.trim_end());
+    assert_eq!(report.open_items.len(), 1, "{out}");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_untriaged_item_raised_on_the_branch_is_reported_open_with_nothing_recorded() -> TestResult {
     let repo = on_a_branch()?;
     let id = repo.raise("s", "Keep three retries?")?;

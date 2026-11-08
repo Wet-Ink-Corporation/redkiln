@@ -1,0 +1,28 @@
+[package]
+name = "weighin-contract"
+description = "Weigh-In's contract: the event vocabulary and names, item ids, the decision card and request with their guards, and the JSON of open and ci-check."
+version = "1.2.0"                # the plugin's own version (AGENTS.md, Versions and tags)
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Core's half of the contract: the `Payload` impls of every `weighin.*` type, the decision
+# request (DR) and its answer. Off, the crate is pure (serde, sha2, thiserror), so weighin-core
+# links it without linking Core; weighin and every sibling raiser turn it on.
+core = ["dep:redkiln-core"]
+
+[dependencies]
+redkiln-core = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

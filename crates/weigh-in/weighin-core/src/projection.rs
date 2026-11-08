@@ -3,119 +3,18 @@
 
 use crate::card::Card;
 use crate::event::{
-    Blast, Channel, Decided, DefaultCause, Defaulted, Deferred, DismissReason, EventEnvelope,
-    Grounded, LedgerEvent, Linked, Presented, Provenance, Raised, Route, Timing, Triaged,
+    Blast, Channel, Decided, Defaulted, Deferred, DismissReason, EventEnvelope, Grounded,
+    LedgerEvent, Linked, Presented, Raised, Route, Timing, Triaged,
 };
 use crate::id::{ItemId, question_key};
 use crate::marker::{Authority, Door, Kind};
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
+use weighin_contract::open::OpenItem;
 
-/// Where an item is in its lifecycle.
-///
-/// The order is the lifecycle's: a later triage or grounding never moves an open item backwards.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, PartialOrd, Ord)]
-#[serde(rename_all = "kebab-case")]
-pub enum Status {
-    /// Captured and not yet triaged, or reopened before it had a card.
-    Raised,
-    /// Classified and routed, with no card yet.
-    Triaged,
-    /// Has a decision card that has not been shown, or was reopened after it had one.
-    Grounded,
-    /// Shown to the human and waiting for an answer.
-    Presented,
-    /// Waiting on a named fact; open, but parked behind the deferral.
-    Deferred,
-    /// The human chose an option.
-    Decided,
-    /// An option was taken without a human.
-    Defaulted,
-    /// Needed no human.
-    Dismissed,
-    /// Something else answers it.
-    Superseded,
-}
-
-impl Status {
-    /// The wire spelling, such as `raised` or `defaulted`.
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Raised => "raised",
-            Self::Triaged => "triaged",
-            Self::Grounded => "grounded",
-            Self::Presented => "presented",
-            Self::Deferred => "deferred",
-            Self::Decided => "decided",
-            Self::Defaulted => "defaulted",
-            Self::Dismissed => "dismissed",
-            Self::Superseded => "superseded",
-        }
-    }
-    /// Still waiting on someone (a deferred item waits on its trigger).
-    #[must_use]
-    pub fn is_open(self) -> bool {
-        matches!(
-            self,
-            Self::Raised | Self::Triaged | Self::Grounded | Self::Presented | Self::Deferred
-        )
-    }
-}
-
-/// The human's decision on an item, from its latest `item_decided` event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Decision {
-    /// The chosen card option id, or the answer itself for an item with no card.
-    pub option: String,
-    /// Who decided, as `human:<owner>`.
-    pub decider: String,
-    /// Whether the choice followed the recommendation or was the human's own.
-    pub provenance: Provenance,
-    /// The human's own words with the choice; empty when none.
-    pub note: String,
-    /// Where it was decided: `chat`, `board`, `pane` or `cli`.
-    pub via: String,
-    /// Whether the choice was the card's recommendation; `None` when the item had no card.
-    pub matched_recommendation: Option<bool>,
-    /// The tree when it was decided; `None` outside git or when git could not compute it.
-    pub tree_hash: Option<String>,
-    /// Seconds from the latest presentation to the decision; `None` when unknown.
-    pub seconds_to_decide: Option<u64>,
-    /// When the decision was written, by the writer's clock (RFC 3339 UTC).
-    pub ts: String,
-    /// When the decision was last reviewed and left standing (`item_acknowledged`), by the
-    /// writer's clock; `None` until it is. Absent from the serialised item until then.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reviewed_ts: Option<String>,
-}
-
-/// An option taken without a human, from the item's latest `item_defaulted` event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DefaultTaken {
-    /// The option taken, or what the agent did for its own two-way call.
-    pub option: String,
-    /// Why no human chose.
-    pub cause: DefaultCause,
-    /// The explanation shown in the digest.
-    pub reason: String,
-    /// When the default was written, by the writer's clock (RFC 3339 UTC).
-    pub ts: String,
-    /// The human saw it in the digest and left it standing (`item_acknowledged`).
-    pub acknowledged: bool,
-}
-
-/// A `.kb` atom written for an item, from a `record_written` event.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Record {
-    /// Repo-relative path of the atom file.
-    pub path: String,
-    /// The atom's id, as in its frontmatter.
-    pub atom_id: String,
-    /// `decision` or `open_question`.
-    pub atom_kind: String,
-}
+// The parts of an item `open --json` writes are Weigh-In's contract (Move 1 step 5).
+pub use weighin_contract::open::{Decision, DefaultTaken, Record, Status};
 
 /// One item's current state: its first raise plus every later event, folded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -218,6 +117,58 @@ pub struct Item {
     /// like [`Item::reviews`].
     #[serde(skip)]
     pub reopened_after_review: u32,
+}
+
+/// The item as `open --json` writes it. The output owns a copy of each field, since it is a
+/// separate document (H-08).
+impl From<&Item> for OpenItem {
+    fn from(item: &Item) -> Self {
+        Self {
+            id: item.id.clone(),
+            kind: item.kind,
+            question: item.question.clone(),
+            question_key: item.question_key.clone(),
+            did: item.did.clone(),
+            flip_hint: item.flip_hint.clone(),
+            at: item.at.clone(),
+            sym: item.sym.clone(),
+            blocks: item.blocks.clone(),
+            door_hint: item.door_hint,
+            authority_hint: item.authority_hint,
+            channel: item.channel,
+            quote: item.quote.clone(),
+            source_path: item.source_path.clone(),
+            source_line: item.source_line,
+            session_id: item.session_id.clone(),
+            worktree: item.worktree.clone(),
+            branch: item.branch.clone(),
+            raised_ts: item.raised_ts.clone(),
+            raised_position: item.raised_position,
+            door: item.door,
+            blast: item.blast,
+            authority: item.authority,
+            route: item.route,
+            timing: item.timing.clone(),
+            resolve_by: item.resolve_by.clone(),
+            card: item.card.clone(),
+            card_rev: item.card_rev,
+            presented_ts: item.presented_ts.clone(),
+            presented_tree: item.presented_tree.clone(),
+            times_presented: item.times_presented,
+            status: item.status,
+            decision: item.decision.clone(),
+            deferral: item.deferral.clone(),
+            default: item.default.clone(),
+            dismissed: item.dismissed.clone(),
+            superseded_by: item.superseded_by.clone(),
+            records: item.records.clone(),
+            links: item.links.clone(),
+            also_raised_in: item.also_raised_in.clone(),
+            reopened: item.reopened,
+            last_position: item.last_position,
+            last_ts: item.last_ts.clone(),
+        }
+    }
 }
 
 impl Item {
@@ -1349,6 +1300,52 @@ mod tests {
     }
 
     #[test]
+    fn the_contract_s_open_item_writes_an_item_byte_for_byte() {
+        let a = ItemId::mint("s1", "q?");
+        let mut evs = decided_at(&a, Door::TwoWay, "f", "2026-01-01T00:00:00Z");
+        let check = |evs: &[EventEnvelope]| {
+            let ledger = fold_all(evs);
+            let item = ledger.get(&a).unwrap();
+            let open = OpenItem::from(item);
+            let text = serde_json::to_string(&open).unwrap();
+            assert_eq!(text, serde_json::to_string(item).unwrap());
+            let back: OpenItem = serde_json::from_str(&text).unwrap();
+            assert_eq!(back, open, "the contract reads back what it writes");
+        };
+        check(&evs);
+        evs.push(at(acknowledge(&a), "2026-04-01T00:00:00Z"));
+        check(&evs);
+    }
+
+    /// The same, over the items of the pinned fold below: decided, defaulted, superseded and a
+    /// ghost's triage, so the deferral, default, dismissal, record and link fields are set.
+    #[test]
+    fn the_contract_s_open_item_writes_every_pinned_item_byte_for_byte() {
+        let a = ItemId::parse("wi-aaaaaa").unwrap();
+        let b = ItemId::parse("wi-bbbbbb").unwrap();
+        let c = ItemId::parse("wi-cccccc").unwrap();
+        let mut evs = decided_item_events(&a);
+        evs.extend(defaulted_item_events(&b));
+        evs.extend(superseded_item_events(&c));
+        evs.push(env(triage(&ItemId::parse("wi-dddddd").unwrap()), "s1"));
+        let ledger = Ledger::fold((1u64..).zip(evs.iter()));
+        let items: Vec<&Item> = ledger.items.values().collect();
+        assert_eq!(
+            items.len(),
+            3,
+            "every pinned item; the ghost's triage makes none"
+        );
+        for item in items {
+            assert_eq!(
+                serde_json::to_string(&OpenItem::from(item)).unwrap(),
+                serde_json::to_string(item).unwrap(),
+                "{}",
+                item.id
+            );
+        }
+    }
+
+    #[test]
     fn day_numbers_count_calendar_days_across_leap_years() {
         assert_eq!(day_number("1970-01-01"), Some(0));
         assert_eq!(day_number("2000-03-01T00:00:00Z"), Some(11_017));
@@ -1634,7 +1631,6 @@ mod tests {
 #[cfg(test)]
 mod collision_tests {
     use super::*;
-    use crate::event::*;
 
     #[test]
     fn an_exact_id_wins_over_its_extended_sibling() {

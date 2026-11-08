@@ -2,6 +2,7 @@
 
 use anyhow::{Result, anyhow};
 use std::io::Write;
+use weighin_contract::open::OpenItem;
 use weighin_core::marker::Door;
 use weighin_core::{Item, Ledger};
 
@@ -27,7 +28,13 @@ pub(crate) fn open(env: &Env, a: &OpenArgs, out: &mut impl Write) -> Result<()> 
         writeln!(
             out,
             "{}",
-            serde_json::to_string(&items.iter().take(a.top).collect::<Vec<_>>())?
+            serde_json::to_string(
+                &items
+                    .iter()
+                    .take(a.top)
+                    .map(|&i| OpenItem::from(i))
+                    .collect::<Vec<_>>()
+            )?
         )?;
         return Ok(());
     }

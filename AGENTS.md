@@ -28,9 +28,10 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | Crate | Layer | Purpose | Depends on |
 |---|---|---|---|
 | `crates/knowledge/knowledge-contract` | contract (knowledge) | The atom contract with no I/O: kinds, status, ids and paths, the frontmatter writer and reader | serde_json, sha2 |
-| `crates/weigh-in/weighin-core` | plugin (weigh-in) | The ledger vocabulary with no I/O: events, ids, markers, scanning, cards, projection, `.kb` atoms, board format | knowledge-contract, serde, serde_json, sha2, thiserror |
+| `crates/weigh-in/weighin-contract` | contract (weigh-in) | What siblings use to reach Weigh-In: events and their names, ids, cards, the decision request and answer with their guards, `open` and `ci-check` JSON; Core only with its `core` feature | redkiln-core (optional), serde, serde_json, sha2, thiserror |
+| `crates/weigh-in/weighin-core` | plugin (weigh-in) | The ledger domain with no I/O: markers, scanning, projection, `.kb` atoms, board format | weighin-contract, knowledge-contract, serde, serde_json, thiserror |
 | `crates/core/redkiln-core` | Core (hub) | The suite's store (ST-04 to ST-11) and its location (ST-01 to ST-03), `suite.toml` (ST-12, ST-13), the envelope and tags, trust, ids and subjects, journals with checkpoint and import, and old ledgers read from a copy | happenstance-core, happenstance-sqlite (`=0.4.5`, `sync`), tokio (`rt`), tempfile, thiserror, serde, serde_json, sha2, time, toml |
-| `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
+| `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, weighin-contract, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
 | `tools/xtask` | tool | `cargo xtask layers`, `cargo xtask plugins`, `cargo xtask ids` and later packaging, version and changelog tasks; never shipped | knowledge-contract, serde, serde_json, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
