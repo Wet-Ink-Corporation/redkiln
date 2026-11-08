@@ -519,9 +519,9 @@ mod tests {
     }
 
     /// The git calls of an import into a clone of `seed` whose store last imported the
-    /// journal refs at `refs/old/`, the deadline passing as call `call` starts (`usize::MAX`:
-    /// never), each by its first argument.
-    fn run(dir: &Path, seed: &Path, call: usize) -> Vec<String> {
+    /// journal refs at `refs/old/`, each by its first argument, and its report; the deadline
+    /// passes during call `call` (`usize::MAX`: never).
+    fn run(dir: &Path, seed: &Path, call: usize) -> (Vec<String>, RefsImport) {
         let run = dir.join(format!("run-{call}"));
         std::fs::create_dir_all(&run).expect("dir");
         let url = seed.to_string_lossy().into_owned();
@@ -570,51 +570,46 @@ mod tests {
         let (log, _) = WATCHED.take().expect("watched");
         let report = report.expect("ran");
         assert!(report.fetch_failed.is_empty(), "{report:?}");
-        calls(&log)
+        (calls(&log), report)
     }
 
-    /// For each call of the full import, the calls started after a deadline passing as it
-    /// starts.
-    fn after_each_call() -> Vec<(usize, Vec<String>)> {
+    /// For a deadline passing during each call of the full import (fetches, ancestry checks,
+    /// a broken ref's history, file listings and reads): at most the bound of calls, the one in
+    /// flight included, run past it; no ancestry check or file listing starts after it; and a
+    /// file being read as it passes is not imported.
+    #[test]
+    fn a_deadline_passing_during_any_call_of_an_import_bounds_what_follows() {
         let dir = tempfile::tempdir().expect("tempdir");
         let seed = remote(dir.path());
-        let full = run(dir.path(), &seed, usize::MAX);
+        let (full, _) = run(dir.path(), &seed, usize::MAX);
         for step in ["fetch", "merge-base", "rev-list", "ls-tree", "cat-file"] {
             assert!(full.iter().any(|call| call == step), "{step}: {full:?}");
         }
-        (1..=full.len())
-            .map(|call| {
-                let calls = run(dir.path(), &seed, call);
-                (call, calls.get(call..).unwrap_or_default().to_vec())
-            })
-            .collect()
-    }
-
-    #[test]
-    fn an_import_starts_at_most_its_bound_of_git_calls_after_the_deadline() {
-        for (call, after) in after_each_call() {
-            let bound = usize::try_from(MAX_IMPORT_CALLS_PAST_DEADLINE).expect("small");
-            assert!(after.len() <= bound, "deadline at call {call}: {after:?}");
-        }
-    }
-
-    #[test]
-    fn no_ancestry_check_starts_after_the_deadline() {
-        for (call, after) in after_each_call() {
-            assert!(
-                !after.iter().any(|started| started == "merge-base"),
-                "deadline at call {call}: {after:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn no_file_listing_starts_after_the_deadline() {
-        for (call, after) in after_each_call() {
-            assert!(
-                !after.iter().any(|started| started == "ls-tree"),
-                "deadline at call {call}: {after:?}"
-            );
+        let bound = usize::try_from(MAX_IMPORT_CALLS_PAST_DEADLINE).expect("small");
+        for call in 1..=full.len() {
+            let (calls, report) = run(dir.path(), &seed, call);
+            let (before, from) = calls.split_at_checked(call - 1).expect("the call ran");
+            let (in_flight, after) = from.split_first().expect("the call ran");
+            let at = format!("deadline during call {call} ({in_flight})");
+            assert!(from.len() <= bound, "bound: {at}: {from:?}");
+            for step in ["merge-base", "ls-tree"] {
+                assert!(
+                    !after.iter().any(|started| started == step),
+                    "{step} started: {at}: {after:?}"
+                );
+            }
+            if in_flight == "cat-file" {
+                let read = before
+                    .iter()
+                    .filter(|started| *started == "cat-file")
+                    .count();
+                assert_eq!(
+                    report.sources.len(),
+                    read,
+                    "store write after the deadline: {at}: {:?}",
+                    report.sources
+                );
+            }
         }
     }
 }
