@@ -5,7 +5,7 @@
 //! | Command | 0 | 1 | 2 | 70 | 74 |
 //! |---|---|---|---|---|---|
 //! | `checkpoint` | report written, skips, broken refs and deferrals included | none | usage | store or local git failed | output failed |
-//! | `import` | report written, rewritten refs and failed fetches included | none | usage | store, local git or an import stopped | output failed |
+//! | `import` | report written, rewritten refs, failed fetches and 1.x sources not read included | none | usage | store, local git or an import stopped, or the 1.x import could not run | output failed |
 //! | `relay <branch>` | gone, or merged with the branch deleted or a newer commit on it | the inbox was left in place | usage, or a branch that is no inbox | local git failed | output failed |
 //! | `pre-push` | always, every failure included (said on stderr) | none | usage | none | none |
 //!
@@ -28,6 +28,9 @@ use crate::cli_envelope::{Envelope, Exit, Finding, Severity, one_line};
 use crate::env::Env;
 use crate::journal::pre_push::{self, Pushing};
 use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope, Skip};
+use crate::legacy_import::{self, Legacy};
+
+mod legacy;
 use crate::{Globals, JournalCmd, RelayArgs};
 
 /// A command's envelope ids (CLI-02).
@@ -92,8 +95,16 @@ fn import(g: Globals, json: bool, started: Instant) -> Exit {
         Err(e) => return internal(IMPORT, json, &e),
     };
     let noticed = warn_notices(&env);
+    // The one-time 1.x import first, in every repository class and outside git (H9).
+    let legacy = match legacy_import::import_due(&env, legacy_import::Mode::Command, "cli") {
+        Ok(legacy) => legacy,
+        Err(e) => {
+            let e = e.context("the weighin 1.x import");
+            return settle(json, noticed, internal(IMPORT, json, &e));
+        }
+    };
     let exit = match refs::import(&env, Budget::COMMAND, started, "cli") {
-        Ok(done) => emit(IMPORT, json, &imported(&done)),
+        Ok(done) => emit(IMPORT, json, &imported(&done, &legacy)),
         Err(e) => internal(IMPORT, json, &e),
     };
     settle(json, noticed, exit)
@@ -268,7 +279,7 @@ const fn level(severity: Option<Severity>) -> &'static str {
     }
 }
 
-/// What locating the store found (an old ledger, a fallback), as warnings.
+/// What locating the store found (a 2.x fallback, a suite config problem), as warnings.
 fn warn_notices(env: &Env) -> Exit {
     env.notices
         .iter()
@@ -370,6 +381,13 @@ struct ImportData<'a> {
     skipped: Option<Skip>,
     sources: Vec<SourceData<'a>>,
     late: bool,
+    /// The 1.x sources the one-time import looked at first (decision H6); left out when there
+    /// were none, so a repository with no 1.x source keeps the envelope it had.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    legacy: Vec<legacy::LegacyData<'a>>,
+    /// Why the rest of the 1.x import waits; left out when nothing waits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    legacy_waiting: Option<&'static str>,
 }
 
 /// One source an import read.
@@ -384,7 +402,7 @@ struct SourceData<'a> {
     incomplete: bool,
 }
 
-fn imported(done: &Imported) -> Outcome<ImportData<'_>> {
+fn imported<'a>(done: &'a Imported, old: &'a Legacy) -> Outcome<ImportData<'a>> {
     let report: &RefsImport = match done {
         Imported::Skipped(skip) => {
             return Outcome {
@@ -392,10 +410,12 @@ fn imported(done: &Imported) -> Outcome<ImportData<'_>> {
                     skipped: Some(*skip),
                     sources: Vec::new(),
                     late: false,
+                    legacy: legacy::data(old),
+                    legacy_waiting: legacy::waiting(old),
                 },
-                findings: Vec::new(),
+                findings: legacy::findings(old),
                 exit: Exit::Success,
-                line: format!("nothing to import ({})", skip.as_str()),
+                line: format!("nothing to import ({}){}", skip.as_str(), legacy::line(old)),
             };
         }
         Imported::Ran(report) => report,
@@ -423,13 +443,18 @@ fn imported(done: &Imported) -> Outcome<ImportData<'_>> {
     if report.late {
         line.push_str("; the deadline left the rest for later");
     }
+    line.push_str(&legacy::line(old));
+    let mut findings = legacy::findings(old);
+    findings.extend(refs::import_findings(report));
     Outcome {
         data: ImportData {
             skipped: None,
             sources,
             late: report.late,
+            legacy: legacy::data(old),
+            legacy_waiting: legacy::waiting(old),
         },
-        findings: refs::import_findings(report),
+        findings,
         exit: Exit::Success,
         line,
     }

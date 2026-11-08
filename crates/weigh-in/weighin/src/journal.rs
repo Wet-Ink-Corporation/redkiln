@@ -23,6 +23,8 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use weighin_core::{EventEnvelope, Ledger};
 
+use crate::store::legacy::identity::Canonical;
+
 /// Where journals live, relative to the worktree root.
 pub(crate) const DIR: &str = ".kb/_ledger/journal";
 
@@ -167,7 +169,7 @@ fn parse(file: &str, bytes: &[u8], events: &mut Vec<EventEnvelope>) -> Result<()
 }
 
 /// The ledger folded from the journals' events followed by its own, each event once (the first
-/// copy kept). Order is the sources' own, never timestamps: each journal in its file order, then
+/// copy kept; two copies that differ only in their 1.x `worktree` are one event). Order is the sources' own, never timestamps: each journal in its file order, then
 /// the ledger in position order. Journals come first because they can hold history the ledger
 /// lost: a session resumed in a new container keeps its id but starts an empty ledger, its hook
 /// appends the new ledger's events after the old ones, and a question raised again mints the
@@ -185,11 +187,13 @@ pub(crate) fn pool(
     }
     let mut seen = HashSet::new();
     let mut events = Vec::with_capacity(ledger.len().saturating_add(journal.len()));
-    for env in journal
+    for mut env in journal
         .into_iter()
         .chain(ledger.into_iter().map(|(_, e)| e))
     {
-        if seen.insert(env.to_json()?) {
+        // The canonical form leaves out the 1.x worktree, which an imported copy in the store
+        // does not keep (decision H10), so the journal's copy and the store's count once.
+        if seen.insert(Canonical::of_kept(&mut env)?) {
             events.push(env);
         }
     }
@@ -215,6 +219,27 @@ mod tests {
         let ledger = (1_u64..).zip(events()?).collect();
 
         let pooled = pool(ledger, events()?)?;
+
+        let item = pooled
+            .resolve("wi-b29e54")
+            .ok_or_else(|| anyhow::anyhow!("item missing"))?;
+        assert_eq!((pooled.head, item.times_presented), (2, 1));
+        Ok(())
+    }
+
+    #[test]
+    fn stats_counts_an_event_in_the_store_and_a_journal_once() -> Result<()> {
+        // The store holds an imported 1.x event without its worktree (H1); the journal keeps it.
+        let in_journal: Vec<EventEnvelope> = events()?
+            .into_iter()
+            .map(|mut env| {
+                env.worktree = Some("repo".to_owned());
+                env
+            })
+            .collect();
+        let ledger = (1_u64..).zip(events()?).collect();
+
+        let pooled = pool(ledger, in_journal)?;
 
         let item = pooled
             .resolve("wi-b29e54")

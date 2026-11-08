@@ -10,8 +10,8 @@
 //! 5. `store` in `.kb/_ledger/config.json`, likewise naming a 1.x ledger (2.x only);
 //! 6. `<git-common-dir>/redkiln/events.sqlite3`, or outside git `<folder>/.redkiln/events.sqlite3`.
 //!
-//! A 1.x ledger is never opened (ST-15, ST-16): each one that exists is a [`Notice`] until the
-//! import (Move 1 step 8) takes it in. Process values are read once, into [`Vars`]: Core reads
+//! A 1.x ledger is never opened (ST-15, ST-16): each one that exists is listed in
+//! [`Found::old_ledgers`] and imported once from Core's copy (`legacy_import`). Process values are read once, into [`Vars`]: Core reads
 //! no environment.
 
 use std::ffi::{OsStr, OsString};
@@ -58,8 +58,6 @@ pub(crate) enum Notice {
     WeighinStore(Fallback),
     /// `config.json`'s `store` placed the store (2.x only).
     LegacyStoreKey(Fallback),
-    /// A weighin 1.x ledger is here, and is not read until it is imported.
-    OldLedger { path: PathBuf },
     /// suite.toml, or one of its keys, could not be used.
     Suite(String),
 }
@@ -74,11 +72,6 @@ impl fmt::Display for Notice {
                 f,
                 "`store` in .kb/_ledger/config.json",
                 "`store` in .redkiln/suite.toml",
-            ),
-            Self::OldLedger { path } => write!(
-                f,
-                "a weighin 1.x ledger is at {}; weighin 2.0 leaves it unchanged and lists none of its items until it is imported",
-                path.display()
             ),
             Self::Suite(text) => f.write_str(text),
         }
@@ -147,6 +140,8 @@ pub(crate) struct Found {
     /// repository class (ST-13, with M1-F's fallback) and the owner (ST-12) come from it.
     pub(crate) suite: Suite,
     pub(crate) notices: Vec<Notice>,
+    /// Each weighin 1.x ledger that exists: the one a fallback named, then the default place.
+    pub(crate) old_ledgers: Vec<PathBuf>,
 }
 
 /// The store for `cwd`, first match of the chain in the module documentation. `flag` is
@@ -207,7 +202,7 @@ pub(crate) fn locate_store(
         named = Some(fallback.old.clone());
         notices.push(Notice::LegacyStoreKey(fallback));
     }
-    notices.extend(old_ledgers(named, &workspace));
+    let old_ledgers = old_ledgers(named, &workspace);
     // Core reads suite.toml only when no flag or variable chose the store; the class and the
     // owner are the repository's whatever chose it.
     let suite = located
@@ -224,6 +219,7 @@ pub(crate) fn locate_store(
         workspace,
         suite,
         notices,
+        old_ledgers,
     })
 }
 
@@ -267,10 +263,11 @@ fn beside(old: &Path) -> (PathBuf, PathBuf) {
     (old.to_path_buf(), store)
 }
 
-/// A notice for each old ledger that exists: the one a fallback named, then the default place
+/// Each old ledger that exists: the one a fallback named, then the default place
 /// (`<common>/weighin/ledger.sqlite3`, outside git `<folder>/.weighin/ledger.sqlite3`). Looked at,
-/// never opened; one whose existence cannot be checked is named too, as it may be there.
-fn old_ledgers(named: Option<PathBuf>, workspace: &Workspace) -> Vec<Notice> {
+/// never opened; one whose existence cannot be checked is listed too, as it may be there (its
+/// import then fails and says so).
+fn old_ledgers(named: Option<PathBuf>, workspace: &Workspace) -> Vec<PathBuf> {
     let default = match workspace {
         Workspace::Git { common_dir, .. } => common_dir.join("weighin"),
         Workspace::Folder(folder) => folder.join(".weighin"),
@@ -283,7 +280,6 @@ fn old_ledgers(named: Option<PathBuf>, workspace: &Workspace) -> Vec<Notice> {
     paths
         .into_iter()
         .filter(|path| There::at(path) == There::File)
-        .map(|path| Notice::OldLedger { path })
         .collect()
 }
 

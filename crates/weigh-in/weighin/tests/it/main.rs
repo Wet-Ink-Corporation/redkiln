@@ -15,6 +15,7 @@ mod journal;
 mod journal_hooks;
 mod journal_refs;
 mod journal_session_start;
+mod legacy_import;
 mod owner;
 mod pane;
 mod recall;

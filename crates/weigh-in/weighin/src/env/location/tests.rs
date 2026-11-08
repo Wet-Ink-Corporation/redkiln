@@ -203,7 +203,7 @@ fn a_fallback_naming_no_file_is_not_called_a_1x_ledger() -> TestResult {
 }
 
 #[test]
-fn each_old_ledger_that_exists_is_a_notice_and_a_missing_one_is_none() -> TestResult {
+fn each_old_ledger_that_exists_is_listed_and_a_missing_one_is_not() -> TestResult {
     let (tmp, repo) = repo();
     let none = found(&repo, None, None, &vars(None, None));
     let default = repo.join(".git/weighin/ledger.sqlite3");
@@ -219,21 +219,12 @@ fn each_old_ledger_that_exists_is_a_notice_and_a_missing_one_is_none() -> TestRe
     let by_key = found(&repo, None, Some("keyed.sqlite3"), &vars(None, None));
 
     assert_eq!(texts(&none), Vec::<String>::new());
-    let old_ledgers = |found: &Found| -> Vec<PathBuf> {
-        found
-            .notices
-            .iter()
-            .filter_map(|n| match n {
-                Notice::OldLedger { path } => Some(path.clone()),
-                _ => None,
-            })
-            .collect()
-    };
+    assert_eq!(none.old_ledgers, Vec::<PathBuf>::new());
     for (found, expected) in [
         (&by_variable, [&named, &default]),
         (&by_key, [&keyed, &default]),
     ] {
-        let paths = old_ledgers(found);
+        let paths = &found.old_ledgers;
         assert_eq!(paths.len(), expected.len(), "{paths:?}");
         for (path, expected) in paths.iter().zip(expected) {
             assert_same_file(path, expected);
