@@ -163,8 +163,8 @@ weighin dismiss <id> <why> [--note]      not-useful | recoverable | moot | alrea
                                          duplicate-of:<id> | not-my-call:<who>
 weighin reopen <id> [--note]             reopen a decided, defaulted or dismissed item
 weighin digest [--json]                  defaults taken without you
-weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide (ledger + committed journals)
-weighin journal                          every ledger event as JSON lines; sessions keep their own in
+weighin stats [--json]                   action rate, not-useful rate, overrides, time to decide (store + 1.x committed journals)
+weighin journal                          every ledger event as JSON lines, as 1.x committed them in
                                          .kb/_ledger/journal/ (B-28)
 weighin journal checkpoint [--json]      export the store's events to refs/redkiln/journal/<name> on
                                          origin (or the inbox branch redkiln/inbox/<name> where refs
@@ -206,13 +206,39 @@ scratch workspace (#116). `weighin decisions --path <file>` lists the same decis
 
 ### Session journals and CI
 
-In an initialised git repository of class `own`, every session keeps its own events in
-`.kb/_ledger/journal/<session>.jsonl`. The binary appends them after each capture hook and each
-command that changes the ledger, append-only and each line once, so a pull request that commits
-`.kb/` carries what its session raised, deferred, dismissed and decided (B-28). Set
-`"journal": false` in `.kb/_ledger/config.json` to opt out. A journal that cannot be written
-leaves the command's result alone: the CLI warns on stderr, and hooks log it to
-`hook-errors.log`.
+In a git repository of class `own`, the Stop hook exports the store's events at the end of each
+turn to one journal ref per session, `refs/redkiln/journal/<session>`, on `origin` (SPEC JR-05
+to JR-13). The ref holds one commit per export, each adding the session's new events to
+`<session>.jsonl`, so nothing is committed to the working tree and no pull request carries
+journal files. Where `origin` refuses refs outside `refs/heads/` (Claude Code cloud sessions),
+it pushes the branch `redkiln/inbox/<session>` instead, and `weighin journal relay` (run by a
+relay workflow) moves it into the ref. The export runs inside a budget that ends before the
+hook's 20 s timeout (an 18 s worst case). It writes the session's own journal first, then looks
+only at the journals that gained an event since the store was last settled, oldest first, and
+records how far it settled it even when its deadline cuts it short, so the next Stop goes on
+from there; that record only moves forward, and each repository sharing a store keeps its own.
+If the record cannot be read, every Stop looks at every journal until it is fixed (logged).
+`journal checkpoint` and `journal pre-push` write those journals first, then look at every other
+journal and report what they find there. The store is still read whole on every Stop, and a journal
+that stays broken or deferred holds every later journal in the Stop's scope until it is fixed. A remote that hangs or refuses is retried at the next Stop, unlogged. Only what
+needs a person goes to `hook-errors.log`: a journal ref that breaks JR-05 (move it aside to
+`refs/redkiln/broken/<session>/<sha>`), an export that cannot go on by itself (an occupied or
+too large inbox, a journal too large to push), an export error (the store or local git failed,
+or the export watermark could not be written) and a Stop that ran past its budget's worst
+case. `SubagentStop` and `PostToolUse` export nothing,
+and neither does any command but `weighin journal checkpoint` and `weighin journal pre-push`.
+In Cowork hooks export nothing. Set `"journal": false` in `.kb/_ledger/config.json` to opt out.
+
+To export on `git push` as well, add a `pre-push` hook (nothing installs it for you):
+
+```sh
+#!/bin/sh
+exec <path>/weighin journal pre-push "$@"
+```
+
+Weigh-In 1.x kept each session's events in `.kb/_ledger/journal/<session>.jsonl`, committed with
+the session's work (B-28). Those files stay where they are and are never written again; `stats`
+and `ci-check` still read them.
 
 `weighin ci-check --base <ref> --json` reads only git and the checkout, never a ledger. It reports
 `open_items` (each with its triaged `door` and `authority`, or `null` before triage, and

@@ -105,11 +105,6 @@ impl Repo {
             .output()?)
     }
 
-    /// The lock file the journal writer takes for `session`, in this repository's temp dir.
-    pub(crate) fn lock_path(&self, session: &str) -> PathBuf {
-        self.temp.join(format!("weigh-in-journal-{session}.lock"))
-    }
-
     /// Run `weighin <args>` in another folder, with no session and nothing on stdin.
     pub(crate) fn run_in(&self, dir: &std::path::Path, args: &[&str]) -> TestResult<Output> {
         Ok(self.command(dir).args(args).stdin(Stdio::null()).output()?)
@@ -161,22 +156,31 @@ impl Repo {
         self.run("unused", &["hook"], Some(&payload.to_string()))
     }
 
+    /// Run a hook with `payload` and the variable `name` set to `value`; its output.
+    pub(crate) fn hook_with(&self, payload: &Value, name: &str, value: &str) -> TestResult<Output> {
+        let mut child = self
+            .command(&self.root)
+            .arg("hook")
+            .env(name, value)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        if let Some(pipe) = child.stdin.as_mut() {
+            pipe.write_all(payload.to_string().as_bytes())?;
+        }
+        drop(child.stdin.take());
+        Ok(child.wait_with_output()?)
+    }
+
+    /// Whether `refname` names a commit in this repository.
+    pub(crate) fn has_ref(&self, refname: &str) -> bool {
+        self.rev(refname).is_ok()
+    }
+
     /// The Stop hook payload for `session` with the two-marker message.
     pub(crate) fn stop(&self, session: &str) -> Value {
         json!({"hook_event_name": "Stop", "session_id": session, "cwd": self.root, "last_assistant_message": MESSAGE})
-    }
-
-    pub(crate) fn journal_dir(&self) -> PathBuf {
-        self.root.join(".kb/_ledger/journal")
-    }
-
-    pub(crate) fn journal_path(&self, session: &str) -> PathBuf {
-        self.journal_dir().join(format!("{session}.jsonl"))
-    }
-
-    /// The journal of `session`, as bytes.
-    pub(crate) fn journal(&self, session: &str) -> TestResult<Vec<u8>> {
-        Ok(std::fs::read(self.journal_path(session))?)
     }
 
     /// The lines `weighin journal` prints for `session`'s events, each with its newline.

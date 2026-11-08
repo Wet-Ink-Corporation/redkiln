@@ -10,7 +10,7 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/libexec/weighin", "args": ["hook"], "timeout": 10 }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/libexec/weighin", "args": ["hook"], "timeout": 20 }
         ]
       }
     ],

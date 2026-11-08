@@ -154,25 +154,48 @@ pub fn checkpoint(
     Ok(Checkpoint::Written(exported))
 }
 
+/// One journal's lines as the store holds them.
+#[derive(Debug, Default)]
+pub(crate) struct Group {
+    /// Its lines, in store order.
+    pub(crate) lines: Vec<u8>,
+    /// The store position of its last event.
+    pub(crate) last: u64,
+}
+
+/// Every exported event of a store, grouped by journal.
+#[derive(Debug, Default)]
+pub(crate) struct Grouped {
+    pub(crate) journals: BTreeMap<JournalName, Group>,
+    /// Events that are not envelopes, so have no line.
+    pub(crate) unexportable: u64,
+    /// The last store position read, import records and unexportable events included; 0 for
+    /// an empty store.
+    pub(crate) through: u64,
+}
+
 /// Every exported event of `store` (all durable ones but import records) as journal lines,
-/// grouped by journal (JR-06), each journal's lines in store order; and how many events are
-/// not envelopes, so have no line.
-pub(crate) fn grouped(store: &Store) -> Result<(BTreeMap<JournalName, Vec<u8>>, u64), StoreError> {
-    let mut journals: BTreeMap<JournalName, Vec<u8>> = BTreeMap::new();
-    let mut unexportable = 0_u64;
+/// grouped by journal (JR-06), each journal's lines in store order.
+pub(crate) fn grouped(store: &Store) -> Result<Grouped, StoreError> {
+    let mut grouped = Grouped::default();
     let mut after = 0;
     loop {
         let page = store.read(&Filter::all(), after, PAGE)?;
         let Some(last) = page.last().map(|stored| stored.position) else {
             break;
         };
+        grouped.through = last;
         for stored in page.iter().filter(|stored| belongs_in_a_journal(stored)) {
             match encode(stored) {
-                Ok((session, line)) => journals
-                    .entry(JournalName::for_event(session.as_ref(), stored.id.store()))
-                    .or_default()
-                    .extend_from_slice(&line),
-                Err(_) => unexportable = unexportable.saturating_add(1),
+                Ok((session, line)) => {
+                    let group = grouped
+                        .journals
+                        .entry(JournalName::for_event(session.as_ref(), stored.id.store()))
+                        .or_default();
+                    group.lines.extend_from_slice(&line);
+                    group.last = stored.position;
+                }
+                Err(_) => grouped.unexportable = grouped.unexportable.saturating_add(1),
             }
         }
         if page.len() < PAGE.get() {
@@ -180,7 +203,7 @@ pub(crate) fn grouped(store: &Store) -> Result<(BTreeMap<JournalName, Vec<u8>>, 
         }
         after = last;
     }
-    Ok((journals, unexportable))
+    Ok(grouped)
 }
 
 /// Whether `stored` belongs in a journal: every durable event does but `core.import_completed`,

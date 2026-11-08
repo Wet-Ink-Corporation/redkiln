@@ -53,10 +53,16 @@ pub(crate) fn merge_direct(
         if over(ctx, &merged) {
             return Ok(Direct::TooLarge);
         }
+        if ctx.late() {
+            return Ok(Direct::Late);
+        }
         let blob = ctx.repo.hash_blob(&merged.bytes)?;
         let tree = ctx.repo.single_file_tree(&name.file_name(), &blob)?;
         let message = format!("redkiln journal {name} [skip ci]");
         let commit = ctx.repo.commit(&tree, parent.as_ref(), &message)?;
+        if ctx.late() {
+            return Ok(Direct::Late);
+        }
         let Some(remote) = ctx.remote else {
             // With no remote the local ref is the ref of record: moved only from the commit
             // read, or merged again on top of whatever another writer moved it to.
@@ -78,6 +84,9 @@ pub(crate) fn merge_direct(
             Pushed::Failed(said) => return Ok(Direct::Failed(said)),
             Pushed::Rejected if attempt == RETRIES => return Ok(Direct::Spent),
             Pushed::Rejected => {
+                if ctx.late() {
+                    return Ok(Direct::Late);
+                }
                 if let Some(failed) = refetch(ctx, remote, &refname, &refname)? {
                     return Ok(Direct::Failed(failed));
                 }
@@ -99,9 +108,15 @@ fn current_journal(
 ) -> Result<Result<Current, Direct>, RefsError> {
     let mut state = read_journal(ctx, name)?;
     if let (State::Broken(_), Some(remote)) = (&state, ctx.remote) {
+        if ctx.late() {
+            return Ok(Err(Direct::Late));
+        }
         let refname = journal_ref(name);
         if let Some(failed) = refetch(ctx, remote, &refname, &refname)? {
             return Ok(Err(Direct::Failed(failed)));
+        }
+        if ctx.late() {
+            return Ok(Err(Direct::Late));
         }
         state = read_journal(ctx, name)?;
     }
@@ -150,6 +165,9 @@ pub(crate) fn write_inbox(
 ) -> Result<Inboxed, RefsError> {
     let Inbox { remote, base } = inbox_to;
     let path = inbox_path(name);
+    if ctx.late() {
+        return Ok(Inboxed::Late);
+    }
     if occupied(ctx, base, &path)? {
         return Ok(Inboxed::Occupied);
     }
@@ -162,10 +180,14 @@ pub(crate) fn write_inbox(
         let (expected, merged) = match inbox_content(ctx, name, own)? {
             Content::Same => return Ok(Inboxed::Same),
             Content::InboxTooLarge => return Ok(Inboxed::InboxTooLarge),
+            Content::Late => return Ok(Inboxed::Late),
             Content::New(expected, merged) => (expected, merged),
         };
         if over(ctx, &merged) {
             return Ok(Inboxed::TooLarge);
+        }
+        if ctx.late() {
+            return Ok(Inboxed::Late);
         }
         let blob = ctx.repo.hash_blob(&merged.bytes)?;
         let tree = ctx.repo.tree_with(base, &path, &blob)?;
@@ -174,6 +196,9 @@ pub(crate) fn write_inbox(
         // `[skip ci]`, since a ref outside `refs/heads/` starts no workflow either way.
         let message = format!("redkiln inbox {name}");
         let commit = ctx.repo.commit(&tree, Some(base), &message)?;
+        if ctx.late() {
+            return Ok(Inboxed::Late);
+        }
         let lease = format!("{branch}:{}", expected.as_ref().map_or("", Oid::as_str));
         match ctx
             .repo
@@ -189,6 +214,9 @@ pub(crate) fn write_inbox(
             Pushed::Rejected => {
                 let refname = journal_ref(name);
                 for (from, to) in [(branch.as_str(), local.as_str()), (&refname, &refname)] {
+                    if ctx.late() {
+                        return Ok(Inboxed::Late);
+                    }
                     if let Some(failed) = refetch(ctx, remote, from, to)? {
                         return Ok(Inboxed::Failed(failed));
                     }
@@ -227,6 +255,8 @@ enum Content {
     Same,
     /// The inbox's file is larger than the cap.
     InboxTooLarge,
+    /// The deadline passed between the reads.
+    Late,
     /// The inbox tip read (`None`: no inbox) and the merge of the journal ref's file, the
     /// inbox's and the checkpoint's own.
     New(Option<Oid>, Merged),
@@ -239,6 +269,9 @@ fn inbox_content(ctx: &Ctx<'_>, name: &JournalName, own: &[u8]) -> Result<Conten
         State::Good { file, .. } => file,
         State::Absent | State::Broken(_) => Vec::new(),
     };
+    if ctx.late() {
+        return Ok(Content::Late);
+    }
     Ok(match read_inbox(ctx, name)? {
         InboxCopy::TooLarge => Content::InboxTooLarge,
         InboxCopy::Read { tip, file } => {

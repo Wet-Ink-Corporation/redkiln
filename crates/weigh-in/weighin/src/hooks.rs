@@ -3,6 +3,9 @@
 //!
 //! * `SessionStart` prints the marker convention and the open counts (added to context).
 //! * `Stop` / `SubagentStop` parse `weigh-in` blocks from `last_assistant_message` and raise them.
+//!   `Stop` then exports the store to the journal refs (`journal::refs`, JR-08) inside
+//!   `Budget::STOP`, which ends before the hook's timeout; it logs only what a person must act
+//!   on (D12). `SubagentStop` exports nothing: its events leave at the session's Stop (D11).
 //! * `PostToolUse` (`Write`, `Edit`, `MultiEdit`) scans only the text the tool wrote, then adds
 //!   the decisions anchored at that file, at most three, as `additionalContext` (`recall`, #116).
 //!
@@ -29,26 +32,31 @@ use serde_json::Value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 use weighin_core::Ledger;
 use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env, Vars};
+use crate::journal::refs::{self, Budget, Checkpointed, Marked, Scope};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
-use crate::{journal, recall, shell_bin, store};
+use crate::{recall, shell_bin, store};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
 /// error, and input that cannot be read or parsed is logged inside a git repository.
 pub(crate) fn entry(input: &mut impl Read, output: &mut impl Write) {
+    // First, so the journal export's budget counts everything the hook did before it (HK-5).
+    let started = Instant::now();
     let (payload, unread) = read_payload(input);
     let env = discover(&payload, Vars::from_process());
     let hook = Hook {
         payload,
         env,
         cowork: env::cowork(),
+        started,
     };
     serve(&hook, unread, output);
 }
@@ -110,6 +118,8 @@ struct Hook {
     env: Env,
     /// Cowork's cloud workspace: the hook writes nothing there (module doc).
     cowork: bool,
+    /// When the hook started: the Stop hook's journal export is budgeted from here.
+    started: Instant,
 }
 
 impl Hook {
@@ -157,7 +167,9 @@ impl Hook {
                     .unwrap_or("startup");
                 return session_start(env, source);
             }
-            "Stop" | "SubagentStop" => self.journalled(capture(env, payload)),
+            "Stop" => self.checkpointed(capture(env, payload)),
+            // A subagent's events leave at its session's Stop (D11).
+            "SubagentStop" => capture(env, payload),
             "PostToolUse" => return self.post_tool_use(),
             _ => Ok(String::new()),
         };
@@ -167,20 +179,19 @@ impl Hook {
         })
     }
 
-    /// `PostToolUse`: scan what the tool wrote, then read the ledger once, as it stands after the
-    /// scan, for the session's journal and for the decisions anchored at the edited file
-    /// (#116), and print those decisions as context. The scan's result stands whatever follows:
-    /// the recall raises nothing, and each failure is logged once and prints nothing.
+    /// `PostToolUse`: scan what the tool wrote, then, when the tool edited a file, read the
+    /// ledger once, as it stands after the scan, for the decisions anchored at that file (#116),
+    /// and print them as context. The scan's result stands whatever follows: the recall raises
+    /// nothing, and each failure is logged once and prints nothing. Nothing is exported here
+    /// (D11): the session's Stop exports it.
     fn post_tool_use(&self) -> String {
         let env = &self.env;
         if let Err(e) = scan(env, &self.payload) {
             self.log(&e);
         }
-        let edit = recall_edit(env, &self.payload);
-        let journal = journal::kept(env);
-        if edit.is_none() && !journal {
+        let Some(edit) = recall_edit(env, &self.payload) else {
             return String::new();
-        }
+        };
         let events = match ops::stored_events(env) {
             Ok(events) => events,
             Err(e) => {
@@ -188,23 +199,42 @@ impl Hook {
                 return String::new();
             }
         };
-        if journal && let Err(e) = journal::sync_events(env, journal::WAIT, &events) {
-            self.log(&e.context("updating the session journal"));
-        }
-        let Some(edit) = edit else {
-            return String::new();
-        };
         let ledger = Ledger::fold(events.iter().map(|(p, e)| (*p, e)));
         // `None` is no decision anchored at the file, not a failure: nothing to add.
         recall::edit_context(env, &ledger, &edit).unwrap_or_default()
     }
 
-    /// `result`, after bringing the session's journal up to date, whatever `result` is: a
-    /// capture that failed part way may have raised items first (B-28). A journal failure is
-    /// logged like any other hook failure, and the result is unchanged.
-    fn journalled(&self, result: Result<String>) -> Result<String> {
-        if let Err(e) = journal::sync(&self.env, journal::WAIT) {
-            self.log(&e.context("updating the session journal"));
+    /// `result`, after exporting the store to the journal refs inside the Stop budget, whatever
+    /// `result` is: a capture that failed part way may have raised items first, and capture
+    /// runs first so this turn's items leave with it (JR-08). An export failure, and each
+    /// outcome a person must act on (`needs_a_person`, D12), is logged; the result is unchanged,
+    /// and the export prints nothing. The session's own journal goes first, then only the
+    /// journals with an event after the watermark, so the Stop's work grows with what is new,
+    /// not with the store's history.
+    fn checkpointed(&self, result: Result<String>) -> Result<String> {
+        let budget = Budget::STOP;
+        match refs::checkpoint(&self.env, budget, self.started, Scope::SinceWatermark) {
+            Ok(Checkpointed::Ran(report, marked)) => {
+                for line in refs::needs_a_person(&report) {
+                    self.log(&anyhow::anyhow!("{line}"));
+                }
+                if let Marked::Failed(e) = marked {
+                    self.log(&e);
+                }
+            }
+            // Not git, a client repository, opted out or no store: nothing to say.
+            Ok(Checkpointed::Skipped(_)) => {}
+            Err(e) => self.log(&e),
+        }
+        let took = self.started.elapsed();
+        if let Some(worst) = budget.worst_case()
+            && took > worst
+        {
+            // The budget's bound assumes Core's call pattern: running past it means that grew.
+            self.log(&anyhow::anyhow!(
+                "the Stop hook ran {took:?} to the end of its journal export, past its budget's \
+                 worst case of {worst:?}"
+            ));
         }
         result
     }
@@ -747,6 +777,7 @@ mod tests {
                 payload,
                 env,
                 cowork,
+                started: std::time::Instant::now(),
             },
             unread,
             output,

@@ -4,7 +4,7 @@
 The code half of Redkiln Core: the one event store every plugin's binary opens (SPEC `spec/store.md`), and what the SPEC defines around it: the store's location (ST-01 to ST-03) and the store (ST-04 to ST-11), `suite.toml` (ST-12, ST-13), the envelope and Core's tag registry (EV-01 to EV-16), trust objects (TR-01), ids and digests (ID-01 to ID-08), subjects and their hashes (ID-09, ID-10), journal lines, the checkpoint into files and journal refs, the relay, and the import (JR-01 to JR-14), and a read-only reader for old weighin ledgers.
 
 ## Layer
-Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, and other Core crates may depend only on it.
+Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 
 ## Allowed dependencies
 - Workspace crates: none.
@@ -20,7 +20,7 @@ Core, the hub (`cargo xtask layers`): it depends on no other workspace crate, an
 - `ids`: `parse_store_id`, `parse_event_ref`, `ContentId`, `IdPrefix`, `AtomKind`, `HexLen`, `content_input`, `SessionId`, `WorktreeId`, `Host`, `Digest`, `IdError`.
 - `canonical`: `canonical_json`, `digest`, `digest_of`, `CanonicalError`, `MAX_DEPTH`.
 - `subject`: `Subject`, `Method`, `SubjectError`, `sha256_file`, `git_commit`, `git_tree`, `patch_id`, `PatchId`, `NoPatchId`.
-- `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `LineError`, `JournalName`, `NameError`, and their limits; `journal::refs`: `checkpoint_refs`, `relay`, `import_refs`, their outcomes, `RefsTarget`, `Breach`, `RefsError`, `RETRIES`, ref prefixes.
+- `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `LineError`, `JournalName`, `NameError`, limits; `journal::refs`: `checkpoint_refs[_since]`, `sweep_refs_since`, `RefsScope`, `relay`, `import_refs`, outcomes, `RefsTarget`, `Breach`, `RefsError`, `RETRIES`, prefixes.
 - `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
 - At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
 

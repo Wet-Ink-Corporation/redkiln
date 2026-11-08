@@ -9,8 +9,10 @@
 //! | `relay <branch>` | gone, or merged with the branch deleted or a newer commit on it | the inbox was left in place | usage, or a branch that is no inbox | local git failed | output failed |
 //! | `pre-push` | always, every failure included (said on stderr) | none | usage | none | none |
 //!
-//! Errors and warnings go to stderr as `weighin: error: <chain>` and `weighin: warning: <chain>`
-//! (CLI-08). A closed stdout exits 0 without a word (CLI-07).
+//! Errors and warnings go to stderr as `weighin: error: <chain>` and `weighin: warning: <chain>`,
+//! each on one line (CLI-08). When stdout's reader has gone, a success exits 0 without a word
+//! and a failure keeps its CLI-05 code (CLI-07 read with CLI-05); stderr is a separate stream,
+//! so a failure's error, `--json` or not, and the store's notices are still said there.
 
 use std::fmt::Display;
 use std::io::{self, Write};
@@ -22,10 +24,10 @@ use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{Deleted, RefsError, RefsExported, RefsImport, Relayed};
 use serde::Serialize;
 
-use crate::cli_envelope::{Envelope, Exit, Finding, Severity};
+use crate::cli_envelope::{Envelope, Exit, Finding, Severity, one_line};
 use crate::env::Env;
 use crate::journal::pre_push::{self, Pushing};
-use crate::journal::refs::{self, Budget, Checkpointed, Imported, Skip};
+use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope, Skip};
 use crate::{Globals, JournalCmd, RelayArgs};
 
 /// A command's envelope ids (CLI-02).
@@ -77,7 +79,7 @@ fn checkpoint(g: Globals, json: bool, started: Instant) -> Exit {
         Err(e) => return internal(CHECKPOINT, json, &e),
     };
     let noticed = warn_notices(&env);
-    let exit = match refs::checkpoint(&env, Budget::COMMAND, started) {
+    let exit = match refs::checkpoint(&env, Budget::COMMAND, started, Scope::All) {
         Ok(done) => emit(CHECKPOINT, json, &checkpointed(&done)),
         Err(e) => internal(CHECKPOINT, json, &e),
     };
@@ -132,7 +134,7 @@ fn pre_push(g: Globals, json: bool, started: Instant) -> Exit {
         Err(e) => return pre_push_failed(json, &e),
     };
     let noticed = worst(read, warn_notices(&env));
-    let done = match refs::checkpoint(&env, Budget::PRE_PUSH, started) {
+    let done = match refs::checkpoint(&env, Budget::PRE_PUSH, started, Scope::All) {
         Ok(done) => done,
         Err(e) => return pre_push_failed(json, &e),
     };
@@ -233,8 +235,10 @@ fn output_failed(e: &io::Error, earned: Exit) -> Exit {
     )
 }
 
-/// `weighin: <level>: <message>` on stderr; `exit`, or 74 for a success that cannot be said.
+/// `weighin: <level>: <message>` on stderr, the message on one line (CLI-08); `exit`, or 74 for
+/// a success that cannot be said.
 fn say(level: &str, message: &dyn Display, exit: Exit) -> Exit {
+    let message = one_line(&message.to_string());
     match writeln!(io::stderr().lock(), "weighin: {level}: {message}") {
         Ok(()) => exit,
         // A failure keeps its own code: with stderr gone, the code is the only report left.
@@ -299,7 +303,7 @@ impl CheckpointData<'_> {
 }
 
 fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
-    let report = match done {
+    let (report, marked) = match done {
         Checkpointed::Skipped(skip) => {
             return Outcome {
                 data: CheckpointData::empty(Some(*skip)),
@@ -308,11 +312,20 @@ fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
                 line: format!("nothing to export ({})", skip.as_str()),
             };
         }
-        Checkpointed::Ran(report) => report,
+        Checkpointed::Ran(report, marked) => (report, marked),
     };
     let direct: Vec<&str> = report.direct.iter().map(JournalName::as_str).collect();
     let relayed: Vec<&str> = report.relayed.iter().map(JournalName::as_str).collect();
     let line = export_line(report, &direct, &relayed);
+    let mut findings = refs::checkpoint_findings(report);
+    if let Marked::Failed(e) = marked {
+        // The export stands; only the Stop hook's next scope widens to every journal.
+        findings.push(Finding::new(
+            "journal/watermark".to_owned(),
+            &format!("{e:#}"),
+            Severity::Warning,
+        ));
+    }
     Outcome {
         data: CheckpointData {
             skipped: None,
@@ -323,7 +336,7 @@ fn checkpointed(done: &Checkpointed) -> Outcome<CheckpointData<'_>> {
             unexportable: report.unexportable,
             relay_reason: report.relay_reason.as_deref(),
         },
-        findings: refs::checkpoint_findings(report),
+        findings,
         exit: Exit::Success,
         line,
     }

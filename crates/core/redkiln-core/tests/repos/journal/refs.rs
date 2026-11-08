@@ -4,11 +4,12 @@ use std::path::Path;
 use std::time::Duration;
 
 use redkiln_core::journal::refs::{
-    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs, import_refs,
+    Breach, Deferral, RefsCheckpoint, RefsExported, RefsScope, RefsTarget, checkpoint_refs,
+    checkpoint_refs_since, import_refs,
 };
 // Every relay test needs a git hook script, so runs only on unix.
 #[cfg(unix)]
-use redkiln_core::journal::refs::{Deleted, Refusal, Relayed, relay};
+use redkiln_core::journal::refs::{Deleted, Refusal, Relayed, relay, sweep_refs_since};
 use redkiln_core::store::{Store, Wait};
 use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::Trust;
@@ -146,6 +147,76 @@ fn a_new_event_is_appended_on_top_of_the_previous_commit() {
 }
 
 #[test]
+fn a_checkpoint_since_a_position_examines_only_the_journals_with_a_later_event() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), RefsScope::since(0))
+        .expect("ok");
+    assert_eq!(
+        written(first.outcome).direct.len(),
+        3,
+        "since 0 is every journal"
+    );
+    // b2's ref goes from both sides: a scan that examined b2 would push it again.
+    git(&remote, &["update-ref", "-d", "refs/redkiln/journal/b2"]);
+    git(&work, &["update-ref", "-d", "refs/redkiln/journal/b2"]);
+    store
+        .append(
+            vec![raised("wi-000005", Some("A1"), Trust::asserted())],
+            None,
+        )
+        .expect("appended");
+
+    let scoped = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &target(&work),
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
+
+    assert!(scoped.through > first.through, "the new event was read");
+    let report = written(scoped.outcome);
+    assert_eq!(report.direct, [name("a1")], "{report:?}");
+    assert_eq!(report.appended, 1);
+    assert!(!refs(&remote, "refs/redkiln/journal").contains(&"refs/redkiln/journal/b2".to_owned()));
+    let swept = written(checkpoint_refs(&store, RepoClass::Own, &target(&work)).expect("ok"));
+    assert_eq!(swept.direct, [name("b2")], "a full checkpoint is the sweep");
+}
+
+#[test]
+fn a_checkpoint_since_the_last_position_touches_no_git() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), RefsScope::since(0))
+        .expect("ok");
+    // With every journal before the position, not one ref is read: a broken one goes unseen.
+    // The clone's own commit: its tree is not exactly `a1.jsonl`, so the ref breaks JR-05.
+    git(&work, &["update-ref", "refs/redkiln/journal/a1", "HEAD"]);
+
+    let again = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &target(&work),
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
+
+    assert_eq!(again.through, first.through);
+    assert_eq!(
+        written(again.outcome),
+        RefsExported {
+            unexportable: 1,
+            ..RefsExported::default()
+        }
+    );
+}
+
+#[test]
 fn another_clones_lines_are_kept_and_this_ones_appended() {
     let dir = tempfile::tempdir().expect("tempdir");
     let remote = remote(dir.path());
@@ -263,6 +334,204 @@ fn past_its_deadline_a_checkpoint_does_not_fetch() {
             .iter()
             .all(|(_, why)| *why == Deferral::Late),
         "a fetch would have failed: {report:?}"
+    );
+}
+
+/// Makes `path` an executable shell script holding `script`.
+#[cfg(unix)]
+fn executable(path: &Path, script: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::write(path, script).expect("script");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    // A slow push: the first journal starts before the deadline and ends after it.
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
+    );
+    // Positions: 1 a1, 2 b2, 3 the store's, 4 raw, 5 a1; so the oldest last event is b2's.
+    let store = store_in(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        ..target(&work)
+    };
+
+    let first =
+        checkpoint_refs_since(&store, RepoClass::Own, &cut, RefsScope::since(0)).expect("ok");
+
+    let report = written(first.outcome);
+    assert_eq!(
+        report.direct,
+        [name("b2")],
+        "journals go oldest last event first"
+    );
+    assert!(
+        report
+            .deferred
+            .iter()
+            .all(|(_, why)| *why == Deferral::Late),
+        "{report:?}"
+    );
+    assert_eq!(
+        first.through, 2,
+        "through b2, before the first journal left"
+    );
+    accept_custom_refs(&remote);
+    let rest = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &target(&work),
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
+    assert_eq!(rest.through, 5, "the whole store");
+    assert_eq!(written(rest.outcome).direct.len(), 2, "the store's and a1");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_sweep_writes_the_journals_past_its_position_first_and_settles_only_those() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    let store = store_in(dir.path(), "store");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), RefsScope::since(0))
+        .expect("ok");
+    assert_eq!(first.through, 5);
+    // a1 and the store's journal lose their refs, so a sweep has them to write again; b2 gains
+    // an event past the position, so it is the one new journal.
+    for name in refs(&remote, "refs/redkiln/journal") {
+        if !name.ends_with("/b2") {
+            git(&remote, &["update-ref", "-d", &name]);
+            git(&work, &["update-ref", "-d", &name]);
+        }
+    }
+    store
+        .append(
+            vec![raised("wi-000006", Some("b2"), Trust::asserted())],
+            None,
+        )
+        .expect("appended");
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
+    );
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        ..target(&work)
+    };
+
+    let swept = sweep_refs_since(
+        &store,
+        RepoClass::Own,
+        &cut,
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
+
+    assert_eq!(swept.through, 6, "the journal past the position is settled");
+    let report = written(swept.outcome);
+    assert_eq!(report.direct, [name("b2")], "new work first: {report:?}");
+    assert_eq!(report.deferred.len(), 2, "the older two, late: {report:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_checkpoint_writes_its_first_journal_before_the_others_and_settles_in_position_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    // A slow push: the first journal starts before the deadline and ends after it.
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
+    );
+    // Positions: 1 a1, 2 b2, 3 the store's, 4 raw, 5 a1; so a1 is the newest journal.
+    let store = store_in(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        ..target(&work)
+    };
+    let a1 = name("a1");
+
+    let scoped = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &cut,
+        RefsScope {
+            first: Some(&a1),
+            ..RefsScope::since(0)
+        },
+    )
+    .expect("ok");
+
+    let report = written(scoped.outcome);
+    assert_eq!(
+        report.direct,
+        [a1],
+        "the first journal goes first: {report:?}"
+    );
+    assert_eq!(report.deferred.len(), 2, "the others, late: {report:?}");
+    assert_eq!(
+        scoped.through, 1,
+        "b2, at 2, is not settled, so a1's later position is not either"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_journal_whose_push_fails_after_the_deadline_asks_the_remote_nothing_more() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 2\necho closed >&2\nexit 1\n",
+    );
+    // Every call to the remote, in order: fetches and ls-remote run upload-pack, pushes
+    // receive-pack, both as this clone's config names them.
+    let calls = dir.path().join("calls");
+    let calls_arg = calls.to_string_lossy();
+    for (pack, key) in [("upload", "uploadpack"), ("receive", "receivepack")] {
+        let wrapper = dir.path().join(format!("{pack}-pack"));
+        executable(
+            &wrapper,
+            &format!("#!/bin/sh\necho {pack} >> '{calls_arg}'\nexec git {pack}-pack \"$@\"\n"),
+        );
+        git(
+            &work,
+            &[
+                "config",
+                &format!("remote.origin.{key}"),
+                &wrapper.to_string_lossy(),
+            ],
+        );
+    }
+    let store = store_in(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_000)),
+        ..target(&work)
+    };
+
+    let report = written(checkpoint_refs(&store, RepoClass::Own, &cut).expect("ok"));
+
+    assert!(
+        report.direct.is_empty() && report.relayed.is_empty(),
+        "{report:?}"
+    );
+    assert_eq!(report.deferred.len(), 3, "{report:?}");
+    let made = std::fs::read_to_string(&calls).expect("calls");
+    assert_eq!(
+        made.lines().collect::<Vec<_>>(),
+        ["upload", "receive"],
+        "the journal refs' fetch, one push, and no relay base read after it"
     );
 }
 

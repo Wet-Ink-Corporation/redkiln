@@ -13,13 +13,17 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result};
 use redkiln_core::envelope::Timestamp;
+use redkiln_core::ids::SessionId;
+use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{
-    Breach, Deferral, Deleted, JOURNAL_REFS, RefsCheckpoint, RefsError, RefsExported, RefsImport,
-    RefsTarget, Refusal, Relayed, checkpoint_refs, import_refs,
+    Breach, Deferral, Deleted, JOURNAL_REFS, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsError,
+    RefsExported, RefsImport, RefsScope, RefsTarget, Refusal, Relayed, checkpoint_refs_since,
+    import_refs, sweep_refs_since,
 };
 use redkiln_core::location::GIT_TIMEOUT;
 use serde::{Serialize, Serializer};
 
+use super::watermark::Watermark;
 use crate::cli_envelope::{Exit, Finding, Severity};
 use crate::env::{Env, RepoClass};
 use crate::store::Store;
@@ -32,10 +36,8 @@ const REMOTE: &str = "origin";
 /// The most characters of what git said that a finding keeps.
 const MAX_SAID_CHARS: usize = 200;
 
-/// Remote calls Core can still make on one journal after the deadline passes: the direct push,
-/// the relay base's `ls-remote` and fetch, and the inbox's fetch and push.
-#[cfg(test)]
-const CALLS_AFTER_DEADLINE: u32 = 5;
+/// The git calls, local or remote, Core can still make after the deadline passes.
+const CALLS_AFTER_DEADLINE: u32 = MAX_CALLS_PAST_DEADLINE;
 
 /// How long a caller lets journal-ref work run (HK-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,10 +49,17 @@ pub(crate) struct Budget {
 }
 
 impl Budget {
-    /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook.
+    /// The Stop hook, inside its 20 s timeout in `hooks.json` (D3): worst case 4 s + 7 × 2 s =
+    /// 18 s, leaving time for the output after it.
+    pub(crate) const STOP: Self = Self {
+        start_by: Some(Duration::from_secs(4)),
+        per_call: Duration::from_secs(2),
+    };
+    /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook:
+    /// worst case 6 s + 7 × 2 s = 20 s.
     pub(crate) const PRE_PUSH: Self = Self {
-        start_by: Some(Duration::from_secs(5)),
-        per_call: Duration::from_secs(3),
+        start_by: Some(Duration::from_secs(6)),
+        per_call: Duration::from_secs(2),
     };
     /// `journal checkpoint` and `journal import` run by hand: no deadline, every call bounded.
     pub(crate) const COMMAND: Self = Self {
@@ -75,13 +84,11 @@ impl Budget {
                 .map(|by| started.checked_add(by).unwrap_or(started)),
         }
     }
-}
 
-#[cfg(test)]
-impl Budget {
     /// The longest a checkpoint can run after it started: `start_by` plus every call Core can
-    /// still make after the deadline; `None` with no deadline, or on overflow.
-    fn worst_case(self) -> Option<Duration> {
+    /// still make after the deadline; `None` with no deadline, or on overflow. The Stop hook
+    /// logs a checkpoint that ran longer, which means Core's call pattern grew (plan risk 4).
+    pub(crate) fn worst_case(self) -> Option<Duration> {
         self.start_by?
             .checked_add(self.per_call.checked_mul(CALLS_AFTER_DEADLINE)?)
     }
@@ -121,12 +128,34 @@ impl Serialize for Skip {
     }
 }
 
+/// Which journals [`checkpoint`] examines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scope {
+    /// Every journal, those past the watermark first: `journal checkpoint` and `journal
+    /// pre-push`, the sweep.
+    All,
+    /// Only the journals with an event after the watermark: the Stop hook.
+    SinceWatermark,
+}
+
+/// Whether a checkpoint moved the watermark.
+#[derive(Debug)]
+pub(crate) enum Marked {
+    /// To the position up to which the store is settled (Core's `through`).
+    Moved,
+    /// Already there or past it: it never moves back.
+    Kept,
+    /// It could not be read (so it was not written) or written; the next Stop may examine
+    /// every journal again.
+    Failed(anyhow::Error),
+}
+
 /// What [`checkpoint`] did.
 #[derive(Debug)]
 #[must_use]
 pub(crate) enum Checkpointed {
     Skipped(Skip),
-    Ran(RefsExported),
+    Ran(RefsExported, Marked),
 }
 
 /// What [`import`] did.
@@ -137,12 +166,23 @@ pub(crate) enum Imported {
     Ran(RefsImport),
 }
 
-/// Export the store's durable events that their journals lack (JR-08). Skips, in this order:
-/// not in git, a `client` repository, opted out, then no store (none is created).
+/// Export the store's durable events that their journals lack (JR-08), from the journals
+/// `scope` names. Skips, in this order: not in git, a `client` repository, opted out, then no
+/// store (none is created). Every run, whatever its scope, moves the watermark forward to the
+/// position up to which it settled the store (every journal whose last event is at or before
+/// it was examined and neither deferred nor broken), never back. The session's own journal is
+/// examined and written first; a sweep then examines the journals past the watermark, then the
+/// rest. A watermark that exists but cannot be read is reported and left alone, and every
+/// journal is examined.
 ///
 /// # Errors
 /// The store cannot be located, opened or read, or git fails locally.
-pub(crate) fn checkpoint(env: &Env, budget: Budget, started: Instant) -> Result<Checkpointed> {
+pub(crate) fn checkpoint(
+    env: &Env,
+    budget: Budget,
+    started: Instant,
+    scope: Scope,
+) -> Result<Checkpointed> {
     let Some(repo) = env.repo_root.as_deref() else {
         return Ok(Checkpointed::Skipped(Skip::NotGit));
     };
@@ -153,18 +193,73 @@ pub(crate) fn checkpoint(env: &Env, budget: Budget, started: Instant) -> Result<
     if !env.config.journal {
         return Ok(Checkpointed::Skipped(Skip::OptedOut));
     }
-    let Some(store) = Store::open_existing(env.store_path()?, env.wait)? else {
+    // Every error here says what was being done: the Stop hook logs it as it is.
+    let opened = env
+        .store_path()
+        .and_then(|path| Store::open_existing(path, env.wait))
+        .context("exporting the journals")?;
+    let Some(store) = opened else {
         return Ok(Checkpointed::Skipped(Skip::NoStore));
     };
     let target = budget.target(repo, started);
-    Ok(
-        match checkpoint_refs(store.core(), class.into(), &target)
-            .context("exporting the journals")?
-        {
-            RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
-            RefsCheckpoint::Written(report) => Checkpointed::Ran(report),
-        },
-    )
+    let watermark = Watermark::of(env, repo, store.core().store_id())?;
+    let (mut recorded, unread) = match watermark.read() {
+        Ok(at) => (at, None),
+        Err(e) => (0, Some(e)),
+    };
+    // The session's own journal goes first, so the current turn never waits behind older
+    // journals (a catch-up, a watermark that cannot be read); `through` is unaffected.
+    let session = session_journal(env)?;
+    let export = |since| {
+        let scope_of = RefsScope {
+            first: session.as_ref(),
+            ..RefsScope::since(since)
+        };
+        match scope {
+            Scope::All => sweep_refs_since(store.core(), class.into(), &target, scope_of),
+            Scope::SinceWatermark => {
+                checkpoint_refs_since(store.core(), class.into(), &target, scope_of)
+            }
+        }
+        .context("exporting the journals")
+    };
+    let mut scoped = export(recorded)?;
+    if scoped.through < recorded {
+        // A store behind its watermark is not the one it was written for (a store recreated
+        // since): nothing it holds is known to be exported.
+        recorded = 0;
+        scoped = export(0)?;
+    }
+    Ok(match scoped.outcome {
+        RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
+        RefsCheckpoint::Written(report) => {
+            // Core's `through` stops before the first journal past the watermark that was
+            // deferred or broken, so a run cut short still records what it settled; what a
+            // sweep finds below the watermark is in its report, not a reason to move back.
+            let marked = match unread {
+                Some(e) => Marked::Failed(e),
+                None if scoped.through <= recorded => Marked::Kept,
+                None => watermark
+                    .write(scoped.through)
+                    .map_or_else(Marked::Failed, |()| Marked::Moved),
+            };
+            Checkpointed::Ran(report, marked)
+        }
+    })
+}
+
+/// The journal of `env`'s session (JR-06), `None` with no session.
+///
+/// # Errors
+/// A session id the store refuses; `Env` keeps only ids it accepts, so this does not happen.
+fn session_journal(env: &Env) -> Result<Option<JournalName>> {
+    let id = env
+        .session
+        .as_deref()
+        .map(SessionId::parse)
+        .transpose()
+        .context("exporting the session's journal")?;
+    Ok(id.map(|id| JournalName::of_session(&id)))
 }
 
 /// Import every journal source not yet imported at its commit (JR-10 to JR-13), recorded as
@@ -226,18 +321,14 @@ pub(crate) fn checkpoint_findings(report: &RefsExported) -> Vec<Finding> {
     let broken = report.broken.iter().map(|(name, breach)| {
         Finding::new(
             format!("journal/broken:{name}"),
-            &format!(
-                "{JOURNAL_REFS}{name} breaks JR-05 ({}); move it aside to \
-                 refs/redkiln/broken/<name>/<sha>",
-                breach_name(*breach)
-            ),
+            &broken_message(name, *breach),
             Severity::Error,
         )
     });
     let deferred = report.deferred.iter().map(|(name, deferral)| {
         Finding::new(
             format!("journal/deferred:{name}"),
-            &format!("{name} deferred: {}", deferral_reason(deferral)),
+            &deferred_message(name, deferral),
             Severity::Warning,
         )
     });
@@ -252,6 +343,40 @@ pub(crate) fn checkpoint_findings(report: &RefsExported) -> Vec<Finding> {
         )
     });
     broken.chain(deferred).chain(unexportable).collect()
+}
+
+/// The checkpoint outcomes a person must act on, one line each, for the hook error log (HK-2):
+/// each broken ref, and each deferral that persists until someone acts (an occupied or too
+/// large inbox, a journal too large to merge). A late, retried-out or failed journal is retried
+/// by the next checkpoint and is not listed: an offline laptop is normal (D12).
+pub(crate) fn needs_a_person(report: &RefsExported) -> Vec<String> {
+    let broken = report
+        .broken
+        .iter()
+        .map(|(name, breach)| broken_message(name, *breach));
+    let lasting = report
+        .deferred
+        .iter()
+        .filter(|(_, deferral)| match deferral {
+            Deferral::InboxOccupied | Deferral::InboxTooLarge | Deferral::TooLarge => true,
+            Deferral::Late | Deferral::RetriesSpent | Deferral::Failed(_) => false,
+        })
+        .map(|(name, deferral)| deferred_message(name, deferral));
+    broken.chain(lasting).collect()
+}
+
+/// A broken journal ref, and what a person does about it.
+fn broken_message(name: &JournalName, breach: Breach) -> String {
+    format!(
+        "{JOURNAL_REFS}{name} breaks JR-05 ({}); move it aside to \
+         refs/redkiln/broken/<name>/<sha>",
+        breach_name(breach)
+    )
+}
+
+/// A journal deferred, and why.
+fn deferred_message(name: &JournalName, deferral: &Deferral) -> String {
+    format!("{name} deferred: {}", deferral_reason(deferral))
 }
 
 /// The findings of an import (CLI-03): rewritten refs, passed-over sources, failed fetches and
@@ -368,7 +493,10 @@ mod tests {
     };
     use redkiln_core::journal::{ImportReport, JournalName, LineError, Problem};
 
-    use super::{Budget, checkpoint_findings, import_findings, relay_findings};
+    use super::{
+        Budget, CALLS_AFTER_DEADLINE, checkpoint_findings, import_findings, needs_a_person,
+        relay_findings,
+    };
     use crate::cli_envelope::{Exit, Finding, Severity};
 
     fn name(text: &str) -> JournalName {
@@ -385,9 +513,73 @@ mod tests {
 
     #[test]
     fn the_pre_push_budget_ends_within_twenty_seconds_and_commands_set_no_deadline() {
-        assert_eq!(Budget::PRE_PUSH.worst_case(), Some(Duration::from_secs(20)));
+        let worst = Budget::PRE_PUSH
+            .worst_case()
+            .expect("pre-push has a deadline");
+        let calls = Budget::PRE_PUSH
+            .per_call
+            .checked_mul(CALLS_AFTER_DEADLINE)
+            .expect("no overflow");
+        assert_eq!(
+            Some(worst),
+            Budget::PRE_PUSH
+                .start_by
+                .and_then(|by| by.checked_add(calls))
+        );
+        assert!(worst <= Duration::from_secs(20), "{worst:?}");
         assert_eq!(Budget::COMMAND.worst_case(), None);
         assert_eq!(Budget::RELAY.worst_case(), None);
+    }
+
+    /// `plugins/weigh-in/hooks/hooks.json`'s Stop timeout, which
+    /// `hooks_json_timeouts_match_the_budgets` pins in the file.
+    const STOP_HOOK_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// Time kept back for the hook's own work after the git calls: capture, logging, output.
+    const MARGIN: Duration = Duration::from_secs(2);
+
+    #[test]
+    fn every_hook_budget_ends_inside_its_hook_timeout() {
+        let worst = Budget::STOP.worst_case().expect("Stop has a deadline");
+        // Derived from the budget's constants, so a change of per-call time only has to fit.
+        let calls = Budget::STOP
+            .per_call
+            .checked_mul(CALLS_AFTER_DEADLINE)
+            .expect("no overflow");
+        assert_eq!(
+            Some(worst),
+            Budget::STOP.start_by.and_then(|by| by.checked_add(calls))
+        );
+        assert!(
+            worst.saturating_add(MARGIN) <= STOP_HOOK_TIMEOUT,
+            "{worst:?}"
+        );
+    }
+
+    #[test]
+    fn needs_a_person_lists_broken_refs_and_lasting_deferrals_only() {
+        let report = RefsExported {
+            broken: vec![(name("s1"), Breach::Tree)],
+            deferred: vec![
+                (name("s2"), Deferral::Late),
+                (name("s3"), Deferral::RetriesSpent),
+                (name("s4"), Deferral::InboxOccupied),
+                (name("s5"), Deferral::InboxTooLarge),
+                (name("s6"), Deferral::TooLarge),
+                (name("s7"), Deferral::Failed("fatal: offline".to_owned())),
+            ],
+            ..RefsExported::default()
+        };
+        assert_eq!(
+            needs_a_person(&report),
+            [
+                "refs/redkiln/journal/s1 breaks JR-05 (tree); move it aside to \
+                 refs/redkiln/broken/<name>/<sha>",
+                "s4 deferred: inbox-occupied",
+                "s5 deferred: inbox-too-large",
+                "s6 deferred: too-large",
+            ]
+        );
     }
 
     #[test]

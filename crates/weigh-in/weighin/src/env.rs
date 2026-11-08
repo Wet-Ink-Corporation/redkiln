@@ -196,7 +196,7 @@ pub(crate) struct Config {
     /// from more than one computer, point this outside the synced tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) store: Option<String>,
-    /// Whether sessions keep their events in `.kb/_ledger/journal/<session>.jsonl` (B-28).
+    /// Whether the store's events are exported to journal refs (`false` opts out; B-28, JR-07).
     pub(crate) journal: bool,
 }
 
