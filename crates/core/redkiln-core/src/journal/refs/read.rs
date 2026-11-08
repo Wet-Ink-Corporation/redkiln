@@ -465,6 +465,9 @@ mod tests {
         let seed = dir.join("seed");
         std::fs::create_dir_all(&seed).expect("dir");
         git(&seed, &["init", "-q", "-b", "main"]);
+        // `commit` runs `commit-tree`, which needs an identity on a runner with none.
+        git(&seed, &["config", "user.name", "t"]);
+        git(&seed, &["config", "user.email", "t@example.invalid"]);
         git(
             &seed,
             &["-c", "user.name=t", "-c", "user.email=t@example.invalid"]
