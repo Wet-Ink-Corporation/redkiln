@@ -153,6 +153,9 @@ pub(crate) fn serve(hook: &Hook, unread: Option<anyhow::Error>) -> HookOutput {
 /// One hook invocation: its event, the environment it works in, and whether it runs in Cowork.
 pub(crate) struct Hook {
     event: HookEvent,
+    /// The event the harness named outside the payload (the command line), which labels the
+    /// hook when the payload names none.
+    named: Option<String>,
     env: Env,
     /// Cowork's cloud workspace: the hook writes nothing there (module doc).
     cowork: bool,
@@ -165,15 +168,31 @@ impl Hook {
     pub(crate) fn new(event: HookEvent, env: Env, cowork: bool, started: Instant) -> Self {
         Self {
             event,
+            named: None,
             env,
             cowork,
             started,
         }
     }
 
+    /// This hook, with `named` the event the harness named outside the payload.
+    #[must_use]
+    pub(crate) fn named(self, named: Option<String>) -> Self {
+        Self { named, ..self }
+    }
+
     /// The event this hook runs for.
     pub(crate) fn event(&self) -> &HookEvent {
         &self.event
+    }
+
+    /// The hook's label in log lines and notes: the payload's event, else the event named
+    /// outside it, else `hook`.
+    pub(crate) fn label(&self) -> &str {
+        match (&self.event, self.named.as_deref()) {
+            (HookEvent::Unnamed, Some(named)) if !named.is_empty() => named,
+            (event, _) => event.label(),
+        }
     }
 
     /// Whether the hook's environment names a git repository, where the state dir is the
@@ -188,7 +207,7 @@ impl Hook {
         if self.cowork {
             return;
         }
-        log_error(&self.env, self.event.label(), e);
+        log_error(&self.env, self.label(), e);
     }
 
     /// What the hook says (possibly nothing).
