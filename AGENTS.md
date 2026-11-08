@@ -7,7 +7,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | Path | Holds | Arrives |
 |---|---|---|
 | `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/` | One workspace, toolchain 1.98.1, temper 1.4.0's lint and supply-chain policy | phase 0 |
-| `tools/xtask/` | `cargo xtask <task>`: repository tasks: `layers` and `plugins`, the structural tests below | phase 0 |
+| `tools/xtask/` | `cargo xtask <task>`: repository tasks: `layers` and `plugins`, the structural tests below, and `ids`, the knowledge-base id check | phase 0 |
 | `tools/launcher/` | The shared plugin launcher (sh and `.cmd`) and its tests | phase 0 |
 | `tools/labels/`, `.github/labels.yml` | The suite label manifest (Backlog call A, wi-cef669), its check and an idempotent apply script | phase 0 |
 | `spec/` | Core SPEC, schemas, conformance fixtures | SPEC v1 draft, phase 0 |
@@ -31,7 +31,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/weigh-in/weighin-core` | plugin (weigh-in) | The ledger vocabulary with no I/O: events, ids, markers, scanning, cards, projection, `.kb` atoms, board format | knowledge-contract, serde, serde_json, sha2, thiserror |
 | `crates/core/redkiln-core` | Core (hub) | The suite's store (ST-04 to ST-11) and its location (ST-01 to ST-03), `suite.toml` (ST-12, ST-13), the envelope and tags, trust, ids and subjects, journals with checkpoint and import, and old ledgers read from a copy | happenstance-core, happenstance-sqlite (`=0.4.5`, `sync`), tokio (`rt`), tempfile, thiserror, serde, serde_json, sha2, time, toml |
 | `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
-| `tools/xtask` | tool | `cargo xtask layers`, `cargo xtask plugins` and later packaging, version and changelog tasks; never shipped | serde, serde_json, thiserror |
+| `tools/xtask` | tool | `cargo xtask layers`, `cargo xtask plugins`, `cargo xtask ids` and later packaging, version and changelog tasks; never shipped | knowledge-contract, serde, serde_json, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
 
@@ -79,6 +79,7 @@ Every import follows the migration plan's eight steps: one merge commit whose se
 | Lint | `node .claude/temper/temper.mjs baseline --check`: clippy, rustdoc and temper's scan. With no baseline it is as strict as `-D warnings`; each move re-baselines its legacy findings at their new paths (migration call E) |
 | Layer rules | `cargo xtask layers` |
 | Plugin rules | `cargo xtask plugins` |
+| Knowledge-base ids | `cargo xtask ids`: one id per atom, each atom in `.kb/<kind>/`, one question per `wi-` id (Knowledge call C) |
 | Test | `cargo nextest run --workspace` (or `cargo test --workspace`), plus `cargo test --doc --workspace` |
 | Docs | `cargo doc --workspace --no-deps` (rustdoc lints are part of Lint) |
 | Supply chain | `cargo deny check` |
