@@ -7,14 +7,41 @@ use super::{
 };
 
 /// One line for the user per thing they should hear: a ledger imported once, records skipped, a
-/// source not imported, and what waits. `SessionStart` prefixes `Weigh-In: `.
+/// source not imported, and what waits. `SessionStart` says these, prefixed `Weigh-In: `.
 ///
 /// A journal imported cleanly says nothing: its events already counted in `stats`, and a 1.x
 /// journal pulled later would otherwise put a line on whichever command ran next. `weighin
 /// journal import --json` lists every source.
 pub(crate) fn notes(report: &LegacyReport) -> Vec<String> {
+    told(report, Standing::Told)
+}
+
+/// [`notes`] less those of a source that stays due: one no run completes, which `SessionStart`
+/// tells once per session start rather than every command (wi-fd5345). What this run imported,
+/// and what the next run imports, is still said.
+pub(crate) fn command_notes(report: &LegacyReport) -> Vec<String> {
+    told(report, Standing::Left)
+}
+
+/// Whether the notes tell of a source that stays due: one over the journal cap, one that could
+/// not be read or imported, and the journals a ledger that did not import holds back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    Told,
+    Left,
+}
+
+/// The notes of `report`, those of a source that stays due as `standing` says.
+fn told(report: &LegacyReport, standing: Standing) -> Vec<String> {
     let mut notes = Vec::new();
     for source in &report.sources {
+        let stays_due = matches!(
+            source.outcome,
+            SourceOutcome::TooLarge { .. } | SourceOutcome::Failed(_)
+        );
+        if stays_due && standing == Standing::Left {
+            continue;
+        }
         match &source.outcome {
             SourceOutcome::Completed {
                 report: counts,
@@ -52,7 +79,10 @@ pub(crate) fn notes(report: &LegacyReport) -> Vec<String> {
             report.left
         ));
     }
-    notes.extend(report.waiting.map(waiting));
+    let held_back = report.waiting == Some(Waiting::Ledger);
+    if !(held_back && standing == Standing::Left) {
+        notes.extend(report.waiting.map(waiting));
+    }
     notes
 }
 

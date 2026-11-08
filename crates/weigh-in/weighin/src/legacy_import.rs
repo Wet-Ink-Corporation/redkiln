@@ -13,6 +13,8 @@
 //!
 //! The first command (all but `ci-check`) or `SessionStart` to find a source runs it.
 //! `SessionStart` imports only what fits its budget ([`Mode::Hook`]); a command imports the rest.
+//! A source no run completes (over the journal cap, unreadable, failing) is told by each
+//! `SessionStart`, not by every command (wi-fd5345, [`command_notes`]).
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -35,13 +37,14 @@ use crate::store::legacy::{Held, HeldRead, Import, OldImport};
 
 mod notes;
 
-pub(crate) use notes::{notes, place, problem_lines};
+pub(crate) use notes::{command_notes, notes, place, problem_lines};
 
 /// How long the import may run (HK-5).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Mode {
-    /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together, and no batch, nor page of
-    /// the store's events, read after `started + HOOK_START_BY`.
+    /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together (a journal no run reads
+    /// counting nothing), and no batch, nor page of the store's events, read after
+    /// `started + HOOK_START_BY`.
     Hook { started: Instant },
     /// A command: no deadline; Core's and this module's caps only.
     Command,
@@ -421,8 +424,10 @@ fn imported_sources(store: &Store) -> Result<HashSet<String>> {
     Ok(done)
 }
 
-/// The bytes the due sources hold: each ledger with its `-wal`, and each journal. A file that
-/// cannot be measured counts 0: its import says why.
+/// The bytes the due sources hold: each ledger with its `-wal`, and each journal up to
+/// [`MAX_JOURNAL_FILE_BYTES`]. A journal over it counts 0, since no run reads it: the hook reaches
+/// it and says it is not imported, rather than leaving it to a command that never imports it
+/// either (wi-fd5345). A file that cannot be measured counts 0: its import says why.
 fn due_bytes(ledgers: &[&PathBuf], journals: &[&PathBuf]) -> u64 {
     let size = |path: &Path| std::fs::metadata(path).map_or(0, |m| m.len());
     let wal = |path: &Path| {
@@ -430,10 +435,14 @@ fn due_bytes(ledgers: &[&PathBuf], journals: &[&PathBuf]) -> u64 {
         name.push("-wal");
         size(Path::new(&name))
     };
+    let journal = |path: &Path| match size(path) {
+        len if len > MAX_JOURNAL_FILE_BYTES => 0,
+        len => len,
+    };
     ledgers
         .iter()
         .map(|p| size(p).saturating_add(wal(p)))
-        .chain(journals.iter().map(|p| size(p)))
+        .chain(journals.iter().map(|p| journal(p)))
         .fold(0, u64::saturating_add)
 }
 

@@ -365,3 +365,86 @@ fn the_hook_past_its_deadline_reads_no_journal_and_leaves_them_waiting() {
     assert!(!report.imported_a_source(), "no budget spent on a source");
     assert_eq!(records(&env), Vec::new());
 }
+
+#[test]
+fn a_command_does_not_repeat_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!(
+        command_notes(&report),
+        Vec::<String>::new(),
+        "told at session start, not by every command (wi-fd5345)"
+    );
+    assert!(notes(&report).iter().any(|n| n.contains("not imported")));
+}
+
+#[test]
+fn a_command_does_not_repeat_a_ledger_that_fails_to_read() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let mut hot = old.as_os_str().to_owned();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress").expect("written");
+    write_journal(dir.path(), "s1.jsonl", &[OWN_LINE]);
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!(report.waiting, Some(Waiting::Ledger));
+    assert_eq!(
+        command_notes(&report),
+        Vec::<String>::new(),
+        "neither the ledger nor the journals it holds back (wi-fd5345)"
+    );
+    let told = notes(&report);
+    assert!(
+        told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+    assert!(told.iter().any(|n| n.contains("wait until")), "{told:?}");
+}
+
+#[test]
+fn a_command_still_tells_the_ledger_it_imports() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, _old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    let told = command_notes(&report);
+    assert_eq!(told, notes(&report));
+    assert!(
+        told.iter()
+            .any(|n| n.contains("imported the weighin 1.x ledger")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_journal_over_the_cap_does_not_hold_the_hook_back() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let hook = Mode::Hook {
+        started: Instant::now(),
+    };
+
+    let report = ran(import_due(&env, hook, "hook").expect("ran"));
+
+    assert_eq!(report.waiting, None, "no command imports it either");
+    assert!(
+        matches!(
+            report.sources.as_slice(),
+            [SourceRun {
+                outcome: SourceOutcome::TooLarge { .. },
+                ..
+            }]
+        ),
+        "{:?}",
+        report.sources
+    );
+    assert!(notes(&report).iter().any(|n| n.contains("not imported")));
+}
