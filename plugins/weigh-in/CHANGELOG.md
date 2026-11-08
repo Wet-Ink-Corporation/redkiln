@@ -6,6 +6,16 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A failing hook now says so in its own output: Stop, SubagentStop and PostToolUse add one
+  sentence to their message the first time capture fails since the last session start (and
+  every time a failure cannot be logged), naming the failure and the log; SessionStart notes
+  what it could not log. When a hook cannot write its output, it prints one `weighin: error:`
+  line on stderr. It still exits 0.
+- Hook input is capped per event (SessionStart 64 KiB, Stop and SubagentStop 4 MiB, others
+  8 MiB); a larger payload is skipped and noted. Hook state files (the error log, its seen
+  record, the journal watermark, the Windows shell copy) are used only when they are regular
+  files, never through a symlink, and the session-start report reads at most the last 256 KiB
+  of the error log.
 - Every hook now passes its event name on the command line (`hook Stop`, `hook PostToolUse`, and
   so on), as SessionStart already did. Nothing else changes: the binary still reads the event from
   the hook's input.

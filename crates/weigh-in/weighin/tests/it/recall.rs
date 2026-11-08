@@ -267,14 +267,14 @@ fn a_write_to_an_anchored_file_adds_the_newest_decisions_first() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_ledger_that_cannot_be_read_after_an_edit_prints_nothing_and_is_logged() -> TestResult {
+fn a_ledger_that_cannot_be_read_after_an_edit_is_noted_and_logged() -> TestResult {
     let (_tmp, repo) = setup();
     // A directory where the store should be: it exists, so it is opened, and the open fails.
     std::fs::create_dir_all(store_of(&repo))?;
 
     let printed = hook(&repo, &edit(&repo, "src/retention.rs", "0\n"));
 
-    assert_eq!(printed, "");
+    assert_only_noted(&printed)?;
     let log = logged(&repo)?;
     assert!(
         log.len() == 1 && log.iter().all(|l| l.contains("PostToolUse: ")),
@@ -293,8 +293,25 @@ fn a_ledger_that_cannot_be_read_is_logged_once_for_the_recall() -> TestResult {
 
     let printed = hook(&repo, &edit(&repo, "src/retention.rs", "0\n"));
 
-    assert_eq!(printed, "");
+    assert_only_noted(&printed)?;
     let log = logged(&repo)?;
     assert_eq!(log.len(), 1, "one read, one failure: {log:?}");
+    Ok(())
+}
+
+/// `printed` is the failure note alone (CLI-09, decision D2 B): a `systemMessage`, and no
+/// context for the model.
+fn assert_only_noted(printed: &str) -> TestResult {
+    let out: Value = serde_json::from_str(printed)?;
+    let keys: Vec<&String> = out.as_object().ok_or(printed)?.keys().collect();
+    assert_eq!(keys, ["systemMessage"], "{printed}");
+    let message = out
+        .get("systemMessage")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    assert!(
+        message.starts_with("Weigh-In: the PostToolUse hook failed, so capture may be off: "),
+        "{message}"
+    );
     Ok(())
 }

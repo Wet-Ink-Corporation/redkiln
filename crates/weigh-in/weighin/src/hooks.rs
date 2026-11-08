@@ -12,8 +12,10 @@
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
-//! hook exits 0. A store path the user gave that Core refuses (a 1.x ledger, another program's
-//! database) gets nothing beside it: its refusal goes to the default store's state dir,
+//! hook exits 0. A failing hook also says so in its own output (CLI-09, [`Hook::note`]), and the
+//! adapter tells output it could not write in one line on stderr. A store path the user gave
+//! that Core refuses (a 1.x ledger, another program's database) gets nothing beside it: its
+//! refusal goes to the default store's state dir,
 //! `<git-common-dir>/redkiln/weighin/` (outside git nowhere), and `SessionStart` reports it.
 //! Input that cannot be read or parsed is logged only inside a git repository:
 //! outside one, the state dir would be a `.weighin/` the hook creates in whatever folder it was
@@ -23,30 +25,32 @@
 //!
 //! In Cowork (as the adapter detects it) hooks run in the cloud workspace, whose
 //! project directory is a scratch folder deleted with the session, while the user's files and
-//! ledger are on their computer. There the hooks write nothing, not even the error log:
+//! ledger are on their computer. There the hooks write nothing to disk, not even the error log
+//! (a failure is noted in the output only):
 //! `SessionStart` prints the convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps
 //! the conversation and records through the computer's shell.
 
 mod errors;
+mod failures;
 mod session_start;
+mod turn;
 
 use anyhow::Result;
 use redkiln_core::store::Wait;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use weighin_core::Ledger;
-use weighin_core::event::Channel;
-use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
-use crate::env::{self, Env, Vars};
-use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope};
+use crate::env::{Env, Vars};
+use crate::journal::refs::{self, Budget, Imported};
 use crate::legacy_import::{self, Legacy};
-use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, scannable};
-use crate::{recall, store};
+use crate::ops::{RaiseInput, RaiseOutcome, Session, is_markdown, scannable};
+use errors::{Appended, log_error};
+pub(crate) use failures::Failures;
+use failures::{Logged, Reach, Rule, one_line};
 pub(crate) use session_start::prime;
 use session_start::{CONVENTION, COWORK_PRIME, session_start};
+use turn::{capture, cowork_nudge};
 
 /// What a harness hands a hook, read from its payload by the harness's adapter.
 #[derive(Debug, PartialEq, Eq)]
@@ -75,7 +79,40 @@ pub(crate) enum HookEvent {
     Unnamed,
 }
 
+/// The kinds of event weighin is registered for, by which the stdin cap, the output's form and
+/// the failure note go; any other event is `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventKind {
+    SessionStart,
+    /// `Stop` and `SubagentStop`.
+    Turn,
+    PostToolUse,
+    Other,
+}
+
+impl EventKind {
+    /// The kind of the event called `name` (as [`HookEvent`]'s labels spell it).
+    pub(crate) fn named(name: &str) -> Self {
+        match name {
+            "SessionStart" => Self::SessionStart,
+            "Stop" | "SubagentStop" => Self::Turn,
+            "PostToolUse" => Self::PostToolUse,
+            _ => Self::Other,
+        }
+    }
+}
+
 impl HookEvent {
+    /// The event's kind.
+    pub(crate) fn kind(&self) -> EventKind {
+        match self {
+            Self::SessionStart { .. } => EventKind::SessionStart,
+            Self::Stop(_) | Self::SubagentStop(_) => EventKind::Turn,
+            Self::PostToolUse(_) => EventKind::PostToolUse,
+            Self::Other(_) | Self::Unnamed => EventKind::Other,
+        }
+    }
+
     /// The event's label in log lines: its name, or `hook`.
     fn label(&self) -> &str {
         match self {
@@ -140,19 +177,34 @@ pub(crate) fn discover(cwd: Option<&Path>, session: Option<String>, vars: Vars) 
 }
 
 /// Log why the input was missing (inside a git repository only), dispatch the hook, and return
-/// what it says; the adapter writes it.
+/// what it says, its failure note included ([`Hook::note`]); the adapter writes it.
 pub(crate) fn serve(hook: &Hook, unread: Option<anyhow::Error>) -> HookOutput {
-    if let Some(e) = unread
-        && hook.in_git()
-    {
-        hook.log(&e);
+    let mut failures = Failures::default();
+    if let Some(e) = unread {
+        if hook.in_git() || hook.cowork {
+            hook.log(&mut failures, &e);
+        } else {
+            // Outside git the state dir would be a folder made in the user's folder.
+            let why = "hooks log input failures only inside a git repository";
+            failures.push(&e, Logged::Not(why.to_owned()));
+        }
     }
-    hook.run()
+    let mut output = hook.run(&mut failures);
+    if let Some(note) = hook.note(&failures) {
+        output.message = Some(match output.message {
+            Some(message) => format!("{message} {note}"),
+            None => note,
+        });
+    }
+    output
 }
 
 /// One hook invocation: its event, the environment it works in, and whether it runs in Cowork.
 pub(crate) struct Hook {
     event: HookEvent,
+    /// The event the harness named outside the payload (the command line), which labels the
+    /// hook when the payload names none.
+    named: Option<String>,
     env: Env,
     /// Cowork's cloud workspace: the hook writes nothing there (module doc).
     cowork: bool,
@@ -165,15 +217,26 @@ impl Hook {
     pub(crate) fn new(event: HookEvent, env: Env, cowork: bool, started: Instant) -> Self {
         Self {
             event,
+            named: None,
             env,
             cowork,
             started,
         }
     }
 
-    /// The event this hook runs for.
-    pub(crate) fn event(&self) -> &HookEvent {
-        &self.event
+    /// This hook, with `named` the event the harness named outside the payload.
+    #[must_use]
+    pub(crate) fn named(self, named: Option<String>) -> Self {
+        Self { named, ..self }
+    }
+
+    /// The hook's label in log lines and notes: the payload's event, else the event named
+    /// outside it, else `hook`.
+    pub(crate) fn label(&self) -> &str {
+        match (&self.event, self.named.as_deref()) {
+            (HookEvent::Unnamed, Some(named)) if !named.is_empty() => named,
+            (event, _) => event.label(),
+        }
     }
 
     /// Whether the hook's environment names a git repository, where the state dir is the
@@ -182,17 +245,40 @@ impl Hook {
         self.env.repo_root.is_some() || self.env.common_dir.is_some()
     }
 
-    /// Append `e` to the error log, named by the hook's event, or `hook` when the payload names
-    /// none. In Cowork there is no log to append to: its folder is deleted with the session.
-    pub(crate) fn log(&self, e: &anyhow::Error) {
+    /// Append `e` to the error log, named by [`Hook::label`], and record in `failures` where it
+    /// went. In Cowork there is no log to append to: its folder is deleted with the session.
+    pub(crate) fn log(&self, failures: &mut Failures, e: &anyhow::Error) {
         if self.cowork {
+            failures.push(e, Logged::Cowork);
             return;
         }
-        log_error(&self.env, self.event.label(), e);
+        let logged = match log_error(&self.env, self.label(), e) {
+            Ok(Appended { path, fresh }) => Logged::At { path, fresh },
+            Err(why) => Logged::Not(one_line(&why, 300)),
+        };
+        failures.push(e, logged);
     }
 
-    /// What the hook says (possibly nothing).
-    fn run(&self) -> HookOutput {
+    /// The kind of the hook's event: the payload's, else the one named outside it.
+    pub(crate) fn kind(&self) -> EventKind {
+        match &self.event {
+            HookEvent::Unnamed => EventKind::named(self.label()),
+            event => event.kind(),
+        }
+    }
+
+    /// The note of the hook's `failures` for the person (CLI-09), by [`Rule::of`].
+    fn note(&self, failures: &Failures) -> Option<String> {
+        let reach = match (&self.event, &self.env.store) {
+            (HookEvent::Unnamed, _) => Reach::Undispatched,
+            (_, Ok(_)) => Reach::Located,
+            (_, Err(_)) => Reach::Unlocated,
+        };
+        failures.note(self.label(), Rule::of(self.kind(), reach))
+    }
+
+    /// What the hook says (possibly nothing), recording each failure in `failures`.
+    fn run(&self, failures: &mut Failures) -> HookOutput {
         let env = &self.env;
         if self.cowork {
             return match &self.event {
@@ -216,89 +302,26 @@ impl Hook {
                 // 1.x import read a source, the journal refs wait for the next session or
                 // command, so the hook keeps to its budget (decision H12); a run that read none
                 // holds them back no session (review F1).
-                let (mut notes, spent) = self.legacy();
+                let (mut notes, spent) = self.legacy(failures);
                 if !spent {
-                    notes.extend(self.imported());
+                    notes.extend(self.imported(failures));
                 }
-                return session_start(env, source, notes);
+                return session_start(self, failures, source, notes);
             }
-            HookEvent::Stop(turn) => self.checkpointed(capture(env, turn)),
+            HookEvent::Stop(turn) => self.checkpointed(failures, capture(env, turn)),
             // A subagent's events leave at its session's Stop (D11).
             HookEvent::SubagentStop(turn) => capture(env, turn),
-            HookEvent::PostToolUse(write) => return self.post_tool_use(write.as_ref()),
+            HookEvent::PostToolUse(write) => return self.post_tool_use(failures, write.as_ref()),
             HookEvent::Other(_) | HookEvent::Unnamed => Ok(None),
         };
         let message = result.unwrap_or_else(|e| {
-            self.log(&e);
+            self.log(failures, &e);
             None
         });
         HookOutput {
             context: None,
             message,
         }
-    }
-
-    /// `PostToolUse`: scan what the tool wrote, then, when the tool edited a file, read the
-    /// ledger once, as it stands after the scan, for the decisions anchored at that file (#116),
-    /// and give them as context. The scan's result stands whatever follows: the recall raises
-    /// nothing, and each failure is logged once and says nothing. Nothing is exported here
-    /// (D11): the session's Stop exports it.
-    fn post_tool_use(&self, write: Option<&ToolWrite>) -> HookOutput {
-        let env = &self.env;
-        if let Err(e) = scan(env, write) {
-            self.log(&e);
-        }
-        let Some(edit) = write.and_then(|w| recall_edit(env, w)) else {
-            return HookOutput::default();
-        };
-        let events = match ops::stored_events(env) {
-            Ok(events) => events,
-            Err(e) => {
-                self.log(&e.context("reading the ledger after the edit"));
-                return HookOutput::default();
-            }
-        };
-        let ledger = Ledger::fold(events.iter().map(|(p, e)| (*p, e)));
-        HookOutput {
-            // `None` is no decision anchored at the file, not a failure: nothing to add.
-            context: recall::edit_context(env, &ledger, &edit),
-            message: None,
-        }
-    }
-
-    /// `result`, after exporting the store to the journal refs inside the Stop budget, whatever
-    /// `result` is: a capture that failed part way may have raised items first, and capture
-    /// runs first so this turn's items leave with it (JR-08). An export failure, and each
-    /// outcome a person must act on (`needs_a_person`, D12), is logged; the result is unchanged,
-    /// and the export says nothing. The session's own journal goes first, then only the
-    /// journals with an event after the watermark, so the Stop's work grows with what is new,
-    /// not with the store's history.
-    fn checkpointed(&self, result: Result<Option<String>>) -> Result<Option<String>> {
-        let budget = Budget::STOP;
-        match refs::checkpoint(&self.env, budget, self.started, Scope::SinceWatermark) {
-            Ok(Checkpointed::Ran(report, marked)) => {
-                for line in refs::needs_a_person(&report) {
-                    self.log(&anyhow::anyhow!("{line}"));
-                }
-                if let Marked::Failed(e) = marked {
-                    self.log(&e);
-                }
-            }
-            // Not git, a client repository, opted out or no store: nothing to say.
-            Ok(Checkpointed::Skipped(_)) => {}
-            Err(e) => self.log(&e),
-        }
-        let took = self.started.elapsed();
-        if let Some(worst) = budget.worst_case()
-            && took > worst
-        {
-            // The budget's bound assumes Core's call pattern: running past it means that grew.
-            self.log(&anyhow::anyhow!(
-                "the Stop hook ran {took:?} to the end of its journal export, past its budget's \
-                 worst case of {worst:?}"
-            ));
-        }
-        result
     }
 
     /// `SessionStart`'s one-time import of the weighin 1.x sources inside its budget
@@ -308,7 +331,7 @@ impl Hook {
     /// and a failure is logged except a store that cannot be located or opened, which
     /// `session_start` tells or logs itself. A run past the session start's worst case is
     /// logged.
-    fn legacy(&self) -> (Vec<String>, bool) {
+    fn legacy(&self, failures: &mut Failures) -> (Vec<String>, bool) {
         let mode = legacy_import::Mode::Hook {
             started: self.started,
         };
@@ -316,7 +339,7 @@ impl Hook {
             Ok(Legacy::NothingDue) => return (Vec::new(), false),
             Ok(Legacy::Ran(report)) => {
                 for line in legacy_import::problem_lines(&report) {
-                    self.log(&anyhow::anyhow!("{line}"));
+                    self.log(failures, &anyhow::anyhow!("{line}"));
                 }
                 let notes = legacy_import::notes(&report)
                     .into_iter()
@@ -327,7 +350,7 @@ impl Hook {
             Err(e) => {
                 let unopened = e.downcast_ref::<legacy_import::StoreUnopened>().is_some();
                 if self.env.store.is_ok() && !unopened {
-                    self.log(&e);
+                    self.log(failures, &e);
                 }
                 return (Vec::new(), false);
             }
@@ -336,10 +359,13 @@ impl Hook {
         if let Some(worst) = Budget::SESSION_START.worst_case()
             && took > worst
         {
-            self.log(&anyhow::anyhow!(
-                "the SessionStart hook ran {took:?} to the end of its 1.x import, past its \
+            self.log(
+                failures,
+                &anyhow::anyhow!(
+                    "the SessionStart hook ran {took:?} to the end of its 1.x import, past its \
                  budget's worst case of {worst:?}"
-            ));
+                ),
+            );
         }
         (notes, spent)
     }
@@ -350,7 +376,7 @@ impl Hook {
     /// logged, except a store that cannot be located or opened, which `session_start` opens again
     /// for its prime and tells or logs itself. An import that ran past its budget's worst case is
     /// logged, as the Stop's export is.
-    fn imported(&self) -> Vec<String> {
+    fn imported(&self, failures: &mut Failures) -> Vec<String> {
         let notes = match refs::import(&self.env, Budget::SESSION_START, self.started, "hook") {
             Ok(Imported::Ran(report)) => refs::import_notes(&report),
             // Not git or a client repository: nothing to import.
@@ -358,7 +384,7 @@ impl Hook {
             Err(e) => {
                 let unopened = e.downcast_ref::<refs::StoreUnopened>().is_some();
                 if self.env.store.is_ok() && !unopened {
-                    self.log(&e);
+                    self.log(failures, &e);
                 }
                 Vec::new()
             }
@@ -367,128 +393,16 @@ impl Hook {
         if let Some(worst) = Budget::SESSION_START.worst_case()
             && took > worst
         {
-            self.log(&anyhow::anyhow!(
-                "the SessionStart hook ran {took:?} to the end of its journal import, past its \
+            self.log(
+                failures,
+                &anyhow::anyhow!(
+                    "the SessionStart hook ran {took:?} to the end of its journal import, past its \
                  budget's worst case of {worst:?}"
-            ));
+                ),
+            );
         }
         notes
     }
-}
-
-#[expect(
-    clippy::let_underscore_must_use,
-    let_underscore_drop,
-    reason = "last-resort sink: a hook has no other channel to report a failed append (hooks.rs module doc)"
-)]
-fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
-    let Some(dir) = log_dir(env, e) else {
-        return;
-    };
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join("hook-errors.log"))
-    {
-        let _ = writeln!(f, "{} {event}: {e:#}", env::now());
-    }
-}
-
-/// Whether `e` is Core refusing a store path the user gave (an old ledger, another program's
-/// database), beside which nothing is written, not even the state dir (D4, review F2). A refused
-/// file at the default place is in redkiln's own directory, and is logged as any failure.
-fn refused_given_store(env: &Env, e: &anyhow::Error) -> bool {
-    env.store_was_given() && store::is_refused(e)
-}
-
-/// Where `e` is logged, the directory made: the state dir, except for
-/// [`refused_given_store`], logged in the default store's state dir, and outside git nowhere
-/// (`SessionStart` reports it).
-fn log_dir(env: &Env, e: &anyhow::Error) -> Option<PathBuf> {
-    let dir = if refused_given_store(env, e) {
-        env.default_state_dir()?
-    } else {
-        env.state_dir().ok()?
-    };
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir)
-}
-
-/// Cowork: no ledger here to write, so nudge straight from the markers in the last message.
-fn cowork_nudge(text: &str) -> Option<String> {
-    let one_way = parse_markers(text)
-        .iter()
-        .filter(|m| m.door == Door::OneWay)
-        .count();
-    (one_way > 0).then(|| {
-        format!(
-            "Weigh-In: {one_way} one-way question(s) in that message. Run /weigh-in while the context is fresh."
-        )
-    })
-}
-
-/// Raise the markers in `turn`'s message; the message for the person when this session gains a
-/// one-way question.
-fn capture(env: &Env, turn: &Turn) -> Result<Option<String>> {
-    let markers = parse_markers(&turn.message);
-    if markers.is_empty() {
-        return Ok(None);
-    }
-    let mut s = Session::open(env, "hook")?;
-    let one_way_before = one_way_here(&s, env);
-    let mut raised = 0;
-    for m in &markers {
-        let mut input = RaiseInput::from_marker(m, Channel::Marker);
-        if let Some(agent) = &turn.agent {
-            input.quote = Some(format!("[subagent {agent}]\n{}", m.raw));
-        }
-        if matches!(s.raise(&input)?, RaiseOutcome::New(_)) {
-            raised += 1;
-        }
-    }
-    let one_way_after = one_way_here(&s, env);
-    // One user-visible nudge when this session gains a one-way question; never an automatic sitting.
-    if raised > 0 && one_way_after > one_way_before {
-        return Ok(Some(format!(
-            "Weigh-In: {one_way_after} one-way question(s) from this session are waiting. Run /weigh-in while the context is fresh."
-        )));
-    }
-    Ok(None)
-}
-
-fn one_way_here(s: &Session<'_>, env: &Env) -> usize {
-    env.session.as_deref().map_or(0, |id| {
-        s.ledger
-            .open_in_session(id)
-            .iter()
-            .filter(|i| i.door() == Door::OneWay)
-            .count()
-    })
-}
-
-/// Raise what a `PostToolUse` tool wrote. It says nothing.
-fn scan(env: &Env, write: Option<&ToolWrite>) -> Result<()> {
-    let Some(write) = write else {
-        return Ok(());
-    };
-    if write.texts.is_empty() {
-        return Ok(());
-    }
-    // Borrowed from the input: a large Write is not copied to be scanned.
-    let written: Vec<&str> = write.texts.iter().map(String::as_str).collect();
-    scan_text(env, &write.file, &written, "hook")?;
-    Ok(())
-}
-
-/// A `Write`, `Edit` or `MultiEdit` to a file in this repository, for `recall`; `None` for any
-/// other tool or file. The line a `Write` touched is not known, so it carries no text.
-fn recall_edit<'w>(env: &Env, write: &'w ToolWrite) -> Option<recall::Edit<'w>> {
-    let edited = match write.tool {
-        Tool::Edit | Tool::MultiEdit => write.texts.iter().map(String::as_str).collect(),
-        Tool::Write => Vec::new(),
-        Tool::Other => return None,
-    };
-    recall::Edit::of(env, &write.file, edited)
 }
 
 /// Scan text written to `file` (or the whole file, for `weighin scan`) and raise what it finds.

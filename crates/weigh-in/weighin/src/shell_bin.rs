@@ -48,13 +48,20 @@ pub(crate) fn place(exe: &Path, dir: &Path, version: &str) -> Result<PathBuf, Bo
         .len();
     let bin = dir.join("bin").join(version);
     let target = bin.join(name);
-    if std::fs::metadata(&target).is_ok_and(|m| m.len() == source_len) {
+    // Only a regular file is ever run: a symlink there, even to a file of the right length, is
+    // replaced by the rename below (HK-6).
+    let regular = || {
+        std::fs::symlink_metadata(&target)
+            .ok()
+            .filter(std::fs::Metadata::is_file)
+    };
+    if regular().is_some_and(|m| m.len() == source_len) {
         return Ok(target);
     }
     match copy_into_place(exe, &bin, &target) {
         Ok(()) => Ok(target),
         Err(error) => {
-            let existing = target.is_file().then_some(target);
+            let existing = regular().is_some().then_some(target);
             Err(Box::new(Unplaced { error, existing }))
         }
     }
@@ -120,6 +127,33 @@ mod tests {
         place(&exe, &state, "1.2.3").expect("placed again");
 
         assert_eq!(std::fs::read(&placed).expect("copy readable"), b"binary");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_copy_is_replaced_not_used() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let exe = source(tmp.path(), b"binary");
+        let state = tmp.path().join("state");
+        let target = state.join("bin").join("1.2.3").join("weighin.exe");
+        std::fs::create_dir_all(state.join("bin").join("1.2.3")).expect("bin dir");
+        // Another program of the same length, linked where the copy goes.
+        let other = tmp.path().join("other");
+        std::fs::write(&other, b"BINARY").expect("other written");
+        std::os::unix::fs::symlink(&other, &target).expect("symlink");
+
+        let placed = place(&exe, &state, "1.2.3").expect("placed");
+
+        assert_eq!(placed, target);
+        assert!(
+            std::fs::symlink_metadata(&placed)
+                .expect("copy there")
+                .file_type()
+                .is_file(),
+            "the link was replaced by a copy"
+        );
+        assert_eq!(std::fs::read(&placed).expect("copy readable"), b"binary");
+        assert_eq!(std::fs::read(&other).expect("other readable"), b"BINARY");
     }
 
     #[test]

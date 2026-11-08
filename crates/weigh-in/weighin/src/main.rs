@@ -20,6 +20,7 @@ mod ops;
 mod pane;
 mod recall;
 mod shell_bin;
+mod state_file;
 mod store;
 mod text;
 
@@ -58,9 +59,10 @@ struct Cli {
 enum Cmd {
     /// Hook entry point: reads the hook JSON on stdin.
     Hook {
-        /// The event name `hooks.json` passes (B-16). Unused: the event is read from stdin.
+        /// The event name `hooks.json` passes (B-16): it sets the stdin cap, and stands for the
+        /// event when the payload names none. The payload's event is the one dispatched.
         #[arg(hide = true)]
-        _event: Option<String>,
+        event: Option<String>,
     },
     #[command(flatten)]
     Ledger(LedgerCmd),
@@ -405,7 +407,7 @@ fn main() -> ExitCode {
         store,
     };
     let cmd = match cmd {
-        Cmd::Hook { .. } => return run_hook_guarded(),
+        Cmd::Hook { event } => return run_hook_guarded(event.as_deref()),
         Cmd::Journal { cmd: Some(sub) } => return commands::journal::run(globals, sub),
         Cmd::Journal { cmd: None } => LedgerCmd::Journal,
         Cmd::Ledger(cmd) => cmd,
@@ -492,10 +494,15 @@ fn is_closed_stdout(e: &anyhow::Error) -> bool {
     clippy::disallowed_methods,
     reason = "process-boundary fault barrier: a hook never fails a session, even on a panic (AGENTS.md)"
 )]
-fn run_hook_guarded() -> ExitCode {
+fn run_hook_guarded(event: Option<&str>) -> ExitCode {
     std::panic::set_hook(Box::new(|_| {}));
     let outcome = std::panic::catch_unwind(|| {
-        harness::claude_code::entry(&mut io::stdin().lock(), &mut io::stdout().lock());
+        harness::claude_code::entry(
+            event,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        );
     });
     match outcome {
         // `entry` logs its own failures; a panic went to the silent panic hook above.

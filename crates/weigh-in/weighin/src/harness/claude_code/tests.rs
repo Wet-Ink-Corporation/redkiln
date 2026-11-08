@@ -1,4 +1,4 @@
-use super::{Form, harness_of, input_of, read_payload, render, respond};
+use super::{Cap, Form, harness_of, input_of, read_payload, render, respond};
 use crate::env::{Env, Harness, Vars};
 use crate::git;
 use crate::hooks::{Hook, HookEvent, HookInput, HookOutput, Tool, ToolWrite, Turn, discover};
@@ -61,6 +61,21 @@ fn render_post_tool_use_without_context_is_nothing() {
 }
 
 #[test]
+fn render_post_tool_use_with_a_message_is_a_system_message_beside_any_context() {
+    let noted = render(Form::PostToolUse, output(None, Some("Weigh-In: failed")));
+    let both = render(
+        Form::PostToolUse,
+        output(Some("one"), Some("Weigh-In: failed")),
+    );
+
+    assert_eq!(noted, r#"{"systemMessage":"Weigh-In: failed"}"#);
+    assert_eq!(
+        both,
+        r#"{"hookSpecificOutput":{"additionalContext":"one","hookEventName":"PostToolUse"},"systemMessage":"Weigh-In: failed"}"#
+    );
+}
+
+#[test]
 fn render_silent_prints_nothing_whatever_the_output() {
     let printed = render(Form::Silent, output(Some("context"), Some("message")));
 
@@ -82,7 +97,7 @@ fn the_form_follows_the_event() {
         (HookEvent::Unnamed, Form::Silent),
     ];
     for (event, form) in forms {
-        assert_eq!(Form::of(&event), form, "{event:?}");
+        assert_eq!(Form::of(event.kind()), form, "{event:?}");
     }
 }
 
@@ -365,14 +380,303 @@ fn listing(dir: &Path) -> Vec<std::fs::DirEntry> {
 /// under `dir/.redkiln`, whatever the process environment says (`CLAUDE_CODE_ENTRYPOINT`
 /// among it).
 fn serve_in(dir: &Path, cowork: bool, input: &mut impl Read, output: &mut impl Write) {
-    let (payload, unread) = read_payload(input);
+    let called = Called {
+        dir,
+        cowork,
+        named: None,
+    };
+    serve_called(&called, input, output, &mut io::sink());
+}
+
+/// How a test hook is called: in `dir`, in Cowork or not, and the event `named` on the command
+/// line, as `hooks.json` passes it.
+struct Called<'a> {
+    dir: &'a Path,
+    cowork: bool,
+    named: Option<&'a str>,
+}
+
+/// [`serve_in`] as `called` says, writing its error line to `errors`.
+fn serve_called(
+    called: &Called<'_>,
+    input: &mut impl Read,
+    output: &mut impl Write,
+    errors: &mut impl Write,
+) {
+    let (payload, unread) = read_payload(input, Cap::of(called.named));
     let hook = Hook::new(
         input_of(payload).event,
-        env_in(dir),
-        cowork,
+        env_in(called.dir),
+        called.cowork,
         std::time::Instant::now(),
+    )
+    .named(called.named.map(str::to_owned));
+    respond(&hook, unread, output, errors);
+}
+
+/// [`serve_in`] outside Cowork, for the event `named` on the command line.
+fn serve_named(dir: &Path, named: &str, input: &mut impl Read, output: &mut impl Write) {
+    let called = Called {
+        dir,
+        cowork: false,
+        named: Some(named),
+    };
+    serve_called(&called, input, output, &mut io::sink());
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and writes the error log through the file system"
+)]
+fn a_stdout_failure_writes_one_stderr_line() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let input = payload(tmp.path(), "SessionStart");
+    let called = Called {
+        dir: tmp.path(),
+        cowork: false,
+        named: None,
+    };
+    let mut errors = Vec::new();
+
+    serve_called(&called, &mut input.as_bytes(), &mut Broken, &mut errors);
+
+    assert_eq!(
+        String::from_utf8(errors).expect("utf-8 error line"),
+        "weighin: error: hook SessionStart could not write its output: output gone\n"
     );
-    respond(&hook, unread, output);
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and lists a directory through the file system"
+)]
+fn a_stdout_failure_in_cowork_too_writes_one_stderr_line_and_no_file() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let input = payload(tmp.path(), "Stop");
+    let called = Called {
+        dir: tmp.path(),
+        cowork: true,
+        named: Some("Stop"),
+    };
+    let mut errors = Vec::new();
+
+    serve_called(&called, &mut input.as_bytes(), &mut Broken, &mut errors);
+
+    assert_eq!(
+        String::from_utf8(errors).expect("utf-8 error line"),
+        "weighin: error: hook Stop could not write its output: output gone\n"
+    );
+    let written = listing(tmp.path());
+    assert!(written.is_empty(), "{written:?}");
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and lists a directory through the file system"
+)]
+fn a_cowork_failure_is_noted_without_a_log() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let called = Called {
+        dir: tmp.path(),
+        cowork: true,
+        named: Some("Stop"),
+    };
+    let mut noted = Vec::new();
+
+    serve_called(
+        &called,
+        &mut "not json".as_bytes(),
+        &mut noted,
+        &mut io::sink(),
+    );
+
+    let noted = String::from_utf8(noted).expect("utf-8 output");
+    assert!(
+        noted.starts_with(
+            r#"{"systemMessage":"Weigh-In: the Stop hook failed, so capture may be off: parsing the hook input: "#
+        ) && noted.ends_with(r#" Hooks keep no log in Cowork."}"#),
+        "{noted}"
+    );
+    let written = listing(tmp.path());
+    assert!(written.is_empty(), "{written:?}");
+}
+
+/// A `SessionStart` payload for `dir` of exactly `len` bytes, padded in a field no hook reads.
+fn session_start_of_len(dir: &Path, len: usize) -> String {
+    let bare =
+        serde_json::json!({ "cwd": dir, "hook_event_name": "SessionStart", "pad": "" }).to_string();
+    let pad = len.checked_sub(bare.len()).expect("room for the padding");
+    let sized = serde_json::json!({
+        "cwd": dir,
+        "hook_event_name": "SessionStart",
+        "pad": " ".repeat(pad),
+    })
+    .to_string();
+    assert_eq!(sized.len(), len, "the payload is exactly {len} bytes");
+    sized
+}
+
+#[test]
+fn the_cap_follows_the_named_event() {
+    let caps = [
+        (Some("SessionStart"), 65_536),
+        (Some("Stop"), 4_194_304),
+        (Some("SubagentStop"), 4_194_304),
+        (Some("PostToolUse"), 8_388_608),
+        (Some("Notification"), 8_388_608),
+        (None, 8_388_608),
+    ];
+    for (named, bytes) in caps {
+        assert_eq!(Cap::of(named).bytes(), bytes, "{named:?}");
+    }
+}
+
+/// An endless input that counts the bytes it served.
+struct Endless {
+    served: usize,
+}
+
+impl Read for Endless {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        buf.fill(b' ');
+        self.served = self.served.saturating_add(buf.len());
+        Ok(buf.len())
+    }
+}
+
+#[test]
+fn reads_at_most_the_cap_and_one_byte() {
+    let mut input = Endless { served: 0 };
+
+    let (payload, unread) = read_payload(&mut input, Cap::of(Some("SessionStart")));
+
+    assert_eq!(input.served, 65_537);
+    assert_eq!(payload, serde_json::Value::Null);
+    assert_eq!(
+        unread.map(|e| format!("{e:#}")),
+        Some("the hook input is over its 64 KiB cap, so nothing was dispatched".to_owned())
+    );
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and reads the ledger through the file system"
+)]
+fn an_input_over_its_cap_dispatches_nothing_and_is_logged_and_noted_in_git() {
+    let tmp = git_repo();
+    let at_cap = session_start_of_len(tmp.path(), 65_536);
+    let over = session_start_of_len(tmp.path(), 65_537);
+    let (mut dispatched, mut refused) = (Vec::new(), Vec::new());
+
+    serve_named(
+        tmp.path(),
+        "SessionStart",
+        &mut at_cap.as_bytes(),
+        &mut dispatched,
+    );
+    let log_at_cap = error_log(tmp.path());
+    serve_named(
+        tmp.path(),
+        "SessionStart",
+        &mut over.as_bytes(),
+        &mut refused,
+    );
+
+    let dispatched = String::from_utf8(dispatched).expect("utf-8 output");
+    assert!(dispatched.contains("```weigh-in"), "{dispatched}");
+    assert_eq!(log_at_cap, "", "the payload at the cap is no failure");
+    // Joined part by part, so the separators are the platform's, as the hook writes them.
+    let log_path = tmp
+        .path()
+        .join(".redkiln")
+        .join("weighin")
+        .join("hook-errors.log");
+    assert_eq!(
+        String::from_utf8(refused).expect("utf-8 output"),
+        serde_json::json!({
+            "systemMessage": format!(
+                "Weigh-In: the SessionStart hook failed, so capture may be off: the hook input is \
+                 over its 64 KiB cap, so nothing was dispatched. Logged in {}.",
+                log_path.display()
+            )
+        })
+        .to_string()
+    );
+    let log = error_log(tmp.path());
+    assert_eq!(log.lines().count(), 1, "{log}");
+    assert!(
+        log.contains(
+            " SessionStart: the hook input is over its 64 KiB cap, so nothing was dispatched"
+        ),
+        "{log}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git")]
+fn a_session_start_whose_input_is_not_json_notes_it() {
+    let tmp = git_repo();
+    let mut output = Vec::new();
+
+    serve_named(
+        tmp.path(),
+        "SessionStart",
+        &mut "not json".as_bytes(),
+        &mut output,
+    );
+
+    let noted = String::from_utf8(output).expect("utf-8 output");
+    assert!(
+        noted.starts_with(
+            r#"{"systemMessage":"Weigh-In: the SessionStart hook failed, so capture may be off: parsing the hook input: "#
+        ) && noted.contains(" Logged in "),
+        "{noted}"
+    );
+    assert_eq!(error_log(tmp.path()).lines().count(), 1);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git")]
+fn invalid_utf8_within_the_cap_logs_the_same_line() {
+    let tmp = git_repo();
+    let mut output = Vec::new();
+
+    serve_named(
+        tmp.path(),
+        "Stop",
+        &mut &b"{\"hook_event_name\": \"Stop\", \"x\": \"\xff\"}"[..],
+        &mut output,
+    );
+
+    let log = error_log(tmp.path());
+    assert_eq!(log.lines().count(), 1, "{log}");
+    assert!(
+        log.contains(" Stop: reading the hook input: stream did not contain valid UTF-8"),
+        "{log}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git")]
+fn an_input_failure_outside_git_is_noted_as_not_logged() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let mut output = Vec::new();
+
+    serve_named(tmp.path(), "Stop", &mut "not json".as_bytes(), &mut output);
+
+    let noted = String::from_utf8(output).expect("utf-8 output");
+    assert!(
+        noted.ends_with(
+            r#" It could not be logged: hooks log input failures only inside a git repository."}"#
+        ),
+        "{noted}"
+    );
+    let written = listing(tmp.path());
+    assert!(written.is_empty(), "{written:?}");
 }
 
 #[test]
