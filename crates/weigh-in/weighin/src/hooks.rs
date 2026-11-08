@@ -208,8 +208,9 @@ impl Hook {
     /// `result` is: a capture that failed part way may have raised items first, and capture
     /// runs first so this turn's items leave with it (JR-08). An export failure, and each
     /// outcome a person must act on (`needs_a_person`, D12), is logged; the result is unchanged,
-    /// and the export prints nothing. Only the journals with an event after the watermark are
-    /// examined, so the Stop's work grows with what is new, not with the store's history.
+    /// and the export prints nothing. The session's own journal goes first, then only the
+    /// journals with an event after the watermark, so the Stop's work grows with what is new,
+    /// not with the store's history.
     fn checkpointed(&self, result: Result<String>) -> Result<String> {
         let budget = Budget::STOP;
         match refs::checkpoint(&self.env, budget, self.started, Scope::SinceWatermark) {

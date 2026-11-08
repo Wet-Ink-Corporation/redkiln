@@ -5,22 +5,25 @@
 //! in its journal ref or inbox, as far as this clone could tell then. It only moves forward:
 //! what a sweep finds below it is reported by the sweep, not handed back to the Stop.
 //!
-//! The file holds the position, the repository and the store it was written for, one per line.
-//! It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is. A missing
-//! or torn file, or one written for another repository sharing the store or for another store
-//! at this path (one recreated since), reads as no watermark: the next checkpoint examines
-//! every journal. A file that exists but cannot be read is an error, and is not written over.
+//! Each repository sharing a store keeps its own file, `journal-watermark-<hex>`, named by the
+//! sha256 of its owner (the repository and the store), so no repository's checkpoint resets
+//! another's. The file holds the position, the repository and the store it was written for, one
+//! per line. It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is.
+//! A missing or torn file, or one written for another owner (another store at this path, one
+//! recreated since), reads as no watermark: the next checkpoint examines every journal. A file
+//! that exists but cannot be read is an error, and is not written over.
 
 use std::fmt::Display;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
+use redkiln_core::ids::Digest;
 
 use crate::env::Env;
 
-/// The file's name in the state dir.
-const FILE: &str = "journal-watermark";
+/// The start of the file's name in the state dir; the owner's digest follows.
+const FILE_PREFIX: &str = "journal-watermark-";
 
 /// The watermark of one store for one repository.
 #[derive(Debug)]
@@ -38,9 +41,11 @@ impl Watermark {
     /// The store could not be located, so there is no state dir.
     pub(crate) fn of(env: &Env, repo: &Path, store: impl Display) -> Result<Self> {
         let repo = env.common_dir.as_deref().unwrap_or(repo);
+        let owner = format!("{}\n{store}", repo.display());
+        let file = format!("{FILE_PREFIX}{}", Digest::sha256(owner.as_bytes()).hex());
         Ok(Self {
-            path: env.state_dir()?.join(FILE),
-            owner: format!("{}\n{store}", repo.display()),
+            path: env.state_dir()?.join(file),
+            owner,
         })
     }
 
@@ -55,7 +60,8 @@ impl Watermark {
             Ok(text) => Ok(position(&text, &self.owner).unwrap_or(0)),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(0),
             Err(e) => Err(anyhow::Error::new(e).context(format!(
-                "reading the export watermark in {}",
+                "reading the export watermark in {}, so every Stop examines every journal until \
+                 it can be read",
                 self.path.display()
             ))),
         }

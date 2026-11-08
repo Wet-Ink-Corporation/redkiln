@@ -2,19 +2,20 @@
 //!
 //! It exports every durable event except import records. It first asks, with no network, which
 //! journals hold such an event that neither the clone's copy of the journal ref nor its copy of
-//! the inbox branch holds; a checkpoint with nothing new
-//! touches no remote. Then it fetches the journal refs once and writes each such journal: direct
-//! first, and after any failure other than a rejection, through the inbox for the rest of the
-//! checkpoint. With no remote configured, it moves the local refs only.
+//! the inbox branch holds; a checkpoint with nothing new touches no remote. Then it fetches the
+//! journal refs once and writes each such journal: direct first, and after any failure other
+//! than a rejection, through the inbox for the rest of the checkpoint. With no remote
+//! configured, it moves the local refs only. A scoped checkpoint (`scope.rs`) runs its first
+//! journal through all of that before it examines the others.
 
 use super::direct::{Direct, Inbox, Inboxed, merge_direct, prepare_relay, write_inbox};
 use super::git::Fetched;
+use super::oid::Oid;
+use super::scope::{RefsScope, checkpoint_refs_since};
 use super::{
     Breach, Ctx, InboxCopy, JOURNAL_REFS, RefsError, RefsTarget, State, read_inbox, read_journal,
 };
-use std::collections::HashSet;
 
-use crate::journal::export::{Group, grouped};
 use crate::journal::merge::merge;
 use crate::journal::name::JournalName;
 use crate::store::Store;
@@ -79,21 +80,6 @@ pub enum Deferral {
 /// MAX_CALLS_PAST_DEADLINE × timeout`, plus its store reads.
 pub const MAX_CALLS_PAST_DEADLINE: u32 = 7;
 
-/// A checkpoint scoped by [`checkpoint_refs_since`], and how far it read the store.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[must_use]
-pub struct ScopedCheckpoint {
-    /// What the checkpoint did.
-    pub outcome: RefsCheckpoint,
-    /// How far the store is settled: every journal whose last event is at or before this
-    /// position was examined and neither deferred nor broken (or is at or before `since`).
-    /// That is the last position read when nothing was deferred or broken, else the position
-    /// just before the first such journal's last event, journals taken oldest last event
-    /// first. A later checkpoint scoped since it goes on from there. 0 in a `client`
-    /// repository, or when nothing is settled.
-    pub through: u64,
-}
-
 /// Exports every durable event of `store` that its journal lacks into the journal refs of
 /// `target` (JR-07, JR-08); in a `client` repository, writes nothing (JR-09).
 ///
@@ -108,178 +94,128 @@ pub fn checkpoint_refs(
     class: RepoClass,
     target: &RefsTarget<'_>,
 ) -> Result<RefsCheckpoint, RefsError> {
-    checkpoint_refs_since(store, class, target, 0).map(|scoped| scoped.outcome)
+    checkpoint_refs_since(store, class, target, RefsScope::since(0)).map(|scoped| scoped.outcome)
 }
 
-/// [`checkpoint_refs`], examining only the journals with an event after the store position
-/// `since`.
-///
-/// The journals whose last event is at or before it are neither read nor written; `since` 0
-/// examines every journal. Journals are examined oldest last event first. A caller that passes
-/// an earlier checkpoint's `through` examines only what is not settled yet; a full checkpoint
-/// now and then still catches a ref moved by anyone else.
-///
-/// # Errors
-/// As [`checkpoint_refs`].
-pub fn checkpoint_refs_since(
-    store: &Store,
-    class: RepoClass,
+/// Writes each journal of each of `batches` that its journal ref lacks, a batch at a time: every
+/// journal of a batch is examined and written before the next batch is examined, so the first
+/// batch never waits for a long scan of the others.
+pub(super) fn refs_of<J: Iterator<Item = (JournalName, Vec<u8>)>>(
     target: &RefsTarget<'_>,
-    since: u64,
-) -> Result<ScopedCheckpoint, RefsError> {
-    scoped(store, class, target, Scope::Skipping(since))
-}
-
-/// [`checkpoint_refs_since`], then every journal at or before `since` too: a sweep that writes
-/// new work before it checks history again.
-///
-/// The journals past `since` go first, oldest last event first, then the others in the same
-/// order. `through` is settled over the journals past `since` only, so it is never below
-/// `since` whatever the older journals give: those are reported, and a later sweep tries them
-/// again.
-///
-/// # Errors
-/// As [`checkpoint_refs`].
-pub fn sweep_refs_since(
-    store: &Store,
-    class: RepoClass,
-    target: &RefsTarget<'_>,
-    since: u64,
-) -> Result<ScopedCheckpoint, RefsError> {
-    scoped(store, class, target, Scope::Sweeping(since))
-}
-
-/// The store position a scoped checkpoint starts after, and what it does with the journals whose
-/// last event is at or before it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Scope {
-    /// Leaves them unexamined.
-    Skipping(u64),
-    /// Examines them after the others.
-    Sweeping(u64),
-}
-
-fn scoped(
-    store: &Store,
-    class: RepoClass,
-    target: &RefsTarget<'_>,
-    scope: Scope,
-) -> Result<ScopedCheckpoint, RefsError> {
-    let (Scope::Skipping(since) | Scope::Sweeping(since)) = scope;
-    if class == RepoClass::Client {
-        return Ok(ScopedCheckpoint {
-            outcome: RefsCheckpoint::Client,
-            through: 0,
-        });
-    }
-    let grouped = grouped(store).map_err(RefsError::Store)?;
-    let (mut newer, mut earlier): (Vec<(JournalName, Group)>, Vec<_>) = grouped
-        .journals
-        .into_iter()
-        .partition(|(_, group)| group.last > since);
-    // Oldest last event first, so a checkpoint cut short still settles a prefix of positions
-    // and the next one, scoped since it, goes on from there.
-    newer.sort_by_key(|(_, group)| group.last);
-    // The names go to the writers and into the report; this copy maps them back to positions.
-    let positions: Vec<(JournalName, u64)> = newer
-        .iter()
-        .map(|(name, group)| (name.clone(), group.last))
-        .collect();
-    if matches!(scope, Scope::Sweeping(_)) {
-        earlier.sort_by_key(|(_, group)| group.last);
-        newer.append(&mut earlier);
-    }
-    let report = refs_of(
-        target,
-        newer.into_iter().map(|(name, group)| (name, group.lines)),
-        grouped.unexportable,
-    )?;
-    let through = settled(&positions, &report).unwrap_or(grouped.through);
-    Ok(ScopedCheckpoint {
-        outcome: RefsCheckpoint::Written(report),
-        through,
-    })
-}
-
-/// The position just before the last event of the first journal of `positions` that `report`
-/// deferred or found broken; `None` when it deferred and broke none.
-fn settled(positions: &[(JournalName, u64)], report: &RefsExported) -> Option<u64> {
-    let unsettled: HashSet<&JournalName> = report
-        .deferred
-        .iter()
-        .map(|(name, _)| name)
-        .chain(report.broken.iter().map(|(name, _)| name))
-        .collect();
-    positions
-        .iter()
-        .find(|(name, _)| unsettled.contains(name))
-        .map(|(_, last)| last.saturating_sub(1))
-}
-
-/// Writes each of `journals` that its journal ref lacks.
-fn refs_of(
-    target: &RefsTarget<'_>,
-    journals: impl Iterator<Item = (JournalName, Vec<u8>)>,
+    batches: impl IntoIterator<Item = J>,
     unexportable: u64,
 ) -> Result<RefsExported, RefsError> {
-    let mut ctx = Ctx::local(target);
-    let mut report = RefsExported {
-        unexportable,
-        ..RefsExported::default()
+    let mut run = Run {
+        ctx: Ctx::local(target),
+        remote: target.remote,
+        fetched: Fetch::NotYet,
+        base: None,
+        report: RefsExported {
+            unexportable,
+            ..RefsExported::default()
+        },
     };
-    let mut pending = Vec::new();
-    let mut journals = journals;
-    while let Some((name, own)) = journals.next() {
-        let lacking = if ctx.late() {
-            None
-        } else {
-            lacks(&ctx, &name, &own)?
-        };
-        match lacking {
-            Some(true) => pending.push((name, own)),
-            Some(false) => {}
-            None => {
-                // Not examined in time: each is deferred, whether it lacks a line or not.
-                pending.push((name, own));
-                pending.extend(journals.by_ref());
-                report.deferred = late(pending);
-                return Ok(report);
+    for batch in batches {
+        run.batch(batch)?;
+    }
+    Ok(run.report)
+}
+
+/// One checkpoint's state across its batches.
+struct Run<'a> {
+    ctx: Ctx<'a>,
+    /// The target's remote, set on `ctx` once it is known to be configured.
+    remote: &'a str,
+    fetched: Fetch,
+    /// The relay's base, fetched once a checkpoint, when a journal first goes to the inbox.
+    base: Option<Result<Oid, String>>,
+    report: RefsExported,
+}
+
+/// Whether a checkpoint has fetched the journal refs yet.
+enum Fetch {
+    NotYet,
+    /// Fetched, or no remote is configured.
+    Done,
+    /// The fetch failed, with what git said: every journal left to write is deferred.
+    Failed(String),
+}
+
+impl Run<'_> {
+    /// Examines `journals` and writes those their journal ref lacks; once the deadline passes,
+    /// every journal not examined or started is deferred.
+    fn batch(
+        &mut self,
+        mut journals: impl Iterator<Item = (JournalName, Vec<u8>)>,
+    ) -> Result<(), RefsError> {
+        let mut pending = Vec::new();
+        while let Some((name, own)) = journals.next() {
+            let lacking = if self.ctx.late() {
+                None
+            } else {
+                lacks(&self.ctx, &name, &own)?
+            };
+            match lacking {
+                Some(true) => pending.push((name, own)),
+                Some(false) => {}
+                None => {
+                    // Not examined in time: each is deferred, whether it lacks a line or not.
+                    pending.push((name, own));
+                    pending.extend(journals);
+                    self.report.deferred.extend(late(pending));
+                    return Ok(());
+                }
             }
         }
-    }
-    if pending.is_empty() {
-        return Ok(report);
-    }
-    if ctx.late() {
-        report.deferred = late(pending);
-        return Ok(report);
-    }
-    if ctx.repo.has_remote(target.remote)? {
-        ctx.remote = Some(target.remote);
-        let all = format!("+{JOURNAL_REFS}*:{JOURNAL_REFS}*");
-        if let Fetched::Failed(said) = ctx.repo.fetch(target.remote, &[all], false)? {
-            // Each deferred journal carries its own copy of the reason.
-            report.deferred = pending
-                .into_iter()
-                .map(|(name, _)| (name, Deferral::Failed(said.clone())))
-                .collect();
-            return Ok(report);
+        if pending.is_empty() {
+            return Ok(());
         }
-    } else {
-        report.local_only = true;
+        if self.ctx.late() {
+            self.report.deferred.extend(late(pending));
+            return Ok(());
+        }
+        self.fetch()?;
+        if let Fetch::Failed(said) = &self.fetched {
+            // Each deferred journal carries its own copy of the reason.
+            self.report.deferred.extend(
+                pending
+                    .into_iter()
+                    .map(|(name, _)| (name, Deferral::Failed(said.clone()))),
+            );
+            return Ok(());
+        }
+        export(&self.ctx, &mut self.report, &mut self.base, pending)
     }
-    export(&ctx, &mut report, pending)?;
-    Ok(report)
+
+    /// Fetches the journal refs from the remote, once a checkpoint; with no remote configured,
+    /// only local refs move from then on.
+    fn fetch(&mut self) -> Result<(), RefsError> {
+        if !matches!(self.fetched, Fetch::NotYet) {
+            return Ok(());
+        }
+        if !self.ctx.repo.has_remote(self.remote)? {
+            self.report.local_only = true;
+            self.fetched = Fetch::Done;
+            return Ok(());
+        }
+        self.ctx.remote = Some(self.remote);
+        let all = format!("+{JOURNAL_REFS}*:{JOURNAL_REFS}*");
+        self.fetched = match self.ctx.repo.fetch(self.remote, &[all], false)? {
+            Fetched::Failed(said) => Fetch::Failed(said),
+            Fetched::Done | Fetched::Missing => Fetch::Done,
+        };
+        Ok(())
+    }
 }
 
 /// Writes each pending journal directly until a push fails other than by rejection, then the
-/// rest to their inbox branches.
+/// rest to their inbox branches, on the relay's `base`, fetched here the first time it is needed.
 fn export(
     ctx: &Ctx<'_>,
     report: &mut RefsExported,
+    base: &mut Option<Result<Oid, String>>,
     pending: Vec<(JournalName, Vec<u8>)>,
 ) -> Result<(), RefsError> {
-    let mut base = None;
     for (name, own) in pending {
         // No journal starts after the deadline: a relay write would read the base first.
         if ctx.late() {
@@ -300,7 +236,7 @@ fn export(
                 report.deferred.push((name, Deferral::Late));
                 continue;
             }
-            let tip = match &base {
+            let tip = match base {
                 Some(tip) => tip,
                 None => base.insert(prepare_relay(ctx, remote)?),
             };

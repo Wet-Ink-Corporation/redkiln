@@ -213,9 +213,11 @@ to JR-13). The ref holds one commit per export, each adding the session's new ev
 journal files. Where `origin` refuses refs outside `refs/heads/` (Claude Code cloud sessions),
 it pushes the branch `redkiln/inbox/<session>` instead, and `weighin journal relay` (run by a
 relay workflow) moves it into the ref. The export runs inside a budget that ends before the
-hook's 20 s timeout (an 18 s worst case). It looks only at the journals that gained an event
-since the store was last settled, oldest first, and records how far it settled it even when its
-deadline cuts it short, so the next Stop goes on from there; that record only moves forward.
+hook's 20 s timeout (an 18 s worst case). It writes the session's own journal first, then looks
+only at the journals that gained an event since the store was last settled, oldest first, and
+records how far it settled it even when its deadline cuts it short, so the next Stop goes on
+from there; that record only moves forward, and each repository sharing a store keeps its own.
+If the record cannot be read, every Stop looks at every journal until it is fixed (logged).
 `journal checkpoint` and `journal pre-push` write those journals first, then look at every other
 journal and report what they find there. The store is still read whole on every Stop, and a journal
 that stays broken or deferred holds every later journal in the Stop's scope until it is fixed. A remote that hangs or refuses is retried at the next Stop, unlogged. Only what

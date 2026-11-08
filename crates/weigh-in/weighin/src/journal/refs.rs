@@ -13,11 +13,12 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context as _, Result};
 use redkiln_core::envelope::Timestamp;
+use redkiln_core::ids::SessionId;
 use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{
     Breach, Deferral, Deleted, JOURNAL_REFS, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsError,
-    RefsExported, RefsImport, RefsTarget, Refusal, Relayed, checkpoint_refs_since, import_refs,
-    sweep_refs_since,
+    RefsExported, RefsImport, RefsScope, RefsTarget, Refusal, Relayed, checkpoint_refs_since,
+    import_refs, sweep_refs_since,
 };
 use redkiln_core::location::GIT_TIMEOUT;
 use serde::{Serialize, Serializer};
@@ -169,9 +170,10 @@ pub(crate) enum Imported {
 /// `scope` names. Skips, in this order: not in git, a `client` repository, opted out, then no
 /// store (none is created). Every run, whatever its scope, moves the watermark forward to the
 /// position up to which it settled the store (every journal whose last event is at or before
-/// it was examined and neither deferred nor broken), never back; a sweep examines the journals
-/// past it first, then the rest. A watermark that exists but cannot be read is reported and
-/// left alone, and every journal is examined.
+/// it was examined and neither deferred nor broken), never back. The session's own journal is
+/// examined and written first; a sweep then examines the journals past the watermark, then the
+/// rest. A watermark that exists but cannot be read is reported and left alone, and every
+/// journal is examined.
 ///
 /// # Errors
 /// The store cannot be located, opened or read, or git fails locally.
@@ -205,11 +207,18 @@ pub(crate) fn checkpoint(
         Ok(at) => (at, None),
         Err(e) => (0, Some(e)),
     };
+    // The session's own journal goes first, so the current turn never waits behind older
+    // journals (a catch-up, a watermark that cannot be read); `through` is unaffected.
+    let session = session_journal(env)?;
     let export = |since| {
+        let scope_of = RefsScope {
+            first: session.as_ref(),
+            ..RefsScope::since(since)
+        };
         match scope {
-            Scope::All => sweep_refs_since(store.core(), class.into(), &target, since),
+            Scope::All => sweep_refs_since(store.core(), class.into(), &target, scope_of),
             Scope::SinceWatermark => {
-                checkpoint_refs_since(store.core(), class.into(), &target, since)
+                checkpoint_refs_since(store.core(), class.into(), &target, scope_of)
             }
         }
         .context("exporting the journals")
@@ -237,6 +246,20 @@ pub(crate) fn checkpoint(
             Checkpointed::Ran(report, marked)
         }
     })
+}
+
+/// The journal of `env`'s session (JR-06), `None` with no session.
+///
+/// # Errors
+/// A session id the store refuses; `Env` keeps only ids it accepts, so this does not happen.
+fn session_journal(env: &Env) -> Result<Option<JournalName>> {
+    let id = env
+        .session
+        .as_deref()
+        .map(SessionId::parse)
+        .transpose()
+        .context("exporting the session's journal")?;
+    Ok(id.map(|id| JournalName::of_session(&id)))
 }
 
 /// Import every journal source not yet imported at its commit (JR-10 to JR-13), recorded as

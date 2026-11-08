@@ -5,7 +5,7 @@
 use crate::scratch::{Repo, TestResult};
 use crate::support::{git, state_of};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const JOURNAL_DIR: &str = ".kb/_ledger/journal";
@@ -15,33 +15,66 @@ const JOURNAL_DIR: &str = ".kb/_ledger/journal";
 #[cfg(unix)]
 const STOP_WORST_CASE: std::time::Duration = std::time::Duration::from_secs(18);
 
-/// Where weighin records how far the store's events are exported.
-fn watermark(repo: &Repo) -> std::path::PathBuf {
-    state_of(&repo.root).join("journal-watermark")
+/// The export watermarks in the state dir `state`, one per repository and store, sorted, with
+/// what each holds.
+fn watermarks(state: &Path) -> TestResult<Vec<(PathBuf, String)>> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(state)? {
+        let path = entry?.path();
+        let named = path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("journal-watermark-"));
+        if named {
+            let text = std::fs::read_to_string(&path)?;
+            found.push((path, text));
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// Where weighin records how far the store's events are exported: the one watermark in the
+/// repository's state dir.
+fn watermark(repo: &Repo) -> TestResult<PathBuf> {
+    match watermarks(&state_of(&repo.root))?.as_slice() {
+        [(path, _)] => Ok(path.clone()),
+        found => Err(format!("one watermark, not {found:?}").into()),
+    }
 }
 
 /// Sets the store position the watermark records to `position`, keeping the rest of it.
 fn set_watermark(repo: &Repo, position: impl FnOnce(u64) -> u64) -> TestResult {
-    let text = std::fs::read_to_string(watermark(repo))?;
+    let path = watermark(repo)?;
+    let text = std::fs::read_to_string(&path)?;
     let (first, rest) = text.split_once('\n').unwrap_or((text.as_str(), ""));
     let moved = position(first.trim().parse()?);
-    std::fs::write(watermark(repo), format!("{moved}\n{rest}"))?;
+    std::fs::write(&path, format!("{moved}\n{rest}"))?;
     Ok(())
 }
 
 /// The store position the watermark records.
 fn watermark_at(repo: &Repo) -> TestResult<u64> {
-    let text = std::fs::read_to_string(watermark(repo))?;
+    let text = std::fs::read_to_string(watermark(repo)?)?;
     Ok(text.lines().next().ok_or("a position")?.parse()?)
 }
 
 /// Replaces the watermark's last line, the store it was written for, with `store`.
 fn set_watermark_store(repo: &Repo, store: &str) -> TestResult {
-    let text = std::fs::read_to_string(watermark(repo))?;
+    let path = watermark(repo)?;
+    let text = std::fs::read_to_string(&path)?;
     let mut lines: Vec<&str> = text.lines().collect();
     lines.pop().ok_or("a store line")?;
     lines.push(store);
-    std::fs::write(watermark(repo), format!("{}\n", lines.join("\n")))?;
+    std::fs::write(&path, format!("{}\n", lines.join("\n")))?;
+    Ok(())
+}
+
+/// Puts a directory where the repository's watermark is: reading it then fails with something
+/// other than "not found".
+fn unreadable_watermark(repo: &Repo) -> TestResult {
+    let path = watermark(repo)?;
+    std::fs::remove_file(&path)?;
+    std::fs::create_dir(&path)?;
     Ok(())
 }
 
@@ -338,7 +371,7 @@ fn a_stop_after_a_deferred_export_examines_the_deferred_journals_again() -> Test
     let (repo, remote) = Repo::with_remote(true)?;
     repo.raise("u", "Keep the cache warm?")?;
     repo.ok("cli", &["journal", "checkpoint"], None)?;
-    assert!(watermark(&repo).exists(), "the sweep moved the watermark");
+    assert!(watermark(&repo).is_ok(), "the sweep moved the watermark");
     repo.raise("t", "Keep three retries?")?;
     pre_receive(
         &remote,
@@ -395,8 +428,9 @@ fn a_watermark_written_for_another_store_is_ignored() -> TestResult {
 fn a_watermark_that_cannot_be_read_is_one_warning_and_one_logged_line() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("u", "Keep the cache warm?")?;
-    // A directory where the file goes: reading it fails with something other than "not found".
-    std::fs::create_dir_all(watermark(&repo))?;
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    unreadable_watermark(&repo)?;
+    repo.raise("t", "Keep three retries?")?;
 
     let out = repo.run("cli", &["journal", "checkpoint", "--json"], None)?;
 
@@ -415,14 +449,15 @@ fn a_watermark_that_cannot_be_read_is_one_warning_and_one_logged_line() -> TestR
         .collect();
     assert_eq!(keys, ["journal/watermark"], "{envelope}");
     assert_eq!(envelope["findings"][0]["severity"], "warning", "{envelope}");
-    assert!(repo.has_ref("refs/redkiln/journal/u"), "the export stands");
+    assert!(repo.has_ref("refs/redkiln/journal/t"), "the export stands");
     exited_0(&repo.hook(&repo.stop("s"))?)?;
     let log = logged(&repo)?;
     assert_eq!(log.len(), 1, "{log:?}");
     assert!(
         log.iter()
-            .all(|l| l.contains("reading the export watermark")),
-        "{log:?}"
+            .all(|l| l.contains("reading the export watermark")
+                && l.contains("every Stop examines every journal until it can be read")),
+        "the line says what it costs until fixed: {log:?}"
     );
     let finding = envelope["findings"][0]["message"]
         .as_str()
@@ -430,6 +465,72 @@ fn a_watermark_that_cannot_be_read_is_one_warning_and_one_logged_line() -> TestR
     assert!(
         finding.contains("reading the export watermark"),
         "{finding}"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn with_an_unreadable_watermark_a_stop_exports_its_own_session_first() -> TestResult {
+    let (repo, remote) = Repo::with_remote(true)?;
+    for n in 0..8 {
+        repo.raise(&format!("old{n}"), "Keep three retries?")?;
+    }
+    repo.ok("cli", &["journal", "checkpoint"], None)?;
+    // History to write again, older than the current session: the old journals lose their refs.
+    for name in refs(&remote, "refs/redkiln/journal")? {
+        git(&remote, &["update-ref", "-d", &name]);
+        git(&repo.root, &["update-ref", "-d", &name]);
+    }
+    unreadable_watermark(&repo)?;
+    // Each push takes a second, so the Stop's deadline passes long before the history is done.
+    pre_receive(&remote, "#!/bin/sh\ncat >/dev/null\nsleep 1\n")?;
+
+    exited_0(&repo.hook(&repo.stop("s"))?)?;
+
+    let pushed = refs(&remote, "refs/redkiln/journal")?;
+    assert!(
+        pushed.contains(&"refs/redkiln/journal/s".to_owned()),
+        "the current session first: {pushed:?}"
+    );
+    assert!(pushed.len() < 9, "cut short: {pushed:?}");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn two_repositories_on_one_store_each_keep_their_own_watermark() -> TestResult {
+    let a = Repo::new(true)?;
+    let b = Repo::new(true)?;
+    let store = a.sibling("shared")?.join("events.sqlite3");
+    let shared = store.to_string_lossy().into_owned();
+    let state = store.with_file_name("weighin");
+    exited_0(&a.hook_with(&a.stop("sa"), "REDKILN_STORE", &shared)?)?;
+    exited_0(&b.hook_with(&b.stop("sb"), "REDKILN_STORE", &shared)?)?;
+    let both = watermarks(&state)?;
+    assert_eq!(both.len(), 2, "one per repository: {both:?}");
+
+    exited_0(&a.hook_with(&a.stop("sa2"), "REDKILN_STORE", &shared)?)?;
+
+    assert!(
+        a.has_ref("refs/redkiln/journal/sa2"),
+        "a exports its session"
+    );
+    let after = watermarks(&state)?;
+    let kept = after.iter().filter(|mark| both.contains(mark)).count();
+    assert_eq!(kept, 1, "b's is untouched, a's moved on: {after:?}");
+    exited_0(&b.hook_with(&b.stop("sb2"), "REDKILN_STORE", &shared)?)?;
+    assert!(
+        b.has_ref("refs/redkiln/journal/sb2"),
+        "b exports its session"
+    );
+    let last = watermarks(&state)?;
+    assert_eq!(last.len(), 2, "{last:?}");
+    assert!(
+        last.iter()
+            .any(|mark| after.contains(mark) && !both.contains(mark)),
+        "a's moved watermark is untouched by b: {last:?}"
     );
     Ok(())
 }

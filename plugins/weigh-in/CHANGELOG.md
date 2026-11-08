@@ -64,10 +64,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   a person are logged to `hook-errors.log`; a remote that hangs or refuses is retried at the
   next Stop. Existing committed journals stay where they are; `stats` and `ci-check` still read
   them.
-- The Stop hook's timeout is now 20 s, so its export ends inside it. It looks only at the
-  journals that gained an event since the store was last settled, and a Stop cut short by its
-  deadline records how far it got; `journal checkpoint` and `journal pre-push` look at every
-  journal.
+- The Stop hook's timeout is now 20 s, so its export ends inside it. It writes the session's
+  own journal first, then looks only at the journals that gained an event since the store was
+  last settled, and a Stop cut short by its deadline records how far it got; each repository
+  sharing a store keeps its own record. `journal checkpoint` and `journal pre-push` look at
+  every journal.
 
 ## 1.2.0 — 2026-11-01
 

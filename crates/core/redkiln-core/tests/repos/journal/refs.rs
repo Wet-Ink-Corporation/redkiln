@@ -4,7 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use redkiln_core::journal::refs::{
-    Breach, Deferral, RefsCheckpoint, RefsExported, RefsTarget, checkpoint_refs,
+    Breach, Deferral, RefsCheckpoint, RefsExported, RefsScope, RefsTarget, checkpoint_refs,
     checkpoint_refs_since, import_refs,
 };
 // Every relay test needs a git hook script, so runs only on unix.
@@ -152,7 +152,8 @@ fn a_checkpoint_since_a_position_examines_only_the_journals_with_a_later_event()
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
     let store = store_in(dir.path(), "store");
-    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), 0).expect("ok");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), RefsScope::since(0))
+        .expect("ok");
     assert_eq!(
         written(first.outcome).direct.len(),
         3,
@@ -168,8 +169,13 @@ fn a_checkpoint_since_a_position_examines_only_the_journals_with_a_later_event()
         )
         .expect("appended");
 
-    let scoped =
-        checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
+    let scoped = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &target(&work),
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
 
     assert!(scoped.through > first.through, "the new event was read");
     let report = written(scoped.outcome);
@@ -186,13 +192,19 @@ fn a_checkpoint_since_the_last_position_touches_no_git() {
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
     let store = store_in(dir.path(), "store");
-    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), 0).expect("ok");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), RefsScope::since(0))
+        .expect("ok");
     // With every journal before the position, not one ref is read: a broken one goes unseen.
     // The clone's own commit: its tree is not exactly `a1.jsonl`, so the ref breaks JR-05.
     git(&work, &["update-ref", "refs/redkiln/journal/a1", "HEAD"]);
 
-    let again =
-        checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
+    let again = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &target(&work),
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
 
     assert_eq!(again.through, first.through);
     assert_eq!(
@@ -351,7 +363,8 @@ fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished
         ..target(&work)
     };
 
-    let first = checkpoint_refs_since(&store, RepoClass::Own, &cut, 0).expect("ok");
+    let first =
+        checkpoint_refs_since(&store, RepoClass::Own, &cut, RefsScope::since(0)).expect("ok");
 
     let report = written(first.outcome);
     assert_eq!(
@@ -371,8 +384,13 @@ fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished
         "through b2, before the first journal left"
     );
     accept_custom_refs(&remote);
-    let rest =
-        checkpoint_refs_since(&store, RepoClass::Own, &target(&work), first.through).expect("ok");
+    let rest = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &target(&work),
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
     assert_eq!(rest.through, 5, "the whole store");
     assert_eq!(written(rest.outcome).direct.len(), 2, "the store's and a1");
 }
@@ -384,7 +402,8 @@ fn a_sweep_writes_the_journals_past_its_position_first_and_settles_only_those() 
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
     let store = store_in(dir.path(), "store");
-    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), 0).expect("ok");
+    let first = checkpoint_refs_since(&store, RepoClass::Own, &target(&work), RefsScope::since(0))
+        .expect("ok");
     assert_eq!(first.through, 5);
     // a1 and the store's journal lose their refs, so a sweep has them to write again; b2 gains
     // an event past the position, so it is the one new journal.
@@ -409,12 +428,61 @@ fn a_sweep_writes_the_journals_past_its_position_first_and_settles_only_those() 
         ..target(&work)
     };
 
-    let swept = sweep_refs_since(&store, RepoClass::Own, &cut, first.through).expect("ok");
+    let swept = sweep_refs_since(
+        &store,
+        RepoClass::Own,
+        &cut,
+        RefsScope::since(first.through),
+    )
+    .expect("ok");
 
     assert_eq!(swept.through, 6, "the journal past the position is settled");
     let report = written(swept.outcome);
     assert_eq!(report.direct, [name("b2")], "new work first: {report:?}");
     assert_eq!(report.deferred.len(), 2, "the older two, late: {report:?}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_checkpoint_writes_its_first_journal_before_the_others_and_settles_in_position_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let remote = remote(dir.path());
+    let work = clone(dir.path(), &remote, "work");
+    // A slow push: the first journal starts before the deadline and ends after it.
+    executable(
+        &remote.join("hooks/pre-receive"),
+        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
+    );
+    // Positions: 1 a1, 2 b2, 3 the store's, 4 raw, 5 a1; so a1 is the newest journal.
+    let store = store_in(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        ..target(&work)
+    };
+    let a1 = name("a1");
+
+    let scoped = checkpoint_refs_since(
+        &store,
+        RepoClass::Own,
+        &cut,
+        RefsScope {
+            first: Some(&a1),
+            ..RefsScope::since(0)
+        },
+    )
+    .expect("ok");
+
+    let report = written(scoped.outcome);
+    assert_eq!(
+        report.direct,
+        [a1],
+        "the first journal goes first: {report:?}"
+    );
+    assert_eq!(report.deferred.len(), 2, "the others, late: {report:?}");
+    assert_eq!(
+        scoped.through, 1,
+        "b2, at 2, is not settled, so a1's later position is not either"
+    );
 }
 
 #[cfg(unix)]

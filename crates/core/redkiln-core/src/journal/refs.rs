@@ -18,16 +18,17 @@ mod git;
 mod oid;
 mod read;
 mod relay;
+mod scope;
 
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use checkpoint::{
-    Deferral, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsExported, ScopedCheckpoint,
-    checkpoint_refs, checkpoint_refs_since, sweep_refs_since,
+    Deferral, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsExported, checkpoint_refs,
 };
 pub use read::{BROKEN_REFS, ImportedRef, RefsImport, import_refs};
 pub use relay::{Deleted, Refusal, Relayed, relay};
+pub use scope::{RefsScope, ScopedCheckpoint, checkpoint_refs_since, sweep_refs_since};
 
 use self::git::{Repo, Resolved};
 use self::oid::Oid;
