@@ -1,5 +1,7 @@
 //! `cargo xtask <task>`: repository tasks for the redkiln workspace.
 //!
+//! - `ids`: check `.kb/` against the knowledge-base id rules (Knowledge call C): one id per
+//!   atom, each atom in its kind's folder, one question per `wi-` id.
 //! - `layers`: check the workspace against the layer rules in `AGENTS.md`.
 //! - `plugins`: check `plugins/` against the plugin rules in `AGENTS.md` (CLI first, harness
 //!   second).
@@ -14,13 +16,14 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{layers, plugins};
+use xtask::{ids, layers, plugins};
 
-const USAGE: &str = "usage: cargo xtask <layers|plugins>";
+const USAGE: &str = "usage: cargo xtask <ids|layers|plugins>";
 
 fn main() -> ExitCode {
     let task: Vec<OsString> = env::args_os().skip(1).collect();
     let outcome = match task.as_slice() {
+        [name] if name == "ids" => run_ids(),
         [name] if name == "layers" => run_layers(),
         [name] if name == "plugins" => run_plugins(),
         _ => Err(USAGE.to_owned()),
@@ -43,6 +46,13 @@ fn report(message: &str) -> ExitCode {
 /// The repository root, two levels above this crate.
 fn repository() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Checks this repository's `.kb/` against the knowledge-base id rules.
+fn run_ids() -> Result<ExitCode, String> {
+    let atoms = ids::read_kb(&repository().join(".kb")).map_err(|error| error_chain(&error))?;
+    let violations = ids::check(&atoms);
+    conclude("ids", &violations, "knowledge-base files", atoms.len())
 }
 
 /// Checks this workspace's members against the layer rules.
