@@ -6,6 +6,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Every hook now passes its event name on the command line (`hook Stop`, `hook PostToolUse`, and
+  so on), as SessionStart already did. Nothing else changes: the binary still reads the event from
+  the hook's input.
 - Atoms go where Knowledge keeps them: decisions in `.kb/decision/`, deferred one-way questions in
   `.kb/open-question/` (frontmatter `kind: open-question`), no longer under `.kb/_intake/`. Atoms
   1.x wrote stay where they are and still count: `ci-check` reads every atom under `.kb/`. The
