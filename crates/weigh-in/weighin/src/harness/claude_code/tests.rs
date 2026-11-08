@@ -97,7 +97,7 @@ fn the_form_follows_the_event() {
         (HookEvent::Unnamed, Form::Silent),
     ];
     for (event, form) in forms {
-        assert_eq!(Form::of(&event), form, "{event:?}");
+        assert_eq!(Form::of(event.kind()), form, "{event:?}");
     }
 }
 
@@ -566,7 +566,7 @@ fn reads_at_most_the_cap_and_one_byte() {
     miri,
     ignore = "spawns git and reads the ledger through the file system"
 )]
-fn an_input_over_its_cap_dispatches_nothing_and_is_logged_in_git() {
+fn an_input_over_its_cap_dispatches_nothing_and_is_logged_and_noted_in_git() {
     let tmp = git_repo();
     let at_cap = session_start_of_len(tmp.path(), 65_536);
     let over = session_start_of_len(tmp.path(), 65_537);
@@ -589,7 +589,18 @@ fn an_input_over_its_cap_dispatches_nothing_and_is_logged_in_git() {
     let dispatched = String::from_utf8(dispatched).expect("utf-8 output");
     assert!(dispatched.contains("```weigh-in"), "{dispatched}");
     assert_eq!(log_at_cap, "", "the payload at the cap is no failure");
-    assert!(refused.is_empty(), "{}", String::from_utf8_lossy(&refused));
+    let log_path = tmp.path().join(".redkiln/weighin/hook-errors.log");
+    assert_eq!(
+        String::from_utf8(refused).expect("utf-8 output"),
+        serde_json::json!({
+            "systemMessage": format!(
+                "Weigh-In: the SessionStart hook failed, so capture may be off: the hook input is \
+                 over its 64 KiB cap, so nothing was dispatched. Logged in {}.",
+                log_path.display()
+            )
+        })
+        .to_string()
+    );
     let log = error_log(tmp.path());
     assert_eq!(log.lines().count(), 1, "{log}");
     assert!(
@@ -598,6 +609,29 @@ fn an_input_over_its_cap_dispatches_nothing_and_is_logged_in_git() {
         ),
         "{log}"
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git")]
+fn a_session_start_whose_input_is_not_json_notes_it() {
+    let tmp = git_repo();
+    let mut output = Vec::new();
+
+    serve_named(
+        tmp.path(),
+        "SessionStart",
+        &mut "not json".as_bytes(),
+        &mut output,
+    );
+
+    let noted = String::from_utf8(output).expect("utf-8 output");
+    assert!(
+        noted.starts_with(
+            r#"{"systemMessage":"Weigh-In: the SessionStart hook failed, so capture may be off: parsing the hook input: "#
+        ) && noted.contains(" Logged in "),
+        "{noted}"
+    );
+    assert_eq!(error_log(tmp.path()).lines().count(), 1);
 }
 
 #[test]

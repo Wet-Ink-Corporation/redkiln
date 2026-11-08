@@ -50,7 +50,7 @@ use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, scannable
 use crate::recall;
 use errors::{Appended, log_error};
 pub(crate) use failures::Failures;
-use failures::{Logged, one_line};
+use failures::{Logged, Reach, Rule, one_line};
 pub(crate) use session_start::prime;
 use session_start::{CONVENTION, COWORK_PRIME, session_start};
 
@@ -81,7 +81,40 @@ pub(crate) enum HookEvent {
     Unnamed,
 }
 
+/// The kinds of event weighin is registered for, by which the stdin cap, the output's form and
+/// the failure note go; any other event is `Other`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EventKind {
+    SessionStart,
+    /// `Stop` and `SubagentStop`.
+    Turn,
+    PostToolUse,
+    Other,
+}
+
+impl EventKind {
+    /// The kind of the event called `name` (as [`HookEvent`]'s labels spell it).
+    pub(crate) fn named(name: &str) -> Self {
+        match name {
+            "SessionStart" => Self::SessionStart,
+            "Stop" | "SubagentStop" => Self::Turn,
+            "PostToolUse" => Self::PostToolUse,
+            _ => Self::Other,
+        }
+    }
+}
+
 impl HookEvent {
+    /// The event's kind.
+    pub(crate) fn kind(&self) -> EventKind {
+        match self {
+            Self::SessionStart { .. } => EventKind::SessionStart,
+            Self::Stop(_) | Self::SubagentStop(_) => EventKind::Turn,
+            Self::PostToolUse(_) => EventKind::PostToolUse,
+            Self::Other(_) | Self::Unnamed => EventKind::Other,
+        }
+    }
+
     /// The event's label in log lines: its name, or `hook`.
     fn label(&self) -> &str {
         match self {
@@ -199,11 +232,6 @@ impl Hook {
         Self { named, ..self }
     }
 
-    /// The event this hook runs for.
-    pub(crate) fn event(&self) -> &HookEvent {
-        &self.event
-    }
-
     /// The hook's label in log lines and notes: the payload's event, else the event named
     /// outside it, else `hook`.
     pub(crate) fn label(&self) -> &str {
@@ -233,10 +261,22 @@ impl Hook {
         failures.push(e, logged);
     }
 
-    /// The note of the hook's `failures` for the person (CLI-09, [`Failures::note`]). A
-    /// `SessionStart` that cannot locate the store tells that already, so it notes nothing more.
+    /// The kind of the hook's event: the payload's, else the one named outside it.
+    pub(crate) fn kind(&self) -> EventKind {
+        match &self.event {
+            HookEvent::Unnamed => EventKind::named(self.label()),
+            event => event.kind(),
+        }
+    }
+
+    /// The note of the hook's `failures` for the person (CLI-09), by [`Rule::of`].
     fn note(&self, failures: &Failures) -> Option<String> {
-        failures.note(self.label(), self.env.store.is_ok())
+        let reach = match (&self.event, &self.env.store) {
+            (HookEvent::Unnamed, _) => Reach::Undispatched,
+            (_, Ok(_)) => Reach::Located,
+            (_, Err(_)) => Reach::Unlocated,
+        };
+        failures.note(self.label(), Rule::of(self.kind(), reach))
     }
 
     /// What the hook says (possibly nothing), recording each failure in `failures`.

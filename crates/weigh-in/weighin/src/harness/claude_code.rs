@@ -25,7 +25,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::env::{Harness, Vars};
-use crate::hooks::{self, Failures, Hook, HookEvent, HookInput, HookOutput, Tool, ToolWrite, Turn};
+use crate::hooks::{
+    self, EventKind, Failures, Hook, HookEvent, HookInput, HookOutput, Tool, ToolWrite, Turn,
+};
 
 /// The variables Claude Code gives the session in, read after `WEIGHIN_SESSION`.
 pub(crate) const SESSION_VARS: [&str; 2] = ["CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"];
@@ -94,10 +96,10 @@ impl Cap {
     /// The cap for the event `named`: `SessionStart` 64 KiB, `Stop` and `SubagentStop` 4 MiB,
     /// anything else or nothing 8 MiB.
     fn of(named: Option<&str>) -> Self {
-        let kib = match named {
-            Some("SessionStart") => 64,
-            Some("Stop" | "SubagentStop") => 4 * 1024,
-            Some(_) | None => 8 * 1024,
+        let kib = match named.map(EventKind::named) {
+            Some(EventKind::SessionStart) => 64,
+            Some(EventKind::Turn) => 4 * 1024,
+            Some(EventKind::PostToolUse | EventKind::Other) | None => 8 * 1024,
         };
         Self { kib }
     }
@@ -163,10 +165,7 @@ fn respond(
     errors: &mut impl Write,
 ) {
     // A payload that names no event (none, or not read) takes the one the command line named.
-    let form = match hook.event() {
-        HookEvent::Unnamed => Form::named(hook.label()),
-        event => Form::of(event),
-    };
+    let form = Form::of(hook.kind());
     let out = render(form, hooks::serve(hook, unread));
     let Err(e) = output
         .write_all(out.as_bytes())
@@ -272,22 +271,13 @@ enum Form {
 }
 
 impl Form {
-    fn of(event: &HookEvent) -> Self {
-        match event {
-            HookEvent::SessionStart { .. } => Self::SessionStart,
-            HookEvent::Stop(_) | HookEvent::SubagentStop(_) => Self::Turn,
-            HookEvent::PostToolUse(_) => Self::PostToolUse,
-            HookEvent::Other(_) | HookEvent::Unnamed => Self::Silent,
-        }
-    }
-
-    /// The form of the event called `name`.
-    fn named(name: &str) -> Self {
-        match name {
-            "SessionStart" => Self::SessionStart,
-            "Stop" | "SubagentStop" => Self::Turn,
-            "PostToolUse" => Self::PostToolUse,
-            _ => Self::Silent,
+    /// The form of an event of `kind`.
+    fn of(kind: EventKind) -> Self {
+        match kind {
+            EventKind::SessionStart => Self::SessionStart,
+            EventKind::Turn => Self::Turn,
+            EventKind::PostToolUse => Self::PostToolUse,
+            EventKind::Other => Self::Silent,
         }
     }
 }

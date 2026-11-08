@@ -131,6 +131,8 @@ pub(super) fn new_errors(env: &Env) -> Option<String> {
             ));
         }
     };
+    // Worked out before the record is written, so nothing is marked seen unreported.
+    let reported = tail.reported();
     let marked = match recorded {
         Ok(_) => match std::fs::write(&seen_path, format!("{}\n{}", log.len, log.head)) {
             Ok(()) => String::new(),
@@ -141,14 +143,7 @@ pub(super) fn new_errors(env: &Env) -> Option<String> {
             clip(&format!("{e:#}"), 300)
         ),
     };
-    let added = String::from_utf8_lossy(&tail.bytes);
-    let lines: Vec<&str> = added.lines().filter(|l| !l.trim().is_empty()).collect();
-    let last = clip(lines.last()?, 200);
-    let count = if tail.cut {
-        format!("at least {}", lines.len())
-    } else {
-        lines.len().to_string()
-    };
+    let (count, last) = reported?;
     Some(format!(
         "Weigh-In: {count} hook error(s) since the last session, so capture may be off. Last: {last} (full log: {}){marked}",
         log_path.display()
@@ -166,10 +161,35 @@ struct Log {
 
 /// What a report reads of the log.
 struct Tail {
-    /// The unreported bytes, from a line's start.
+    /// The unreported bytes; when cut, from the byte before the cut, so up to the first newline
+    /// they are the end of a line begun before it.
     bytes: Vec<u8>,
     /// Whether unreported lines before them were left unread.
     cut: bool,
+}
+
+impl Tail {
+    /// The count and last line to report; `None` when only blank lines were added.
+    fn reported(&self) -> Option<(String, String)> {
+        let read = String::from_utf8_lossy(&self.bytes);
+        let whole = if self.cut {
+            // Up to the first newline is the end of a line begun before the cut.
+            read.split_once('\n').map_or("", |(_, whole)| whole)
+        } else {
+            &read
+        };
+        let lines: Vec<&str> = whole.lines().filter(|l| !l.trim().is_empty()).collect();
+        match (lines.last(), self.cut) {
+            (Some(last), true) => Some((format!("at least {}", lines.len()), clip(last, 200))),
+            (Some(last), false) => Some((lines.len().to_string(), clip(last, 200))),
+            // Cut with no whole line: one line longer than all the report reads.
+            (None, true) => Some((
+                "at least 1".to_owned(),
+                "a line longer than the 256 KiB the report reads".to_owned(),
+            )),
+            (None, false) => None,
+        }
+    }
 }
 
 impl Log {
@@ -218,8 +238,7 @@ impl Log {
             .unwrap_or(0)
     }
 
-    /// The bytes after `seen`, at most [`MAX_REPORTED_LOG`] of them; when cut, from the first
-    /// whole line in them.
+    /// The bytes after `seen`, at most [`MAX_REPORTED_LOG`] of them (one more when cut).
     fn tail(&mut self, seen: u64) -> Result<Tail> {
         let start = seen.max(self.len.saturating_sub(MAX_REPORTED_LOG));
         let cut = start > seen;
@@ -232,11 +251,6 @@ impl Log {
         Read::take(&mut self.file, self.len.saturating_sub(from))
             .read_to_end(&mut bytes)
             .context("reading the error log")?;
-        if cut {
-            // No newline after a cut start: no whole line was read, so nothing is counted.
-            let whole = bytes.splitn(2, |&b| b == b'\n').nth(1).unwrap_or_default();
-            bytes = whole.to_vec();
-        }
         Ok(Tail { bytes, cut })
     }
 }
@@ -260,6 +274,7 @@ fn read_seen(path: &Path) -> Result<Option<String>> {
 mod tests {
     use super::new_errors;
     use crate::env::{Env, Vars};
+    use crate::text::clip;
     use redkiln_core::store::Wait;
     use std::path::Path;
 
@@ -362,6 +377,30 @@ mod tests {
             report.starts_with("Weigh-In: at least 2621 hook error(s) since the last session")
                 && report.contains("Last: 2026-10-01T00:00:00Z Stop: failure number 3000"),
             "{report}"
+        );
+        assert_eq!(new_errors(&env), None, "reported once");
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads and writes the error log through the file system"
+    )]
+    fn one_line_longer_than_the_tail_cap_is_still_reported() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let state = tmp.path().join(".redkiln/weighin");
+        std::fs::create_dir_all(&state).expect("state dir");
+        let env = env_in(tmp.path());
+        let line = format!("2026-10-01T00:00:00Z Stop: {}\n", "x".repeat(300_000));
+        std::fs::write(state.join("hook-errors.log"), &line).expect("log");
+
+        let report = new_errors(&env).expect("the long line is reported");
+
+        assert!(
+            report.starts_with("Weigh-In: at least 1 hook error(s) since the last session")
+                && report.contains("(full log: "),
+            "{}",
+            clip(&report, 300)
         );
         assert_eq!(new_errors(&env), None, "reported once");
     }
