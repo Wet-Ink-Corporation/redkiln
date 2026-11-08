@@ -32,7 +32,7 @@ The per-plugin overrides (`WEIGHIN_STORE`, `ANNEAL_STORE`, `--store` on each CLI
 - Core's openers serialise on an advisory whole-file lock on `events.sqlite3.lock`, a file created beside the store on its first open and never deleted. The lock is held from reading the file's header to handing the connection over, and waited for at most the busy timeout, so a second first open never sets aside the live `-journal` of a creation in progress. It is created only once the header has passed ST-07's refusals, so a refused file gets nothing beside it. A file system without whole-file locks opens unlocked, as SQLite alone would.
 - Telemetry (EV-14) lives in a side store, `events.sqlite3.telemetry`, beside the store: a store of its own under these same rules, with its own `-journal` and `.lock`. Rows past the retention window are deleted from it, never from the store, and no file is deleted.
 
-R-SQLITE (eight concurrent writers, hooks included, on Linux and Windows) has not run yet. If it fails under TRUNCATE, Loop keeps its tier-2 events in its own WAL file and exports a journal into the log instead (Blueprint call 1); the rules here do not change.
+R-SQLITE (eight concurrent writers, hooks included) ran on 2026-11-08 on Linux, Windows and macOS against Core's own opener: under TRUNCATE no event was lost, duplicated or invented, nothing beside the store was deleted and no WAL appeared, so these rules stand and Loop gives up WAL for the log (Blueprint call 1). Its load findings, a writer that appends back to back starving hooks past ST-09's 2 seconds and an open that can wait several budgets, are in `spikes/r-sqlite/FINDINGS.md`, with a recommended give-way rule for ST-09 that waits on Ryan.
 
 ## Schema version
 
