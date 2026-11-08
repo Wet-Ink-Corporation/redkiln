@@ -53,6 +53,8 @@ jobs:
           workspaces: spikes/r-sqlite
       - name: Build
         run: cargo build --release --locked
+      - name: Test the harness's checks
+        run: cargo test --release --locked
       - name: Run
         env:
           SECONDS_PER_MIX: ${{ inputs.seconds || '30' }}

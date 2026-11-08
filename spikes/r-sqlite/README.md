@@ -1,6 +1,6 @@
 # R-SQLITE: eight writers on one TRUNCATE store
 
-The phase 0 spike the migration plan schedules before Move 2 (`references/docs/migration-plan.md:158`, `docs/plan/README.md`): eight concurrent writers, hooks included, on one store under SQLite's TRUNCATE journal, on Linux and Windows. Core 1.0 freezes ST-05 at Move 2, and Loop's store (Move 4) follows from the result (Blueprint call 1).
+The phase 0 spike the migration plan schedules before Move 2 (`references/docs/migration-plan.md:158`, `docs/plan/README.md`): eight concurrent writers, hooks included, on one store under SQLite's TRUNCATE journal, on Linux and Windows; this run adds macOS. Core 1.0 freezes ST-05 at Move 2, and Loop's store (Move 4) follows from the result (Blueprint call 1).
 
 Findings and the ST-05 recommendation: [FINDINGS.md](FINDINGS.md).
 
@@ -25,7 +25,7 @@ A standalone package with its own `[workspace]`: never a member of the suite's w
 
 256 is happenstance 0.4.5's `MAX_EVENTS_PER_BATCH`, so an import already writes in chunks.
 
-After each scenario it checks, as correctness: every writer reported every operation; positions run 1..N; every append a writer reported is stored exactly once and nothing else is; each claimed subject has one claim, and the store holds exactly the claims reported won; afterwards an empty `-journal`, no `-wal` or `-shm`, a rollback header; a watcher polling every millisecond never saw the `-journal` disappear or a `-wal`/`-shm` appear; `PRAGMA integrity_check` is `ok`. A write refused on a busy lock past its timeout is a load finding: reported with its latency, not a failed run.
+After each scenario it checks, as correctness: every writer reported every operation; positions run 1..N; every append a writer reported is stored exactly once and nothing else is; each claimed subject has one claim, and the store holds exactly the claims reported won; afterwards an empty `-journal`, no `-wal` or `-shm`, a rollback header; a watcher polling every millisecond never saw the `-journal` disappear or a `-wal`/`-shm` appear; `PRAGMA integrity_check` is `ok`. A write refused on a busy lock past its timeout (happenstance's `AppendError::Busy`, `OpenError::LockBusy`, SQLite's busy or locked code while opening) is a load finding, reported as `busy:` with its latency, not a failed run; any other failure, a writer that exits non-zero, or one that prints too few reports fails the run.
 
 ## Running it
 

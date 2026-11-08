@@ -306,6 +306,7 @@ name = "r-sqlite"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "happenstance-core",
  "happenstance-sqlite",
  "redkiln-core",
  "serde",

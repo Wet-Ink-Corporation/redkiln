@@ -2,18 +2,23 @@
 //!
 //! - `hook <writer> <seq> <outcome> <open_us> <append_us> <telemetry_us> <telemetry>`
 //! - `cmd <writer> <first_seq> <count> <outcome> <append_us>`
-//! - `race <writer> <claim> <won|lost|err:..> <append_us>`
+//! - `race <writer> <claim> <won|lost|outcome> <append_us>`
 //! - `open <writer> <outcome> <open_us>`
 //!
-//! An outcome is `ok` or `err:<message with spaces as underscores>`.
+//! An outcome is `ok`; `busy:<message>` for a refusal Core reports as written-nothing on a busy
+//! lock past the timeout (happenstance's `AppendError::Busy`, `OpenError::LockBusy`, or SQLite's
+//! busy or locked code while opening); or `err:<message>` for anything else. Messages have
+//! spaces and colons made underscores.
 
 use std::io::Write as _;
 use std::path::Path;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Context as _;
+use happenstance_core::AppendError;
+use happenstance_sqlite::rusqlite::{self, ErrorCode};
 use redkiln_core::envelope::Actor;
-use redkiln_core::store::{Appended, Recorded, Store, Wait};
+use redkiln_core::store::{Appended, OpenError, Recorded, Store, StoreError, Wait};
 
 use crate::args::Args;
 use crate::events::{appended, claimed, timed, unix_millis};
@@ -40,7 +45,7 @@ fn hook_body(path: &Path, writer: &str, seq: u64) -> anyhow::Result<String> {
     let mut store = match opened {
         Ok(store) => store,
         Err(error) => {
-            let message = outcome_err(&anyhow::Error::new(error).context("open"));
+            let message = store_outcome(error, "open");
             return Ok(format!("hook {writer} {seq} {message} {open_us} 0 0 none"));
         }
     };
@@ -48,11 +53,7 @@ fn hook_body(path: &Path, writer: &str, seq: u64) -> anyhow::Result<String> {
     let start = Instant::now();
     let written = store.append(vec![event], None);
     let append_us = micros(start.elapsed());
-    let outcome = match written {
-        Ok(Appended::At(_)) => "ok".to_owned(),
-        Ok(Appended::Conflict) => "err:unconditioned_conflict".to_owned(),
-        Err(error) => outcome_err(&anyhow::Error::new(error).context("append")),
-    };
+    let outcome = append_outcome(written, "append");
     let start = Instant::now();
     let recorded = store.record_telemetry(timed(append_us)?, SystemTime::now());
     let telemetry_us = micros(start.elapsed());
@@ -86,11 +87,7 @@ pub fn command(args: &Args) -> anyhow::Result<()> {
         let start = Instant::now();
         let written = store.append(events, None);
         let us = micros(start.elapsed());
-        let outcome = match written {
-            Ok(Appended::At(_)) => "ok".to_owned(),
-            Ok(Appended::Conflict) => "err:unconditioned_conflict".to_owned(),
-            Err(error) => outcome_err(&anyhow::Error::new(error)),
-        };
+        let outcome = append_outcome(written, "append");
         emit(&format!("cmd {writer} {seq} {batch} {outcome} {us}"))?;
         seq = seq.saturating_add(batch);
         std::thread::sleep(pause);
@@ -118,7 +115,7 @@ pub fn racer(args: &Args) -> anyhow::Result<()> {
         let outcome = match written {
             Ok(Appended::At(_)) => "won".to_owned(),
             Ok(Appended::Conflict) => "lost".to_owned(),
-            Err(error) => outcome_err(&anyhow::Error::new(error)),
+            Err(error) => store_outcome(error, "claim"),
         };
         emit(&format!("race {writer} {claim} {outcome} {us}"))?;
         claim = claim.saturating_add(1);
@@ -137,10 +134,52 @@ fn open_reported(path: &Path, writer: &str) -> anyhow::Result<Option<Store>> {
             Ok(Some(store))
         }
         Err(error) => {
-            let message = outcome_err(&anyhow::Error::new(error));
+            let message = store_outcome(error, "open");
             emit(&format!("open {writer} {message} {us}"))?;
             Ok(None)
         }
+    }
+}
+
+/// An unconditioned append's outcome: a conflict can only be a Core bug, so it is an error.
+fn append_outcome(written: Result<Appended, StoreError>, step: &str) -> String {
+    match written {
+        Ok(Appended::At(_)) => "ok".to_owned(),
+        Ok(Appended::Conflict) => "err:unconditioned_conflict".to_owned(),
+        Err(error) => store_outcome(error, step),
+    }
+}
+
+/// `busy:` for a refusal on a busy lock that wrote nothing, `err:` for anything else.
+fn store_outcome(error: StoreError, step: &str) -> String {
+    let busy = is_busy(&error);
+    let text = outcome_err(&anyhow::Error::new(error).context(step.to_owned()));
+    match (busy, text.strip_prefix("err:")) {
+        (true, Some(rest)) => format!("busy:{rest}"),
+        _ => text,
+    }
+}
+
+/// Whether Core refused on a busy lock past its timeout, having written nothing.
+pub fn is_busy(error: &StoreError) -> bool {
+    match error {
+        StoreError::Append(AppendError::Busy(_))
+        | StoreError::Open {
+            source: OpenError::LockBusy,
+            ..
+        } => true,
+        StoreError::Open {
+            source:
+                OpenError::Sqlite {
+                    source: rusqlite::Error::SqliteFailure(failure, _),
+                    ..
+                },
+            ..
+        } => matches!(
+            failure.code,
+            ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked
+        ),
+        _ => false,
     }
 }
 
@@ -176,4 +215,44 @@ fn outcome_err(error: &anyhow::Error) -> String {
 fn emit(line: &str) -> anyhow::Result<()> {
     let mut out = std::io::stdout().lock();
     writeln!(out, "{line}").context("writing to stdout")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unconditioned_conflict_is_an_error_not_busy() {
+        assert_eq!(
+            append_outcome(Ok(Appended::Conflict), "append"),
+            "err:unconditioned_conflict"
+        );
+    }
+
+    #[test]
+    fn a_lock_busy_open_is_busy_and_other_open_failures_are_errors() {
+        let busy = StoreError::Open {
+            path: "s".into(),
+            source: OpenError::LockBusy,
+        };
+        assert!(store_outcome(busy, "open").starts_with("busy:open_"));
+        let refused = StoreError::Open {
+            path: "s".into(),
+            source: OpenError::NotAStore,
+        };
+        assert!(store_outcome(refused, "open").starts_with("err:open_"));
+    }
+
+    #[test]
+    fn a_sqlite_busy_while_opening_is_busy() {
+        let failure = rusqlite::ffi::Error::new(5);
+        let busy = StoreError::Open {
+            path: "s".into(),
+            source: OpenError::Sqlite {
+                step: redkiln_core::store::Step::Connect,
+                source: rusqlite::Error::SqliteFailure(failure, None),
+            },
+        };
+        assert!(is_busy(&busy));
+    }
 }

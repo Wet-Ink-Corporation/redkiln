@@ -2,7 +2,7 @@
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{Child, Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,7 @@ use anyhow::{Context as _, bail};
 use crate::args::Args;
 use crate::events::unix_millis;
 use crate::report::{Report, ScenarioResult};
-use crate::verify::{Ops, verify};
+use crate::verify::{Ops, Writer, verify};
 
 /// How long after spawning the writers they all start, so that process start-up does not
 /// stagger them.
@@ -138,21 +138,19 @@ fn fresh_store(dir: &Path, name: &str) -> anyhow::Result<PathBuf> {
 /// Eight hook processes open a store that does not exist yet, at the same millisecond.
 fn cold_start(exe: &Path, store: &Path, round: u32) -> anyhow::Result<ScenarioResult> {
     let at = unix_millis()?.saturating_add(millis(BARRIER));
-    let children = (0..8)
-        .map(|n| {
-            hook_command(exe, store, &format!("h{n}"), u64::from(round))
-                .arg("--at")
-                .arg(at.to_string())
-                .stdout(Stdio::piped())
-                .spawn()
-                .context("spawning a hook")
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let mut ops = Ops::default();
-    for child in children {
-        let output = child.wait_with_output().context("waiting for a hook")?;
-        ops.parse(&output.stdout, None)?;
+    let mut fleet = Fleet::default();
+    for n in 0..8 {
+        let child = hook_command(exe, store, &format!("h{n}"), u64::from(round))
+            .arg("--at")
+            .arg(at.to_string())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("spawning a hook")?;
+        fleet.push(child, Writer::Hook { wall: None });
     }
+    let mut ops = Ops::default();
+    fleet.finish(&mut ops)?;
     Ok(verify(
         store,
         &format!("cold start round {round}"),
@@ -188,18 +186,27 @@ fn mixed(exe: &Path, store: &Path, mix: &Mix, seconds: u64) -> anyhow::Result<Sc
             .name("watch".to_owned())
             .spawn_scoped(scope, || crate::verify::watch(store, &stop))
             .context("starting the watcher")?;
+        // Stops the watcher on every way out of this closure, so the scope's join of it ends.
+        let stopping = Stop(&stop);
         let shared = Shared {
             exe,
             store,
             at,
             deadline,
         };
-        let mut long = Vec::new();
+        // Kills and reaps every writer still running if anything below returns early.
+        let mut long = Fleet::default();
         for n in 0..mix.commands {
-            long.push(long_lived(shared, "command", &format!("c{n}"), mix)?);
+            long.push(
+                long_lived(shared, "command", &format!("c{n}"), mix)?,
+                Writer::LongLived,
+            );
         }
         for n in 0..mix.racers {
-            long.push(long_lived(shared, "racer", &format!("r{n}"), mix)?);
+            long.push(
+                long_lived(shared, "racer", &format!("r{n}"), mix)?,
+                Writer::LongLived,
+            );
         }
         let lanes = (0..mix.hooks)
             .map(|n| {
@@ -212,21 +219,17 @@ fn mixed(exe: &Path, store: &Path, mix: &Mix, seconds: u64) -> anyhow::Result<Sc
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
         let mut ops = Ops::default();
-        for child in long {
-            let output = child.wait_with_output().context("waiting for a writer")?;
-            ops.parse(&output.stdout, None)?;
-        }
+        long.finish(&mut ops)?;
         for lane in lanes {
-            let lane_ops = lane
-                .join()
-                .map_err(|_| anyhow::anyhow!("a hook lane panicked"))??;
-            ops.merge(lane_ops);
+            match lane.join() {
+                Ok(lane_ops) => ops.merge(lane_ops?),
+                Err(_panic) => ops.lost("a hook lane panicked".to_owned()),
+            }
         }
-        // The watcher only reads; Relaxed is enough for a stop flag joined right after.
-        stop.store(true, Ordering::Relaxed);
+        drop(stopping);
         let watch = watcher
             .join()
-            .map_err(|_| anyhow::anyhow!("the watcher panicked"))?;
+            .map_err(|_panic| anyhow::anyhow!("the watcher panicked"))?;
         Ok((ops, watch))
     })?;
     Ok(verify(store, mix.name, ops, Some(watch)))
@@ -267,6 +270,7 @@ fn long_lived(
         .arg("--batch")
         .arg(mix.batch.to_string())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("spawning {kind} {writer}"))
 }
@@ -284,11 +288,56 @@ fn hook_lane(shared: Shared<'_>, writer: &str, pause_ms: u64) -> anyhow::Result<
             .output()
             .context("running a hook")?;
         let wall = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
-        ops.parse(&output.stdout, Some(wall))?;
+        ops.parse(&output, Writer::Hook { wall: Some(wall) })?;
         seq = seq.saturating_add(1);
         std::thread::sleep(Duration::from_millis(pause_ms));
     }
     Ok(ops)
+}
+
+/// Sets the watcher's stop flag when dropped.
+struct Stop<'a>(&'a AtomicBool);
+
+impl Drop for Stop<'_> {
+    fn drop(&mut self) {
+        // The watcher only reads; Relaxed is enough for a stop flag the scope joins right after.
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Writer processes this run owns: `finish` waits for each and reads its output; any still
+/// held when the fleet is dropped (an early return) are killed and reaped.
+#[derive(Default)]
+struct Fleet(Vec<(Child, Writer)>);
+
+impl Fleet {
+    fn push(&mut self, child: Child, writer: Writer) {
+        self.0.push((child, writer));
+    }
+
+    fn finish(mut self, ops: &mut Ops) -> anyhow::Result<()> {
+        while let Some((child, writer)) = self.0.pop() {
+            match child.wait_with_output() {
+                Ok(output) => ops.parse(&output, writer)?,
+                Err(error) => ops.lost(format!("waiting for a writer: {error}")),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for Fleet {
+    fn drop(&mut self) {
+        for (child, _) in &mut self.0 {
+            let reaped = child.kill().and_then(|()| child.wait().map(drop));
+            if let Err(error) = reaped {
+                let mut err = std::io::stderr().lock();
+                if writeln!(err, "r-sqlite: could not stop a writer: {error}").is_err() {
+                    // stderr is gone too: there is nowhere left to say it.
+                }
+            }
+        }
+    }
 }
 
 fn millis(duration: Duration) -> u64 {

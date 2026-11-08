@@ -22,7 +22,7 @@ Each later move gets its own runbook here when it is next, written from its plug
 | Move 4, Loop | M5, `build/phase-0-to-1` on `main` (#24), #79 checklists | Not clear: s8j in progress, branch not landed | redkiln-rs #24, #79 |
 | Rust 2.0 | temper 1.4.0 and Core 1.0 | temper side ready: 1.6.0 released, port paused after Phase 3, plan amended for the monorepo and an import manifest written (wi-187aa7, wi-14cf95). temper frozen since 2026-11-08. Imported right after Move 2 (Core 1.0), before Move 3 (Ryan, 2026-11-08; `docs/decisions.md`) | [rust-2.md](rust-2.md); temper `ab78a31`, `docs/plans/redkiln-move.md` |
 
-Of the two open spikes, neither gates Move 1 (the runbook says why, under Preconditions). R-SQLITE, which had to run before Move 2 because Core 1.0 freezes ST-05 there, ran on 2026-11-08: ST-05 stands and Loop gives up WAL for the log. It leaves Move 2 two Core items, a give-way rule for repeated writers (an ST-09 amendment, Ryan's call) and a single deadline for the opener (`spikes/r-sqlite/FINDINGS.md`).
+Of the two open spikes, neither gates Move 1 (the runbook says why, under Preconditions). R-SQLITE, which had to run before Move 2 because Core 1.0 freezes ST-05 there, ran on 2026-11-08: ST-05 stands and Loop gives up WAL for the log. It leaves Move 2 two Core items, a give-way rule for repeated writers (ST-09, chosen by Ryan on 2026-11-08) and a single deadline for the opener (`spikes/r-sqlite/FINDINGS.md`).
 
 ## What later decisions changed in the frozen plan
 

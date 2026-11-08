@@ -1,8 +1,10 @@
 //! What the writers reported, what the store holds afterwards, and whether the two agree.
 
 use std::collections::BTreeMap;
+use std::io::Read as _;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::process::Output;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -62,27 +64,63 @@ pub struct Ops {
     pub garbled: Vec<String>,
 }
 
+/// Which writer process an output came from.
+#[derive(Debug, Clone, Copy)]
+pub enum Writer {
+    /// A hook process, which prints exactly one hook line; `wall` is its spawn-to-exit time
+    /// when a lane measured it.
+    Hook { wall: Option<u64> },
+    /// A command or racer, which reports its open once and then each operation.
+    LongLived,
+}
+
 /// A numeric field, or `None` when it is not one: the line is then counted as garbled.
 fn num(field: &str) -> Option<u64> {
     field.parse::<u64>().ok()
 }
 
 impl Ops {
-    /// Reads a writer's stdout. `wall` is a hook lane's spawn-to-exit time for the one hook line
-    /// it expects; a hook that printed nothing is counted as garbled.
-    pub fn parse(&mut self, stdout: &[u8], wall: Option<u64>) -> anyhow::Result<()> {
-        let text = std::str::from_utf8(stdout).context("a writer's output is not UTF-8")?;
-        let before = self.hooks.len();
+    /// Reads one writer process's output. A process that did not exit successfully, a line that
+    /// does not parse, a hook process that did not print exactly one hook line, and a
+    /// long-lived writer that did not report its open are all counted as garbled.
+    pub fn parse(&mut self, output: &Output, writer: Writer) -> anyhow::Result<()> {
+        let text = std::str::from_utf8(&output.stdout).context("a writer's output is not UTF-8")?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let tail: Vec<&str> = stderr.lines().rev().take(3).collect();
+            self.garbled.push(format!(
+                "a writer exited with {}: {}",
+                output.status,
+                tail.join(" / ")
+            ));
+        }
+        let wall = match writer {
+            Writer::Hook { wall } => wall,
+            Writer::LongLived => None,
+        };
+        let (hooks, opens) = (self.hooks.len(), self.opens.len());
         for line in text.lines() {
             if !self.parse_line(line, wall) {
                 self.garbled.push(line.to_owned());
             }
         }
-        if wall.is_some() && self.hooks.len() == before {
-            self.garbled
-                .push("a hook process printed no report".to_owned());
+        let printed_hooks = self.hooks.len().saturating_sub(hooks);
+        let printed_opens = self.opens.len().saturating_sub(opens);
+        match writer {
+            Writer::Hook { .. } if printed_hooks != 1 => self.garbled.push(format!(
+                "a hook process printed {printed_hooks} reports, not 1"
+            )),
+            Writer::LongLived if printed_opens != 1 => self.garbled.push(format!(
+                "a long-lived writer reported {printed_opens} opens, not 1"
+            )),
+            Writer::Hook { .. } | Writer::LongLived => {}
         }
         Ok(())
+    }
+
+    /// Records a writer that could not be run or waited for.
+    pub fn lost(&mut self, what: String) {
+        self.garbled.push(what);
     }
 
     fn parse_line(&mut self, line: &str, wall: Option<u64>) -> bool {
@@ -195,7 +233,11 @@ pub fn verify(store: &Path, name: &str, ops: Ops, watch: Option<Watch>) -> Scena
     } else {
         Check::fail(REPORTED, ops.garbled.join("; "))
     };
-    let mut checks = vec![reported, no_failed_writes(&ops)];
+    let mut checks = vec![
+        reported,
+        outcomes(&ops, "err:", ERRORS),
+        outcomes(&ops, "busy:", BUSY).load(),
+    ];
     match read_all(store) {
         Ok(events) => {
             checks.push(contiguous(&events));
@@ -223,9 +265,12 @@ fn bump<K: Ord>(map: &mut BTreeMap<K, u64>, key: K) {
 
 const REPORTED: &str = "every writer process reported every operation (none crashed)";
 
-const WRITES: &str = "every open and write succeeded, or lost a claim cleanly";
+const ERRORS: &str = "no open or write failed other than on a busy lock";
 
-fn no_failed_writes(ops: &Ops) -> Check {
+const BUSY: &str = "no open or write refused on a busy lock past its timeout";
+
+/// Every outcome starting with `prefix`, counted by message: none passes.
+fn outcomes(ops: &Ops, prefix: &str, name: &'static str) -> Check {
     let mut failures: BTreeMap<&str, u64> = BTreeMap::new();
     let outcomes = ops
         .hooks
@@ -235,18 +280,18 @@ fn no_failed_writes(ops: &Ops) -> Check {
         .chain(ops.races.iter().map(|r| r.outcome.as_str()))
         .chain(ops.opens.iter().map(|o| o.outcome.as_str()))
         .chain(ops.hooks.iter().map(|h| h.telemetry.as_str()));
-    for outcome in outcomes.filter(|o| o.starts_with("err:")) {
+    for outcome in outcomes.filter(|o| o.starts_with(prefix)) {
         bump(&mut failures, outcome);
     }
     if failures.is_empty() {
-        Check::pass(WRITES, String::new()).load()
+        Check::pass(name, String::new())
     } else {
         let detail = failures
             .iter()
             .map(|(message, count)| format!("{count} x {message}"))
             .collect::<Vec<_>>()
             .join("; ");
-        Check::fail(WRITES, detail).load()
+        Check::fail(name, detail)
     }
 }
 
@@ -294,14 +339,16 @@ const APPENDS: &str = "every reported append is stored exactly once, and nothing
 /// Every append a writer reported as written is in the store once, and nothing else is.
 fn appends_match(events: &[Stored], ops: &Ops) -> Check {
     let mut stored: BTreeMap<(&str, u64), u64> = BTreeMap::new();
-    for event in events
-        .iter()
-        .filter(|e| e.event_type == "loop.spike_appended")
-    {
+    // Every event is an append with readable writer and seq tags or a claim with a subject;
+    // anything else was written by no writer here and counts against "nothing else".
+    let mut unrecognised = 0_usize;
+    for event in events {
         let writer = tag_value(event, WRITER_KEY);
         let seq = tag_value(event, SEQ_KEY).and_then(num);
-        if let Some(key) = writer.zip(seq) {
-            bump(&mut stored, key);
+        match (event.event_type.as_str(), writer.zip(seq)) {
+            ("loop.spike_appended", Some(key)) => bump(&mut stored, key),
+            ("loop.spike_claimed", _) if tag_value(event, CLAIM_KEY).is_some() => {}
+            _ => unrecognised = unrecognised.saturating_add(1),
         }
     }
     let mut reported: Vec<(&str, u64)> = ops
@@ -319,11 +366,11 @@ fn appends_match(events: &[Stored], ops: &Ops) -> Check {
     let found = reported.len().saturating_sub(missing);
     let extra = stored.len().saturating_sub(found);
     let detail = format!(
-        "{} reported, {} stored, {missing} missing, {duplicated} duplicated, {extra} stored but reported failed",
+        "{} reported, {} stored, {missing} missing, {duplicated} duplicated, {extra} stored but reported failed, {unrecognised} unrecognised",
         reported.len(),
         stored.len()
     );
-    if missing == 0 && duplicated == 0 && extra == 0 {
+    if missing == 0 && duplicated == 0 && extra == 0 && unrecognised == 0 {
         Check::pass(APPENDS, detail)
     } else {
         Check::fail(APPENDS, detail)
@@ -362,9 +409,11 @@ fn layout(store: &Path) -> Check {
     let journal = std::fs::metadata(sibling(store, "-journal")).map(|m| m.len());
     let wal = sibling(store, "-wal").exists();
     let shm = sibling(store, "-shm").exists();
-    let header = match std::fs::read(store) {
-        Ok(bytes) => bytes.get(18..20).map(<[u8]>::to_vec),
-        Err(error) => return Check::fail(LAYOUT, format!("reading the store: {error}")),
+    let mut first = [0_u8; 100];
+    let read = std::fs::File::open(store).and_then(|mut file| file.read_exact(&mut first));
+    let header = match read {
+        Ok(()) => first.get(18..20).map(<[u8]>::to_vec),
+        Err(error) => return Check::fail(LAYOUT, format!("reading the store's header: {error}")),
     };
     let journal_text = match &journal {
         Ok(len) => format!("{len} bytes"),
@@ -404,5 +453,167 @@ fn integrity(store: &Path) -> Check {
         Ok(text) if text == "ok" => Check::pass("PRAGMA integrity_check", text),
         Ok(text) => Check::fail("PRAGMA integrity_check", text),
         Err(error) => Check::fail("PRAGMA integrity_check", error.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::raw::c_int;
+    use std::process::ExitStatus;
+
+    use happenstance_core::{EventId, SequencePosition, StoreId};
+
+    use super::*;
+    use crate::events::tag;
+
+    fn stored(position: u64, event_type: &str, tags: &[(&str, &str)]) -> Stored {
+        let at = SequencePosition::new(position).expect("positions start at 1");
+        Stored {
+            position,
+            id: EventId::new(StoreId::from_bytes([7; 16]), at),
+            recorded_at_millis: 0,
+            event_type: event_type.to_owned(),
+            data: Vec::new(),
+            tags: tags
+                .iter()
+                .map(|(k, v)| tag(k, v).expect("a valid tag"))
+                .collect(),
+        }
+    }
+
+    fn append(position: u64, writer: &str, seq: &str) -> Stored {
+        stored(
+            position,
+            "loop.spike_appended",
+            &[(WRITER_KEY, writer), (SEQ_KEY, seq)],
+        )
+    }
+
+    fn claim(position: u64, subject: &str) -> Stored {
+        stored(position, "loop.spike_claimed", &[(CLAIM_KEY, subject)])
+    }
+
+    fn ops_of(lines: &str) -> Ops {
+        let mut ops = Ops::default();
+        for line in lines.lines() {
+            assert!(ops.parse_line(line, None), "parses: {line}");
+        }
+        ops
+    }
+
+    fn passed(check: &Check) -> bool {
+        check.passed
+    }
+
+    #[test]
+    fn appends_that_match_their_reports_pass() {
+        let ops = ops_of("hook h0 0 ok 1 1 1 written\ncmd c0 0 2 ok 1");
+        let events = [
+            append(1, "h0", "0"),
+            append(2, "c0", "0"),
+            append(3, "c0", "1"),
+        ];
+        assert!(passed(&appends_match(&events, &ops)));
+        assert!(passed(&contiguous(&events)));
+    }
+
+    #[test]
+    fn a_reported_append_missing_from_the_store_fails() {
+        let ops = ops_of("cmd c0 0 2 ok 1");
+        assert!(!passed(&appends_match(&[append(1, "c0", "0")], &ops)));
+    }
+
+    #[test]
+    fn an_append_stored_twice_fails() {
+        let ops = ops_of("hook h0 0 ok 1 1 1 written");
+        let events = [append(1, "h0", "0"), append(2, "h0", "0")];
+        assert!(!passed(&appends_match(&events, &ops)));
+    }
+
+    #[test]
+    fn an_append_stored_though_reported_failed_fails() {
+        let ops = ops_of("hook h0 0 busy:append 1 1 1 written");
+        assert!(!passed(&appends_match(&[append(1, "h0", "0")], &ops)));
+    }
+
+    #[test]
+    fn an_event_no_writer_wrote_fails() {
+        let ops = ops_of("hook h0 0 ok 1 1 1 written");
+        let events = [append(1, "h0", "0"), stored(2, "loop.spike_other", &[])];
+        assert!(!passed(&appends_match(&events, &ops)));
+        let unreadable = [append(1, "h0", "0"), append(2, "h0", "x")];
+        assert!(!passed(&appends_match(&unreadable, &ops)));
+    }
+
+    #[test]
+    fn a_gap_in_positions_fails() {
+        assert!(!passed(&contiguous(&[
+            append(1, "h0", "0"),
+            append(3, "h0", "1")
+        ])));
+    }
+
+    #[test]
+    fn claims_pass_with_one_winner_and_fail_otherwise() {
+        let ops = ops_of("race r0 0 won 1\nrace r1 0 lost 1");
+        assert!(passed(&claims_once(&[claim(1, "0")], &ops)));
+        assert!(!passed(&claims_once(&[claim(1, "0"), claim(2, "0")], &ops)));
+        assert!(!passed(&claims_once(&[], &ops)), "won but nothing stored");
+    }
+
+    #[test]
+    fn errors_fail_the_run_and_busy_refusals_are_load() {
+        let ops =
+            ops_of("hook h0 0 err:open_journal 1 0 0 none\nhook h1 0 busy:append 1 1 1 written");
+        let errors = outcomes(&ops, "err:", ERRORS);
+        let busy = outcomes(&ops, "busy:", BUSY).load();
+        assert!(!passed(&errors));
+        assert_eq!(errors.kind, crate::report::Kind::Correctness);
+        assert!(!passed(&busy));
+        assert_eq!(busy.kind, crate::report::Kind::Load);
+    }
+
+    fn output(code: c_int, stdout: &str) -> Output {
+        Output {
+            status: exit_status(code),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: b"boom".to_vec(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn exit_status(code: c_int) -> ExitStatus {
+        use std::os::unix::process::ExitStatusExt;
+        ExitStatus::from_raw(code << 8)
+    }
+
+    #[cfg(windows)]
+    fn exit_status(code: c_int) -> ExitStatus {
+        use std::os::windows::process::ExitStatusExt;
+        ExitStatus::from_raw(code.unsigned_abs())
+    }
+
+    #[test]
+    fn a_crashed_or_silent_writer_is_garbled() {
+        let mut ops = Ops::default();
+        ops.parse(
+            &output(0, "hook h0 0 ok 1 1 1 written\n"),
+            Writer::Hook { wall: None },
+        )
+        .expect("utf-8");
+        assert!(ops.garbled.is_empty());
+        ops.parse(&output(0, ""), Writer::Hook { wall: None })
+            .expect("utf-8");
+        assert_eq!(ops.garbled.len(), 1, "a hook that printed nothing");
+        ops.parse(&output(101, "open c0 ok 1\n"), Writer::LongLived)
+            .expect("utf-8");
+        assert_eq!(ops.garbled.len(), 2, "a writer that exited non-zero");
+        ops.parse(&output(0, "cmd c0 0 1 ok 1\n"), Writer::LongLived)
+            .expect("utf-8");
+        assert_eq!(
+            ops.garbled.len(),
+            3,
+            "a writer that never reported its open"
+        );
     }
 }

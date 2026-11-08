@@ -70,7 +70,7 @@ fn ts() -> anyhow::Result<Timestamp> {
     Timestamp::parse("2026-11-08T00:00:00Z").context("timestamp")
 }
 
-fn tag(key: &str, value: &str) -> anyhow::Result<Tag> {
+pub fn tag(key: &str, value: &str) -> anyhow::Result<Tag> {
     let name = key.strip_prefix("loop.").context("a loop. key")?;
     Tag::namespaced(Namespace::Loop, name, value).with_context(|| format!("tag {key}"))
 }

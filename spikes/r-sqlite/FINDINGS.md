@@ -17,7 +17,7 @@ Over the four runs: about 5.9 million durable events, every one a writer reporte
 
 ## Load: where hooks miss 2 s
 
-Hook durable path is `Store::open` under `Wait::Hook` plus one `append`, inside a fresh process. Counts are hooks over 2 s (refused) out of all hooks in the 30 s scenario; p99 is the open + append time in ms.
+Hook durable path is `Store::open` under `Wait::Hook` plus one `append`, inside a fresh process. Counts are hooks whose open + append took over 2 s, out of all hooks in the 30 s scenario; p99 is the open + append time in ms. Open and append each have their own 2 s budget, so a hook can pass 2 s in total without being refused: the refusals in the failing rows were 19 and 38 (Linux), 7 and 27 (Windows), 33 and 16 plus 3 refused opens (macOS).
 
 | Scenario (8 writers) | Linux CI | Windows | macOS |
 |---|---|---|---|
@@ -50,7 +50,7 @@ With eight hooks and nothing else writing, the no-wait telemetry write (ST-09, E
 4. **Opener (Core, Move 2): one deadline for the whole open, and no lock where none is needed.** Give the open a single deadline that every statement in it shares, so an open waits at most its budget. Take the open lock only when the header shows a missing, empty, unstamped or WAL file, or a `-wal`/`-journal` to set aside, and not for a stamped rollback store at its recorded path. Both are inside `store/open.rs`, need no API change, and keep ST-05's guarantees (the creation race is the case the lock is for).
 5. **EV-14: say that telemetry is a sample.** Readers report the drop count beside any figure built from telemetry and never treat it as complete. No behaviour change.
 
-Items 1, 2 and 5 are text. Items 3 and 4 are Core work for Move 2, before the freeze, and 3 is a SPEC amendment (ST-09 is not a one-way item, but it binds every plugin), so it is Ryan's call.
+Items 1, 2 and 5 are text. Items 3 and 4 are Core work for Move 2, before the freeze. Item 3 is a SPEC amendment that binds every plugin: Ryan chose it on 2026-11-08, and ST-09 now carries the rule (`docs/decisions.md`).
 
 ## Not covered
 

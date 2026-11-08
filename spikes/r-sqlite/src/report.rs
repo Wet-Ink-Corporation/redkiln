@@ -247,3 +247,38 @@ fn percentile(sorted: &[u64], p: u64) -> Option<u64> {
 fn format_ms(micros: u64) -> String {
     format!("{}.{:01}", micros / 1000, (micros % 1000) / 100)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentile_is_nearest_rank_and_none_when_empty() {
+        assert_eq!(percentile(&[], 50), None);
+        assert_eq!(percentile(&[7], 50), Some(7));
+        assert_eq!(percentile(&[7], 100), Some(7));
+        let hundred: Vec<u64> = (1..=100).collect();
+        assert_eq!(percentile(&hundred, 50), Some(50));
+        assert_eq!(percentile(&hundred, 99), Some(99));
+        assert_eq!(percentile(&hundred, 100), Some(100));
+    }
+
+    #[test]
+    fn milliseconds_keep_one_decimal() {
+        assert_eq!(format_ms(2_004_600), "2004.6");
+        assert_eq!(format_ms(999), "0.9");
+    }
+
+    #[test]
+    fn only_a_failed_correctness_check_fails_the_run() {
+        let result = |checks| ScenarioResult {
+            name: "s".to_owned(),
+            ops: Ops::default(),
+            checks,
+        };
+        let load = result(vec![Check::fail("busy", String::new()).load()]);
+        assert!(load.passed() && !load.clean());
+        let broken = result(vec![Check::fail("lost", String::new())]);
+        assert!(!broken.passed());
+    }
+}
