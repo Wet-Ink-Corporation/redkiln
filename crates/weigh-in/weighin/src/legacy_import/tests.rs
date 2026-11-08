@@ -1,5 +1,7 @@
 use std::fs::File;
 
+use crate::env::Harness;
+
 use redkiln_core::envelope::{Actor, Envelope};
 use redkiln_core::ids::parse_event_ref;
 use redkiln_core::journal::{Mapped, import_mapped};
@@ -380,11 +382,30 @@ fn a_command_does_not_repeat_a_journal_over_the_cap() {
     let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
 
     assert_eq!(
-        command_notes(&report),
+        command_notes(&report, Harness::ClaudeCode),
         Vec::<String>::new(),
         "told at session start, not by every command (wi-fd5345)"
     );
     assert!(notes(&report).iter().any(|n| n.contains("not imported")));
+}
+
+#[test]
+fn a_command_outside_a_claude_code_session_tells_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    for harness in [Harness::Other, Harness::Cowork] {
+        let told = command_notes(&report, harness);
+        assert_eq!(
+            told,
+            notes(&report),
+            "{harness:?}: no session start imports there (review round 4 F1)"
+        );
+        assert!(told.iter().any(|n| n.contains("not imported")), "{told:?}");
+    }
 }
 
 #[test]
@@ -400,7 +421,7 @@ fn a_command_does_not_repeat_a_ledger_that_fails_to_read() {
 
     assert_eq!(report.waiting, Some(Waiting::Ledger));
     assert_eq!(
-        command_notes(&report),
+        command_notes(&report, Harness::ClaudeCode),
         Vec::<String>::new(),
         "neither the ledger nor the journals it holds back (wi-fd5345)"
     );
@@ -425,7 +446,7 @@ fn a_command_tells_a_failing_ledger_when_session_start_cannot_reach_it() {
     let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
 
     assert_eq!(report.waiting, Some(Waiting::Ledger));
-    let told = command_notes(&report);
+    let told = command_notes(&report, Harness::ClaudeCode);
     assert_eq!(told, notes(&report), "told nowhere else (review F1)");
     assert!(
         told.iter().any(|n| n.contains("could not import")),
@@ -507,7 +528,7 @@ fn failed(kind: SourceKind, decided: Decided, waiting: Option<Waiting>) -> Legac
 fn a_command_tells_a_journal_that_failed_while_importing() {
     let report = failed(SourceKind::Journal, Decided::ByImport, None);
 
-    let told = command_notes(&report);
+    let told = command_notes(&report, Harness::ClaudeCode);
 
     assert_eq!(
         told,
@@ -524,7 +545,7 @@ fn a_command_tells_a_journal_that_failed_while_importing() {
 fn a_command_tells_a_ledger_that_failed_while_importing_and_what_it_holds_back() {
     let report = failed(SourceKind::Ledger, Decided::ByImport, Some(Waiting::Ledger));
 
-    let told = command_notes(&report);
+    let told = command_notes(&report, Harness::ClaudeCode);
 
     assert_eq!(told, notes(&report));
     assert!(told.iter().any(|n| n.contains("wait until")), "{told:?}");
@@ -539,8 +560,14 @@ fn a_command_leaves_out_a_source_that_failed_before_importing() {
     );
     let journal = failed(SourceKind::Journal, Decided::BeforeImport, None);
 
-    assert_eq!(command_notes(&ledger), Vec::<String>::new());
-    assert_eq!(command_notes(&journal), Vec::<String>::new());
+    assert_eq!(
+        command_notes(&ledger, Harness::ClaudeCode),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        command_notes(&journal, Harness::ClaudeCode),
+        Vec::<String>::new()
+    );
 }
 
 #[test]
@@ -557,7 +584,10 @@ fn a_command_leaves_out_the_journals_a_failing_ledger_holds_back_past_the_file_c
     let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
 
     assert_eq!((report.waiting, report.left), (Some(Waiting::Ledger), 1));
-    assert_eq!(command_notes(&report), Vec::<String>::new());
+    assert_eq!(
+        command_notes(&report, Harness::ClaudeCode),
+        Vec::<String>::new()
+    );
     let told = notes(&report);
     assert!(
         told.iter()
@@ -573,7 +603,7 @@ fn a_command_still_tells_the_ledger_it_imports() {
 
     let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
 
-    let told = command_notes(&report);
+    let told = command_notes(&report, Harness::ClaudeCode);
     assert_eq!(told, notes(&report));
     assert!(
         told.iter()

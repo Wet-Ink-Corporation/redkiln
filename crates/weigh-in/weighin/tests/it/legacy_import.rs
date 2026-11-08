@@ -335,8 +335,9 @@ fn a_source_that_stays_due_is_told_at_session_start_not_by_every_command() -> Te
     // Over the 32 MiB a journal is read up to: no run ever imports it.
     sparse_journal(&repo.root, "big.jsonl", 32 * 1024 * 1024 + 1)?;
 
-    let open = repo.run("s1", &["open"], None)?;
-    let again = repo.run("s1", &["open"], None)?;
+    // Commands run inside the Claude Code session whose SessionStart imports.
+    let open = repo.run_with("s1", &["open"], (ENTRYPOINT, "cli"))?;
+    let again = repo.run_with("s1", &["open"], (ENTRYPOINT, "cli"))?;
     let started = session_start(&repo)?.to_string();
 
     assert!(open.status.success() && again.status.success());
@@ -355,6 +356,30 @@ fn a_source_that_stays_due_is_told_at_session_start_not_by_every_command() -> Te
         !started.contains("next weighin command imports"),
         "no command imports it either: {started}"
     );
+    Ok(())
+}
+
+/// The variable Claude Code sets in its sessions, naming how it was started.
+const ENTRYPOINT: &str = "CLAUDE_CODE_ENTRYPOINT";
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_command_where_no_session_start_imports_tells_a_source_that_stays_due() -> TestResult {
+    let repo = Repo::new(true)?;
+    sparse_journal(&repo.root, "big.jsonl", 32 * 1024 * 1024 + 1)?;
+
+    // A terminal or another harness (the entrypoint removed), then Cowork's workspace.
+    let plain = repo.run("s1", &["open"], None)?;
+    let cowork = repo.run_with("s1", &["open"], (ENTRYPOINT, "remote_cowork"))?;
+
+    for (out, place) in [(&plain, "no Claude Code session"), (&cowork, "Cowork")] {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{place}: {stderr}");
+        assert!(
+            stderr.contains("big.jsonl") && stderr.contains("not imported"),
+            "{place}: told nowhere else (review round 4 F1): {stderr}"
+        );
+    }
     Ok(())
 }
 

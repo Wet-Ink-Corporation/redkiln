@@ -527,13 +527,15 @@ fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Vec<Str
     (result, warnings)
 }
 
-/// The 1.x import's notes as a command's warnings, less a source that stays due, which
-/// `SessionStart` tells (wi-fd5345); a failure is one warning, and the command goes on (it stops
-/// itself if it cannot open the store).
+/// The 1.x import's notes as a command's warnings, in a Claude Code session less a source that
+/// stays due, which its `SessionStart` tells (wi-fd5345); a failure is one warning, and the
+/// command goes on (it stops itself if it cannot open the store).
 fn legacy_warnings(env: &Env) -> Vec<String> {
     match legacy_import::import_due(env, legacy_import::Mode::Command, "cli") {
         Ok(legacy_import::Legacy::NothingDue) => Vec::new(),
-        Ok(legacy_import::Legacy::Ran(report)) => legacy_import::command_notes(&report),
+        Ok(legacy_import::Legacy::Ran(report)) => {
+            legacy_import::command_notes(&report, env::harness())
+        }
         Err(e) => vec![format!("the weighin 1.x import did not run: {e:#}")],
     }
 }

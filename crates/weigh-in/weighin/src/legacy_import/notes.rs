@@ -1,6 +1,8 @@
 //! What the user hears of a 1.x import: one line per thing to know, and the skipped records for
 //! the hook error log.
 
+use crate::env::Harness;
+
 use super::{
     Decided, LegacyReport, MAX_JOURNAL_FILE_BYTES, MAX_JOURNAL_FILES, SourceKind, SourceOutcome,
     SourceRun, Waiting,
@@ -13,29 +15,34 @@ use super::{
 /// journal pulled later would otherwise put a line on whichever command ran next. `weighin
 /// journal import --json` lists every source.
 pub(crate) fn notes(report: &LegacyReport) -> Vec<String> {
-    told(report, Standing::Told)
+    told(report, Surface::SessionStart)
 }
 
-/// [`notes`] less those of a source that stays due: one no run completes, which `SessionStart`
-/// tells once per session start rather than every command (wi-fd5345). What this run imported,
-/// and what the next run imports, is still said; and when the due sources are more than a
-/// session start imports, so it never reaches them, every note is (review F1).
-pub(crate) fn command_notes(report: &LegacyReport) -> Vec<String> {
-    told(report, Standing::Left)
+/// What a command run in `harness` says of `report`. Inside a Claude Code session, whose
+/// `SessionStart` imports and tells a source that stays due once per session start, it is
+/// [`notes`] less those (wi-fd5345); what this run imported, and what the next run imports, is
+/// still said, and when the due sources are more than a session start imports, so it never
+/// reaches them, every note is (review F1). Anywhere else, Cowork included, where no
+/// `SessionStart` imports, a command tells every note (review round 4 F1).
+pub(crate) fn command_notes(report: &LegacyReport, harness: Harness) -> Vec<String> {
+    match harness {
+        Harness::ClaudeCode => told(report, Surface::Command),
+        Harness::Cowork | Harness::Other => notes(report),
+    }
 }
 
-/// Whether the notes tell of a source that stays due ([`stays_due`]), and of the journals such
-/// a ledger holds back.
+/// Who hears the notes: `SessionStart` tells a source that stays due ([`stays_due`]) and the
+/// journals such a ledger holds back; a command in a Claude Code session leaves them to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Standing {
-    Told,
-    Left,
+enum Surface {
+    SessionStart,
+    Command,
 }
 
-/// The notes of `report`, those of a source that stays due as `standing` says.
-fn told(report: &LegacyReport, standing: Standing) -> Vec<String> {
+/// The notes of `report` as `surface` hears them.
+fn told(report: &LegacyReport, surface: Surface) -> Vec<String> {
     // A session start that cannot reach the sources tells none of them: then a command does.
-    let leave = standing == Standing::Left && report.fits_hook;
+    let leave = surface == Surface::Command && report.fits_hook;
     // Held back by a ledger whose failure stays until the file changes.
     let held_back = report.waiting == Some(Waiting::Ledger)
         && report
