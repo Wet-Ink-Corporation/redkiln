@@ -1,0 +1,1 @@
+{"type":"core.import_completed","version":1,"ts":"2026-11-08T09:00:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"weighin","version":"2.0.0","spec":"1.0.0"},"data":{"source":{"artifact":"redkiln-journal-s1"},"read":2,"imported":0,"present":2,"malformed":0}}

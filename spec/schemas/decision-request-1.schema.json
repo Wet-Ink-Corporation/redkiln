@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:decision-request:1",
+  "title": "The decision request record (SPEC DR-02)",
+  "description": "DR-04's cross-field guards (recommendation and default name an option, ids in order, deadline after ts, CI raisers ask for attested) are weighin-contract's, beyond this schema; only default's door rule is here.",
+  "type": "object",
+  "required": [
+    "question",
+    "options",
+    "recommendation",
+    "door",
+    "authority",
+    "blocks",
+    "trust_needed",
+    "raiser"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "question": {
+      "type": "string",
+      "minLength": 1
+    },
+    "options": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/option"
+      }
+    },
+    "recommendation": {
+      "$ref": "#/$defs/optionId"
+    },
+    "door": {
+      "description": "unsure is treated as one-way everywhere.",
+      "enum": [
+        "one-way",
+        "two-way",
+        "unsure"
+      ]
+    },
+    "authority": {
+      "enum": [
+        "authority",
+        "judgment"
+      ]
+    },
+    "blast": {
+      "enum": [
+        "file",
+        "module",
+        "system",
+        "external"
+      ]
+    },
+    "default": {
+      "$ref": "#/$defs/optionId"
+    },
+    "deadline": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "blocks": {
+      "enum": [
+        "merge",
+        "release",
+        "run",
+        "none",
+        "unknown"
+      ]
+    },
+    "trust_needed": {
+      "enum": [
+        "witnessed",
+        "attested"
+      ]
+    },
+    "raiser": {
+      "type": "object",
+      "required": [
+        "namespace",
+        "key"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "$ref": "#/$defs/namespace"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
+        "session": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "attachments": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "locator"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hash": {
+            "description": "ID-07: <method>:<lowercase hex>.",
+            "type": "string",
+            "pattern": "^[a-z0-9-]+:[0-9a-f]+$"
+          }
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "door": {
+        "enum": [
+          "one-way",
+          "unsure"
+        ]
+      }
+    },
+    "required": [
+      "door"
+    ]
+  },
+  "then": {
+    "not": {
+      "required": [
+        "default"
+      ]
+    }
+  },
+  "$defs": {
+    "optionId": {
+      "enum": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ]
+    },
+    "option": {
+      "type": "object",
+      "required": [
+        "id",
+        "label",
+        "holds_when",
+        "cost_if_wrong"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/optionId"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "holds_when": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cost_if_wrong": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "namespace": {
+      "description": "EV-03's closed registry.",
+      "enum": [
+        "core",
+        "weighin",
+        "bench",
+        "rust",
+        "review",
+        "loop",
+        "knowledge",
+        "backlog"
+      ]
+    },
+    "subject": {
+      "description": "AP-01: what was approved, bound to the hash of its subject by a method of ID-09. Copied into decision-request-1.",
+      "type": "object",
+      "required": [
+        "kind",
+        "method",
+        "hash",
+        "locator"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^(plan|spec|design|brief|change|pull_request|dependency|lint_exception|test_removal|(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.[a-z][a-z0-9_]*)$"
+        },
+        "method": {
+          "enum": [
+            "sha256",
+            "git-commit",
+            "git-tree",
+            "patch-id",
+            "rust-fingerprint"
+          ]
+        },
+        "hash": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+          "description": "AP-01: a worktree-relative path, pr:<number>, or a commit."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "sha256"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "git-commit"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^git-commit:([0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "git-tree"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^git-tree:([0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "patch-id"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^patch-id:([0-9a-f]{40}|[0-9a-f]{64})$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "rust-fingerprint"
+              }
+            },
+            "required": [
+              "method"
+            ]
+          },
+          "then": {
+            "properties": {
+              "hash": {
+                "pattern": "^rust-fingerprint:[0-9a-f]+$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

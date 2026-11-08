@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:cli-envelope:1",
+  "title": "The CLI result envelope (SPEC CLI-02, CLI-03)",
+  "type": "object",
+  "required": [
+    "schema",
+    "ok",
+    "command",
+    "data",
+    "findings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "description": "CLI-02: <namespace>.<command>/<n>.",
+      "type": "string",
+      "pattern": "^(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.[a-z][a-z0-9-]*/[1-9][0-9]*$"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+      "description": "The command as invoked, without options."
+    },
+    "data": {
+      "description": "Defined by the output's own schema.",
+      "type": "object"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "proves": {
+      "type": "string",
+      "minLength": 1
+    },
+    "does_not_prove": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "finding": {
+      "description": "CLI-03.",
+      "type": "object",
+      "required": [
+        "key",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "description": "One line.",
+          "type": "string",
+          "pattern": "^[^\\r\\n]*$"
+        },
+        "severity": {
+          "enum": [
+            "error",
+            "warning",
+            "note"
+          ]
+        },
+        "at": {
+          "description": "A worktree-relative path with an optional :line or :line:col.",
+          "type": "string",
+          "pattern": "^[^/:\\x00-\\x1f\\x7f-\\x9f][^:\\x00-\\x1f\\x7f-\\x9f]*(:[1-9][0-9]*(:[1-9][0-9]*)?)?$"
+        }
+      }
+    }
+  }
+}

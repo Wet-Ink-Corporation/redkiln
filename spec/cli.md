@@ -21,7 +21,7 @@ Every Redkiln binary is called by people, by hooks, by sibling plugins and by CI
 A command whose result a gate or CI reads states `proves` and `does_not_prove`; others may leave them out. `ok` and the exit code come from one value, so they cannot disagree (anneal `envelope.rs`).
 
 ```json
-{"schema":"bench.plan-check/1","ok":false,"command":"plan check","data":{"plan":"docs/plans/retention.md","approved_hash":"sha256:9f86…","current_hash":"sha256:2c26…"},"findings":[{"key":"plan/stale:docs/plans/retention.md","message":"the plan changed since its approval"}],"proves":"the plan is approved and unchanged since","does_not_prove":"that the plan is correct or complete"}
+{"schema":"bench.plan-check/1","ok":false,"command":"plan check","data":{"plan":"docs/plans/retention.md","approved_hash":"sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08","current_hash":"sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"},"findings":[{"key":"plan/stale:docs/plans/retention.md","message":"the plan changed since its approval"}],"proves":"the plan is approved and unchanged since","does_not_prove":"that the plan is correct or complete"}
 ```
 
 **CLI-03.** A finding is `{key, message}`, with optional `severity` (`error`, `warning`, `note`) and `at` (a worktree-relative path with an optional `:line` or `:line:col`). `key` is stable across runs, so a baseline can tell old findings from new; `message` is one line.

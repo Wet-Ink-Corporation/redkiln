@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:envelope:1",
+  "title": "Event envelope (SPEC EV-01, TR-01), as a writer writes it",
+  "description": "A writer's contract (EV-05): optional keys are absent, never null, and no key outside EV-01. A reader is lenient (EV-08 to EV-10); spec/fixtures/README.md lists what this schema cannot say. The $defs are copied into journal-line-1.",
+  "type": "object",
+  "required": [
+    "type",
+    "version",
+    "ts",
+    "actor",
+    "trust",
+    "writer",
+    "data"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "$ref": "#/$defs/typeName"
+    },
+    "version": {
+      "description": "EV-06: the payload version, from 1.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "ts": {
+      "$ref": "#/$defs/ts"
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "trust": {
+      "$ref": "#/$defs/trust"
+    },
+    "writer": {
+      "$ref": "#/$defs/writer"
+    },
+    "session": {
+      "$ref": "#/$defs/sessionId"
+    },
+    "worktree": {
+      "$ref": "#/$defs/worktreeId"
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+      "description": "EV-01: the checked-out branch."
+    },
+    "head": {
+      "$ref": "#/$defs/commit"
+    },
+    "origin": {
+      "$ref": "#/$defs/eventRef"
+    },
+    "cites": {
+      "description": "EV-01, EV-15: events this one answers or depends on; left out when there are none.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/eventRef"
+      }
+    },
+    "data": {
+      "description": "EV-01: the payload, defined by the type's owner.",
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "typeName": {
+      "description": "EV-03: <namespace>.<name>, the namespace from the closed registry, at most 64 bytes (64 ASCII characters).",
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+    },
+    "ts": {
+      "description": "EV-01: RFC 3339 in UTC with a Z, to the second or the millisecond.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    },
+    "actor": {
+      "description": "EV-01: human:<name>, agent, hook, cli, ci or app:<name>.",
+      "type": "string",
+      "pattern": "^(agent|hook|cli|ci|(human|app):[^\\s\\x00-\\x1f\\x7f-\\x9f]+)$"
+    },
+    "level": {
+      "description": "TR-01: the three trust levels, lowest first.",
+      "enum": [
+        "asserted",
+        "witnessed",
+        "attested"
+      ]
+    },
+    "via": {
+      "description": "TR-03, TR-04: the registered surfaces and mechanisms.",
+      "enum": [
+        "ask-user-question",
+        "board",
+        "decision-card",
+        "mod-pane",
+        "github-review",
+        "github-app",
+        "ledger-cas",
+        "signed-commit"
+      ]
+    },
+    "evidence": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$",
+      "description": "TR-01: by and ref, non-empty with no control characters."
+    },
+    "trust": {
+      "description": "TR-01: a level and its evidence. witnessed only through TR-03's surfaces, attested only through TR-04's identities; github-review is asserted in SPEC 1.0 (TR-10).",
+      "type": "object",
+      "required": [
+        "level"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/level"
+        },
+        "via": {
+          "$ref": "#/$defs/via"
+        },
+        "by": {
+          "$ref": "#/$defs/evidence"
+        },
+        "ref": {
+          "$ref": "#/$defs/evidence"
+        },
+        "claimed": {
+          "$ref": "#/$defs/level"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "witnessed"
+              }
+            },
+            "required": [
+              "level"
+            ]
+          },
+          "then": {
+            "required": [
+              "via"
+            ],
+            "properties": {
+              "via": {
+                "enum": [
+                  "ask-user-question",
+                  "board",
+                  "decision-card",
+                  "mod-pane"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "attested"
+              }
+            },
+            "required": [
+              "level"
+            ]
+          },
+          "then": {
+            "required": [
+              "via"
+            ],
+            "properties": {
+              "via": {
+                "enum": [
+                  "github-app",
+                  "ledger-cas",
+                  "signed-commit"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "writer": {
+      "description": "EV-01: the binary that wrote the event and the SPEC version it conforms to.",
+      "type": "object",
+      "required": [
+        "binary",
+        "version",
+        "spec"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "binary": {
+          "type": "string",
+          "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f]+$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f]+$"
+        },
+        "spec": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+        }
+      }
+    },
+    "sessionId": {
+      "description": "ID-05: the session id as its surface gives it; a session tag's value, so at most 247 bytes.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 247,
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]+$"
+    },
+    "worktreeId": {
+      "description": "ID-06: wt- and 12 lowercase hex.",
+      "type": "string",
+      "pattern": "^wt-[0-9a-f]{12}$"
+    },
+    "commit": {
+      "description": "EV-01 head: a commit id, 40 or 64 lowercase hex.",
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "eventRef": {
+      "description": "ID-02, ID-03: <store-id>:<position>, 32 lowercase hex and a position from 1 with no leading zero.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}:[1-9][0-9]*$"
+    }
+  }
+}

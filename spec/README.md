@@ -17,6 +17,8 @@ The SPEC is the part of Redkiln Core that is text: the formats every Redkiln bin
 | [journals.md](journals.md) | The JSONL export of durable facts, its checkpoint and idempotent import | JR |
 | [cli.md](cli.md) | The CLI result envelope, exit codes, stderr, hooks and `status --json` | CLI |
 
+[`fixtures/`](fixtures/) holds a golden file for every JSON document these sections define (`status --json` follows with its first command, Move 1 step 6), and [`schemas/`](schemas/) a JSON Schema for each (Draft 2020-12); `redkiln-core`'s tests read both, and [`fixtures/README.md`](fixtures/README.md) indexes them.
+
 Each requirement has an id (`ST-03`, `EV-11`) so that a conformance fixture, a test or a review comment can cite it. Ids are permanent: a dropped requirement keeps its id, marked withdrawn, and is never reused.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as in RFC 2119.
@@ -33,7 +35,6 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 | Artifact rendering (Layout C) and spec artifact homes | Move 4 | Loop ADR-0005, ADR-0189; pressure-test call E |
 | Process-catalog format | Move 4 | Loop's catalog; pressure-test recommendation 16 |
 | Capacity leases and calibration records (`core.*` types) | Move 2 (calibration), Move 3 (capacity) | Blueprint, Redkiln Core |
-| Schemas and golden fixtures | Move 1, beside the code | assay's schema and fixture discipline |
 
 ## One-way items
 

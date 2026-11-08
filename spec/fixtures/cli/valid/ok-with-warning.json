@@ -1,0 +1,1 @@
+{"schema":"weighin.journal-import/1","ok":true,"command":"journal import","data":{"read":3,"imported":2,"present":0,"malformed":1},"findings":[{"key":"journal/malformed:journal/s1.jsonl:3","message":"line 3 is not an envelope","severity":"warning","at":"journal/s1.jsonl:3"}]}

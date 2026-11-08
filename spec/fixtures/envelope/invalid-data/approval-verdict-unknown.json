@@ -1,0 +1,1 @@
+{"subject":{"kind":"plan","method":"sha256","hash":"sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08","locator":"docs/plans/retention.md"},"verdict":"maybe","scope":"repository","gates":["bench.plan","loop.planning"],"decider":"human:ryan"}

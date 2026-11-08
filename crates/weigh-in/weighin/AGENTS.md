@@ -10,7 +10,8 @@ binary. The composition root holds the store, git, context packs, environment di
 - Workspace crates: `weighin-core`, and `redkiln-core`, the suite's store, its location and the envelope (since #17 PR 5a).
 - Third-party:
   - `clap` (CLI), `anyhow` (binary errors), `time` (timestamps), `tempfile` (temporary indexes and files on the temp disk);
-  - `serde` and `serde_json`.
+  - `serde` and `serde_json`;
+  - dev only: `jsonschema` (D2 C1).
 - Never: a second writer of the ledger, `happenstance-*`, `rusqlite` or `tokio` (only Core opens the store), or a git library. Git goes through the command line (`git.rs`).
 
 ## Public surface
@@ -41,8 +42,6 @@ Unit tests sit beside the code in `annotate`, `ci` (atoms, trailers, the append-
 - the board round trip.
 
 `journal_hooks.rs` covers the hooks' export (Stop exports, SubagentStop and PostToolUse do not, inbox fallback, a broken ref logged once, a hanging remote inside the timeout, Cowork, `hooks.json` timeouts), `journal_refs.rs` covers the `journal` subcommands over a bare `origin` and clones (export, inbox, relay, import, pre-push, envelopes and exit codes), `relay_workflow.rs` checks the relay workflow and runs its command, and `ci_check.rs` covers `ci-check` on real branches, over the `scratch.rs` repository, which gives each test its own temp dir. `repo_class.rs` covers the class from suite.toml and its fallback, and a `client` repository's gates. `owner.rs` covers the owner: suite.toml's, config.json's, and git's where there is no config, with git reading only a config each test writes (B-31). `pane.rs` covers what the local board pane needs (the state on stdout, one answer on stdin as surface `pane`, raw items read-only, mode `off`, no config). `recall.rs` covers the decisions an edit brings back (a match, no match, a reopened decision, the cap of three, a `Write`, a ledger that cannot be read, logged once) and that capture beside it is unchanged. `eval_seed.rs` scores marker capture against the eval seed (`eval/`, #22); `cargo test -p weighin --test it eval_seed -- --nocapture` prints the scores.
-
-Run with `cargo test -p weighin`.
 
 ## Do not
 - Write to the ledger outside `ops::Session`.

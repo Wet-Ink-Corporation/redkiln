@@ -1,14 +1,16 @@
 //! Integration tests, compiled as one binary: the end-to-end CLI scenarios, the eval seed
 //! scorer, the committed journals, the journal refs and the hooks that export and import them,
 //! `ci-check`, and the store being redkiln-core's beside a 1.x ledger (`core_store`), the
-//! repository class read from suite.toml (`repo_class`) and the relay workflow
-//! (`relay_workflow`), over shared helpers in `support` and `scratch`.
+//! repository class read from suite.toml (`repo_class`), the relay workflow (`relay_workflow`)
+//! and the `--json` envelope against the SPEC's schema (`cli_conformance`), over shared helpers
+//! in `support` and `scratch`.
 
 mod ageing;
 mod annotate;
 mod board_guard;
 mod ci_check;
 mod cli;
+mod cli_conformance;
 mod core_store;
 mod eval_seed;
 mod journal;
