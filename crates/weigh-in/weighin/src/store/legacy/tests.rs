@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::path::Path;
+use std::time::Duration;
 
 use redkiln_core::StoreId;
 use redkiln_core::envelope::Timestamp;
@@ -99,6 +100,14 @@ fn stored_at(at: &str, line: &str) -> Stored {
     }
 }
 
+/// Every weighin event the store holds, read with no deadline.
+fn all_held(store: &Store) -> Held {
+    match store.held(None).expect("held") {
+        HeldRead::All(held) => held,
+        HeldRead::PastDeadline => panic!("no deadline to pass"),
+    }
+}
+
 fn content_id(line: &str) -> EventId {
     let env = EventEnvelope::from_json(line.as_bytes()).expect("a 1.x event");
     Canonical::of(env)
@@ -177,7 +186,7 @@ fn a_journal_line_equal_to_a_held_event_takes_its_identity_and_adds_nothing() {
             )
             .expect("imported"),
     );
-    let held = store.held().expect("held");
+    let held = all_held(&store);
 
     let (report, _) = journal(&store, &format!("{RAISED}\n"), &held, "s.jsonl");
 
@@ -278,7 +287,7 @@ fn a_line_differing_only_in_worktree_from_a_ledger_event_adds_nothing() {
     );
     let elsewhere = PRESENTED.replace(r#""worktree":"repo""#, r#""worktree":"other-checkout""#);
 
-    let (report, _) = journal(&store, &elsewhere, &store.held().expect("held"), "s.jsonl");
+    let (report, _) = journal(&store, &elsewhere, &all_held(&store), "s.jsonl");
 
     assert_eq!((report.imported, report.present), (0, 1));
     let ids: Vec<_> = weighin_events(&store).iter().map(|s| s.id).collect();
@@ -293,8 +302,30 @@ fn held_reads_every_page_of_the_store() {
         .collect();
 
     let (report, _) = journal(&store, &lines, &Held::default(), "s.jsonl");
-    let held = store.held().expect("held");
+    let held = all_held(&store);
 
     assert_eq!(report.imported, 600);
     assert_eq!(held.0.len(), 600, "every page read");
+}
+
+#[test]
+fn held_past_its_deadline_reads_no_page() {
+    let (_dir, store) = store();
+    let (report, _) = journal(
+        &store,
+        &format!("{PRESENTED}\n"),
+        &Held::default(),
+        "s.jsonl",
+    );
+    let passed = Instant::now()
+        .checked_sub(Duration::from_secs(1))
+        .expect("the clock has run that long");
+
+    let read = store.held(Some(passed)).expect("no store error");
+
+    assert_eq!(report.imported, 1, "the store holds an event to read");
+    assert!(
+        matches!(read, HeldRead::PastDeadline),
+        "no page read past the deadline (wi-233b23): {read:?}"
+    );
 }

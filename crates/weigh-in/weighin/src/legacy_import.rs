@@ -31,7 +31,7 @@ use crate::env::Env;
 use crate::journal;
 use crate::store::Store;
 use crate::store::legacy::identity::JOURNAL_STORE;
-use crate::store::legacy::{Held, Import, OldImport};
+use crate::store::legacy::{Held, HeldRead, Import, OldImport};
 
 mod notes;
 
@@ -40,8 +40,8 @@ pub(crate) use notes::{notes, place, problem_lines};
 /// How long the import may run (HK-5).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Mode {
-    /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together, and no batch started after
-    /// `started + HOOK_START_BY`.
+    /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together, and no batch, nor page of
+    /// the store's events, read after `started + HOOK_START_BY`.
     Hook { started: Instant },
     /// A command: no deadline; Core's and this module's caps only.
     Command,
@@ -245,16 +245,16 @@ impl Run<'_> {
         if journals.is_empty() {
             return Ok(());
         }
-        // A hook past its deadline reads no more: not even the store's events (review F3).
-        if self
-            .deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            report.waiting = Some(Waiting::Deadline);
-            return Ok(());
-        }
-        // After every ledger, so this run's ledger events are among those a line can equal.
-        let held = self.store.held()?;
+        // After every ledger, so this run's ledger events are among those a line can equal. A
+        // hook past its deadline reads no more, neither a page of the store's events nor a
+        // journal (review F3, wi-233b23).
+        let held = match self.store.held(self.deadline)? {
+            HeldRead::All(held) => held,
+            HeldRead::PastDeadline => {
+                report.waiting = Some(Waiting::Deadline);
+                return Ok(());
+            }
+        };
         for path in journals {
             let source = self.journal(path, &held);
             let stopped = matches!(source.outcome, SourceOutcome::Stopped { .. });
