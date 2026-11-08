@@ -395,7 +395,8 @@ fn a_failing_ledger_session_start_cannot_reach_is_told_by_the_command() -> TestR
     sparse_journal(&repo.root, "big.jsonl", 9 * 1024 * 1024)?;
 
     let started = session_start(&repo)?.to_string();
-    let open = repo.run("s1", &["open"], None)?;
+    // Inside the Claude Code session, where a command leaves to SessionStart what it reaches.
+    let open = repo.run_with("s1", &["open"], (ENTRYPOINT, "cli"))?;
 
     assert!(
         started.contains("the next weighin command imports them"),

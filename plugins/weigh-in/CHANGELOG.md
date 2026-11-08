@@ -28,8 +28,9 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - A 1.x source the import can never finish (a journal over 32 MiB, a journal or ledger that
   cannot be read) is told at the start of each Claude Code session, not by every weighin command
   run in it, unless the 1.x sources are more than a session start imports; elsewhere (a
-  terminal, Cowork) every command tells it. Each command still tries it again, and
-  `weighin journal import --json` still lists it.
+  terminal, Cowork) every command tells it. In a Claude Code session without the weigh-in hook,
+  or for a command run on another folder, it is not told by commands. Each command still tries
+  it again, and `weighin journal import --json` still lists it.
 - `$REDKILN_STORE` names the store and wins over `$WEIGHIN_STORE`. `$WEIGHIN_STORE` and
   config.json's `store` still work, naming the 1.x ledger: the store goes beside it, at
   `<parent>/<stem>.events.sqlite3`, with a warning. `init --ledger` still writes config.json's

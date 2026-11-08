@@ -477,6 +477,36 @@ fn a_late_hook_still_tells_a_journal_over_the_cap() {
 }
 
 #[test]
+fn a_hook_whose_ledger_stops_still_reports_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let big = sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    let [ledger, journal] = report.sources.as_slice() else {
+        panic!("the ledger, then the settled journal: {:?}", report.sources);
+    };
+    assert_eq!(ledger.path, old);
+    assert!(
+        matches!(ledger.outcome, SourceOutcome::Stopped { .. }),
+        "{ledger:?}"
+    );
+    assert_eq!(journal.path, big);
+    assert!(
+        matches!(journal.outcome, SourceOutcome::TooLarge { .. }),
+        "told at this session start, not one later (round 5 F3): {journal:?}"
+    );
+    assert_eq!(report.waiting, Some(Waiting::Deadline));
+    assert_eq!(records(&env), Vec::new(), "nothing recorded");
+}
+
+#[test]
 fn a_late_hook_reports_a_settled_journal_and_leaves_an_importable_one_waiting() {
     let dir = tempfile::tempdir().expect("tempdir");
     let env = Env::outside_git(dir.path(), "s1");

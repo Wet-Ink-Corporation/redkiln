@@ -244,7 +244,8 @@ struct Run<'s> {
 }
 
 impl Run<'_> {
-    /// Imports `ledgers`, then, when every one completed, `journals`, into `report`.
+    /// Imports `ledgers`, then, when every one completed, `journals`, into `report`; when one did
+    /// not, only the journals no run imports are reported ([`check`]).
     ///
     /// # Errors
     /// The store cannot be read for the events it holds.
@@ -260,6 +261,13 @@ impl Run<'_> {
             report.sources.push(source);
             if waiting.is_some() {
                 report.waiting = waiting;
+                // The journals wait, but one that no run imports is told now (round 5 F3).
+                report.sources.extend(
+                    journals
+                        .iter()
+                        .map(|path| check(path))
+                        .filter_map(Checked::settled),
+                );
                 return Ok(());
             }
         }
