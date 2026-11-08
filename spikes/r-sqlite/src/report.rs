@@ -164,6 +164,39 @@ fn write_checks(out: &mut String, result: &ScenarioResult) -> std::fmt::Result {
     writeln!(out)
 }
 
+/// The scenario's counts: operations, durable events and their rate, telemetry, and how many
+/// long-lived writers actually ran.
+fn write_totals(out: &mut String, ops: &Ops, seconds: u64) -> std::fmt::Result {
+    let hooks = &ops.hooks;
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    let written = hooks.iter().filter(|h| h.telemetry == "written").count();
+    let dropped = hooks.iter().filter(|h| h.telemetry == "dropped").count();
+    let events: u64 = ops
+        .cmds
+        .iter()
+        .filter(|c| c.outcome == "ok")
+        .map(|c| c.count)
+        .sum::<u64>()
+        .saturating_add(count(hooks.iter().filter(|h| h.outcome == "ok").count()))
+        .saturating_add(count(
+            ops.races.iter().filter(|r| r.outcome == "won").count(),
+        ));
+    let per_second = events.checked_div(seconds).unwrap_or(0);
+    writeln!(
+        out,
+        "{} hook processes, {} command appends, {} claims; {events} durable events (~{per_second}/s). Telemetry: {written} written, {dropped} dropped on a busy lock.\n",
+        hooks.len(),
+        ops.cmds.len(),
+        ops.races.len()
+    )?;
+    let opened = ops.opens.iter().filter(|o| o.outcome == "ok").count();
+    writeln!(
+        out,
+        "Long-lived writers that opened the store and ran: {opened} of {}.\n",
+        ops.opens.len()
+    )
+}
+
 fn write_mix(out: &mut String, mix: &ScenarioResult, seconds: u64) -> std::fmt::Result {
     writeln!(out, "## {} ({seconds} s)\n", mix.name)?;
     write_checks(out, mix)?;
@@ -178,28 +211,7 @@ fn write_mix(out: &mut String, mix: &ScenarioResult, seconds: u64) -> std::fmt::
     let cmd: Vec<u64> = ops.cmds.iter().map(|c| c.us).collect();
     let race: Vec<u64> = ops.races.iter().map(|r| r.us).collect();
     let opens: Vec<u64> = ops.opens.iter().map(|o| o.us).collect();
-    let written = hooks.iter().filter(|h| h.telemetry == "written").count();
-    let dropped = hooks.iter().filter(|h| h.telemetry == "dropped").count();
-    let events: u64 = ops
-        .cmds
-        .iter()
-        .filter(|c| c.outcome == "ok")
-        .map(|c| c.count)
-        .sum::<u64>()
-        .saturating_add(
-            u64::try_from(hooks.iter().filter(|h| h.outcome == "ok").count()).unwrap_or(0),
-        )
-        .saturating_add(
-            u64::try_from(ops.races.iter().filter(|r| r.outcome == "won").count()).unwrap_or(0),
-        );
-    let per_second = events.checked_div(seconds).unwrap_or(0);
-    writeln!(
-        out,
-        "{} hook processes, {} command appends, {} claims; {events} durable events (~{per_second}/s). Telemetry: {written} written, {dropped} dropped on a busy lock.\n",
-        hooks.len(),
-        ops.cmds.len(),
-        ops.races.len()
-    )?;
+    write_totals(out, ops, seconds)?;
     let over = |limit_us: u64| durable.iter().filter(|us| **us > limit_us).count();
     writeln!(
         out,

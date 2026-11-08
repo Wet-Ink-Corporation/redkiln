@@ -67,4 +67,9 @@ impl Args {
     pub fn path(&self, name: &str) -> anyhow::Result<PathBuf> {
         self.get::<String>(name).map(PathBuf::from)
     }
+
+    /// The option `name` as a path, `None` when it was not given.
+    pub fn optional_path(&self, name: &str) -> Option<PathBuf> {
+        self.options.get(name).map(PathBuf::from)
+    }
 }

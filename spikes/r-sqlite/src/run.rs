@@ -1,8 +1,9 @@
 //! `run`: every scenario, each on a fresh store, then the report.
 
+use std::fs::File;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitCode, Stdio};
+use std::process::{Child, Command, ExitCode, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -113,7 +114,7 @@ pub fn run(args: &Args) -> anyhow::Result<ExitCode> {
         report.mixes.push(result);
     }
     let text = report.markdown();
-    if let Ok(path) = args.path("report") {
+    if let Some(path) = args.optional_path("report") {
         std::fs::write(&path, &text).context("writing --report")?;
     }
     let mut out = std::io::stdout().lock();
@@ -197,13 +198,13 @@ fn mixed(exe: &Path, store: &Path, mix: &Mix, seconds: u64) -> anyhow::Result<Sc
         // Kills and reaps every writer still running if anything below returns early.
         let mut long = Fleet::default();
         for n in 0..mix.commands {
-            long.push(
+            long.push_logged(
                 long_lived(shared, "command", &format!("c{n}"), mix)?,
                 Writer::LongLived,
             );
         }
         for n in 0..mix.racers {
-            long.push(
+            long.push_logged(
                 long_lived(shared, "racer", &format!("r{n}"), mix)?,
                 Writer::LongLived,
             );
@@ -249,13 +250,22 @@ fn long_lived(
     kind: &str,
     writer: &str,
     mix: &Mix,
-) -> anyhow::Result<std::process::Child> {
+) -> anyhow::Result<(Child, Logs)> {
     let pause = if kind == "racer" {
         mix.racer_pause_ms
     } else {
         mix.command_pause_ms
     };
-    Command::new(shared.exe)
+    // To files, not pipes: a pipe nobody reads fills at 64 KiB and stalls its writer, and the
+    // fleet waits for one writer at a time.
+    let folder = shared.store.parent().unwrap_or(Path::new("."));
+    let logs = Logs {
+        out: folder.join(format!("{writer}.out")),
+        err: folder.join(format!("{writer}.err")),
+    };
+    let stdout = File::create(&logs.out).context("creating a writer's output file")?;
+    let stderr = File::create(&logs.err).context("creating a writer's error file")?;
+    let child = Command::new(shared.exe)
         .arg(kind)
         .arg("--store")
         .arg(shared.store)
@@ -269,10 +279,18 @@ fn long_lived(
         .arg(pause.to_string())
         .arg("--batch")
         .arg(mix.batch.to_string())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
         .spawn()
-        .with_context(|| format!("spawning {kind} {writer}"))
+        .with_context(|| format!("spawning {kind} {writer}"))?;
+    Ok((child, logs))
+}
+
+/// Where a long-lived writer's stdout and stderr go.
+#[derive(Debug)]
+struct Logs {
+    out: PathBuf,
+    err: PathBuf,
 }
 
 /// One hook process after another until the deadline, each timed from spawn to exit.
@@ -308,27 +326,46 @@ impl Drop for Stop<'_> {
 /// Writer processes this run owns: `finish` waits for each and reads its output; any still
 /// held when the fleet is dropped (an early return) are killed and reaped.
 #[derive(Default)]
-struct Fleet(Vec<(Child, Writer)>);
+struct Fleet(Vec<(Child, Writer, Option<Logs>)>);
 
 impl Fleet {
+    /// A child whose stdout and stderr are pipes; only for one that prints a line or two.
     fn push(&mut self, child: Child, writer: Writer) {
-        self.0.push((child, writer));
+        self.0.push((child, writer, None));
+    }
+
+    /// A child writing to `logs`, read once it has exited.
+    fn push_logged(&mut self, (child, logs): (Child, Logs), writer: Writer) {
+        self.0.push((child, writer, Some(logs)));
     }
 
     fn finish(mut self, ops: &mut Ops) -> anyhow::Result<()> {
-        while let Some((child, writer)) = self.0.pop() {
-            match child.wait_with_output() {
+        while let Some((child, writer, logs)) = self.0.pop() {
+            match collect(child, logs) {
                 Ok(output) => ops.parse(&output, writer)?,
-                Err(error) => ops.lost(format!("waiting for a writer: {error}")),
+                Err(error) => ops.lost(format!("waiting for a writer: {error:#}")),
             }
         }
         Ok(())
     }
 }
 
+/// Waits for `child` and gathers its output, from its pipes or its log files.
+fn collect(mut child: Child, logs: Option<Logs>) -> anyhow::Result<Output> {
+    let Some(logs) = logs else {
+        return child.wait_with_output().context("waiting");
+    };
+    let status = child.wait().context("waiting")?;
+    Ok(Output {
+        status,
+        stdout: std::fs::read(&logs.out).context("reading a writer's output")?,
+        stderr: std::fs::read(&logs.err).context("reading a writer's errors")?,
+    })
+}
+
 impl Drop for Fleet {
     fn drop(&mut self) {
-        for (child, _) in &mut self.0 {
+        for (child, _, _) in &mut self.0 {
             let reaped = child.kill().and_then(|()| child.wait().map(drop));
             if let Err(error) = reaped {
                 let mut err = std::io::stderr().lock();
@@ -342,4 +379,80 @@ impl Drop for Fleet {
 
 fn millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn sh(script: &str, logs: Option<&Logs>) -> std::io::Result<Child> {
+        let mut command = Command::new("sh");
+        command.arg("-c").arg(script);
+        if let Some(logs) = logs {
+            command
+                .stdout(File::create(&logs.out)?)
+                .stderr(File::create(&logs.err)?);
+        }
+        command.spawn()
+    }
+
+    #[test]
+    fn logged_writers_never_stall_on_a_full_pipe() {
+        let dir = tempfile_dir().expect("temp dir");
+        let mut fleet = Fleet::default();
+        let start = Instant::now();
+        for n in 0..2 {
+            let logs = Logs {
+                out: dir.join(format!("w{n}.out")),
+                err: dir.join(format!("w{n}.err")),
+            };
+            // Far past a pipe's 64 KiB: through a pipe nobody read, the second would block.
+            let child =
+                sh("head -c 1000000 /dev/zero | tr '\\0' 'y'", Some(&logs)).expect("sh runs");
+            fleet.push_logged((child, logs), Writer::LongLived);
+        }
+        let mut sizes = Vec::new();
+        while let Some((child, _, logs)) = fleet.0.pop() {
+            sizes.push(collect(child, logs).expect("collects").stdout.len());
+        }
+        assert_eq!(sizes, vec![1_000_000, 1_000_000]);
+        assert!(start.elapsed() < Duration::from_secs(30));
+    }
+
+    #[test]
+    fn dropping_a_fleet_kills_and_reaps_its_writers() {
+        let mut fleet = Fleet::default();
+        fleet.push(sh("sleep 60", None).expect("sh runs"), Writer::LongLived);
+        let id = fleet
+            .0
+            .first()
+            .map(|(child, _, _)| child.id())
+            .expect("one child");
+        let start = Instant::now();
+        drop(fleet);
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "killed, not waited out"
+        );
+        // Reaped: the process id no longer names a live child of ours.
+        let alive = Command::new("kill")
+            .arg("-0")
+            .arg(id.to_string())
+            .status()
+            .expect("kill runs");
+        assert!(!alive.success());
+    }
+
+    #[test]
+    fn dropping_stop_sets_the_flag() {
+        let flag = AtomicBool::new(false);
+        drop(Stop(&flag));
+        assert!(flag.load(Ordering::Relaxed));
+    }
+
+    fn tempfile_dir() -> std::io::Result<PathBuf> {
+        let dir = std::env::temp_dir().join(format!("r-sqlite-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
 }
