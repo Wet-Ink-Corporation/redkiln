@@ -9,9 +9,9 @@
 //! sha256 of its owner (the repository and the store), so no repository's checkpoint resets
 //! another's. The file holds the position, the repository and the store it was written for, one
 //! per line. It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is.
-//! A missing or torn file (cut short, or not UTF-8), or one written for another owner (another store at this path, one
-//! recreated since), reads as no watermark: the next checkpoint examines every journal. A file
-//! that exists but cannot be read is an error, and is not written over.
+//! A missing or torn file (cut short, or not UTF-8), or one written for another owner (another
+//! store at this path, one recreated since), reads as no watermark: the next checkpoint examines
+//! every journal. A file that exists but cannot be read is an error, and is not written over.
 
 use std::fmt::Display;
 use std::io::ErrorKind;

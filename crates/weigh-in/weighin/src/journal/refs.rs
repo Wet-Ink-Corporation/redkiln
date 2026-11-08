@@ -22,6 +22,7 @@ use redkiln_core::journal::refs::{
     sweep_refs_since,
 };
 use redkiln_core::location::GIT_TIMEOUT;
+use redkiln_core::store::Wait;
 use serde::{Serialize, Serializer};
 
 use super::watermark::Watermark;
@@ -47,6 +48,10 @@ pub(crate) struct Budget {
     /// The git calls, local or remote, Core can still make after the deadline passes: its own
     /// count for the work this budget bounds (an export or an import).
     pub(crate) after_deadline: u32,
+    /// The store's lock wait that can still run past the deadline: the import's one store read
+    /// or write begun before it, at the hook's [`Wait`]. Zero for the export, which reads the
+    /// store whole before its first git call and writes nothing to it.
+    pub(crate) store_wait: Duration,
 }
 
 impl Budget {
@@ -56,13 +61,15 @@ impl Budget {
         start_by: Some(Duration::from_secs(4)),
         per_call: Duration::from_secs(2),
         after_deadline: MAX_CALLS_PAST_DEADLINE,
+        store_wait: Duration::ZERO,
     };
-    /// The `SessionStart` hook's import, inside its 10 s timeout: worst case 3 s + 2 × 2.5 s =
-    /// 8 s, leaving time for the prime after it.
+    /// The `SessionStart` hook's import, inside its 10 s timeout: worst case 2 s + 2 × 2 s + 2 s
+    /// of store wait = 8 s, leaving 2 s for the prime after it.
     pub(crate) const SESSION_START: Self = Self {
-        start_by: Some(Duration::from_secs(3)),
-        per_call: Duration::from_millis(2_500),
+        start_by: Some(Duration::from_secs(2)),
+        per_call: Duration::from_secs(2),
         after_deadline: MAX_IMPORT_CALLS_PAST_DEADLINE,
+        store_wait: Wait::Hook.timeout(),
     };
     /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook:
     /// worst case 6 s + 7 × 2 s = 20 s.
@@ -70,18 +77,21 @@ impl Budget {
         start_by: Some(Duration::from_secs(6)),
         per_call: Duration::from_secs(2),
         after_deadline: MAX_CALLS_PAST_DEADLINE,
+        store_wait: Duration::ZERO,
     };
     /// `journal checkpoint` and `journal import` run by hand: no deadline, every call bounded.
     pub(crate) const COMMAND: Self = Self {
         start_by: None,
         per_call: GIT_TIMEOUT,
         after_deadline: MAX_CALLS_PAST_DEADLINE,
+        store_wait: Duration::ZERO,
     };
     /// `journal relay`, run by CI under its job timeout: slow pushes are given time.
     pub(crate) const RELAY: Self = Self {
         start_by: None,
         per_call: Duration::from_secs(60),
         after_deadline: MAX_CALLS_PAST_DEADLINE,
+        store_wait: Duration::ZERO,
     };
 
     /// The Core target for `repo`. A deadline `Instant` cannot represent is `started` itself,
@@ -98,11 +108,13 @@ impl Budget {
     }
 
     /// The longest the work can run after it started: `start_by` plus every call Core can still
-    /// make after the deadline; `None` with no deadline, or on overflow. The Stop hook logs a
-    /// checkpoint that ran longer, which means Core's call pattern grew (plan risk 4).
+    /// make after the deadline and the store wait; `None` with no deadline, or on overflow. The
+    /// Stop and `SessionStart` hooks log work that ran longer, which means Core's call pattern
+    /// grew (plan risk 4).
     pub(crate) fn worst_case(self) -> Option<Duration> {
         self.start_by?
-            .checked_add(self.per_call.checked_mul(self.after_deadline)?)
+            .checked_add(self.per_call.checked_mul(self.after_deadline)?)?
+            .checked_add(self.store_wait)
     }
 }
 
@@ -295,6 +307,17 @@ fn session_journal(env: &Env) -> Result<Option<JournalName>> {
     Ok(id.map(|id| JournalName::of_session(&id)))
 }
 
+/// The context of an [`import`] error raised by opening the store, which `SessionStart` opens
+/// again for its prime and reports there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StoreUnopened;
+
+impl std::fmt::Display for StoreUnopened {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("opening the store for the import")
+    }
+}
+
 /// Import every journal source not yet imported at its commit (JR-10 to JR-13), recorded as
 /// written now by `actor` (`hook` or `cli`). Skips outside git and in a `client` repository;
 /// otherwise opens the store, creating it in an `own` repository (D10).
@@ -308,7 +331,7 @@ pub(crate) fn import(env: &Env, budget: Budget, started: Instant, actor: &str) -
     if env.repo_class() == RepoClass::Client {
         return Ok(Imported::Skipped(Skip::Client));
     }
-    let store = Store::open(env.store_path()?, env.wait)?;
+    let store = Store::open(env.store_path()?, env.wait).context(StoreUnopened)?;
     let ts = Timestamp::from_system_time(SystemTime::now()).context("the import's time")?;
     let author = store.author(actor)?;
     let report = import_refs(store.core(), &budget.target(repo, started), &ts, &author)
@@ -401,6 +424,8 @@ pub(crate) fn needs_a_person(report: &RefsExported) -> Vec<String> {
 /// What the user hears of an import at `SessionStart`: the journal refs rewritten since the last
 /// import and the sources that could not be read, each clipped. A failed fetch and a passed
 /// deadline are not told: an offline laptop is normal, and the next session imports the rest.
+/// A source that cannot be read is told again every session, with the command that says why,
+/// since nothing beside the ledger remembers that it was told.
 pub(crate) fn import_notes(report: &RefsImport) -> Vec<String> {
     let rewritten = (!report.rewritten.is_empty()).then(|| {
         format!(
@@ -411,7 +436,8 @@ pub(crate) fn import_notes(report: &RefsImport) -> Vec<String> {
     });
     let unread = (!report.passed_over.is_empty()).then(|| {
         format!(
-            "Weigh-In: {} journal source(s) could not be read: {}.",
+            "Weigh-In: {} journal source(s) could not be read: {}; `weighin journal import \
+             --json` says why.",
             report.passed_over.len(),
             clip(&report.passed_over.join(", "), MAX_SAID_CHARS)
         )
@@ -547,6 +573,7 @@ mod tests {
         MAX_IMPORT_CALLS_PAST_DEADLINE, RefsExported, RefsImport, Refusal, Relayed,
     };
     use redkiln_core::journal::{ImportReport, JournalName, LineError, Problem};
+    use redkiln_core::store::Wait;
 
     use super::{
         Budget, checkpoint_findings, import_findings, import_notes, needs_a_person, relay_findings,
@@ -596,27 +623,33 @@ mod tests {
     #[test]
     fn every_hook_budget_ends_inside_its_hook_timeout() {
         // The Stop exports, SessionStart imports: each with Core's own count of calls after the
-        // deadline.
-        for (hook, budget, after, timeout) in [
+        // deadline, and the import with one store wait, at the hooks' `Wait`, past it.
+        for (hook, budget, after, store_wait, timeout) in [
             (
                 "Stop",
                 Budget::STOP,
                 MAX_CALLS_PAST_DEADLINE,
+                Duration::ZERO,
                 STOP_HOOK_TIMEOUT,
             ),
             (
                 "SessionStart",
                 Budget::SESSION_START,
                 MAX_IMPORT_CALLS_PAST_DEADLINE,
+                Wait::Hook.timeout(),
                 SESSION_START_HOOK_TIMEOUT,
             ),
         ] {
             let worst = budget.worst_case().expect("a hook has a deadline");
             // Derived from the budget's constants, so a change of per-call time only has to fit.
             let calls = budget.per_call.checked_mul(after).expect("no overflow");
+            assert_eq!(budget.store_wait, store_wait, "{hook}");
             assert_eq!(
                 Some(worst),
-                budget.start_by.and_then(|by| by.checked_add(calls)),
+                budget
+                    .start_by
+                    .and_then(|by| by.checked_add(calls))
+                    .and_then(|then| then.checked_add(store_wait)),
                 "{hook}"
             );
             assert!(worst.saturating_add(MARGIN) <= timeout, "{hook}: {worst:?}");
@@ -668,7 +701,7 @@ mod tests {
                 "Weigh-In: journal ref(s) rewritten since the last import: refs/redkiln/journal/a \
                  (their new lines were imported).",
                 "Weigh-In: 2 journal source(s) could not be read: refs/redkiln/journal/Bad, \
-                 refs/redkiln/inbox/c.",
+                 refs/redkiln/inbox/c; `weighin journal import --json` says why.",
             ]
         );
         assert_eq!(

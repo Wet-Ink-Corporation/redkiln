@@ -177,3 +177,18 @@ fn a_second_session_start_with_no_moved_ref_writes_no_import_record() -> TestRes
     assert_eq!(import_records(&reader)?, first);
     Ok(())
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_store_that_cannot_be_opened_is_logged_once_by_session_start() -> TestResult {
+    let repo = Repo::new(true)?;
+    let store = store_file(&repo);
+    std::fs::create_dir_all(store.parent().ok_or("a parent")?)?;
+    std::fs::write(&store, "not a database, and longer than a header would be")?;
+
+    started(&repo, "s")?;
+
+    let lines = logged(&repo)?;
+    assert_eq!(lines.len(), 1, "the prime's failure only: {lines:?}");
+    Ok(())
+}

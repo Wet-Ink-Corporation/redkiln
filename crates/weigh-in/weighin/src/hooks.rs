@@ -244,20 +244,32 @@ impl Hook {
     /// `SessionStart`'s import of the journal sources inside its budget (JR-10, D10), and what
     /// the user should hear of it: a rewritten ref, a source that could not be read. A failed
     /// fetch or a passed deadline says nothing, since an offline laptop is normal. An error is
-    /// logged, except a store that cannot be located or a given one Core refuses, which
-    /// `session_start` tells the user itself.
+    /// logged, except a store that cannot be located or opened, which `session_start` opens again
+    /// for its prime and tells or logs itself. An import that ran past its budget's worst case is
+    /// logged, as the Stop's export is.
     fn imported(&self) -> Vec<String> {
-        match refs::import(&self.env, Budget::SESSION_START, self.started, "hook") {
+        let notes = match refs::import(&self.env, Budget::SESSION_START, self.started, "hook") {
             Ok(Imported::Ran(report)) => refs::import_notes(&report),
             // Not git or a client repository: nothing to import.
             Ok(Imported::Skipped(_)) => Vec::new(),
             Err(e) => {
-                if self.env.store.is_ok() && !refused_given_store(&self.env, &e) {
+                let unopened = e.downcast_ref::<refs::StoreUnopened>().is_some();
+                if self.env.store.is_ok() && !unopened {
                     self.log(&e);
                 }
                 Vec::new()
             }
+        };
+        let took = self.started.elapsed();
+        if let Some(worst) = Budget::SESSION_START.worst_case()
+            && took > worst
+        {
+            self.log(&anyhow::anyhow!(
+                "the SessionStart hook ran {took:?} to the end of its journal import, past its \
+                 budget's worst case of {worst:?}"
+            ));
         }
+        notes
     }
 }
 

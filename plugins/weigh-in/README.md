@@ -235,9 +235,11 @@ At SessionStart, in an `own` repository, weighin first imports the journal refs,
 under `refs/redkiln/broken/` and inbox branches not yet relayed from `origin` (creating the store
 if there is none), so other clones' items count in the session's prime; a `client` repository
 imports nothing. A journal ref rewritten since the last import, or a source that cannot be read,
-is told to you in the session's opening message; an unreachable remote or a deadline is silent,
-and the next session imports the rest. The import ends within 8 s (3 s, then at most two git
-calls of 2.5 s each), inside the hook's 10 s timeout.
+is told to you in the session's opening message, every session until it is fixed (`weighin
+journal import --json` says why a source cannot be read); an unreachable remote or a deadline
+is silent, and the next session imports the rest. The import ends within 8 s (nothing starts
+after 2 s, then at most two git calls of 2 s each and one 2 s wait for the store), inside the
+hook's 10 s timeout.
 
 To export on `git push` as well, add a `pre-push` hook (nothing installs it for you):
 
