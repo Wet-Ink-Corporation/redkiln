@@ -589,7 +589,12 @@ fn an_input_over_its_cap_dispatches_nothing_and_is_logged_and_noted_in_git() {
     let dispatched = String::from_utf8(dispatched).expect("utf-8 output");
     assert!(dispatched.contains("```weigh-in"), "{dispatched}");
     assert_eq!(log_at_cap, "", "the payload at the cap is no failure");
-    let log_path = tmp.path().join(".redkiln/weighin/hook-errors.log");
+    // Joined part by part, so the separators are the platform's, as the hook writes them.
+    let log_path = tmp
+        .path()
+        .join(".redkiln")
+        .join("weighin")
+        .join("hook-errors.log");
     assert_eq!(
         String::from_utf8(refused).expect("utf-8 output"),
         serde_json::json!({
