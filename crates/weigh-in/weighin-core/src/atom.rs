@@ -27,8 +27,8 @@ const HASHED_FROM: usize = 10;
 /// The id of the item's atom of `kind`.
 ///
 /// `kb-<kind>-<wi-id>` for an item whose id has fewer than 10 hex characters, else `kb-<kind>-`
-/// and the 10-hex hash of the `wi-` id. A 10-hex collision between two items is left to the
-/// duplicate-id check in CI (`cargo xtask ids`), not extended here.
+/// and the 10-hex hash of the `wi-` id. A 10-hex collision between two items is not extended
+/// here; it is left to the duplicate-id check that Knowledge call C puts in CI (Move 1 step 4).
 #[must_use]
 pub fn atom_id(kind: Kind, item: &Item) -> AtomId {
     let key = item.id.as_str();
@@ -65,7 +65,8 @@ pub fn open_question_atom_id(item: &Item) -> String {
     atom_id(Kind::OpenQuestion, item).to_string()
 }
 
-/// Reversibility for `KbFrontmatter`: one-way doors are `low`, unsure `medium`, two-way `high`.
+/// An atom's `reversibility` (Knowledge's frontmatter): one-way doors are `low`, unsure
+/// `medium`, two-way `high`.
 #[must_use]
 pub fn reversibility(door: Door) -> &'static str {
     reversibility_of(door).as_str()
