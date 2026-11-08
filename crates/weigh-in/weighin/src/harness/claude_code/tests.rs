@@ -61,6 +61,21 @@ fn render_post_tool_use_without_context_is_nothing() {
 }
 
 #[test]
+fn render_post_tool_use_with_a_message_is_a_system_message_beside_any_context() {
+    let noted = render(Form::PostToolUse, output(None, Some("Weigh-In: failed")));
+    let both = render(
+        Form::PostToolUse,
+        output(Some("one"), Some("Weigh-In: failed")),
+    );
+
+    assert_eq!(noted, r#"{"systemMessage":"Weigh-In: failed"}"#);
+    assert_eq!(
+        both,
+        r#"{"hookSpecificOutput":{"additionalContext":"one","hookEventName":"PostToolUse"},"systemMessage":"Weigh-In: failed"}"#
+    );
+}
+
+#[test]
 fn render_silent_prints_nothing_whatever_the_output() {
     let printed = render(Form::Silent, output(Some("context"), Some("message")));
 
@@ -370,7 +385,7 @@ fn serve_in(dir: &Path, cowork: bool, input: &mut impl Read, output: &mut impl W
         cowork,
         named: None,
     };
-    serve_called(&called, input, output);
+    serve_called(&called, input, output, &mut io::sink());
 }
 
 /// How a test hook is called: in `dir`, in Cowork or not, and the event `named` on the command
@@ -381,8 +396,13 @@ struct Called<'a> {
     named: Option<&'a str>,
 }
 
-/// [`serve_in`] as `called` says.
-fn serve_called(called: &Called<'_>, input: &mut impl Read, output: &mut impl Write) {
+/// [`serve_in`] as `called` says, writing its error line to `errors`.
+fn serve_called(
+    called: &Called<'_>,
+    input: &mut impl Read,
+    output: &mut impl Write,
+    errors: &mut impl Write,
+) {
     let (payload, unread) = read_payload(input, Cap::of(called.named));
     let hook = Hook::new(
         input_of(payload).event,
@@ -391,7 +411,7 @@ fn serve_called(called: &Called<'_>, input: &mut impl Read, output: &mut impl Wr
         std::time::Instant::now(),
     )
     .named(called.named.map(str::to_owned));
-    respond(&hook, unread, output);
+    respond(&hook, unread, output, errors);
 }
 
 /// [`serve_in`] outside Cowork, for the event `named` on the command line.
@@ -401,7 +421,87 @@ fn serve_named(dir: &Path, named: &str, input: &mut impl Read, output: &mut impl
         cowork: false,
         named: Some(named),
     };
-    serve_called(&called, input, output);
+    serve_called(&called, input, output, &mut io::sink());
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and writes the error log through the file system"
+)]
+fn a_stdout_failure_writes_one_stderr_line() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let input = payload(tmp.path(), "SessionStart");
+    let called = Called {
+        dir: tmp.path(),
+        cowork: false,
+        named: None,
+    };
+    let mut errors = Vec::new();
+
+    serve_called(&called, &mut input.as_bytes(), &mut Broken, &mut errors);
+
+    assert_eq!(
+        String::from_utf8(errors).expect("utf-8 error line"),
+        "weighin: error: hook SessionStart could not write its output: output gone\n"
+    );
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and lists a directory through the file system"
+)]
+fn a_stdout_failure_in_cowork_too_writes_one_stderr_line_and_no_file() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let input = payload(tmp.path(), "Stop");
+    let called = Called {
+        dir: tmp.path(),
+        cowork: true,
+        named: Some("Stop"),
+    };
+    let mut errors = Vec::new();
+
+    serve_called(&called, &mut input.as_bytes(), &mut Broken, &mut errors);
+
+    assert_eq!(
+        String::from_utf8(errors).expect("utf-8 error line"),
+        "weighin: error: hook Stop could not write its output: output gone\n"
+    );
+    let written = listing(tmp.path());
+    assert!(written.is_empty(), "{written:?}");
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git and lists a directory through the file system"
+)]
+fn a_cowork_failure_is_noted_without_a_log() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let called = Called {
+        dir: tmp.path(),
+        cowork: true,
+        named: Some("Stop"),
+    };
+    let mut noted = Vec::new();
+
+    serve_called(
+        &called,
+        &mut "not json".as_bytes(),
+        &mut noted,
+        &mut io::sink(),
+    );
+
+    let noted = String::from_utf8(noted).expect("utf-8 output");
+    assert!(
+        noted.starts_with(
+            r#"{"systemMessage":"Weigh-In: the Stop hook failed, so capture may be off: parsing the hook input: "#
+        ) && noted.ends_with(r#" Hooks keep no log in Cowork."}"#),
+        "{noted}"
+    );
+    let written = listing(tmp.path());
+    assert!(written.is_empty(), "{written:?}");
 }
 
 /// A `SessionStart` payload for `dir` of exactly `len` bytes, padded in a field no hook reads.
@@ -519,6 +619,25 @@ fn invalid_utf8_within_the_cap_logs_the_same_line() {
         log.contains(" Stop: reading the hook input: stream did not contain valid UTF-8"),
         "{log}"
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git")]
+fn an_input_failure_outside_git_is_noted_as_not_logged() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let mut output = Vec::new();
+
+    serve_named(tmp.path(), "Stop", &mut "not json".as_bytes(), &mut output);
+
+    let noted = String::from_utf8(output).expect("utf-8 output");
+    assert!(
+        noted.ends_with(
+            r#" It could not be logged: hooks log input failures only inside a git repository."}"#
+        ),
+        "{noted}"
+    );
+    let written = listing(tmp.path());
+    assert!(written.is_empty(), "{written:?}");
 }
 
 #[test]

@@ -497,7 +497,12 @@ fn is_closed_stdout(e: &anyhow::Error) -> bool {
 fn run_hook_guarded(event: Option<&str>) -> ExitCode {
     std::panic::set_hook(Box::new(|_| {}));
     let outcome = std::panic::catch_unwind(|| {
-        harness::claude_code::entry(event, &mut io::stdin().lock(), &mut io::stdout().lock());
+        harness::claude_code::entry(
+            event,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+            &mut io::stderr().lock(),
+        );
     });
     match outcome {
         // `entry` logs its own failures; a panic went to the silent panic hook above.

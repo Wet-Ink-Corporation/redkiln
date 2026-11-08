@@ -1,18 +1,86 @@
-//! What the next `SessionStart` reports of `hook-errors.log`: the lines added since the last
-//! report, each reported once. Both files are used only when they are regular files (HK-6), and
-//! at most the log's last [`MAX_REPORTED_LOG`] bytes are read (H-13).
+//! `hook-errors.log`: where a hook appends its failures, and what the next `SessionStart`
+//! reports of it, the lines added since the last report, each reported once. Both files are
+//! used only when they are regular files (HK-6), and at most the log's last
+//! [`MAX_REPORTED_LOG`] bytes are read (H-13).
 
 use anyhow::{Context as _, Result};
 use std::fs::File;
-use std::io::{ErrorKind, Read as _, Seek as _, SeekFrom};
-use std::path::Path;
+use std::io::{ErrorKind, Read, Seek as _, SeekFrom, Write as _};
+use std::path::{Path, PathBuf};
 
-use crate::env::Env;
-use crate::state_file::{Presence, regular_or_absent};
+use crate::env::{self, Env};
+use crate::state_file::{Presence, real_dir, regular_or_absent};
+use crate::store;
 use crate::text::clip;
 
+/// Where a failure was appended.
+#[derive(Debug)]
+pub(super) struct Appended {
+    /// The log.
+    pub(super) path: PathBuf,
+    /// Whether the log held nothing unreported before it (decision D2 B).
+    pub(super) fresh: bool,
+}
+
+/// Appends `e` to the error log as a line for `event`, and says where.
+///
+/// # Errors
+/// There is no place to log it (no store located, or a refused store outside git), the state
+/// dir or the log is not what it should be (HK-6), or the append fails.
+pub(super) fn log_error(env: &Env, event: &str, e: &anyhow::Error) -> Result<Appended> {
+    let dir = log_dir(env, e)?;
+    let path = dir.join(ERRORS_LOG);
+    regular_or_absent(&path)?;
+    let fresh = nothing_unreported(&dir);
+    let mut log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    writeln!(log, "{} {event}: {e:#}", env::now())
+        .with_context(|| format!("appending to {}", path.display()))?;
+    Ok(Appended { path, fresh })
+}
+
+/// Whether `e` is Core refusing a store path the user gave (an old ledger, another program's
+/// database), beside which nothing is written, not even the state dir (D4, review F2). A refused
+/// file at the default place is in redkiln's own directory, and is logged as any failure.
+pub(super) fn refused_given_store(env: &Env, e: &anyhow::Error) -> bool {
+    env.store_was_given() && store::is_refused(e)
+}
+
+/// Where `e` is logged, the directory made: the state dir, except for
+/// [`refused_given_store`], logged in the default store's state dir, and outside git nowhere
+/// (`SessionStart` reports it).
+fn log_dir(env: &Env, e: &anyhow::Error) -> Result<PathBuf> {
+    let dir = if refused_given_store(env, e) {
+        env.default_state_dir().context(
+            "nothing is written beside a store weighin refuses, and outside git there is no \
+             other place for the log",
+        )?
+    } else {
+        env.state_dir()
+            .context("there is no state dir for the log without a store")?
+    };
+    real_dir(&dir)?;
+    Ok(dir)
+}
+
+/// Whether the log in `dir` holds no line the next `SessionStart` would report. When that
+/// cannot be told, `true`: the hook then says so itself.
+fn nothing_unreported(dir: &Path) -> bool {
+    match Log::open(&dir.join(ERRORS_LOG)) {
+        Ok(Some(log)) => match read_seen(&dir.join(ERRORS_SEEN)) {
+            Ok(Some(recorded)) => log.seen(&recorded) == log.len,
+            Ok(None) => log.len == 0,
+            Err(_) => true,
+        },
+        Ok(None) | Err(_) => true,
+    }
+}
+
 /// The error log, in the state dir.
-pub(super) const ERRORS_LOG: &str = "hook-errors.log";
+const ERRORS_LOG: &str = "hook-errors.log";
 
 /// How far `hook-errors.log` had been reported, as a byte offset and the log's first line then,
 /// beside the log.
@@ -122,8 +190,7 @@ impl Log {
             .with_context(|| format!("reading {}", path.display()))?
             .len();
         let mut start = Vec::new();
-        file.by_ref()
-            .take(SEEN_HEAD_BYTES)
+        Read::take(&mut file, SEEN_HEAD_BYTES)
             .read_to_end(&mut start)
             .with_context(|| format!("reading {}", path.display()))?;
         let line = start.split(|&b| b == b'\n').next().unwrap_or_default();
@@ -161,9 +228,7 @@ impl Log {
             .seek(SeekFrom::Start(from))
             .context("seeking in the error log")?;
         let mut bytes = Vec::new();
-        self.file
-            .by_ref()
-            .take(self.len.saturating_sub(from))
+        Read::take(&mut self.file, self.len.saturating_sub(from))
             .read_to_end(&mut bytes)
             .context("reading the error log")?;
         if cut {

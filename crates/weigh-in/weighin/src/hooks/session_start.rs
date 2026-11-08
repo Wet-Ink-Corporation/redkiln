@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use weighin_core::Ledger;
 use weighin_core::marker::Door;
 
-use super::errors::new_errors;
-use super::{HookOutput, log_error, refused_given_store};
+use super::errors::{new_errors, refused_given_store};
+use super::{Failures, Hook, HookOutput};
 use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{self, read_ledger};
 use crate::shell_bin;
@@ -17,9 +17,16 @@ use crate::text::{Report, clip};
 
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
 /// session, the config is broken or the import has `journal` notes, a one-line message for the
-/// user. A prime that fails is logged and reported with the rest, and Claude still gets the
-/// convention. A broken config is reported here, once a session, and never logged.
-pub(super) fn session_start(env: &Env, source: &str, journal: Vec<String>) -> HookOutput {
+/// user. A prime that fails is logged (in `failures` too) and reported with the rest, and Claude
+/// still gets the convention. A broken config is reported here, once a session, and never
+/// logged.
+pub(super) fn session_start(
+    hook: &Hook,
+    failures: &mut Failures,
+    source: &str,
+    journal: Vec<String>,
+) -> HookOutput {
+    let env = &hook.env;
     let broken = broken_config(env);
     let (primed, unusable) = match ops::loaded(env) {
         Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
@@ -35,11 +42,11 @@ pub(super) fn session_start(env: &Env, source: &str, journal: Vec<String>) -> Ho
                 clip(&format!("{e:#}"), 400)
             ));
         } else {
-            log_error(env, "SessionStart", &e);
+            hook.log(failures, &e);
         }
         CONVENTION.to_owned()
     });
-    if let Some(copy) = shell_copy(env) {
+    if let Some(copy) = shell_copy(hook, failures) {
         context.push_str("Weigh-In binary for the shell: ");
         context.push_str(&copy.display().to_string());
         context.push('\n');
@@ -87,25 +94,25 @@ fn store_notes(env: &Env, unusable: u64) -> Vec<String> {
 /// the skill's shell can reach it when it cannot see the plugin folder (#127, `shell_bin`). Nowhere
 /// else: other platforms reach the plugin folder, and outside git the state dir would be a
 /// `.weighin/` created in the user's folder. A failed copy is logged, and `SessionStart` goes on.
-fn shell_copy(env: &Env) -> Option<PathBuf> {
+fn shell_copy(hook: &Hook, failures: &mut Failures) -> Option<PathBuf> {
     if !cfg!(windows) {
         return None;
     }
     // The default store's state dir in the repository's git dir, not the state dir, which follows
     // a configured `store` to a folder the shell may not see. Under `redkiln/`, so nothing is
     // added beside a 1.x ledger in `<common>/weighin/`, which stays as it was, imported or not.
-    let dir = env.default_state_dir()?;
+    let dir = hook.env.default_state_dir()?;
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
         Err(e) => {
-            log_error(env, "SessionStart", &anyhow::Error::from(e));
+            hook.log(failures, &anyhow::Error::from(e));
             return None;
         }
     };
     match shell_bin::place(&exe, &dir, env!("CARGO_PKG_VERSION")) {
         Ok(copy) => Some(copy),
         Err(unplaced) => {
-            log_error(env, "SessionStart", &unplaced.error);
+            hook.log(failures, &unplaced.error);
             unplaced.existing
         }
     }
