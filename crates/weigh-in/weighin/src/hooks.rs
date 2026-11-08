@@ -39,7 +39,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env, Vars};
-use crate::journal::refs::{self, Budget, Checkpointed, Marked, Scope};
+use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
 use crate::{recall, shell_bin, store};
@@ -165,7 +165,9 @@ impl Hook {
                     .get("source")
                     .and_then(Value::as_str)
                     .unwrap_or("startup");
-                return session_start(env, source);
+                // The import comes first, so the items it brings count in the prime.
+                let notes = self.imported();
+                return session_start(env, source, notes);
             }
             "Stop" => self.checkpointed(capture(env, payload)),
             // A subagent's events leave at its session's Stop (D11).
@@ -238,6 +240,37 @@ impl Hook {
         }
         result
     }
+
+    /// `SessionStart`'s import of the journal sources inside its budget (JR-10, D10), and what
+    /// the user should hear of it: a rewritten ref, a source that could not be read. A failed
+    /// fetch or a passed deadline says nothing, since an offline laptop is normal. An error is
+    /// logged, except a store that cannot be located or opened, which `session_start` opens again
+    /// for its prime and tells or logs itself. An import that ran past its budget's worst case is
+    /// logged, as the Stop's export is.
+    fn imported(&self) -> Vec<String> {
+        let notes = match refs::import(&self.env, Budget::SESSION_START, self.started, "hook") {
+            Ok(Imported::Ran(report)) => refs::import_notes(&report),
+            // Not git or a client repository: nothing to import.
+            Ok(Imported::Skipped(_)) => Vec::new(),
+            Err(e) => {
+                let unopened = e.downcast_ref::<refs::StoreUnopened>().is_some();
+                if self.env.store.is_ok() && !unopened {
+                    self.log(&e);
+                }
+                Vec::new()
+            }
+        };
+        let took = self.started.elapsed();
+        if let Some(worst) = Budget::SESSION_START.worst_case()
+            && took > worst
+        {
+            self.log(&anyhow::anyhow!(
+                "the SessionStart hook ran {took:?} to the end of its journal import, past its \
+                 budget's worst case of {worst:?}"
+            ));
+        }
+        notes
+    }
 }
 
 #[expect(
@@ -279,10 +312,10 @@ fn log_dir(env: &Env, e: &anyhow::Error) -> Option<PathBuf> {
 }
 
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
-/// session or the config is broken, a one-line message for the user. A prime that fails is
-/// logged and reported with the rest, and Claude still gets the convention. A broken config is
-/// reported here, once a session, and never logged.
-fn session_start(env: &Env, source: &str) -> String {
+/// session, the config is broken or the import has `journal` notes, a one-line message for the
+/// user. A prime that fails is logged and reported with the rest, and Claude still gets the
+/// convention. A broken config is reported here, once a session, and never logged.
+fn session_start(env: &Env, source: &str, journal: Vec<String>) -> String {
     let broken = broken_config(env);
     let (primed, unusable) = match ops::loaded(env) {
         Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
@@ -311,6 +344,7 @@ fn session_start(env: &Env, source: &str) -> String {
         .into_iter()
         .chain(refused)
         .chain(store_notes(env, unusable))
+        .chain(journal)
         .chain(new_errors(env))
         .collect();
     let message = (!parts.is_empty()).then(|| parts.join(" "));

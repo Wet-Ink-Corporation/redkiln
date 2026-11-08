@@ -20,17 +20,18 @@ mod read;
 mod relay;
 mod scope;
 
+use std::ffi::OsStr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 pub use checkpoint::{
     Deferral, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsExported, checkpoint_refs,
 };
-pub use read::{BROKEN_REFS, ImportedRef, RefsImport, import_refs};
+pub use read::{BROKEN_REFS, ImportedRef, MAX_IMPORT_CALLS_PAST_DEADLINE, RefsImport, import_refs};
 pub use relay::{Deleted, Refusal, Relayed, relay};
 pub use scope::{RefsScope, ScopedCheckpoint, checkpoint_refs_since, sweep_refs_since};
 
-use self::git::{Repo, Resolved};
+use self::git::{GIT, Repo, Resolved};
 use self::oid::Oid;
 use super::export::MAX_JOURNAL_BYTES;
 use super::import::ImportError;
@@ -120,6 +121,9 @@ pub(crate) struct Ctx<'a> {
     /// The remote to push to; `None` writes local refs only.
     pub(crate) remote: Option<&'a str>,
     pub(crate) deadline: Option<Instant>,
+    /// The clock the deadline is read against: [`Instant::now`], or in tests one that passes it
+    /// at a chosen point of a run.
+    pub(crate) now: fn() -> Instant,
     /// The largest journal file read or written: [`MAX_JOURNAL_BYTES`], smaller in tests.
     pub(crate) max_bytes: u64,
 }
@@ -131,9 +135,11 @@ impl<'a> Ctx<'a> {
             repo: Repo {
                 dir: target.repo,
                 timeout: target.timeout,
+                program: OsStr::new(GIT),
             },
             remote: None,
             deadline: target.deadline,
+            now: Instant::now,
             max_bytes: MAX_JOURNAL_BYTES,
         }
     }
@@ -141,7 +147,7 @@ impl<'a> Ctx<'a> {
     /// Whether the deadline has passed.
     pub(crate) fn late(&self) -> bool {
         self.deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
+            .is_some_and(|deadline| (self.now)() >= deadline)
     }
 }
 

@@ -69,6 +69,12 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   last settled, and a Stop cut short by its deadline records how far it got; each repository
   sharing a store keeps its own record. `journal checkpoint` and `journal pre-push` look at
   every journal.
+- SessionStart imports other clones' journal refs (and inbox branches not yet relayed) before it
+  primes, so their items count in the session's open items. In an `own` repository it creates
+  the store to do so; a `client` repository imports nothing. A journal ref rewritten since the
+  last import, or a source that cannot be read, is told to you at the start of each session,
+  with `weighin journal import --json` to see why; an unreachable remote is not. The import ends
+  within 8 s, store wait included, inside the hook's 10 s timeout.
 
 ## 1.2.0 — 2026-11-01
 

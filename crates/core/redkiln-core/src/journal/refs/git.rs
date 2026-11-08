@@ -29,7 +29,12 @@ const EMAIL: &str = "journal@redkiln.invalid";
 pub(crate) struct Repo<'a> {
     pub(crate) dir: &'a Path,
     pub(crate) timeout: Duration,
+    /// The git program: [`GIT`], or in tests a wrapper that logs each call.
+    pub(crate) program: &'a OsStr,
 }
+
+/// The git program run, found on `PATH`.
+pub(crate) const GIT: &str = "git";
 
 /// One entry of a tree, as `ls-tree` prints it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +42,8 @@ pub(crate) struct Entry {
     pub(crate) mode: String,
     pub(crate) kind: String,
     pub(crate) oid: Oid,
+    /// The blob's size, as `ls-tree -l` gives it; `None` for a tree or a commit.
+    pub(crate) size: Option<u64>,
     pub(crate) path: String,
 }
 
@@ -71,8 +78,8 @@ pub(crate) enum Resolved {
 }
 
 impl Repo<'_> {
-    fn command() -> Command {
-        let mut command = git::isolated(Command::new("git"));
+    fn command(&self) -> Command {
+        let mut command = git::isolated(Command::new(self.program));
         command
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GCM_INTERACTIVE", "never")
@@ -90,7 +97,7 @@ impl Repo<'_> {
 
     /// A step that talks to the remote: what git left, or what went wrong as a sentence.
     fn run_remote(&self, args: &[&str]) -> Result<Result<Captured, String>, RefsError> {
-        match self.run(Self::command(), args) {
+        match self.run(self.command(), args) {
             Ok(captured) => Ok(Ok(captured)),
             Err(RefsError::Git {
                 source: source @ (GitError::Timeout { .. } | GitError::TooMuchOutput),
@@ -102,7 +109,7 @@ impl Repo<'_> {
 
     /// `git <args>`, which must succeed; its stdout.
     fn ok(&self, args: &[&str]) -> Result<Vec<u8>, RefsError> {
-        let captured = self.run(Self::command(), args)?;
+        let captured = self.run(self.command(), args)?;
         self.succeeded(args, captured)
     }
 
@@ -126,7 +133,7 @@ impl Repo<'_> {
         let mut input = tempfile::tempfile().map_err(io)?;
         input.write_all(stdin).map_err(io)?;
         input.seek(SeekFrom::Start(0)).map_err(io)?;
-        let mut command = Self::command();
+        let mut command = self.command();
         command.args(args);
         let mut spooled = git::run_spooled(command, self.dir, self.timeout, Some(input))
             .map_err(|source| step_error(args, source))?;
@@ -146,7 +153,7 @@ impl Repo<'_> {
     ///
     /// The ref itself must name a commit: an annotated tag of one is not peeled.
     pub(crate) fn resolve(&self, name: &str) -> Result<Resolved, RefsError> {
-        let captured = self.run(Self::command(), &["show-ref", "--verify", "-q", name])?;
+        let captured = self.run(self.command(), &["show-ref", "--verify", "-q", name])?;
         if !captured.status.success() {
             return Ok(Resolved::Absent);
         }
@@ -190,7 +197,7 @@ impl Repo<'_> {
         commit: &Oid,
         path: Option<&str>,
     ) -> Result<Option<Vec<Entry>>, RefsError> {
-        let mut args = vec!["ls-tree", "-z", "--full-tree", commit.as_str()];
+        let mut args = vec!["ls-tree", "-z", "-l", "--full-tree", commit.as_str()];
         if let Some(path) = path {
             args.extend(["--", path]);
         }
@@ -223,10 +230,22 @@ impl Repo<'_> {
         self.ok_spooled(&["cat-file", "blob", oid.as_str()], cap)
     }
 
+    /// The blob `entry` names, or `None` when it is larger than `cap` bytes or the entry has no
+    /// size (it is not a blob): at most one call, since the listing gave its size; the read is
+    /// capped all the same.
+    pub(crate) fn file(&self, entry: &Entry, cap: u64) -> Result<Option<Vec<u8>>, RefsError> {
+        match entry.size {
+            Some(size) if size <= cap => {
+                self.ok_spooled(&["cat-file", "blob", entry.oid.as_str()], cap)
+            }
+            Some(_) | None => Ok(None),
+        }
+    }
+
     /// `git <args>`, which must succeed; its stdout, read from a spool, or `None` when it wrote
     /// more than `cap` bytes.
     fn ok_spooled(&self, args: &[&str], cap: u64) -> Result<Option<Vec<u8>>, RefsError> {
-        let mut command = Self::command();
+        let mut command = self.command();
         command.args(args);
         let mut spooled = git::run_spooled(command, self.dir, self.timeout, None)
             .map_err(|source| step_error(args, source))?;
@@ -302,7 +321,7 @@ impl Repo<'_> {
             ancestor.as_str(),
             tip.as_str(),
         ];
-        let captured = self.run(Self::command(), &args)?;
+        let captured = self.run(self.command(), &args)?;
         Ok(match captured.status.code() {
             Some(0) => Some(true),
             Some(1) => Some(false),
@@ -327,7 +346,7 @@ impl Repo<'_> {
         let dir = tempfile::tempdir().map_err(io)?;
         let index = dir.path().join("index");
         let indexed = |args: &[&str]| {
-            let mut command = Self::command();
+            let mut command = self.command();
             command.env("GIT_INDEX_FILE", &index);
             self.run(command, args)
                 .and_then(|c| self.succeeded(args, c))
@@ -368,7 +387,7 @@ impl Repo<'_> {
             new.as_str(),
             old.map_or("", Oid::as_str),
         ];
-        let captured = self.run(Self::command(), &args)?;
+        let captured = self.run(self.command(), &args)?;
         if captured.status.success() {
             return Ok(true);
         }
@@ -396,7 +415,7 @@ impl Repo<'_> {
     /// Whether `remote` names a configured remote with a URL.
     pub(crate) fn has_remote(&self, remote: &str) -> Result<bool, RefsError> {
         let key = format!("remote.{remote}.url");
-        let captured = self.run(Self::command(), &["config", "--get", &key])?;
+        let captured = self.run(self.command(), &["config", "--get", &key])?;
         Ok(captured.status.success() && !captured.stdout.trim_ascii().is_empty())
     }
 
@@ -504,11 +523,16 @@ fn parse_entry(record: &[u8]) -> Result<Entry, RefsError> {
     let bad = || answer("ls-tree", record);
     let text = std::str::from_utf8(record).map_err(|_utf8| bad())?;
     let (meta, path) = text.split_once('\t').ok_or_else(bad)?;
-    match meta.split(' ').collect::<Vec<_>>().as_slice() {
-        [mode, kind, oid] => Ok(Entry {
+    // `ls-tree -l` pads the size on the left, and gives `-` for anything but a blob.
+    match meta.split_whitespace().collect::<Vec<_>>().as_slice() {
+        [mode, kind, oid, size] => Ok(Entry {
             mode: (*mode).to_owned(),
             kind: (*kind).to_owned(),
             oid: Oid::parse(oid)?,
+            size: match *size {
+                "-" => None,
+                digits => Some(digits.parse().map_err(|_parse| bad())?),
+            },
             path: path.to_owned(),
         }),
         _ => Err(bad()),
@@ -552,6 +576,7 @@ mod tests {
         Repo {
             dir,
             timeout: Duration::from_secs(30),
+            program: OsStr::new(GIT),
         }
     }
 
@@ -563,6 +588,27 @@ mod tests {
         assert_eq!(repo.blob(&blob, 9).expect("ran"), None);
         assert_eq!(
             repo.blob(&blob, 10).expect("ran"),
+            Some(b"0123456789".to_vec())
+        );
+    }
+
+    #[test]
+    fn an_entry_carries_its_blob_size_and_its_file_is_read_against_the_cap() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = repo(dir.path());
+        let blob = repo.hash_blob(b"0123456789").expect("blob");
+        let tree = repo.single_file_tree("a1.jsonl", &blob).expect("tree");
+        let commit = repo.commit(&tree, None, "1").expect("commit");
+
+        let entries = repo.entries(&commit, Some("a1.jsonl")).expect("ran");
+
+        let [entry] = entries.as_deref().expect("listed") else {
+            panic!("one entry: {entries:?}");
+        };
+        assert_eq!(entry.size, Some(10));
+        assert_eq!(repo.file(entry, 9).expect("ran"), None);
+        assert_eq!(
+            repo.file(entry, 10).expect("ran"),
             Some(b"0123456789".to_vec())
         );
     }
