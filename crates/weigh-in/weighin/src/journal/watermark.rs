@@ -11,7 +11,8 @@
 //! per line. It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is.
 //! A missing or torn file (cut short, or not UTF-8), or one written for another owner (another
 //! store at this path, one recreated since), reads as no watermark: the next checkpoint examines
-//! every journal. A file that exists but cannot be read is an error, and is not written over.
+//! every journal. A file that exists but cannot be read, or is not a regular file (a symlink, a
+//! directory; HK-6), is an error, and is not written over.
 
 use std::fmt::Display;
 use std::io::ErrorKind;
@@ -21,6 +22,7 @@ use anyhow::{Context as _, Result};
 use redkiln_core::ids::Digest;
 
 use crate::env::Env;
+use crate::state_file::{Presence, regular_or_absent};
 
 /// The start of the file's name in the state dir; the owner's digest follows.
 const FILE_PREFIX: &str = "journal-watermark-";
@@ -56,6 +58,17 @@ impl Watermark {
     /// The file exists but cannot be read; the caller then examines every journal and must not
     /// write, since it cannot tell whether that would move the watermark back.
     pub(crate) fn read(&self) -> Result<u64> {
+        let unreadable = |e: anyhow::Error| {
+            e.context(format!(
+                "reading the export watermark in {}, so every Stop examines every journal until \
+                 it can be read",
+                self.path.display()
+            ))
+        };
+        // A symlink or anything else that is not a regular file is not read (HK-6).
+        if regular_or_absent(&self.path).map_err(unreadable)? == Presence::Absent {
+            return Ok(0);
+        }
         // Bytes, not text: a file that is not UTF-8 is torn, as one cut short is.
         match std::fs::read(&self.path) {
             Ok(bytes) => Ok(std::str::from_utf8(&bytes)
@@ -63,22 +76,22 @@ impl Watermark {
                 .and_then(|text| position(text, &self.owner))
                 .unwrap_or(0)),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(0),
-            Err(e) => Err(anyhow::Error::new(e).context(format!(
-                "reading the export watermark in {}, so every Stop examines every journal until \
-                 it can be read",
-                self.path.display()
-            ))),
+            Err(e) => Err(unreadable(anyhow::Error::new(e))),
         }
     }
 
     /// Records `through` for this repository and store.
     ///
     /// # Errors
-    /// The state dir or the file cannot be written.
+    /// The state dir or the file cannot be written, or something other than a regular file is
+    /// at its path (HK-6).
     pub(crate) fn write(&self, through: u64) -> Result<()> {
         if let Some(dir) = self.path.parent() {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
+        regular_or_absent(&self.path).with_context(|| {
+            format!("recording the export watermark in {}", self.path.display())
+        })?;
         std::fs::write(&self.path, format!("{through}\n{}\n", self.owner))
             .with_context(|| format!("recording the export watermark in {}", self.path.display()))
     }
@@ -110,6 +123,41 @@ mod tests {
         };
 
         assert_eq!(watermark.read().expect("torn, not an error"), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[cfg_attr(miri, ignore = "makes a symlink through the file system")]
+    fn a_symlinked_watermark_reads_as_an_error_and_is_not_written() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let target = dir.path().join("elsewhere");
+        std::fs::write(&target, format!("42\n{OWNER}\n")).expect("target written");
+        let path = dir.path().join("journal-watermark-x");
+        std::os::unix::fs::symlink(&target, &path).expect("symlink");
+        let watermark = Watermark {
+            path,
+            owner: OWNER.to_owned(),
+        };
+
+        let read = watermark.read();
+        let written = watermark.write(43);
+
+        assert!(
+            read.as_ref()
+                .is_err_and(|e| format!("{e:#}").contains("not a regular file")),
+            "{read:?}"
+        );
+        assert!(
+            written
+                .as_ref()
+                .is_err_and(|e| format!("{e:#}").contains("not a regular file")),
+            "{written:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("target readable"),
+            format!("42\n{OWNER}\n"),
+            "the link's target is left alone"
+        );
     }
 
     #[test]

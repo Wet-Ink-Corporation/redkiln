@@ -44,7 +44,7 @@ use crate::env::{self, Env, Vars};
 use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope};
 use crate::legacy_import::{self, Legacy};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, scannable};
-use crate::{recall, store};
+use crate::{recall, state_file, store};
 pub(crate) use session_start::prime;
 use session_start::{CONVENTION, COWORK_PRIME, session_start};
 
@@ -385,6 +385,10 @@ fn log_error(env: &Env, event: &str, e: &anyhow::Error) {
     let Some(dir) = log_dir(env, e) else {
         return;
     };
+    // Appended only when it is a regular file or absent (HK-6).
+    if state_file::regular_or_absent(&dir.join("hook-errors.log")).is_err() {
+        return;
+    }
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -410,7 +414,7 @@ fn log_dir(env: &Env, e: &anyhow::Error) -> Option<PathBuf> {
     } else {
         env.state_dir().ok()?
     };
-    std::fs::create_dir_all(&dir).ok()?;
+    state_file::real_dir(&dir).ok()?;
     Some(dir)
 }
 

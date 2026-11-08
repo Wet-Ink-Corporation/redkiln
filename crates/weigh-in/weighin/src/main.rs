@@ -20,6 +20,7 @@ mod ops;
 mod pane;
 mod recall;
 mod shell_bin;
+mod state_file;
 mod store;
 mod text;
 
