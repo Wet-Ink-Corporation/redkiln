@@ -26,10 +26,12 @@
 //! `SessionStart` prints the convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps
 //! the conversation and records through the computer's shell.
 
+mod errors;
+mod session_start;
+
 use anyhow::Result;
 use redkiln_core::store::Wait;
 use serde_json::Value;
-use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -38,12 +40,13 @@ use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
-use crate::env::{self, Config, ConfigSource, Env, Vars};
+use crate::env::{self, Env, Vars};
 use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope};
 use crate::legacy_import::{self, Legacy};
-use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
-use crate::text::{Report, clip};
-use crate::{recall, shell_bin, store};
+use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, scannable};
+use crate::{recall, store};
+pub(crate) use session_start::prime;
+use session_start::{CONVENTION, COWORK_PRIME, session_start};
 
 /// Run a hook: read its JSON from `input`, dispatch it, and write what it prints to `output`
 /// (possibly nothing). Never fails: output that cannot be written is logged like any other hook
@@ -361,225 +364,6 @@ fn log_dir(env: &Env, e: &anyhow::Error) -> Option<PathBuf> {
     Some(dir)
 }
 
-/// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
-/// session, the config is broken or the import has `journal` notes, a one-line message for the
-/// user. A prime that fails is logged and reported with the rest, and Claude still gets the
-/// convention. A broken config is reported here, once a session, and never logged.
-fn session_start(env: &Env, source: &str, journal: Vec<String>) -> String {
-    let broken = broken_config(env);
-    let (primed, unusable) = match ops::loaded(env) {
-        Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
-        Err(e) => (Err(e), 0),
-    };
-    // A given store Core refuses is told to the user here, every session until it is fixed, and
-    // not logged: the log would only repeat it.
-    let mut refused = None;
-    let mut context = primed.unwrap_or_else(|e| {
-        if refused_given_store(env, &e) {
-            refused = Some(format!(
-                "Weigh-In cannot open its store, so hooks capture nothing until that is fixed: {}.",
-                clip(&format!("{e:#}"), 400)
-            ));
-        } else {
-            log_error(env, "SessionStart", &e);
-        }
-        CONVENTION.to_owned()
-    });
-    if let Some(copy) = shell_copy(env) {
-        context.push_str("Weigh-In binary for the shell: ");
-        context.push_str(&copy.display().to_string());
-        context.push('\n');
-    }
-    let parts: Vec<String> = broken
-        .into_iter()
-        .chain(refused)
-        .chain(store_notes(env, unusable))
-        .chain(journal)
-        .chain(new_errors(env))
-        .collect();
-    let message = (!parts.is_empty()).then(|| parts.join(" "));
-    match message {
-        // Plain stdout reaches only Claude; `systemMessage` is shown to the user.
-        Some(message) => serde_json::json!({
-            "systemMessage": message,
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": context,
-            },
-        })
-        .to_string(),
-        None => context,
-    }
-}
-
-/// What the user should hear about the store, once a session: that it cannot be located (hooks
-/// then write nothing, CLI-09), a session id the store refuses (D10), what locating it found (a
-/// 2.x fallback, a suite config problem), and events a newer weighin wrote, which are skipped
-/// (EV-10).
-fn store_notes(env: &Env, unusable: u64) -> Vec<String> {
-    let mut notes = Vec::new();
-    if let Err(e) = &env.store {
-        notes.push(format!(
-            "Weigh-In cannot locate its store, so hooks capture nothing until that is fixed: {}.",
-            Report(e)
-        ));
-    }
-    if let Some(e) = &env.session_error {
-        notes.push(format!(
-            "Weigh-In: {e}, so this session's items are recorded with no session."
-        ));
-    }
-    notes.extend(env.notices.iter().map(|n| format!("Weigh-In: {n}.")));
-    if unusable > 0 {
-        notes.push(format!(
-            "Weigh-In: {unusable} event(s) in the store are of a form this weighin cannot read, so they are skipped; a newer weighin wrote them."
-        ));
-    }
-    notes
-}
-
-/// On Windows inside a git repository, a copy of this binary in the repository's git dir, where
-/// the skill's shell can reach it when it cannot see the plugin folder (#127, `shell_bin`). Nowhere
-/// else: other platforms reach the plugin folder, and outside git the state dir would be a
-/// `.weighin/` created in the user's folder. A failed copy is logged, and `SessionStart` goes on.
-fn shell_copy(env: &Env) -> Option<PathBuf> {
-    if !cfg!(windows) {
-        return None;
-    }
-    // The default store's state dir in the repository's git dir, not the state dir, which follows
-    // a configured `store` to a folder the shell may not see. Under `redkiln/`, so nothing is
-    // added beside a 1.x ledger in `<common>/weighin/`, which stays as it was, imported or not.
-    let dir = env.default_state_dir()?;
-    let exe = match std::env::current_exe() {
-        Ok(exe) => exe,
-        Err(e) => {
-            log_error(env, "SessionStart", &anyhow::Error::from(e));
-            return None;
-        }
-    };
-    match shell_bin::place(&exe, &dir, env!("CARGO_PKG_VERSION")) {
-        Ok(copy) => Some(copy),
-        Err(unplaced) => {
-            log_error(env, "SessionStart", &unplaced.error);
-            unplaced.existing
-        }
-    }
-}
-
-/// When the folder's config cannot be used, the sentence that leads the user's message. It is
-/// not logged: `new_errors` would read it straight back as a hook failure, and every other
-/// command reports it itself. Hooks never fail a session, so they carry on with the defaults,
-/// which drop the config's settings (a `store` elsewhere among them) until the file is fixed.
-fn broken_config(env: &Env) -> Option<String> {
-    let ConfigSource::Broken(e) = &env.config_source else {
-        return None;
-    };
-    // The fault only: the sentence names the file already, and a deep folder's absolute path
-    // would push the fault past the clip.
-    let fault = std::error::Error::source(e)
-        .map_or_else(|| e.to_string(), |cause| Report(cause).to_string());
-    Some(format!(
-        "Weigh-In: {} is broken ({}). Until it is fixed, hooks run on the defaults, so items captured now go to the default ledger, not a `store` the config names, and other weighin commands stop.",
-        Config::PATH,
-        clip(&fault, 200)
-    ))
-}
-
-/// How far `hook-errors.log` had been reported, as a byte offset and the log's first line then,
-/// beside the log.
-const ERRORS_SEEN: &str = "hook-errors.seen";
-
-/// The lines added to `hook-errors.log` since the last `SessionStart` reported it, as a message;
-/// records the log's length so each line is reported once. Writes nothing when there is no log,
-/// and overwrites rather than deletes (B-01).
-fn new_errors(env: &Env) -> Option<String> {
-    // No store located is no state dir, so no log to report.
-    let dir = env.state_dir().ok()?;
-    let log_path = dir.join("hook-errors.log");
-    let log = std::fs::read(&log_path).ok()?;
-    // The length reported so far, then the start of the log's first line at that time. A
-    // different start means the log was truncated since, so all of it is new. Lines begin with a
-    // timestamp, so this assumes a truncation removes the first line; a log trimmed only at its
-    // end is not detected. A record with no first line, from an older build, is taken as it
-    // stands; an older build reading this record reports the whole log once, then records a
-    // bare length again.
-    let head = String::from_utf8_lossy(first_line(&log));
-    let recorded = std::fs::read_to_string(dir.join(ERRORS_SEEN)).unwrap_or_default();
-    let (offset, recorded_head) = match recorded.split_once('\n') {
-        Some((offset, recorded_head)) => (offset, Some(recorded_head)),
-        None => (recorded.as_str(), None),
-    };
-    let seen = offset
-        .trim()
-        .parse::<usize>()
-        .ok()
-        .filter(|&n| n <= log.len() && recorded_head.is_none_or(|h| h == head))
-        .unwrap_or(0);
-    if seen == log.len() {
-        return None;
-    }
-    let record = format!("{}\n{head}", log.len());
-    let marked = match std::fs::write(dir.join(ERRORS_SEEN), record) {
-        Ok(()) => String::new(),
-        Err(e) => format!(" Could not mark this report as seen, so it will repeat: {e}."),
-    };
-    let added = String::from_utf8_lossy(log.get(seen..)?);
-    let lines: Vec<&str> = added.lines().filter(|l| !l.trim().is_empty()).collect();
-    let last = clip(lines.last()?, 200);
-    Some(format!(
-        "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {last} (full log: {}){marked}",
-        lines.len(),
-        log_path.display()
-    ))
-}
-
-/// How much of the log's first line `hook-errors.seen` keeps: the timestamp and event, and more.
-const SEEN_HEAD_BYTES: usize = 80;
-
-/// The bytes of `log` before its first newline, at most [`SEEN_HEAD_BYTES`] of them.
-fn first_line(log: &[u8]) -> &[u8] {
-    let line = log.split(|&b| b == b'\n').next().unwrap_or_default();
-    line.get(..SEEN_HEAD_BYTES).unwrap_or(line)
-}
-
-/// The convention, the session key and the counts, in at most ~150 tokens.
-///
-/// # Errors
-/// Fails when the ledger cannot be read.
-pub(crate) fn prime(env: &Env, source: &str) -> Result<String> {
-    // Read-only: a session that raises nothing must not leave a store behind.
-    prime_from(env, source, &read_ledger(env)?)
-}
-
-/// [`prime`] of a ledger already read.
-fn prime_from(env: &Env, source: &str, ledger: &Ledger) -> Result<String> {
-    let open = ledger.open();
-    let here = env
-        .session
-        .as_deref()
-        .map_or(0, |id| ledger.open_in_session(id).len());
-    let one_way = open.iter().filter(|i| i.door() == Door::OneWay).count();
-    let defaults = ledger.unacknowledged_defaults().len();
-    let due = match ledger
-        .due_for_review(&env::now(), env.config.caps.review_age_days)
-        .len()
-    {
-        0 => String::new(),
-        n => format!(" · {n} decision(s) due a look"),
-    };
-    let mut out = String::new();
-    writeln!(
-        out,
-        "Weigh-In ({source}): session {} · {here} open here · {} open in repo ({one_way} one-way) · {defaults} default(s) to review{due}.",
-        env.session.as_deref().unwrap_or("?"),
-        open.len()
-    )?;
-    out.push_str(CONVENTION);
-    Ok(out)
-}
-
-const COWORK_PRIME: &str = "Weigh-In (cowork): the ledger lives in the user's connected folder, not in this workspace; /weigh-in records there through the computer's shell.\n";
-
 /// Cowork: no ledger here to write, so nudge straight from the markers in the last message.
 fn cowork_nudge(payload: &Value) -> String {
     let text = payload
@@ -598,8 +382,6 @@ fn cowork_nudge(payload: &Value) -> String {
     );
     serde_json::json!({ "systemMessage": msg }).to_string()
 }
-
-const CONVENTION: &str = "When you assume, defer, make a call the user did not examine, or cannot decide, end your message with:\n```weigh-in\nkind: question|assumption|deferral|call\ndoor: one-way|two-way|unsure\nauthority: authority|judgment\nq: <the full question?>\ndid: <what you did meanwhile, or blocked>\nflip: <the fact that would change the answer>\nat: <path:line>\n```\nA list of calls for the user (\"Decisions for you\", \"Your calls\") gets one block per call. No TODO/FIXME/\"revisit later\" without a block. If you cannot ask the user, take no one-way path: `did: blocked`, then continue with independent work.\n";
 
 fn capture(env: &Env, payload: &Value) -> Result<String> {
     let text = payload
@@ -794,7 +576,7 @@ pub(crate) fn scan_text(
 
 #[cfg(test)]
 mod tests {
-    use super::{Hook, discover, new_errors, read_payload, serve};
+    use super::{Hook, discover, read_payload, serve};
     use crate::env::{Env, Vars};
     use crate::git;
     use redkiln_core::store::Wait;
@@ -878,71 +660,6 @@ mod tests {
         let command = Env::discover(tmp.path(), None, None, Vars::default());
 
         assert_eq!((hook.wait, command.wait), (Wait::Hook, Wait::Command));
-    }
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "reads and writes the error log through the file system"
-    )]
-    fn a_seen_record_from_an_older_build_still_counts_from_its_length() {
-        let tmp = tempfile::tempdir().expect("temp dir");
-        let state = tmp.path().join(".redkiln/weighin");
-        std::fs::create_dir_all(&state).expect("state dir");
-        let env = env_in(tmp.path());
-        let old = "2026-10-01T00:00:00Z Stop: reported before\n";
-        let added = "2026-10-02T00:00:00Z Stop: logged since\n";
-        std::fs::write(state.join("hook-errors.log"), format!("{old}{added}")).expect("log");
-        // Older builds recorded the length alone.
-        std::fs::write(state.join("hook-errors.seen"), old.len().to_string()).expect("seen");
-
-        let report = new_errors(&env).expect("the added error is reported");
-
-        assert!(
-            report.starts_with("Weigh-In: 1 hook error(s) since the last session")
-                && report.contains("Last: 2026-10-02T00:00:00Z Stop: logged since"),
-            "{report}"
-        );
-    }
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "reads and writes the error log through the file system"
-    )]
-    fn errors_logged_after_the_log_was_truncated_are_all_reported() {
-        use std::fmt::Write as _;
-        let tmp = tempfile::tempdir().expect("temp dir");
-        let state = tmp.path().join(".redkiln/weighin");
-        std::fs::create_dir_all(&state).expect("state dir");
-        let log = state.join("hook-errors.log");
-        let env = env_in(tmp.path());
-        let old = "2026-10-01T00:00:00Z Stop: an old failure that was reported\n".repeat(3);
-        std::fs::write(&log, &old).expect("old log");
-        assert!(
-            new_errors(&env).is_some(),
-            "the old errors are reported once"
-        );
-        // The owner truncates the log once read; new errors grow it past the old length.
-        let new = (1..=4).fold(String::new(), |mut acc, n| {
-            writeln!(
-                acc,
-                "2026-10-02T00:00:0{n}Z Stop: new failure number {n} after the log was truncated"
-            )
-            .expect("writing to a String");
-            acc
-        });
-        assert!(new.len() > old.len(), "the new log outgrows the old one");
-        std::fs::write(&log, &new).expect("new log");
-
-        let report = new_errors(&env).expect("the new errors are reported");
-
-        assert!(
-            report.starts_with("Weigh-In: 4 hook error(s) since the last session")
-                && report.contains("Last: 2026-10-02T00:00:04Z Stop: new failure number 4"),
-            "{report}"
-        );
-        assert_eq!(new_errors(&env), None, "reported once");
     }
 
     #[test]
