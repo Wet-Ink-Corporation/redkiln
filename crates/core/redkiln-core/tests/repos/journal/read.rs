@@ -14,6 +14,8 @@ use redkiln_core::store::{Filter, Store, Wait};
 use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::Trust;
 
+#[cfg(unix)]
+use super::git_fixture::count_remote_calls;
 use super::git_fixture::{clone, git, remote};
 use super::{all, importer, one_event_store, raised, source_store, ts};
 
@@ -369,6 +371,36 @@ fn past_its_deadline_an_import_fetches_and_reads_nothing() {
     assert!(report.late, "{report:?}");
     assert!(report.sources.is_empty(), "{report:?}");
     assert!(all(&store).is_empty(), "nothing recorded");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_import_whose_fetch_ends_after_the_deadline_asks_the_remote_nothing_more() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (_source, remote) = exported(dir.path());
+    let reader = clone(dir.path(), &remote, "reader");
+    // Each fetch takes 6 s, so the first ends 3 s past the deadline.
+    let calls = dir.path().join("calls");
+    count_remote_calls(dir.path(), &reader, &calls, 6);
+    let store = empty_store(dir.path(), "store");
+    let cut = RefsTarget {
+        deadline: Some(std::time::Instant::now() + Duration::from_secs(3)),
+        ..target(&reader)
+    };
+
+    let report = import_refs(&store, &cut, &ts(), &importer()).expect("ran");
+
+    assert!(report.late, "{report:?}");
+    let called = std::fs::read_to_string(&calls).expect("calls");
+    assert_eq!(
+        called.lines().collect::<Vec<_>>(),
+        ["upload"],
+        "the inbox fetch is not started: {report:?}"
+    );
+    assert!(
+        report.sources.is_empty(),
+        "no source started late: {report:?}"
+    );
 }
 
 #[test]

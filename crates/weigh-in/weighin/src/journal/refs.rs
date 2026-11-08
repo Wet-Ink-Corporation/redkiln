@@ -16,9 +16,10 @@ use redkiln_core::envelope::Timestamp;
 use redkiln_core::ids::SessionId;
 use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{
-    Breach, Deferral, Deleted, JOURNAL_REFS, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsError,
-    RefsExported, RefsImport, RefsScope, RefsTarget, Refusal, Relayed, checkpoint_refs_since,
-    import_refs, sweep_refs_since,
+    Breach, Deferral, Deleted, JOURNAL_REFS, MAX_CALLS_PAST_DEADLINE,
+    MAX_IMPORT_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsError, RefsExported, RefsImport, RefsScope,
+    RefsTarget, Refusal, Relayed, ScopedCheckpoint, checkpoint_refs_since, import_refs,
+    sweep_refs_since,
 };
 use redkiln_core::location::GIT_TIMEOUT;
 use serde::{Serialize, Serializer};
@@ -36,9 +37,6 @@ const REMOTE: &str = "origin";
 /// The most characters of what git said that a finding keeps.
 const MAX_SAID_CHARS: usize = 200;
 
-/// The git calls, local or remote, Core can still make after the deadline passes.
-const CALLS_AFTER_DEADLINE: u32 = MAX_CALLS_PAST_DEADLINE;
-
 /// How long a caller lets journal-ref work run (HK-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Budget {
@@ -46,30 +44,44 @@ pub(crate) struct Budget {
     pub(crate) start_by: Option<Duration>,
     /// The most one git call may take before Core kills it.
     pub(crate) per_call: Duration,
+    /// The git calls, local or remote, Core can still make after the deadline passes: its own
+    /// count for the work this budget bounds (an export or an import).
+    pub(crate) after_deadline: u32,
 }
 
 impl Budget {
-    /// The Stop hook, inside its 20 s timeout in `hooks.json` (D3): worst case 4 s + 7 × 2 s =
-    /// 18 s, leaving time for the output after it.
+    /// The Stop hook's export, inside its 20 s timeout in `hooks.json` (D3): worst case 4 s +
+    /// 7 × 2 s = 18 s, leaving time for the output after it.
     pub(crate) const STOP: Self = Self {
         start_by: Some(Duration::from_secs(4)),
         per_call: Duration::from_secs(2),
+        after_deadline: MAX_CALLS_PAST_DEADLINE,
+    };
+    /// The `SessionStart` hook's import, inside its 10 s timeout: worst case 3 s + 2 × 2.5 s =
+    /// 8 s, leaving time for the prime after it.
+    pub(crate) const SESSION_START: Self = Self {
+        start_by: Some(Duration::from_secs(3)),
+        per_call: Duration::from_millis(2_500),
+        after_deadline: MAX_IMPORT_CALLS_PAST_DEADLINE,
     };
     /// `journal pre-push`: git waits for it, so it is bounded, if less tightly than a hook:
     /// worst case 6 s + 7 × 2 s = 20 s.
     pub(crate) const PRE_PUSH: Self = Self {
         start_by: Some(Duration::from_secs(6)),
         per_call: Duration::from_secs(2),
+        after_deadline: MAX_CALLS_PAST_DEADLINE,
     };
     /// `journal checkpoint` and `journal import` run by hand: no deadline, every call bounded.
     pub(crate) const COMMAND: Self = Self {
         start_by: None,
         per_call: GIT_TIMEOUT,
+        after_deadline: MAX_CALLS_PAST_DEADLINE,
     };
     /// `journal relay`, run by CI under its job timeout: slow pushes are given time.
     pub(crate) const RELAY: Self = Self {
         start_by: None,
         per_call: Duration::from_secs(60),
+        after_deadline: MAX_CALLS_PAST_DEADLINE,
     };
 
     /// The Core target for `repo`. A deadline `Instant` cannot represent is `started` itself,
@@ -85,12 +97,12 @@ impl Budget {
         }
     }
 
-    /// The longest a checkpoint can run after it started: `start_by` plus every call Core can
-    /// still make after the deadline; `None` with no deadline, or on overflow. The Stop hook
-    /// logs a checkpoint that ran longer, which means Core's call pattern grew (plan risk 4).
+    /// The longest the work can run after it started: `start_by` plus every call Core can still
+    /// make after the deadline; `None` with no deadline, or on overflow. The Stop hook logs a
+    /// checkpoint that ran longer, which means Core's call pattern grew (plan risk 4).
     pub(crate) fn worst_case(self) -> Option<Duration> {
         self.start_by?
-            .checked_add(self.per_call.checked_mul(CALLS_AFTER_DEADLINE)?)
+            .checked_add(self.per_call.checked_mul(self.after_deadline)?)
     }
 }
 
@@ -143,7 +155,9 @@ pub(crate) enum Scope {
 pub(crate) enum Marked {
     /// To the position up to which the store is settled (Core's `through`).
     Moved,
-    /// Already there or past it: it never moves back.
+    /// Already there or past it: no run moves it back on what it settled. Two runs at once may
+    /// still write out of order, so a slower one can leave it lower than the faster one wrote;
+    /// that is safe, as a later run then examines more, never less.
     Kept,
     /// It could not be read (so it was not written) or written; the next Stop may examine
     /// every journal again.
@@ -203,7 +217,7 @@ pub(crate) fn checkpoint(
     };
     let target = budget.target(repo, started);
     let watermark = Watermark::of(env, repo, store.core().store_id())?;
-    let (mut recorded, unread) = match watermark.read() {
+    let (recorded, unread) = match watermark.read() {
         Ok(at) => (at, None),
         Err(e) => (0, Some(e)),
     };
@@ -223,29 +237,48 @@ pub(crate) fn checkpoint(
         }
         .context("exporting the journals")
     };
-    let mut scoped = export(recorded)?;
-    if scoped.through < recorded {
-        // A store behind its watermark is not the one it was written for (a store recreated
-        // since): nothing it holds is known to be exported.
-        recorded = 0;
-        scoped = export(0)?;
-    }
+    let (scoped, recorded) = from_watermark(recorded, export)?;
     Ok(match scoped.outcome {
         RefsCheckpoint::Client => Checkpointed::Skipped(Skip::Client),
         RefsCheckpoint::Written(report) => {
-            // Core's `through` stops before the first journal past the watermark that was
-            // deferred or broken, so a run cut short still records what it settled; what a
-            // sweep finds below the watermark is in its report, not a reason to move back.
-            let marked = match unread {
-                Some(e) => Marked::Failed(e),
-                None if scoped.through <= recorded => Marked::Kept,
-                None => watermark
-                    .write(scoped.through)
-                    .map_or_else(Marked::Failed, |()| Marked::Moved),
-            };
-            Checkpointed::Ran(report, marked)
+            Checkpointed::Ran(report, mark(&watermark, unread, recorded, scoped.through))
         }
     })
+}
+
+/// `export` run from the watermark at `recorded`, and run again from 0 when the store is behind
+/// it; the run, and the position it started from.
+fn from_watermark(
+    recorded: u64,
+    export: impl Fn(u64) -> Result<ScopedCheckpoint>,
+) -> Result<(ScopedCheckpoint, u64)> {
+    let scoped = export(recorded)?;
+    if scoped.through < recorded {
+        // A store behind its watermark is not the one it was written for (a store recreated
+        // since): nothing it holds is known to be exported.
+        return Ok((export(0)?, 0));
+    }
+    Ok((scoped, recorded))
+}
+
+/// What becomes of the watermark at `recorded` after a run settled the store `through`: moved
+/// forward only, and left alone when it could not be read (`unread`).
+fn mark(
+    watermark: &Watermark,
+    unread: Option<anyhow::Error>,
+    recorded: u64,
+    through: u64,
+) -> Marked {
+    // Core's `through` stops before the first journal past the watermark that was deferred or
+    // broken, so a run cut short still records what it settled; what a sweep finds below the
+    // watermark is in its report, not a reason to move back.
+    match unread {
+        Some(e) => Marked::Failed(e),
+        None if through <= recorded => Marked::Kept,
+        None => watermark
+            .write(through)
+            .map_or_else(Marked::Failed, |()| Marked::Moved),
+    }
 }
 
 /// The journal of `env`'s session (JR-06), `None` with no session.
@@ -363,6 +396,27 @@ pub(crate) fn needs_a_person(report: &RefsExported) -> Vec<String> {
         })
         .map(|(name, deferral)| deferred_message(name, deferral));
     broken.chain(lasting).collect()
+}
+
+/// What the user hears of an import at `SessionStart`: the journal refs rewritten since the last
+/// import and the sources that could not be read, each clipped. A failed fetch and a passed
+/// deadline are not told: an offline laptop is normal, and the next session imports the rest.
+pub(crate) fn import_notes(report: &RefsImport) -> Vec<String> {
+    let rewritten = (!report.rewritten.is_empty()).then(|| {
+        format!(
+            "Weigh-In: journal ref(s) rewritten since the last import: {} (their new lines were \
+             imported).",
+            clip(&report.rewritten.join(", "), MAX_SAID_CHARS)
+        )
+    });
+    let unread = (!report.passed_over.is_empty()).then(|| {
+        format!(
+            "Weigh-In: {} journal source(s) could not be read: {}.",
+            report.passed_over.len(),
+            clip(&report.passed_over.join(", "), MAX_SAID_CHARS)
+        )
+    });
+    rewritten.into_iter().chain(unread).collect()
 }
 
 /// A broken journal ref, and what a person does about it.
@@ -489,13 +543,13 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use redkiln_core::journal::refs::{
-        Breach, Deferral, Deleted, ImportedRef, RefsExported, RefsImport, Refusal, Relayed,
+        Breach, Deferral, Deleted, ImportedRef, MAX_CALLS_PAST_DEADLINE,
+        MAX_IMPORT_CALLS_PAST_DEADLINE, RefsExported, RefsImport, Refusal, Relayed,
     };
     use redkiln_core::journal::{ImportReport, JournalName, LineError, Problem};
 
     use super::{
-        Budget, CALLS_AFTER_DEADLINE, checkpoint_findings, import_findings, needs_a_person,
-        relay_findings,
+        Budget, checkpoint_findings, import_findings, import_notes, needs_a_person, relay_findings,
     };
     use crate::cli_envelope::{Exit, Finding, Severity};
 
@@ -518,7 +572,7 @@ mod tests {
             .expect("pre-push has a deadline");
         let calls = Budget::PRE_PUSH
             .per_call
-            .checked_mul(CALLS_AFTER_DEADLINE)
+            .checked_mul(MAX_CALLS_PAST_DEADLINE)
             .expect("no overflow");
         assert_eq!(
             Some(worst),
@@ -531,29 +585,42 @@ mod tests {
         assert_eq!(Budget::RELAY.worst_case(), None);
     }
 
-    /// `plugins/weigh-in/hooks/hooks.json`'s Stop timeout, which
+    /// `plugins/weigh-in/hooks/hooks.json`'s `Stop` and `SessionStart` timeouts, which
     /// `hooks_json_timeouts_match_the_budgets` pins in the file.
     const STOP_HOOK_TIMEOUT: Duration = Duration::from_secs(20);
+    const SESSION_START_HOOK_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// Time kept back for the hook's own work after the git calls: capture, logging, output.
     const MARGIN: Duration = Duration::from_secs(2);
 
     #[test]
     fn every_hook_budget_ends_inside_its_hook_timeout() {
-        let worst = Budget::STOP.worst_case().expect("Stop has a deadline");
-        // Derived from the budget's constants, so a change of per-call time only has to fit.
-        let calls = Budget::STOP
-            .per_call
-            .checked_mul(CALLS_AFTER_DEADLINE)
-            .expect("no overflow");
-        assert_eq!(
-            Some(worst),
-            Budget::STOP.start_by.and_then(|by| by.checked_add(calls))
-        );
-        assert!(
-            worst.saturating_add(MARGIN) <= STOP_HOOK_TIMEOUT,
-            "{worst:?}"
-        );
+        // The Stop exports, SessionStart imports: each with Core's own count of calls after the
+        // deadline.
+        for (hook, budget, after, timeout) in [
+            (
+                "Stop",
+                Budget::STOP,
+                MAX_CALLS_PAST_DEADLINE,
+                STOP_HOOK_TIMEOUT,
+            ),
+            (
+                "SessionStart",
+                Budget::SESSION_START,
+                MAX_IMPORT_CALLS_PAST_DEADLINE,
+                SESSION_START_HOOK_TIMEOUT,
+            ),
+        ] {
+            let worst = budget.worst_case().expect("a hook has a deadline");
+            // Derived from the budget's constants, so a change of per-call time only has to fit.
+            let calls = budget.per_call.checked_mul(after).expect("no overflow");
+            assert_eq!(
+                Some(worst),
+                budget.start_by.and_then(|by| by.checked_add(calls)),
+                "{hook}"
+            );
+            assert!(worst.saturating_add(MARGIN) <= timeout, "{hook}: {worst:?}");
+        }
     }
 
     #[test]
@@ -583,11 +650,45 @@ mod tests {
     }
 
     #[test]
+    fn import_notes_tell_of_rewritten_refs_and_unread_sources_only() {
+        let report = RefsImport {
+            rewritten: vec!["refs/redkiln/journal/a".to_owned()],
+            passed_over: vec![
+                "refs/redkiln/journal/Bad".to_owned(),
+                "refs/redkiln/inbox/c".to_owned(),
+            ],
+            fetch_failed: vec!["fatal: unable to access".to_owned()],
+            late: true,
+            ..RefsImport::default()
+        };
+
+        assert_eq!(
+            import_notes(&report),
+            [
+                "Weigh-In: journal ref(s) rewritten since the last import: refs/redkiln/journal/a \
+                 (their new lines were imported).",
+                "Weigh-In: 2 journal source(s) could not be read: refs/redkiln/journal/Bad, \
+                 refs/redkiln/inbox/c.",
+            ]
+        );
+        assert_eq!(
+            import_notes(&RefsImport {
+                fetch_failed: vec!["offline".to_owned()],
+                late: true,
+                ..RefsImport::default()
+            }),
+            Vec::<String>::new(),
+            "an offline laptop is normal"
+        );
+    }
+
+    #[test]
     fn a_deadline_instant_cannot_represent_is_the_start() {
         let started = Instant::now();
         let budget = Budget {
             start_by: Some(Duration::MAX),
             per_call: Duration::from_secs(1),
+            ..Budget::STOP
         };
         let target = budget.target(std::path::Path::new("."), started);
         assert_eq!(target.deadline, Some(started));

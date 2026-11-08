@@ -39,7 +39,7 @@ use weighin_core::marker::{Door, parse_markers};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env, Vars};
-use crate::journal::refs::{self, Budget, Checkpointed, Marked, Scope};
+use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
 use crate::{recall, shell_bin, store};
@@ -165,7 +165,9 @@ impl Hook {
                     .get("source")
                     .and_then(Value::as_str)
                     .unwrap_or("startup");
-                return session_start(env, source);
+                // The import comes first, so the items it brings count in the prime.
+                let notes = self.imported();
+                return session_start(env, source, notes);
             }
             "Stop" => self.checkpointed(capture(env, payload)),
             // A subagent's events leave at its session's Stop (D11).
@@ -238,6 +240,25 @@ impl Hook {
         }
         result
     }
+
+    /// `SessionStart`'s import of the journal sources inside its budget (JR-10, D10), and what
+    /// the user should hear of it: a rewritten ref, a source that could not be read. A failed
+    /// fetch or a passed deadline says nothing, since an offline laptop is normal. An error is
+    /// logged, except a store that cannot be located or a given one Core refuses, which
+    /// `session_start` tells the user itself.
+    fn imported(&self) -> Vec<String> {
+        match refs::import(&self.env, Budget::SESSION_START, self.started, "hook") {
+            Ok(Imported::Ran(report)) => refs::import_notes(&report),
+            // Not git or a client repository: nothing to import.
+            Ok(Imported::Skipped(_)) => Vec::new(),
+            Err(e) => {
+                if self.env.store.is_ok() && !refused_given_store(&self.env, &e) {
+                    self.log(&e);
+                }
+                Vec::new()
+            }
+        }
+    }
 }
 
 #[expect(
@@ -279,10 +300,10 @@ fn log_dir(env: &Env, e: &anyhow::Error) -> Option<PathBuf> {
 }
 
 /// `SessionStart`: the prime for Claude's context and, when hooks have failed since the last
-/// session or the config is broken, a one-line message for the user. A prime that fails is
-/// logged and reported with the rest, and Claude still gets the convention. A broken config is
-/// reported here, once a session, and never logged.
-fn session_start(env: &Env, source: &str) -> String {
+/// session, the config is broken or the import has `journal` notes, a one-line message for the
+/// user. A prime that fails is logged and reported with the rest, and Claude still gets the
+/// convention. A broken config is reported here, once a session, and never logged.
+fn session_start(env: &Env, source: &str, journal: Vec<String>) -> String {
     let broken = broken_config(env);
     let (primed, unusable) = match ops::loaded(env) {
         Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
@@ -311,6 +332,7 @@ fn session_start(env: &Env, source: &str) -> String {
         .into_iter()
         .chain(refused)
         .chain(store_notes(env, unusable))
+        .chain(journal)
         .chain(new_errors(env))
         .collect();
     let message = (!parts.is_empty()).then(|| parts.join(" "));

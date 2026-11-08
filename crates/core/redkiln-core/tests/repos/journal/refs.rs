@@ -15,7 +15,7 @@ use redkiln_core::suite::RepoClass;
 use redkiln_core::trust::Trust;
 
 #[cfg(unix)]
-use super::git_fixture::{accept_custom_refs, refuse_custom_refs};
+use super::git_fixture::{accept_custom_refs, count_remote_calls, executable, refuse_custom_refs};
 use super::git_fixture::{clone, file_at, git, refs, remote};
 use super::{
     ImportCompleted, all, decode_all, importer, one_event_store, raised, record_an_import,
@@ -23,6 +23,16 @@ use super::{
 };
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// The deadline of a checkpoint cut short: far enough off for its first journal's local reads on
+/// a slow runner, and well before [`SLOW_PUSH`] ends.
+#[cfg(unix)]
+const CUT: Duration = Duration::from_secs(3);
+
+/// A `pre-receive` hook that takes twice [`CUT`], so the push that starts first ends after the
+/// deadline.
+#[cfg(unix)]
+const SLOW_PUSH: &str = "#!/bin/sh\ncat >/dev/null\nsleep 6\n";
 
 fn target(repo: &Path) -> RefsTarget<'_> {
     RefsTarget {
@@ -337,14 +347,6 @@ fn past_its_deadline_a_checkpoint_does_not_fetch() {
     );
 }
 
-/// Makes `path` an executable shell script holding `script`.
-#[cfg(unix)]
-fn executable(path: &Path, script: &str) {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::write(path, script).expect("script");
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-}
-
 #[cfg(unix)]
 #[test]
 fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished() {
@@ -352,14 +354,11 @@ fn a_checkpoint_cut_short_by_its_deadline_reads_through_the_journals_it_finished
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
     // A slow push: the first journal starts before the deadline and ends after it.
-    executable(
-        &remote.join("hooks/pre-receive"),
-        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
-    );
+    executable(&remote.join("hooks/pre-receive"), SLOW_PUSH);
     // Positions: 1 a1, 2 b2, 3 the store's, 4 raw, 5 a1; so the oldest last event is b2's.
     let store = store_in(dir.path(), "store");
     let cut = RefsTarget {
-        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        deadline: Some(std::time::Instant::now() + CUT),
         ..target(&work)
     };
 
@@ -419,12 +418,9 @@ fn a_sweep_writes_the_journals_past_its_position_first_and_settles_only_those() 
             None,
         )
         .expect("appended");
-    executable(
-        &remote.join("hooks/pre-receive"),
-        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
-    );
+    executable(&remote.join("hooks/pre-receive"), SLOW_PUSH);
     let cut = RefsTarget {
-        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        deadline: Some(std::time::Instant::now() + CUT),
         ..target(&work)
     };
 
@@ -449,14 +445,11 @@ fn a_checkpoint_writes_its_first_journal_before_the_others_and_settles_in_positi
     let remote = remote(dir.path());
     let work = clone(dir.path(), &remote, "work");
     // A slow push: the first journal starts before the deadline and ends after it.
-    executable(
-        &remote.join("hooks/pre-receive"),
-        "#!/bin/sh\ncat >/dev/null\nsleep 3\n",
-    );
+    executable(&remote.join("hooks/pre-receive"), SLOW_PUSH);
     // Positions: 1 a1, 2 b2, 3 the store's, 4 raw, 5 a1; so a1 is the newest journal.
     let store = store_in(dir.path(), "store");
     let cut = RefsTarget {
-        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_500)),
+        deadline: Some(std::time::Instant::now() + CUT),
         ..target(&work)
     };
     let a1 = name("a1");
@@ -493,30 +486,15 @@ fn a_journal_whose_push_fails_after_the_deadline_asks_the_remote_nothing_more() 
     let work = clone(dir.path(), &remote, "work");
     executable(
         &remote.join("hooks/pre-receive"),
-        "#!/bin/sh\ncat >/dev/null\nsleep 2\necho closed >&2\nexit 1\n",
+        "#!/bin/sh\ncat >/dev/null\nsleep 6\necho closed >&2\nexit 1\n",
     );
     // Every call to the remote, in order: fetches and ls-remote run upload-pack, pushes
     // receive-pack, both as this clone's config names them.
     let calls = dir.path().join("calls");
-    let calls_arg = calls.to_string_lossy();
-    for (pack, key) in [("upload", "uploadpack"), ("receive", "receivepack")] {
-        let wrapper = dir.path().join(format!("{pack}-pack"));
-        executable(
-            &wrapper,
-            &format!("#!/bin/sh\necho {pack} >> '{calls_arg}'\nexec git {pack}-pack \"$@\"\n"),
-        );
-        git(
-            &work,
-            &[
-                "config",
-                &format!("remote.origin.{key}"),
-                &wrapper.to_string_lossy(),
-            ],
-        );
-    }
+    count_remote_calls(dir.path(), &work, &calls, 0);
     let store = store_in(dir.path(), "store");
     let cut = RefsTarget {
-        deadline: Some(std::time::Instant::now() + Duration::from_millis(1_000)),
+        deadline: Some(std::time::Instant::now() + CUT),
         ..target(&work)
     };
 

@@ -85,3 +85,39 @@ pub(crate) fn refuse_custom_refs(remote: &Path) {
 pub(crate) fn accept_custom_refs(remote: &Path) {
     std::fs::remove_file(remote.join("hooks/pre-receive")).expect("hook removed");
 }
+
+/// Makes `path` an executable shell script holding `script`.
+#[cfg(unix)]
+pub(crate) fn executable(path: &Path, script: &str) {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::write(path, script).expect("script");
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+}
+
+/// Routes every call `work` makes to its `origin` through a wrapper that appends `upload` or
+/// `receive` to the file `calls`, first sleeping `upload_delay` seconds in each upload-pack (the
+/// fetches and listings); the wrappers live in `dir`.
+#[cfg(unix)]
+pub(crate) fn count_remote_calls(dir: &Path, work: &Path, calls: &Path, upload_delay: u32) {
+    let calls_arg = calls.to_string_lossy();
+    for (pack, key, delay) in [
+        ("upload", "uploadpack", upload_delay),
+        ("receive", "receivepack", 0),
+    ] {
+        let wrapper = dir.join(format!("{pack}-pack"));
+        executable(
+            &wrapper,
+            &format!(
+                "#!/bin/sh\necho {pack} >> '{calls_arg}'\nsleep {delay}\nexec git {pack}-pack \"$@\"\n"
+            ),
+        );
+        git(
+            work,
+            &[
+                "config",
+                &format!("remote.origin.{key}"),
+                &wrapper.to_string_lossy(),
+            ],
+        );
+    }
+}

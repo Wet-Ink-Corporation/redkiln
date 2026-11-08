@@ -63,6 +63,20 @@ pub struct ImportedRef {
     pub report: ImportReport,
 }
 
+/// The most git calls an import makes after its target's deadline passes.
+///
+/// No fetch, listing, ancestry check or source starts after it, and no run of calls between two
+/// checks of it is longer than this (checking for the remote and the first fetch; reading one
+/// file at a commit). Each call is bounded by the target's `timeout`, so an import ends by
+/// `deadline + MAX_IMPORT_CALLS_PAST_DEADLINE × timeout`, plus its store reads and writes.
+pub const MAX_IMPORT_CALLS_PAST_DEADLINE: u32 = 2;
+
+/// Whether `ctx`'s deadline has passed, noted in `report`: nothing more is started.
+fn late(ctx: &Ctx<'_>, report: &mut RefsImport) -> bool {
+    report.late |= ctx.late();
+    report.late
+}
+
 /// Imports every journal source not already imported at its commit into `store` (JR-10).
 ///
 /// Sources are fetched from the target's remote first, when one is configured; a fetch that
@@ -81,8 +95,7 @@ pub fn import_refs(
 ) -> Result<RefsImport, RefsError> {
     let ctx = Ctx::local(target);
     let mut report = RefsImport::default();
-    if ctx.late() {
-        report.late = true;
+    if late(&ctx, &mut report) {
         return Ok(report);
     }
     if ctx.repo.has_remote(target.remote)? {
@@ -95,6 +108,9 @@ pub fn import_refs(
         ts,
         author,
     };
+    if late(&ctx, &mut report) {
+        return Ok(report);
+    }
     for (refname, tip) in listed(&ctx, JOURNAL_REFS, &mut report)? {
         let Some(name) = named(&refname, JOURNAL_REFS, &mut report) else {
             continue;
@@ -103,13 +119,22 @@ pub fn import_refs(
             if *previous == tip {
                 continue;
             }
+            if late(&ctx, &mut report) {
+                return Ok(report);
+            }
             if ctx.repo.descends(previous, &tip)? != Some(true) {
                 report.rewritten.push(refname.clone());
             }
         }
         importer.source(&mut report, (refname, tip), &name.file_name())?;
     }
+    if late(&ctx, &mut report) {
+        return Ok(report);
+    }
     import_broken(&ctx, &last, &mut report, &importer)?;
+    if late(&ctx, &mut report) {
+        return Ok(report);
+    }
     for (local, tip) in listed(&ctx, INBOX_REFS, &mut report)? {
         let Some(name) = named(&local, INBOX_REFS, &mut report) else {
             continue;
@@ -151,8 +176,7 @@ impl Importer<'_> {
 
     /// Whether the deadline has passed, noted in `report`: no more sources are started.
     fn late(&self, report: &mut RefsImport) -> bool {
-        report.late |= self.ctx.late();
-        report.late
+        late(self.ctx, report)
     }
 
     /// Imports `file`, read from `source` at `commit`.
@@ -208,6 +232,10 @@ fn import_broken(
         };
         let mut tip_read = false;
         for commit in history {
+            // The commits left are read from the last one recorded by a later run.
+            if importer.late(report) {
+                return Ok(());
+            }
             // A broken tree may hold other files: only the journal's own is read, and a commit
             // without a readable one is passed over, since the ref as a whole was set aside.
             if let Some(file) = file_at(ctx, &commit, &name.file_name())? {
@@ -231,6 +259,9 @@ fn fetch_all(ctx: &Ctx<'_>, remote: &str, report: &mut RefsImport) -> Result<(),
     let refs = [JOURNAL_REFS, BROKEN_REFS].map(|prefix| format!("+{prefix}*:{prefix}*"));
     if let Fetched::Failed(said) = ctx.repo.fetch(remote, &refs, false)? {
         report.fetch_failed.push(said);
+    }
+    if late(ctx, report) {
+        return Ok(());
     }
     let inboxes = [format!("+{INBOX_BRANCHES}*:{INBOX_REFS}*")];
     if let Fetched::Failed(said) = ctx.repo.fetch(remote, &inboxes, true)? {

@@ -9,7 +9,7 @@
 //! sha256 of its owner (the repository and the store), so no repository's checkpoint resets
 //! another's. The file holds the position, the repository and the store it was written for, one
 //! per line. It is overwritten in place, never deleted (ST-05, B-01), as `hook-errors.seen` is.
-//! A missing or torn file, or one written for another owner (another store at this path, one
+//! A missing or torn file (cut short, or not UTF-8), or one written for another owner (another store at this path, one
 //! recreated since), reads as no watermark: the next checkpoint examines every journal. A file
 //! that exists but cannot be read is an error, and is not written over.
 
@@ -56,8 +56,12 @@ impl Watermark {
     /// The file exists but cannot be read; the caller then examines every journal and must not
     /// write, since it cannot tell whether that would move the watermark back.
     pub(crate) fn read(&self) -> Result<u64> {
-        match std::fs::read_to_string(&self.path) {
-            Ok(text) => Ok(position(&text, &self.owner).unwrap_or(0)),
+        // Bytes, not text: a file that is not UTF-8 is torn, as one cut short is.
+        match std::fs::read(&self.path) {
+            Ok(bytes) => Ok(std::str::from_utf8(&bytes)
+                .ok()
+                .and_then(|text| position(text, &self.owner))
+                .unwrap_or(0)),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(0),
             Err(e) => Err(anyhow::Error::new(e).context(format!(
                 "reading the export watermark in {}, so every Stop examines every journal until \
@@ -91,9 +95,22 @@ fn position(text: &str, owner: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::position;
+    use super::{Watermark, position};
 
     const OWNER: &str = "/r/.git\nstore-a";
+
+    #[test]
+    fn a_watermark_file_that_is_not_utf8_reads_as_torn() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("journal-watermark-x");
+        std::fs::write(&path, b"42\n/r/.git\nstore-\xff\n").expect("written");
+        let watermark = Watermark {
+            path,
+            owner: OWNER.to_owned(),
+        };
+
+        assert_eq!(watermark.read().expect("torn, not an error"), 0);
+    }
 
     #[test]
     fn a_watermark_reads_only_whole_and_for_its_own_repository_and_store() {

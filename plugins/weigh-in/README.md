@@ -228,7 +228,16 @@ too large inbox, a journal too large to push), an export error (the store or loc
 or the export watermark could not be written) and a Stop that ran past its budget's worst
 case. `SubagentStop` and `PostToolUse` export nothing,
 and neither does any command but `weighin journal checkpoint` and `weighin journal pre-push`.
-In Cowork hooks export nothing. Set `"journal": false` in `.kb/_ledger/config.json` to opt out.
+In Cowork hooks export nothing. Set `"journal": false` in `.kb/_ledger/config.json` to opt out
+of export.
+
+At SessionStart, in an `own` repository, weighin first imports the journal refs, refs set aside
+under `refs/redkiln/broken/` and inbox branches not yet relayed from `origin` (creating the store
+if there is none), so other clones' items count in the session's prime; a `client` repository
+imports nothing. A journal ref rewritten since the last import, or a source that cannot be read,
+is told to you in the session's opening message; an unreachable remote or a deadline is silent,
+and the next session imports the rest. The import ends within 8 s (3 s, then at most two git
+calls of 2.5 s each), inside the hook's 10 s timeout.
 
 To export on `git push` as well, add a `pre-push` hook (nothing installs it for you):
 
