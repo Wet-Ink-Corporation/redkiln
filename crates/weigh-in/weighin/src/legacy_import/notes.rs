@@ -1,20 +1,59 @@
 //! What the user hears of a 1.x import: one line per thing to know, and the skipped records for
 //! the hook error log.
 
+use crate::env::Harness;
+
 use super::{
-    LegacyReport, MAX_JOURNAL_FILE_BYTES, MAX_JOURNAL_FILES, SourceKind, SourceOutcome, SourceRun,
-    Waiting,
+    Decided, LegacyReport, MAX_JOURNAL_FILE_BYTES, MAX_JOURNAL_FILES, SourceKind, SourceOutcome,
+    SourceRun, Waiting,
 };
 
 /// One line for the user per thing they should hear: a ledger imported once, records skipped, a
-/// source not imported, and what waits. `SessionStart` prefixes `Weigh-In: `.
+/// source not imported, and what waits. `SessionStart` says these, prefixed `Weigh-In: `.
 ///
 /// A journal imported cleanly says nothing: its events already counted in `stats`, and a 1.x
 /// journal pulled later would otherwise put a line on whichever command ran next. `weighin
 /// journal import --json` lists every source.
 pub(crate) fn notes(report: &LegacyReport) -> Vec<String> {
+    told(report, Surface::SessionStart)
+}
+
+/// What a command run in `harness` says of `report`. Inside a Claude Code session, whose
+/// `SessionStart` imports and tells a source that stays due once per session start, it is
+/// [`notes`] less those (wi-fd5345); what this run imported, and what the next run imports, is
+/// still said, and when the due sources are more than a session start imports, so it never
+/// reaches them, every note is (review F1). Anywhere else, Cowork included, where no
+/// `SessionStart` imports, a command tells every note (review round 4 F1).
+pub(crate) fn command_notes(report: &LegacyReport, harness: Harness) -> Vec<String> {
+    match harness {
+        Harness::ClaudeCode => told(report, Surface::Command),
+        Harness::Cowork | Harness::Other => notes(report),
+    }
+}
+
+/// Who hears the notes: `SessionStart` tells a source that stays due ([`stays_due`]) and the
+/// journals such a ledger holds back; a command in a Claude Code session leaves them to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Surface {
+    SessionStart,
+    Command,
+}
+
+/// The notes of `report` as `surface` hears them.
+fn told(report: &LegacyReport, surface: Surface) -> Vec<String> {
+    // A session start that cannot reach the sources tells none of them: then a command does.
+    let leave = surface == Surface::Command && report.fits_hook;
+    // Held back by a ledger whose failure stays until the file changes.
+    let held_back = report.waiting == Some(Waiting::Ledger)
+        && report
+            .sources
+            .iter()
+            .any(|s| s.kind == SourceKind::Ledger && stays_due(s));
     let mut notes = Vec::new();
     for source in &report.sources {
+        if stays_due(source) && leave {
+            continue;
+        }
         match &source.outcome {
             SourceOutcome::Completed {
                 report: counts,
@@ -46,14 +85,28 @@ pub(crate) fn notes(report: &LegacyReport) -> Vec<String> {
             )),
         }
     }
-    if report.left > 0 {
+    // Journals held back by a ledger that stays due wait with it (review F2).
+    if report.left > 0 && !(held_back && leave) {
         notes.push(format!(
             "{} more weighin 1.x journal(s) wait: one run imports at most {MAX_JOURNAL_FILES}, and the next imports the rest",
             report.left
         ));
     }
-    notes.extend(report.waiting.map(waiting));
+    if !(held_back && leave) {
+        notes.extend(report.waiting.map(waiting));
+    }
     notes
+}
+
+/// Whether `source` stays due until its file changes: over the cap, or failed before its import
+/// (not openable, a ledger Core cannot read). A failure of the import itself may pass, so a
+/// command tells it (review round 3 F2).
+fn stays_due(source: &SourceRun) -> bool {
+    match source.outcome {
+        SourceOutcome::TooLarge { .. } => true,
+        SourceOutcome::Failed(_) => source.decided == Decided::BeforeImport,
+        SourceOutcome::Completed { .. } | SourceOutcome::Stopped { .. } => false,
+    }
 }
 
 /// Each record skipped as malformed, one line each, naming its source and where in it: for the
@@ -109,7 +162,7 @@ fn skipped(source: &SourceRun, malformed: u64, problems: &[(u64, String)]) -> Op
 fn waiting(waiting: Waiting) -> String {
     match waiting {
         Waiting::TooLargeForHook { bytes } => format!(
-            "the weighin 1.x ledger and journals here hold {bytes} bytes, more than a session start imports; the next weighin command imports them"
+            "the weighin 1.x ledger and journals here hold {bytes} bytes, more than a session start imports; the next weighin command imports them, or says why it cannot"
         ),
         Waiting::Ledger => "the weighin 1.x journals wait until the 1.x ledger is imported".to_owned(),
         Waiting::Deadline => "the weighin 1.x import ran out of time; the next weighin command or session start finishes it".to_owned(),

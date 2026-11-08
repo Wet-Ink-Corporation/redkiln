@@ -1,3 +1,7 @@
+use std::fs::File;
+
+use crate::env::Harness;
+
 use redkiln_core::envelope::{Actor, Envelope};
 use redkiln_core::ids::parse_event_ref;
 use redkiln_core::journal::{Mapped, import_mapped};
@@ -292,7 +296,10 @@ fn the_hook_leaves_sources_over_its_cap_for_a_command_and_says_so() {
     let env = Env::outside_git(dir.path(), "s1");
     sparse_journal(dir.path(), MAX_HOOK_SOURCE_BYTES.saturating_add(1));
     let hook = Mode::Hook {
-        started: Instant::now(),
+        // In the future, so the deadline cannot pass while the test runs (TST-10).
+        started: Instant::now()
+            .checked_add(Duration::from_secs(60))
+            .expect("the clock reaches a minute from now"),
     };
 
     let report = ran(import_due(&env, hook, "hook").expect("ran"));
@@ -364,4 +371,302 @@ fn the_hook_past_its_deadline_reads_no_journal_and_leaves_them_waiting() {
     assert_eq!(report.waiting, Some(Waiting::Deadline));
     assert!(!report.imported_a_source(), "no budget spent on a source");
     assert_eq!(records(&env), Vec::new());
+}
+
+#[test]
+fn a_command_does_not_repeat_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!(
+        command_notes(&report, Harness::ClaudeCode),
+        Vec::<String>::new(),
+        "told at session start, not by every command (wi-fd5345)"
+    );
+    assert!(notes(&report).iter().any(|n| n.contains("not imported")));
+}
+
+#[test]
+fn a_command_outside_a_claude_code_session_tells_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    for harness in [Harness::Other, Harness::Cowork] {
+        let told = command_notes(&report, harness);
+        assert_eq!(
+            told,
+            notes(&report),
+            "{harness:?}: no session start imports there (review round 4 F1)"
+        );
+        assert!(told.iter().any(|n| n.contains("not imported")), "{told:?}");
+    }
+}
+
+#[test]
+fn a_command_does_not_repeat_a_ledger_that_fails_to_read() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let mut hot = old.as_os_str().to_owned();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress").expect("written");
+    write_journal(dir.path(), "s1.jsonl", &[OWN_LINE]);
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!(report.waiting, Some(Waiting::Ledger));
+    assert_eq!(
+        command_notes(&report, Harness::ClaudeCode),
+        Vec::<String>::new(),
+        "neither the ledger nor the journals it holds back (wi-fd5345)"
+    );
+    let told = notes(&report);
+    assert!(
+        told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+    assert!(told.iter().any(|n| n.contains("wait until")), "{told:?}");
+}
+
+#[test]
+fn a_command_tells_a_failing_ledger_when_session_start_cannot_reach_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let mut hot = old.as_os_str().to_owned();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress").expect("written");
+    // Over what a session start imports, under the journal cap: the hook tries no source.
+    sparse_journal(dir.path(), MAX_HOOK_SOURCE_BYTES.saturating_add(1));
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!(report.waiting, Some(Waiting::Ledger));
+    let told = command_notes(&report, Harness::ClaudeCode);
+    assert_eq!(told, notes(&report), "told nowhere else (review F1)");
+    assert!(
+        told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_late_hook_still_tells_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    let told = notes(&report);
+    assert!(
+        told.iter()
+            .any(|n| n.contains("big.jsonl") && n.contains("not imported")),
+        "settled before the deadline matters, since commands leave it out (review round 2 F1): {told:?}"
+    );
+    assert_eq!(report.waiting, None, "no journal left to import");
+}
+
+#[test]
+fn a_hook_whose_ledger_stops_still_reports_a_journal_over_the_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let big = sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    let [ledger, journal] = report.sources.as_slice() else {
+        panic!("the ledger, then the settled journal: {:?}", report.sources);
+    };
+    assert_eq!(ledger.path, old);
+    assert!(
+        matches!(ledger.outcome, SourceOutcome::Stopped { .. }),
+        "{ledger:?}"
+    );
+    assert_eq!(journal.path, big);
+    assert!(
+        matches!(journal.outcome, SourceOutcome::TooLarge { .. }),
+        "told at this session start, not one later (round 5 F3): {journal:?}"
+    );
+    assert_eq!(report.waiting, Some(Waiting::Deadline));
+    assert_eq!(records(&env), Vec::new(), "nothing recorded");
+}
+
+#[test]
+fn a_late_hook_reports_a_settled_journal_and_leaves_an_importable_one_waiting() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    write_journal(dir.path(), "a.jsonl", &[OWN_LINE]);
+    let big = sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let late = Mode::Hook {
+        started: Instant::now()
+            .checked_sub(HOOK_START_BY.saturating_mul(2))
+            .expect("the clock has run that long"),
+    };
+
+    let report = ran(import_due(&env, late, "hook").expect("ran"));
+
+    let [source] = report.sources.as_slice() else {
+        panic!("only the settled journal: {:?}", report.sources);
+    };
+    assert_eq!(source.path, big);
+    assert!(
+        matches!(source.outcome, SourceOutcome::TooLarge { .. }),
+        "{source:?}"
+    );
+    assert_eq!(report.waiting, Some(Waiting::Deadline));
+    let told = notes(&report);
+    assert!(
+        told.iter()
+            .any(|n| n.contains("big.jsonl") && n.contains("not imported")),
+        "{told:?}"
+    );
+    assert_eq!(records(&env), Vec::new(), "nothing recorded");
+}
+
+/// A report of one source that failed, decided as `decided` says.
+fn failed(kind: SourceKind, decided: Decided, waiting: Option<Waiting>) -> LegacyReport {
+    LegacyReport {
+        sources: vec![SourceRun {
+            kind,
+            path: PathBuf::from("/old/source"),
+            store_id: None,
+            outcome: SourceOutcome::Failed(anyhow::anyhow!("disk error")),
+            decided,
+        }],
+        waiting,
+        left: 0,
+        fits_hook: true,
+    }
+}
+
+#[test]
+fn a_command_tells_a_journal_that_failed_while_importing() {
+    let report = failed(SourceKind::Journal, Decided::ByImport, None);
+
+    let told = command_notes(&report, Harness::ClaudeCode);
+
+    assert_eq!(
+        told,
+        notes(&report),
+        "an import-time failure is told (review round 3 F2)"
+    );
+    assert!(
+        told.iter().any(|n| n.contains("could not import")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_command_tells_a_ledger_that_failed_while_importing_and_what_it_holds_back() {
+    let report = failed(SourceKind::Ledger, Decided::ByImport, Some(Waiting::Ledger));
+
+    let told = command_notes(&report, Harness::ClaudeCode);
+
+    assert_eq!(told, notes(&report));
+    assert!(told.iter().any(|n| n.contains("wait until")), "{told:?}");
+}
+
+#[test]
+fn a_command_leaves_out_a_source_that_failed_before_importing() {
+    let ledger = failed(
+        SourceKind::Ledger,
+        Decided::BeforeImport,
+        Some(Waiting::Ledger),
+    );
+    let journal = failed(SourceKind::Journal, Decided::BeforeImport, None);
+
+    assert_eq!(
+        command_notes(&ledger, Harness::ClaudeCode),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        command_notes(&journal, Harness::ClaudeCode),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_command_leaves_out_the_journals_a_failing_ledger_holds_back_past_the_file_cap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+    let mut hot = old.as_os_str().to_owned();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress").expect("written");
+    for n in 0..=MAX_JOURNAL_FILES {
+        write_journal(dir.path(), &format!("{n:05}.jsonl"), &[]);
+    }
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    assert_eq!((report.waiting, report.left), (Some(Waiting::Ledger), 1));
+    assert_eq!(
+        command_notes(&report, Harness::ClaudeCode),
+        Vec::<String>::new()
+    );
+    let told = notes(&report);
+    assert!(
+        told.iter()
+            .any(|n| n.contains("more weighin 1.x journal(s) wait")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_command_still_tells_the_ledger_it_imports() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (env, _old) = with_ledger(dir.path(), "weighin-1.2.0.sqlite3");
+
+    let report = ran(import_due(&env, Mode::Command, "cli").expect("ran"));
+
+    let told = command_notes(&report, Harness::ClaudeCode);
+    assert_eq!(told, notes(&report));
+    assert!(
+        told.iter()
+            .any(|n| n.contains("imported the weighin 1.x ledger")),
+        "{told:?}"
+    );
+}
+
+#[test]
+fn a_journal_over_the_cap_does_not_hold_the_hook_back() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let env = Env::outside_git(dir.path(), "s1");
+    sparse_journal(dir.path(), MAX_JOURNAL_FILE_BYTES.saturating_add(1));
+    let hook = Mode::Hook {
+        // In the future, so the deadline cannot pass while the test runs (TST-10).
+        started: Instant::now()
+            .checked_add(Duration::from_secs(60))
+            .expect("the clock reaches a minute from now"),
+    };
+
+    let report = ran(import_due(&env, hook, "hook").expect("ran"));
+
+    assert_eq!(report.waiting, None, "no command imports it either");
+    assert!(
+        matches!(
+            report.sources.as_slice(),
+            [SourceRun {
+                outcome: SourceOutcome::TooLarge { .. },
+                ..
+            }]
+        ),
+        "{:?}",
+        report.sources
+    );
+    assert!(notes(&report).iter().any(|n| n.contains("not imported")));
 }

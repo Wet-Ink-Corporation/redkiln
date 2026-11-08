@@ -397,7 +397,28 @@ pub(crate) struct Env {
 /// scratch folder deleted with the session and the user's files are on their computer.
 #[must_use]
 pub(crate) fn cowork() -> bool {
-    std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok_and(|v| v == "remote_cowork")
+    harness() == Harness::Cowork
+}
+
+/// Where this process runs, as Claude Code's `CLAUDE_CODE_ENTRYPOINT` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Harness {
+    /// A Claude Code session on this computer, whose hooks run here (`SessionStart` included).
+    ClaudeCode,
+    /// Cowork's cloud workspace (`remote_cowork`): hooks run there, not beside the user's files.
+    Cowork,
+    /// No Claude Code session: a terminal, a script or another harness.
+    Other,
+}
+
+/// The [`Harness`] this process runs in; the one place weighin reads `CLAUDE_CODE_ENTRYPOINT`.
+#[must_use]
+pub(crate) fn harness() -> Harness {
+    match std::env::var("CLAUDE_CODE_ENTRYPOINT") {
+        Ok(v) if v == "remote_cowork" => Harness::Cowork,
+        Ok(v) if !v.is_empty() => Harness::ClaudeCode,
+        Ok(_) | Err(_) => Harness::Other,
+    }
 }
 
 /// `path` with its directory resolved: the nearest existing ancestor of its parent is

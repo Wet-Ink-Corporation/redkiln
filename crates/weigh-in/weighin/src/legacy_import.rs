@@ -13,10 +13,11 @@
 //!
 //! The first command (all but `ci-check`) or `SessionStart` to find a source runs it.
 //! `SessionStart` imports only what fits its budget ([`Mode::Hook`]); a command imports the rest.
+//! A source no run completes (over the journal cap, unreadable, failing) is told by each
+//! `SessionStart`, not by every command (wi-fd5345, [`command_notes`]).
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::{ErrorKind, Read as _};
+use std::io::ErrorKind;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -31,16 +32,20 @@ use crate::env::Env;
 use crate::journal;
 use crate::store::Store;
 use crate::store::legacy::identity::JOURNAL_STORE;
-use crate::store::legacy::{Held, Import, OldImport};
+use crate::store::legacy::{Held, HeldRead, Import, OldImport};
 
+mod journal_file;
 mod notes;
 
-pub(crate) use notes::{notes, place, problem_lines};
+use journal_file::{Checked, Read, check, read_journal};
+
+pub(crate) use notes::{command_notes, notes, place, problem_lines};
 
 /// How long the import may run (HK-5).
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Mode {
-    /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together, and no batch started after
+    /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together (a journal no run reads
+    /// counting nothing), and no batch, nor page of the store's events, read after
     /// `started + HOOK_START_BY`.
     Hook { started: Instant },
     /// A command: no deadline; Core's and this module's caps only.
@@ -81,6 +86,10 @@ pub(crate) struct LegacyReport {
     pub(crate) waiting: Option<Waiting>,
     /// Due journal files past [`MAX_JOURNAL_FILES`], left for the next run.
     pub(crate) left: usize,
+    /// Whether the due sources fit what a `SessionStart` imports ([`MAX_HOOK_SOURCE_BYTES`]), so
+    /// that it reaches them and tells a source that stays due; when they do not, only a command
+    /// can tell it ([`command_notes`], review F1).
+    pub(crate) fits_hook: bool,
 }
 
 impl LegacyReport {
@@ -111,6 +120,17 @@ pub(crate) struct SourceRun {
     /// The ledger's store id, or [`JOURNAL_STORE`]; `None` for a ledger that could not be read.
     pub(crate) store_id: Option<StoreId>,
     pub(crate) outcome: SourceOutcome,
+    /// When its outcome was decided.
+    pub(crate) decided: Decided,
+}
+
+/// When a source's outcome was decided: before its import, by what the file is (over the cap,
+/// not openable, a ledger Core cannot read), which stays so until the file changes; or by the
+/// import itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Decided {
+    BeforeImport,
+    ByImport,
 }
 
 /// What became of one source.
@@ -170,12 +190,13 @@ pub(crate) fn import_due(env: &Env, mode: Mode, actor: &str) -> Result<Legacy> {
         ..LegacyReport::default()
     };
     journals.truncate(MAX_JOURNAL_FILES);
-    if let Mode::Hook { .. } = mode {
-        let bytes = due_bytes(&ledgers, &journals);
-        if bytes > MAX_HOOK_SOURCE_BYTES {
-            report.waiting = Some(Waiting::TooLargeForHook { bytes });
-            return Ok(Legacy::Ran(report));
-        }
+    // Measured in both modes: a command tells a source that stays due only when no session
+    // start could reach it (review F1).
+    let bytes = due_bytes(&ledgers, &journals);
+    report.fits_hook = bytes <= MAX_HOOK_SOURCE_BYTES;
+    if matches!(mode, Mode::Hook { .. }) && !report.fits_hook {
+        report.waiting = Some(Waiting::TooLargeForHook { bytes });
+        return Ok(Legacy::Ran(report));
     }
     let store = match existing {
         Some(store) => store,
@@ -223,7 +244,8 @@ struct Run<'s> {
 }
 
 impl Run<'_> {
-    /// Imports `ledgers`, then, when every one completed, `journals`, into `report`.
+    /// Imports `ledgers`, then, when every one completed, `journals`, into `report`; when one did
+    /// not, only the journals no run imports are reported ([`check`]).
     ///
     /// # Errors
     /// The store cannot be read for the events it holds.
@@ -239,30 +261,57 @@ impl Run<'_> {
             report.sources.push(source);
             if waiting.is_some() {
                 report.waiting = waiting;
+                // The journals wait, but one that no run imports is told now (round 5 F3).
+                report.sources.extend(
+                    journals
+                        .iter()
+                        .map(|path| check(path))
+                        .filter_map(Checked::settled),
+                );
                 return Ok(());
             }
         }
-        if journals.is_empty() {
+        self.journals(journals, report)
+    }
+
+    /// Imports `journals` into `report`, in order. One over the cap or that cannot be opened is
+    /// settled first, needing no held event, so even a hook past its deadline tells it (review
+    /// round 2 F1); the store's events are read only when a journal may import.
+    ///
+    /// # Errors
+    /// The store cannot be read for the events it holds.
+    fn journals(&self, journals: &[&PathBuf], report: &mut LegacyReport) -> Result<()> {
+        let checked: Vec<Checked<'_>> = journals.iter().map(|path| check(path)).collect();
+        if !checked.iter().any(|c| matches!(c, Checked::Due(_))) {
+            report
+                .sources
+                .extend(checked.into_iter().filter_map(Checked::settled));
             return Ok(());
         }
-        // A hook past its deadline reads no more: not even the store's events (review F3).
-        if self
-            .deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            report.waiting = Some(Waiting::Deadline);
-            return Ok(());
-        }
-        // After every ledger, so this run's ledger events are among those a line can equal.
-        let held = self.store.held()?;
-        for path in journals {
-            let source = self.journal(path, &held);
-            let stopped = matches!(source.outcome, SourceOutcome::Stopped { .. });
-            report.sources.push(source);
-            if stopped {
-                report.waiting = Some(Waiting::Deadline);
-                break;
+        // After every ledger, so this run's ledger events are among those a line can equal. A
+        // hook past its deadline reads no more, neither a page of the store's events nor a
+        // journal (review F3, wi-233b23).
+        let held = match self.store.held(self.deadline)? {
+            HeldRead::All(held) => Some(held),
+            HeldRead::PastDeadline => None,
+        };
+        let mut importing = held.as_ref();
+        for checked in checked {
+            match (checked, importing) {
+                (Checked::Settled(source), _) => report.sources.push(source),
+                (Checked::Due(path), Some(held)) => {
+                    let source = self.journal(path, held);
+                    if matches!(source.outcome, SourceOutcome::Stopped { .. }) {
+                        importing = None;
+                    }
+                    report.sources.push(source);
+                }
+                // Past the deadline: it waits, and only settled journals are still told.
+                (Checked::Due(_), None) => {}
             }
+        }
+        if importing.is_none() {
+            report.waiting = Some(Waiting::Deadline);
         }
         Ok(())
     }
@@ -285,24 +334,25 @@ impl Run<'_> {
 
     /// The 1.x ledger at `path`, read from Core's copy (ST-15).
     fn ledger(&self, path: &Path) -> SourceRun {
-        let source = |store_id, outcome| SourceRun {
+        let source = |store_id, outcome, decided| SourceRun {
             kind: SourceKind::Ledger,
             path: path.to_path_buf(),
             store_id,
             outcome,
+            decided,
         };
         let ledger = match redkiln_core::legacy::read_ledger(path) {
             Ok(ledger) => ledger,
             Err(e) => {
                 let e = anyhow::Error::new(e).context(format!("reading {}", path.display()));
-                return source(None, SourceOutcome::Failed(e));
+                return source(None, SourceOutcome::Failed(e), Decided::BeforeImport);
             }
         };
         let store_id = ledger.store_id;
         let imported = self
             .store
             .import_ledger(&ledger.events, self.import(path, store_id));
-        source(Some(store_id), outcome(imported, path))
+        source(Some(store_id), outcome(imported, path), Decided::ByImport)
     }
 
     /// The 1.x journal at `path`, opened read-only.
@@ -321,6 +371,7 @@ impl Run<'_> {
             path: path.to_path_buf(),
             store_id: Some(JOURNAL_STORE),
             outcome,
+            decided: Decided::ByImport,
         }
     }
 }
@@ -338,34 +389,6 @@ fn outcome(imported: Result<OldImport>, path: &Path) -> SourceOutcome {
         }) => SourceOutcome::Stopped { report, problems },
         Err(e) => SourceOutcome::Failed(e.context(format!("importing {}", path.display()))),
     }
-}
-
-/// A journal file as read.
-enum Read {
-    Bytes(Vec<u8>),
-    TooLarge(u64),
-}
-
-/// The bytes of the journal at `path`, unless it is over [`MAX_JOURNAL_FILE_BYTES`].
-fn read_journal(path: &Path) -> Result<Read> {
-    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let len = file
-        .metadata()
-        .with_context(|| format!("reading {}", path.display()))?
-        .len();
-    if len > MAX_JOURNAL_FILE_BYTES {
-        return Ok(Read::TooLarge(len));
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_JOURNAL_FILE_BYTES.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .with_context(|| format!("reading {}", path.display()))?;
-    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    if read > MAX_JOURNAL_FILE_BYTES {
-        // It grew past the cap while it was read.
-        return Ok(Read::TooLarge(read));
-    }
-    Ok(Read::Bytes(bytes))
 }
 
 /// Every `*.jsonl` file directly under `<root>/.kb/_ledger/journal/`, in name order; no
@@ -421,8 +444,10 @@ fn imported_sources(store: &Store) -> Result<HashSet<String>> {
     Ok(done)
 }
 
-/// The bytes the due sources hold: each ledger with its `-wal`, and each journal. A file that
-/// cannot be measured counts 0: its import says why.
+/// The bytes the due sources hold: each ledger with its `-wal`, and each journal up to
+/// [`MAX_JOURNAL_FILE_BYTES`]. A journal over it counts 0, since no run reads it: the hook reaches
+/// it and says it is not imported, rather than leaving it to a command that never imports it
+/// either (wi-fd5345). A file that cannot be measured counts 0: its import says why.
 fn due_bytes(ledgers: &[&PathBuf], journals: &[&PathBuf]) -> u64 {
     let size = |path: &Path| std::fs::metadata(path).map_or(0, |m| m.len());
     let wal = |path: &Path| {
@@ -430,10 +455,14 @@ fn due_bytes(ledgers: &[&PathBuf], journals: &[&PathBuf]) -> u64 {
         name.push("-wal");
         size(Path::new(&name))
     };
+    let journal = |path: &Path| match size(path) {
+        len if len > MAX_JOURNAL_FILE_BYTES => 0,
+        len => len,
+    };
     ledgers
         .iter()
         .map(|p| size(p).saturating_add(wal(p)))
-        .chain(journals.iter().map(|p| size(p)))
+        .chain(journals.iter().map(|p| journal(p)))
         .fold(0, u64::saturating_add)
 }
 

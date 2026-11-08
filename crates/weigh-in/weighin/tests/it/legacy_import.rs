@@ -317,3 +317,120 @@ fn the_named_ledger_of_weighin_store_is_imported() -> TestResult {
     assert_eq!(snapshot(&named)?.1, before.1);
     Ok(())
 }
+
+/// A sparse committed 1.x journal `<repo>/.kb/_ledger/journal/<name>` of `len` bytes.
+fn sparse_journal(root: &Path, name: &str, len: u64) -> TestResult<PathBuf> {
+    let path = with_journal(root, name, &[])?;
+    std::fs::File::options()
+        .write(true)
+        .open(&path)?
+        .set_len(len)?;
+    Ok(path)
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_source_that_stays_due_is_told_at_session_start_not_by_every_command() -> TestResult {
+    let repo = Repo::new(true)?;
+    // Over the 32 MiB a journal is read up to: no run ever imports it.
+    sparse_journal(&repo.root, "big.jsonl", 32 * 1024 * 1024 + 1)?;
+
+    // Commands run inside the Claude Code session whose SessionStart imports.
+    let open = repo.run_with("s1", &["open"], (ENTRYPOINT, "cli"))?;
+    let again = repo.run_with("s1", &["open"], (ENTRYPOINT, "cli"))?;
+    let started = session_start(&repo)?.to_string();
+
+    assert!(open.status.success() && again.status.success());
+    for out in [&open, &again] {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            !stderr.contains("1.x"),
+            "a command does not repeat it (wi-fd5345): {stderr}"
+        );
+    }
+    assert!(
+        started.contains("big.jsonl") && started.contains("not imported"),
+        "session start tells it: {started}"
+    );
+    assert!(
+        !started.contains("next weighin command imports"),
+        "no command imports it either: {started}"
+    );
+    Ok(())
+}
+
+/// The variable Claude Code sets in its sessions, naming how it was started.
+const ENTRYPOINT: &str = "CLAUDE_CODE_ENTRYPOINT";
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_command_where_no_session_start_imports_tells_a_source_that_stays_due() -> TestResult {
+    let repo = Repo::new(true)?;
+    sparse_journal(&repo.root, "big.jsonl", 32 * 1024 * 1024 + 1)?;
+
+    // A terminal or another harness (the entrypoint removed), then Cowork's workspace.
+    let plain = repo.run("s1", &["open"], None)?;
+    let cowork = repo.run_with("s1", &["open"], (ENTRYPOINT, "remote_cowork"))?;
+
+    for (out, place) in [(&plain, "no Claude Code session"), (&cowork, "Cowork")] {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{place}: {stderr}");
+        assert!(
+            stderr.contains("big.jsonl") && stderr.contains("not imported"),
+            "{place}: told nowhere else (review round 4 F1): {stderr}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_failing_ledger_session_start_cannot_reach_is_told_by_the_command() -> TestResult {
+    let repo = Repo::new(true)?;
+    let old = with_old_ledger(&repo, "weighin-1.2.0.sqlite3")?;
+    let mut hot = old.into_os_string();
+    hot.push("-journal");
+    std::fs::write(PathBuf::from(hot), b"a commit in progress")?;
+    // Over the 8 MiB a session start imports: the hook tries no source.
+    sparse_journal(&repo.root, "big.jsonl", 9 * 1024 * 1024)?;
+
+    let started = session_start(&repo)?.to_string();
+    // Inside the Claude Code session, where a command leaves to SessionStart what it reaches.
+    let open = repo.run_with("s1", &["open"], (ENTRYPOINT, "cli"))?;
+
+    assert!(
+        started.contains("the next weighin command imports them"),
+        "{started}"
+    );
+    let stderr = String::from_utf8_lossy(&open.stderr);
+    assert!(
+        stderr.contains("could not import the weighin 1.x ledger"),
+        "the command is the only place it can be told (review F1): {stderr}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_command_imports_and_tells_what_was_too_large_for_the_hook() -> TestResult {
+    let repo = Repo::new(true)?;
+    with_old_ledger(&repo, "weighin-1.2.0.sqlite3")?;
+    // Over the 8 MiB a session start imports, under the journal cap.
+    sparse_journal(&repo.root, "big.jsonl", 9 * 1024 * 1024)?;
+
+    let started = session_start(&repo)?.to_string();
+    let open = repo.run("s1", &["open"], None)?;
+
+    assert!(
+        started.contains("the next weighin command imports them"),
+        "{started}"
+    );
+    let stderr = String::from_utf8_lossy(&open.stderr);
+    assert!(open.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("imported the weighin 1.x ledger"),
+        "the command imports it and says so: {stderr}"
+    );
+    assert_eq!(legacy_records(&stored(&repo)?).len(), 2, "both recorded");
+    Ok(())
+}

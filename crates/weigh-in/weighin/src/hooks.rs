@@ -250,10 +250,11 @@ impl Hook {
 
     /// `SessionStart`'s one-time import of the weighin 1.x sources inside its budget
     /// (`legacy_import`, ST-15), what the user should hear of it, and whether it spent the
-    /// session start's budget importing a source ([`legacy_import::LegacyReport::imported_a_source`]). Each
-    /// record it skipped is logged, and a failure is logged except a store that cannot be
-    /// located or opened, which `session_start` tells or logs itself. A run past the session
-    /// start's worst case is logged.
+    /// session start's budget importing a source
+    /// ([`legacy_import::LegacyReport::imported_a_source`]). Each record it skipped is logged,
+    /// and a failure is logged except a store that cannot be located or opened, which
+    /// `session_start` tells or logs itself. A run past the session start's worst case is
+    /// logged.
     fn legacy(&self) -> (Vec<String>, bool) {
         let mode = legacy_import::Mode::Hook {
             started: self.started,

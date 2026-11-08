@@ -39,6 +39,15 @@ impl Held {
     }
 }
 
+/// What [`Store::held`] read: every held event, or nothing because the deadline passed first.
+#[derive(Debug)]
+pub(crate) enum HeldRead {
+    /// Every page was read.
+    All(Held),
+    /// The deadline passed before a page: the journals wait for another run.
+    PastDeadline,
+}
+
 /// How one old source is imported: the record it gets (JR-13), and the deadline after which no
 /// batch is stored (`None`: none).
 #[derive(Debug)]
@@ -57,15 +66,20 @@ pub(crate) struct OldImport {
 
 impl Store {
     /// Every weighin event in the store, by canonical form (its `worktree` dropped); the first of
-    /// two with one form is kept. One this build cannot use is left out (EV-10).
+    /// two with one form is kept. One this build cannot use is left out (EV-10). Once `deadline`
+    /// has passed no further page is read, the first included, and what was read is dropped
+    /// ([`HeldRead::PastDeadline`], wi-233b23).
     ///
     /// # Errors
     /// A store error, or an event weighin-core cannot encode.
-    pub(crate) fn held(&self) -> Result<Held> {
+    pub(crate) fn held(&self, deadline: Option<Instant>) -> Result<HeldRead> {
         let filter = wire::filter()?;
         let mut held = HashMap::new();
         let mut after = 0;
         loop {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Ok(HeldRead::PastDeadline);
+            }
             let page = self
                 .inner
                 .read(&filter, after, PAGE)
@@ -81,7 +95,7 @@ impl Store {
                 }
             }
             if page.len() < PAGE.get() {
-                return Ok(Held(held));
+                return Ok(HeldRead::All(Held(held)));
             }
         }
     }

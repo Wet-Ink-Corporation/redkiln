@@ -156,6 +156,22 @@ impl Repo {
         self.run("unused", &["hook"], Some(&payload.to_string()))
     }
 
+    /// [`Repo::run`] with no stdin and the variable `(name, value)` set for this process only.
+    pub(crate) fn run_with(
+        &self,
+        session: &str,
+        args: &[&str],
+        (name, value): (&str, &str),
+    ) -> TestResult<Output> {
+        Ok(self
+            .command(&self.root)
+            .args(["--session", session])
+            .args(args)
+            .env(name, value)
+            .stdin(Stdio::null())
+            .output()?)
+    }
+
     /// Run a hook with `payload` and the variable `name` set to `value`; its output.
     pub(crate) fn hook_with(&self, payload: &Value, name: &str, value: &str) -> TestResult<Output> {
         let mut child = self
