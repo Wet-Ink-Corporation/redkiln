@@ -8,6 +8,8 @@ mod existing;
 #[cfg(test)]
 mod fixtures;
 #[cfg(test)]
+mod import_mapped;
+#[cfg(test)]
 mod legacy;
 #[cfg(test)]
 mod store;

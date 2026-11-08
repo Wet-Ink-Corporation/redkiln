@@ -20,7 +20,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 - `ids`: `parse_store_id`, `parse_event_ref`, `ContentId`, `IdPrefix`, `AtomKind`, `HexLen`, `content_input`, `SessionId`, `WorktreeId`, `Host`, `Digest`, `IdError`.
 - `canonical`: `canonical_json`, `digest`, `digest_of`, `CanonicalError`, `MAX_DEPTH`.
 - `subject`: `Subject`, `Method`, `SubjectError`, `sha256_file`, `git_commit`, `git_tree`, `patch_id`, `PatchId`, `NoPatchId`.
-- `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `LineError`, `JournalName`, `NameError`, limits; `journal::refs`: `checkpoint_refs[_since]`, `sweep_refs_since`, `RefsScope`, `relay`, `import_refs`, outcomes, `RefsTarget`, `Breach`, `RefsError`, `RETRIES`, prefixes.
+- `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `import_mapped`, `Mapped`, `MappedImport`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `LineError`, `JournalName`, `NameError`, limits; `journal::refs`: `checkpoint_refs[_since]`, `sweep_refs_since`, `RefsScope`, `relay`, `import_refs`, outcomes, `RefsTarget`, `Breach`, `RefsError`, `RETRIES`, prefixes.
 - `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
 - At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
 
@@ -44,7 +44,7 @@ Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError
 - `suite.toml` is read up to 64 KiB; anything it cannot give is `client` (ST-13). The legacy `config.json` `repo_class` is a fallback only when `suite.toml` sets none (M1-F). Problems and fallbacks are returned `Warning`s, never printed.
 - The library reads no clock: a `Timestamp` comes from the caller's `SystemTime` or text.
 - patch-id is ID-09's pinned recipe only: git 2.39 or later, the pinned flags and `-c` values, the diff variables unset, and no id for a shallow boundary, other than one merge base, or an empty change. A failure is a `NoPatchId` naming why, never a fallback id.
-- Only an import writes an event under a foreign identity (the crate-internal `Store::ingest`), always at `asserted` with the line's level in `claimed`; it only reads its source. A checkpoint only appends complete lines, never an import record (JR-13); the one cut is a torn last line (JR-03, JR-05).
+- Only an import (`import`, `import_file`, `import_refs`, `import_mapped`) writes under a foreign identity (the crate-internal `Store::ingest`), at `asserted` with the line's level in `claimed`, reading its source only; an origin past position 2^63 - 1 is a malformed line.
 - The canonical digest is RFC 8785 over a JSON value; an integer beyond +-2^53 is refused, never rounded (I-JSON, which RFC 8785 requires).
 
 ## Errors
