@@ -212,7 +212,8 @@ to JR-13). The ref holds one commit per export, each adding the session's new ev
 `<session>.jsonl`, so nothing is committed to the working tree and no pull request carries
 journal files. Where `origin` refuses refs outside `refs/heads/` (Claude Code cloud sessions),
 it pushes the branch `redkiln/inbox/<session>` instead, and `weighin journal relay` (run by a
-relay workflow) moves it into the ref. The export runs inside a budget that ends before the
+relay workflow, such as the Redkiln repository's own `.github/workflows/redkiln-journal-relay.yml`)
+moves it into the ref. The export runs inside a budget that ends before the
 hook's 20 s timeout (an 18 s worst case). It writes the session's own journal first, then looks
 only at the journals that gained an event since the store was last settled, oldest first, and
 records how far it settled it even when its deadline cuts it short, so the next Stop goes on
