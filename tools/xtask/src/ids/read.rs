@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use super::AtomFile;
 
 /// The most Markdown files read from `.kb/`, and the most entries read from one folder.
-pub const MAX_FILES: usize = 50_000;
+pub const MAX_FILES: usize = 10_000;
 
 /// The deepest folder nesting read: a file may sit this many folders below `.kb/`.
 pub const MAX_DEPTH: usize = 8;
@@ -50,13 +50,29 @@ pub enum ReadError {
         /// How many leading bytes are valid UTF-8.
         valid_up_to: usize,
     },
-    /// More Markdown files, or more entries in one folder, than the reader reads.
-    #[error("{} holds more than {limit} files", path.display())]
+    /// More Markdown files in all than the reader reads.
+    #[error("{} holds more than {limit} Markdown files", path.display())]
     TooMany {
+        /// The `.kb/` folder.
+        path: PathBuf,
+        /// The limit.
+        limit: usize,
+    },
+    /// One folder holds more entries than the reader lists.
+    #[error("{} holds more than {limit} entries", path.display())]
+    TooManyEntries {
         /// The folder.
         path: PathBuf,
         /// The limit.
         limit: usize,
+    },
+    /// A symlink, or anything else that is neither a folder nor a regular file, inside `.kb/`.
+    /// The knowledge base holds only written files, and a link could carry an atom the check
+    /// would otherwise not see, or see twice.
+    #[error("{} is not a regular file or folder", path.display())]
+    NotRegular {
+        /// The entry.
+        path: PathBuf,
     },
     /// Folders nested deeper than the reader goes.
     #[error("{} is nested more than {limit} folders deep", path.display())]
@@ -79,13 +95,14 @@ pub enum ReadError {
 /// Reads every regular `*.md` file under `kb` (the repository's `.kb/`), in path order, passing
 /// over `.kb/_ledger/`.
 ///
-/// An absent `kb` holds no atoms. Symlinks are never followed; a symlinked file or folder is
-/// passed over.
+/// An absent `kb` holds no atoms. Symlinks are never followed: a symlink anywhere it reads is
+/// refused, `kb` included.
 ///
 /// # Errors
 ///
-/// [`ReadError`] when `kb` is not a folder, a folder or Markdown file cannot be read, a name or
-/// file is not UTF-8, or `.kb/` passes the file, depth or size limits.
+/// [`ReadError`] when `kb` is not a folder, a folder or Markdown file cannot be read, an entry is
+/// a symlink or another non-regular file, a name or file is not UTF-8, or `.kb/` passes the file,
+/// entry, depth or size limits.
 pub fn read_kb(kb: &Path) -> Result<Vec<AtomFile>, ReadError> {
     match fs::symlink_metadata(kb) {
         Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -103,17 +120,14 @@ pub fn read_kb(kb: &Path) -> Result<Vec<AtomFile>, ReadError> {
         Ok(_) => {}
     }
     let mut atoms = Vec::new();
-    walk(&mut atoms, kb, "", 0)?;
+    walk(&mut atoms, kb, kb, "")?;
     Ok(atoms)
 }
 
-/// Adds every Markdown file under `dir`, whose path in `.kb/` starts with `prefix`, to `atoms`.
-fn walk(
-    atoms: &mut Vec<AtomFile>,
-    dir: &Path,
-    prefix: &str,
-    depth: usize,
-) -> Result<(), ReadError> {
+/// Adds every Markdown file under `dir`, whose path in `.kb/` (at `kb`) starts with `prefix`, to
+/// `atoms`. `prefix` is empty or ends in `/`, so its `/`s count the folders below `.kb/`.
+fn walk(atoms: &mut Vec<AtomFile>, kb: &Path, dir: &Path, prefix: &str) -> Result<(), ReadError> {
+    let depth = prefix.matches('/').count();
     if depth > MAX_DEPTH {
         return Err(ReadError::TooDeep {
             path: dir.to_owned(),
@@ -128,16 +142,20 @@ fn walk(
         })?;
         if kind.is_dir() {
             if !(depth == 0 && name == LEDGER) {
-                walk(atoms, &entry.path(), &format!("{prefix}{name}/"), depth + 1)?;
+                let inner = format!("{prefix}{name}/");
+                walk(atoms, kb, &entry.path(), &inner)?;
             }
             continue;
         }
-        if !kind.is_file() || Path::new(&name).extension().is_none_or(|e| e != "md") {
+        if !kind.is_file() {
+            return Err(ReadError::NotRegular { path: entry.path() });
+        }
+        if Path::new(&name).extension().is_none_or(|e| e != "md") {
             continue;
         }
         if atoms.len() >= MAX_FILES {
             return Err(ReadError::TooMany {
-                path: dir.to_owned(),
+                path: kb.to_owned(),
                 limit: MAX_FILES,
             });
         }
@@ -157,7 +175,7 @@ fn sorted_entries(dir: &Path) -> Result<Vec<DirEntry>, ReadError> {
     let mut entries = Vec::new();
     for entry in fs::read_dir(dir).map_err(io_error)? {
         if entries.len() >= MAX_FILES {
-            return Err(ReadError::TooMany {
+            return Err(ReadError::TooManyEntries {
                 path: dir.to_owned(),
                 limit: MAX_FILES,
             });
