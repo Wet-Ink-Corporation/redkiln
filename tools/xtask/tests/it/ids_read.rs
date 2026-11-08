@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use xtask::ids::{AtomFile, MAX_DEPTH, MAX_FILES, MAX_TEXT, ReadError, read_kb};
 
-use crate::support::{scratch, tree};
+use crate::support::{many, scratch, tree};
 
 /// A `.kb/` folder for one test holding one atom with `contents`.
 fn with_atom(name: &str, contents: &[u8]) -> io::Result<PathBuf> {
@@ -121,6 +121,15 @@ fn a_knowledge_base_one_file_over_the_limit_is_refused_naming_its_root() {
         matches!(&found, Err(ReadError::TooMany { path, limit }) if *path == kb && *limit == MAX_FILES),
         "{found:?}"
     );
+}
+
+#[test]
+fn a_folder_at_the_entry_limit_is_read() {
+    let kb = scratch("ids-entries-at").expect("a scratch folder");
+    // Entries that are not Markdown, so the total-file limit stays out of the way.
+    many(&kb.join("decision"), MAX_FILES).expect("write the files");
+    let atoms = read_kb(&kb).expect("read it");
+    assert_eq!(atoms, Vec::new());
 }
 
 #[test]

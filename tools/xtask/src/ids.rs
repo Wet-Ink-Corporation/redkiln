@@ -9,8 +9,8 @@
 //!
 //! The ledger folder `.kb/_ledger/` holds no atoms and is not read. A symlink elsewhere in `.kb/`
 //! is refused rather than followed or passed over, since it could hide an atom from the check or
-//! show one twice. A Markdown file outside a
-//! kind's folder without an `id` is not an atom (a README, say) and is passed over.
+//! show one twice. A Markdown file outside a kind's folder without an `id` is not an atom (a
+//! README, say) and is passed over.
 
 mod read;
 
