@@ -21,6 +21,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `tools/<plugin>/` | A plugin's repository scripts and checks that are not crates (Weigh-In: the mod check, eval seed and weekly stats scripts) | move 1 |
 | `docs/plan/` | The live plan: gate status, what later decisions changed in the frozen migration plan, and the runbook of the next move | 2026-11-01 |
 | `docs/guide/` | The field guide: guardrails, patterns, gotchas and prior art distilled from the source repositories; read the chapters a change touches, cite guardrails by id | 2026-11-01 |
+| `spikes/<name>/` | Phase spikes that run Core or a kit for evidence: standalone Cargo workspaces, never members, never shipped, CI advisory only (`r-sqlite`: R-SQLITE) | 2026-11-08 |
 | `references/` | The frozen planning handover | done |
 
 ## Crate map
