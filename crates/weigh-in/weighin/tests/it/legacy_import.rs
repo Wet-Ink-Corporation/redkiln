@@ -91,13 +91,23 @@ fn stored(repo: &Repo) -> TestResult<Vec<Stored>> {
     Ok(read)
 }
 
-/// The legacy sources the store recorded importing: `(path, store_id)`.
+/// `path` resolved through symlinks (macOS's `/var` is `/private/var`), as git reports the
+/// paths the import records; the path as given when it does not resolve.
+fn resolved(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref();
+    std::fs::canonicalize(path)
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The legacy sources the store recorded importing: `(path, store_id)`, paths resolved.
 fn legacy_records(events: &[Stored]) -> Vec<(String, String)> {
     decode_all::<ImportCompleted>(events)
         .events
         .into_iter()
         .filter_map(|e| match e.data.source {
-            ImportSource::Legacy { path, store_id } => Some((path, store_id.to_string())),
+            ImportSource::Legacy { path, store_id } => Some((resolved(path), store_id.to_string())),
             _ => None,
         })
         .collect()
@@ -151,11 +161,8 @@ fn a_ledger_and_its_journals_import_once_a_second_run_appends_nothing_and_the_so
         assert_eq!(
             records,
             [
-                (old.to_string_lossy().into_owned(), store_id),
-                (
-                    journal.to_string_lossy().into_owned(),
-                    JOURNAL_STORE.to_owned()
-                ),
+                (resolved(&old), store_id),
+                (resolved(&journal), JOURNAL_STORE.to_owned()),
             ],
             "{name}: one record per source, the ledger first"
         );
@@ -193,22 +200,22 @@ fn journal_import_reports_the_legacy_import_in_its_envelope() -> TestResult {
     assert_eq!(first.status.code(), Some(0));
     let first: Value = serde_json::from_slice(&first.stdout)?;
     let legacy = first["data"]["legacy"].as_array().ok_or("data.legacy")?;
-    let kinds: Vec<(&str, &str, &str)> = legacy
+    let kinds: Vec<(&str, String, &str)> = legacy
         .iter()
         .map(|s| {
             (
                 s["kind"].as_str().unwrap_or(""),
-                s["path"].as_str().unwrap_or(""),
+                resolved(s["path"].as_str().unwrap_or("")),
                 s["outcome"].as_str().unwrap_or(""),
             )
         })
         .collect();
-    let (old, journal) = (old.to_string_lossy(), journal.to_string_lossy());
+    let (old, journal) = (resolved(&old), resolved(&journal));
     assert_eq!(
         kinds,
         [
-            ("ledger", old.as_ref(), "completed"),
-            ("journal", journal.as_ref(), "completed")
+            ("ledger", old, "completed"),
+            ("journal", journal, "completed")
         ]
     );
     let line = legacy.get(1).ok_or("the journal")?;
