@@ -13,6 +13,7 @@
 //! The store's journal mode, schema stamp and refusals are Core's (ST-04 to ST-07): an old weighin
 //! ledger is never opened as a store, only imported (ST-15).
 
+pub(crate) mod legacy;
 mod wire;
 
 use std::num::NonZeroUsize;

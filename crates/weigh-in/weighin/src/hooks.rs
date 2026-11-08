@@ -40,6 +40,7 @@ use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{self, Config, ConfigSource, Env, Vars};
 use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope};
+use crate::legacy_import::{self, Legacy};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session, is_markdown, read_ledger, scannable};
 use crate::text::{Report, clip};
 use crate::{recall, shell_bin, store};
@@ -165,8 +166,14 @@ impl Hook {
                     .get("source")
                     .and_then(Value::as_str)
                     .unwrap_or("startup");
-                // The import comes first, so the items it brings count in the prime.
-                let notes = self.imported();
+                // The imports come first, so the items they bring count in the prime. When the
+                // 1.x import read a source, the journal refs wait for the next session or
+                // command, so the hook keeps to its budget (decision H12); a run that read none
+                // holds them back no session (review F1).
+                let (mut notes, spent) = self.legacy();
+                if !spent {
+                    notes.extend(self.imported());
+                }
                 return session_start(env, source, notes);
             }
             "Stop" => self.checkpointed(capture(env, payload)),
@@ -239,6 +246,48 @@ impl Hook {
             ));
         }
         result
+    }
+
+    /// `SessionStart`'s one-time import of the weighin 1.x sources inside its budget
+    /// (`legacy_import`, ST-15), what the user should hear of it, and whether it spent the
+    /// session start's budget importing a source ([`legacy_import::LegacyReport::imported_a_source`]). Each
+    /// record it skipped is logged, and a failure is logged except a store that cannot be
+    /// located or opened, which `session_start` tells or logs itself. A run past the session
+    /// start's worst case is logged.
+    fn legacy(&self) -> (Vec<String>, bool) {
+        let mode = legacy_import::Mode::Hook {
+            started: self.started,
+        };
+        let (notes, spent) = match legacy_import::import_due(&self.env, mode, "hook") {
+            Ok(Legacy::NothingDue) => return (Vec::new(), false),
+            Ok(Legacy::Ran(report)) => {
+                for line in legacy_import::problem_lines(&report) {
+                    self.log(&anyhow::anyhow!("{line}"));
+                }
+                let notes = legacy_import::notes(&report)
+                    .into_iter()
+                    .map(|note| format!("Weigh-In: {note}."))
+                    .collect();
+                (notes, report.imported_a_source())
+            }
+            Err(e) => {
+                let unopened = e.downcast_ref::<legacy_import::StoreUnopened>().is_some();
+                if self.env.store.is_ok() && !unopened {
+                    self.log(&e);
+                }
+                return (Vec::new(), false);
+            }
+        };
+        let took = self.started.elapsed();
+        if let Some(worst) = Budget::SESSION_START.worst_case()
+            && took > worst
+        {
+            self.log(&anyhow::anyhow!(
+                "the SessionStart hook ran {took:?} to the end of its 1.x import, past its \
+                 budget's worst case of {worst:?}"
+            ));
+        }
+        (notes, spent)
     }
 
     /// `SessionStart`'s import of the journal sources inside its budget (JR-10, D10), and what
@@ -363,8 +412,9 @@ fn session_start(env: &Env, source: &str, journal: Vec<String>) -> String {
 }
 
 /// What the user should hear about the store, once a session: that it cannot be located (hooks
-/// then write nothing, CLI-09), a session id the store refuses (D10), what locating it found (an
-/// old ledger, a 2.x fallback), and events a newer weighin wrote, which are skipped (EV-10).
+/// then write nothing, CLI-09), a session id the store refuses (D10), what locating it found (a
+/// 2.x fallback, a suite config problem), and events a newer weighin wrote, which are skipped
+/// (EV-10).
 fn store_notes(env: &Env, unusable: u64) -> Vec<String> {
     let mut notes = Vec::new();
     if let Err(e) = &env.store {
@@ -397,8 +447,7 @@ fn shell_copy(env: &Env) -> Option<PathBuf> {
     }
     // The default store's state dir in the repository's git dir, not the state dir, which follows
     // a configured `store` to a folder the shell may not see. Under `redkiln/`, so nothing is
-    // added beside a 1.x ledger in `<common>/weighin/`, which stays as it was until it is
-    // imported.
+    // added beside a 1.x ledger in `<common>/weighin/`, which stays as it was, imported or not.
     let dir = env.default_state_dir()?;
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,

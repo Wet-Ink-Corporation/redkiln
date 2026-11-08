@@ -377,6 +377,9 @@ pub(crate) struct Env {
     pub(crate) store: Result<StoreAt, LocateError>,
     /// What locating the store took or found that the user should hear about.
     pub(crate) notices: Vec<Notice>,
+    /// Each weighin 1.x ledger that exists, absolute, the one a fallback named first: what
+    /// `legacy_import` imports once.
+    pub(crate) old_ledgers: Vec<PathBuf>,
     /// The worktree's `.redkiln/suite.toml` (ST-12), read with the store; `None` when the store
     /// could not be located, so the class is `client` (ST-13).
     pub(crate) suite: Option<Suite>,
@@ -482,6 +485,16 @@ fn find_session(given: Option<String>, given_by: &str) -> Result<Option<String>,
     Ok(None)
 }
 
+/// The session [`find_session`] finds from what a surface `given` and by whom, or why it cannot
+/// be used.
+fn session_of(given: Option<(String, &str)>) -> (Option<String>, Option<String>) {
+    let (given, given_by) = given.map_or((None, ""), |(value, by)| (Some(value), by));
+    match find_session(given, given_by) {
+        Ok(session) => (session, None),
+        Err(e) => (None, Some(e)),
+    }
+}
+
 impl Env {
     /// Discover the environment from `cwd` (absolute): the store as [`location`] finds it, the
     /// worktree, the config, and the session `given` by `given_by` (`--session`, or the hook's
@@ -505,14 +518,15 @@ impl Env {
             config = Some(loaded);
             key
         });
-        let (store, notices, suite, workspace) = match found {
-            Ok(found) => (
-                Ok(found.store),
-                found.notices,
-                Some(found.suite),
-                Some(found.workspace),
+        let (store, notices, old_ledgers, suite, workspace) = match found {
+            Ok(f) => (
+                Ok(f.store),
+                f.notices,
+                f.old_ledgers,
+                Some(f.suite),
+                Some(f.workspace),
             ),
-            Err(e) => (Err(e), Vec::new(), None, None),
+            Err(e) => (Err(e), Vec::new(), Vec::new(), None, None),
         };
         let (repo_root, common_dir) = match workspace {
             Some(Workspace::Git { root, common_dir }) => (Some(root), Some(common_dir)),
@@ -524,11 +538,7 @@ impl Env {
             Ok(None) => (Config::default(), ConfigSource::Absent),
             Err(e) => (Config::default(), ConfigSource::Broken(e)),
         };
-        let (given, given_by) = given.map_or((None, ""), |(value, by)| (Some(value), by));
-        let (session, session_error) = match find_session(given, given_by) {
-            Ok(session) => (session, None),
-            Err(e) => (None, Some(e)),
-        };
+        let (session, session_error) = session_of(given);
         Self {
             cwd: cwd.to_path_buf(),
             branch: git_line(cwd, &["symbolic-ref", "--quiet", "--short", "HEAD"]),
@@ -549,6 +559,7 @@ impl Env {
             config_source,
             store,
             notices,
+            old_ledgers,
             suite,
             wait: Wait::Command,
             flag,
@@ -568,12 +579,14 @@ impl Env {
             Ok(found) => {
                 self.store = Ok(found.store);
                 self.notices = found.notices;
+                self.old_ledgers = found.old_ledgers;
                 self.suite = Some(found.suite);
             }
             // Whatever the last location found is not news about a store no longer located.
             Err(e) => {
                 self.store = Err(e);
                 self.notices.clear();
+                self.old_ledgers.clear();
                 self.suite = None;
             }
         }
@@ -600,6 +613,7 @@ impl Env {
                 source: redkiln_core::location::Source::Flag,
             }),
             notices: Vec::new(),
+            old_ledgers: Vec::new(),
             suite: None,
             wait: Wait::Command,
             flag: Some(dir.join("events.sqlite3")),
@@ -1228,7 +1242,12 @@ mod tests {
         std::fs::create_dir_all(tmp.path().join(".weighin"))?;
         std::fs::write(tmp.path().join(".weighin/ledger.sqlite3"), b"1.x")?;
         let mut env = Env::discover(tmp.path(), None, None, Vars::default());
-        assert_eq!(env.notices.len(), 1, "the old ledger: {:?}", env.notices);
+        assert_eq!(
+            env.old_ledgers.len(),
+            1,
+            "the old ledger: {:?}",
+            env.old_ledgers
+        );
 
         // A `~/` key with no home directory cannot be resolved.
         env.config.store = Some("~/proj.sqlite3".to_owned());
@@ -1236,6 +1255,11 @@ mod tests {
 
         assert!(env.store.is_err(), "{:?}", env.store);
         assert_eq!(env.notices, [], "notices of a store no longer located");
+        assert_eq!(
+            env.old_ledgers,
+            Vec::<PathBuf>::new(),
+            "old ledgers of a store no longer located"
+        );
         Ok(())
     }
 

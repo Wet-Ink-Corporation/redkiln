@@ -14,7 +14,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
-use happenstance_core::EventId;
+use happenstance_core::{EventId, StoreId};
 use serde::{Deserialize, Serialize};
 
 use super::line::{LineError, MAX_LINE_BYTES, ReadLine, read_line};
@@ -53,6 +53,14 @@ pub enum ImportSource {
     },
     /// A workflow artifact, by its name.
     Artifact(String),
+    /// An old plugin source (ST-15): its path, and the store id its events take (the old
+    /// ledger's, or the plugin's rule for a source that is not a store).
+    Legacy {
+        /// The source's path, as the importer found it.
+        path: String,
+        /// The store id, written as ID-01 says (32 lowercase hex) and read only in that form.
+        store_id: StoreId,
+    },
 }
 
 /// The record of one import (JR-13): `core.import_completed`, version 1, durable.
@@ -183,8 +191,7 @@ pub fn import(
     mut reader: impl BufRead,
     recording: Recording,
 ) -> Result<ImportReport, ImportError> {
-    let mut imported = ImportReport::default();
-    let mut batch = Batch::default();
+    let mut importer = Importer::default();
     let mut buf = Vec::new();
     let mut number = 0_u64;
     loop {
@@ -193,8 +200,7 @@ pub fn import(
         let complete = match next {
             Next::End => break,
             Next::TooLong { len } => {
-                imported.read = imported.read.saturating_add(1);
-                imported.skip(number, LineError::TooLong { len });
+                importer.take(number, Err(LineError::TooLong { len }));
                 continue;
             }
             Next::Line { complete } => complete,
@@ -204,23 +210,61 @@ pub fn import(
             continue;
         }
         match read_line(text).and_then(foreign) {
-            Ok(event) => {
-                imported.read = imported.read.saturating_add(1);
-                batch.push(number, event);
-            }
-            Err(_) if !complete => imported.incomplete = true,
-            Err(reason) => {
-                imported.read = imported.read.saturating_add(1);
-                imported.skip(number, reason);
-            }
+            Err(_) if !complete => importer.report.incomplete = true,
+            read => importer.take(number, read),
         }
-        if batch.events.len() >= BATCH {
-            batch.store(store, &mut imported)?;
+        if importer.full() {
+            importer.flush(store)?;
         }
     }
-    batch.store(store, &mut imported)?;
-    record(store, recording, &imported)?;
-    Ok(imported)
+    importer.finish(store, recording)
+}
+
+/// An import under way: what it read so far, and the lines waiting to be stored. Both import
+/// entries ([`import`] and [`super::import_mapped`]) drive it, so they batch, skip and record
+/// alike.
+#[derive(Default)]
+pub(super) struct Importer {
+    /// What the import did so far.
+    pub(super) report: ImportReport,
+    batch: Batch,
+}
+
+impl Importer {
+    /// Takes record `number` as read: a line to store, or one skipped as malformed.
+    pub(super) fn take(&mut self, number: u64, read: Result<Foreign, LineError>) {
+        self.report.read = self.report.read.saturating_add(1);
+        match read {
+            Ok(event) => self.batch.push(number, event),
+            Err(reason) => self.report.skip(number, reason),
+        }
+    }
+
+    /// Whether a whole batch is waiting.
+    pub(super) fn full(&self) -> bool {
+        self.batch.events.len() >= BATCH
+    }
+
+    /// Whether any line is waiting.
+    pub(super) fn pending(&self) -> bool {
+        !self.batch.events.is_empty()
+    }
+
+    /// Stores the waiting lines (see [`Batch::store`]).
+    pub(super) fn flush(&mut self, store: &Store) -> Result<(), ImportError> {
+        self.batch.store(store, &mut self.report)
+    }
+
+    /// Stores what waits, then appends the import's record (JR-13).
+    pub(super) fn finish(
+        mut self,
+        store: &Store,
+        recording: Recording,
+    ) -> Result<ImportReport, ImportError> {
+        self.flush(store)?;
+        record(store, recording, &self.report)?;
+        Ok(self.report)
+    }
 }
 
 /// What [`next_line`] read into its buffer.
@@ -269,7 +313,7 @@ fn next_line(reader: &mut impl BufRead, buf: &mut Vec<u8>) -> io::Result<Next> {
 }
 
 /// A read line as the store takes it.
-fn foreign(line: ReadLine) -> Result<Foreign, LineError> {
+pub(super) fn foreign(line: ReadLine) -> Result<Foreign, LineError> {
     let ReadLine {
         origin,
         event_type,

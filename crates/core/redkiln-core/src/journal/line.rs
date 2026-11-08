@@ -68,7 +68,20 @@ pub enum LineError {
     /// (happenstance's `UnheldOwnIdentity`), so it cannot be the store's own fact.
     #[error("the line claims a position of this store that it does not hold")]
     UnheldOwnIdentity,
+    /// The line's `origin` names a position past 2^63 - 1, the most the store holds; happenstance
+    /// would refuse the whole batch for it.
+    #[error("the origin's position {position} is past 2^63 - 1, the most the store holds")]
+    PositionOutOfRange {
+        /// The position the origin names.
+        position: u64,
+    },
+    /// The plugin that read an old source could not map this record (ST-15).
+    #[error("the plugin could not map the old record")]
+    Unmapped,
 }
+
+/// The largest position the store holds: happenstance keeps positions as SQLite integers.
+const MAX_POSITION: u64 = 0x7fff_ffff_ffff_ffff;
 
 /// One line of a journal file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,14 +140,24 @@ pub fn encode_line(stored: &Stored) -> Result<Vec<u8>, LineError> {
 
 /// [`encode_line`], with the envelope's session, which names its journal (JR-06).
 pub(crate) fn encode(stored: &Stored) -> Result<(Option<SessionId>, Vec<u8>), LineError> {
+    encode_parts(stored.id, &stored.event_type, &stored.data, &stored.tags)
+}
+
+/// [`encode`] of an event given by its parts: identity `id`, type, envelope bytes and tags.
+pub(crate) fn encode_parts(
+    id: EventId,
+    event_type: &str,
+    data: &[u8],
+    tags: &[Tag],
+) -> Result<(Option<SessionId>, Vec<u8>), LineError> {
     let (name, _, envelope) =
-        read_untyped(&stored.data, MAX_ENVELOPE_BYTES).map_err(LineError::Envelope)?;
-    if name != stored.event_type {
+        read_untyped(data, MAX_ENVELOPE_BYTES).map_err(LineError::Envelope)?;
+    if name != event_type {
         return Err(LineError::TypeMismatch);
     }
-    let text = text_of(&stored.data)?;
-    let origin = format!("\"origin\":\"{}\"", stored.id);
-    let tags = tags::member(&stored.tags)?;
+    let text = text_of(data)?;
+    let origin = format!("\"origin\":\"{id}\"");
+    let tags = tags::member(tags)?;
     // `origin` goes before `cites`, or else `data`, where EV-01 puts it; `tags` before `data`.
     // `read_untyped` refused an envelope with no `data` object, so both are always written.
     let mut origin_written = false;
@@ -203,6 +226,10 @@ pub(crate) fn read_line(text: &[u8]) -> Result<ReadLine, LineError> {
     }
     let (name, _, envelope) = read_untyped(text, MAX_LINE_BYTES).map_err(LineError::Envelope)?;
     let origin = envelope.origin.ok_or(LineError::NoOrigin)?;
+    let position = origin.position().get();
+    if position > MAX_POSITION {
+        return Err(LineError::PositionOutOfRange { position });
+    }
     let trust = envelope.trust.imported();
     let text = text_of(text)?;
     let new_trust = trust_json(&trust).map_err(|e| LineError::Envelope(Unusable::Json(e)))?;

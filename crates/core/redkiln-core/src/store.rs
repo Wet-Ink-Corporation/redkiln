@@ -334,6 +334,15 @@ impl NewEvent {
         self.tags.iter().filter(|tag| !is_core_set(tag)).count()
     }
 
+    /// Its type, payload bytes and tags, as a journal line encodes them.
+    pub(crate) fn parts(&self) -> (&str, &[u8], &[Tag]) {
+        (
+            self.event.event_type().as_str(),
+            self.event.data(),
+            &self.tags,
+        )
+    }
+
     fn into_event(self) -> Event {
         let tags: Tags = self.tags.into_iter().map(Tag::into_happenstance).collect();
         self.event.with_tags(tags)

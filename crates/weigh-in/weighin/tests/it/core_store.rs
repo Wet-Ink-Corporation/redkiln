@@ -1,6 +1,7 @@
 //! The store is redkiln-core's (#17 part 5a): a 1.x ledger at `.git/weighin/ledger.sqlite3` is
-//! named, never opened or changed (decisions D1 and D6, ST-15, ST-16); a store path that names
-//! one is refused with the import hint; a read never creates the store (B-01); a repository git
+//! imported once from a copy, never opened or changed (decision D6, step 8, ST-15, ST-16); a
+//! store path that names one is refused with the import hint; a read with nothing to import never
+//! creates the store (B-01); a repository git
 //! refuses stops a command and not a hook (ST-01); and a written event's worktree id is the
 //! same in the store and in its journal line (ID-06).
 
@@ -92,9 +93,11 @@ fn a_raise_beside_an_old_ledger_lands_in_the_store_and_leaves_the_ledger_as_it_w
         let warned = warnings(&out.stderr);
         assert_eq!(warned.len(), 1, "{name}: {warned:?}");
         assert!(
-            warned.iter().all(|w| w.contains("1.x ledger is at")
-                && w.contains("ledger.sqlite3")
-                && w.contains("imported")),
+            warned
+                .iter()
+                .all(|w| w.contains("imported the weighin 1.x ledger at")
+                    && w.contains("ledger.sqlite3")
+                    && w.contains("once")),
             "{name}: {warned:?}"
         );
     }
@@ -103,7 +106,7 @@ fn a_raise_beside_an_old_ledger_lands_in_the_store_and_leaves_the_ledger_as_it_w
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn session_start_names_the_old_ledger_and_open_lists_none_of_its_items() -> TestResult {
+fn session_start_imports_the_old_ledger_and_open_lists_its_items() -> TestResult {
     for name in FIXTURES {
         let (repo, old) = with_old_ledger(name)?;
         let before = snapshot(&old)?;
@@ -118,15 +121,13 @@ fn session_start_names_the_old_ledger_and_open_lists_none_of_its_items() -> Test
             .as_str()
             .ok_or("SessionStart has a message for the user")?;
         assert!(
-            message.contains("1.x ledger is at") && message.contains("ledger.sqlite3"),
+            message.contains("imported the weighin 1.x ledger at")
+                && message.contains("ledger.sqlite3"),
             "{name}: {message}"
         );
         let listed = String::from_utf8(open.stdout)?;
         assert!(open.status.success(), "{name}: {listed}");
-        assert!(
-            listed.contains("0 open in repo") && !listed.contains(OPEN_IN_FIXTURE),
-            "{name}: {listed}"
-        );
+        assert!(listed.contains(OPEN_IN_FIXTURE), "{name}: {listed}");
         assert_eq!(
             snapshot(&old)?,
             before,
@@ -244,7 +245,7 @@ fn outside_git_a_hook_given_a_refused_store_writes_nothing_and_session_start_say
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_read_beside_only_an_old_ledger_creates_no_store() -> TestResult {
+fn a_read_beside_only_an_old_ledger_imports_it() -> TestResult {
     for name in FIXTURES {
         let (repo, _old) = with_old_ledger(name)?;
 
@@ -258,10 +259,34 @@ fn a_read_beside_only_an_old_ledger_creates_no_store() -> TestResult {
         }
 
         assert!(
-            !repo.root.join(".git/redkiln").exists(),
-            "{name}: a read created the store's directory"
+            store_of(&repo.root).exists(),
+            "{name}: the first read imported the ledger into the store (H5)"
+        );
+        let open = repo.run("s1", &["open"], None)?;
+        let listed = String::from_utf8(open.stdout)?;
+        assert!(listed.contains(OPEN_IN_FIXTURE), "{name}: {listed}");
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_read_beside_no_old_ledger_or_journal_creates_no_store() -> TestResult {
+    let repo = Repo::new(false)?;
+
+    for args in [&["open"][..], &["digest"][..], &["journal"][..]] {
+        let out = repo.run("s1", args, None)?;
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
         );
     }
+
+    assert!(
+        !repo.root.join(".git/redkiln").exists(),
+        "a read created the store's directory (B-01)"
+    );
     Ok(())
 }
 

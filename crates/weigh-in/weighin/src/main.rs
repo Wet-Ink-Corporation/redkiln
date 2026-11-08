@@ -14,6 +14,7 @@ mod env;
 mod git;
 mod hooks;
 mod journal;
+mod legacy_import;
 mod ops;
 mod pane;
 mod recall;
@@ -507,16 +508,33 @@ fn run_hook_guarded() -> ExitCode {
 }
 
 /// Run `cmd`: its result, and the warnings to print after it whatever the result: what locating
-/// the store found (an old ledger, a 2.x fallback). An appending command exports nothing: its
-/// events leave at the next Stop, `journal pre-push` or `journal checkpoint` (JR-08).
+/// the store found (a 2.x fallback), then what the one-time 1.x import did, which every command
+/// but `ci-check` runs first (`legacy_import`, decision H5). An appending command exports
+/// nothing: its events leave at the next Stop, `journal pre-push` or `journal checkpoint` (JR-08).
 fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Vec<String>) {
     let mut env = match environment(g) {
         Ok(env) => env,
         Err(e) => return (Err(e), Vec::new()),
     };
+    // `ci-check` never opens the ledger (B-28).
+    let legacy = match cmd {
+        LedgerCmd::CiCheck(_) => Vec::new(),
+        _ => legacy_warnings(&env),
+    };
     let result = dispatch(&mut env, cmd, out);
-    let warnings: Vec<String> = env.notices.iter().map(ToString::to_string).collect();
+    let mut warnings: Vec<String> = env.notices.iter().map(ToString::to_string).collect();
+    warnings.extend(legacy);
     (result, warnings)
+}
+
+/// The 1.x import's notes as a command's warnings; a failure is one warning, and the command
+/// goes on (it stops itself if it cannot open the store).
+fn legacy_warnings(env: &Env) -> Vec<String> {
+    match legacy_import::import_due(env, legacy_import::Mode::Command, "cli") {
+        Ok(legacy_import::Legacy::NothingDue) => Vec::new(),
+        Ok(legacy_import::Legacy::Ran(report)) => legacy_import::notes(&report),
+        Err(e) => vec![format!("the weighin 1.x import did not run: {e:#}")],
+    }
 }
 
 /// The directory a command works in: `--dir` made absolute, as Core locates from (a relative

@@ -16,9 +16,15 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   against running itself through `PATH` is `REDKILN_LAUNCHER`, no longer `WEIGHIN_LAUNCHER`.
 - The ledger is now Weigh-In's events in the suite's store, `<git-common-dir>/redkiln/events.sqlite3`
   (outside git `<folder>/.redkiln/events.sqlite3`), and weighin's own files (hook error log, board
-  state) are in `redkiln/weighin/` beside it. A 1.x ledger at `.git/weighin/` is left unchanged and
-  named in a warning on every command and at SessionStart; its items are listed again once it is
-  imported. `--store` or `$REDKILN_STORE` naming a 1.x ledger is refused.
+  state) are in `redkiln/weighin/` beside it. A 1.x ledger (at `.git/weighin/`, or the one
+  `$WEIGHIN_STORE` or config.json's `store` names) and the committed 1.x journals under
+  `.kb/_ledger/journal/` are imported into the store once, ledgers first, by the first weighin
+  command or SessionStart that finds them (`ci-check` never imports), and their items are listed
+  again; one warning says the ledger was imported. The files are left exactly as they were. An
+  event a 1.x binary adds to a ledger or journal after its import is not imported. A SessionStart
+  leaves sources over 8 MiB, or what it could not finish in time, to the next command, and
+  `weighin journal import --json` lists each 1.x source it read (`data.legacy`).
+  `--store` or `$REDKILN_STORE` naming a 1.x ledger is refused.
 - `$REDKILN_STORE` names the store and wins over `$WEIGHIN_STORE`. `$WEIGHIN_STORE` and
   config.json's `store` still work, naming the 1.x ledger: the store goes beside it, at
   `<parent>/<stem>.events.sqlite3`, with a warning. `init --ledger` still writes config.json's
