@@ -52,7 +52,7 @@ Error variants carry `rusqlite::Error`, `SqliteEventStoreError` and `AppendError
 `OpenError` (why a file could not be opened), `StoreError` (an operation on an open store), `LocateError` and `GitError` (where the store is), `LegacyError` (reading an old ledger), `RefsError` (store or local git), `EnvelopeError` (an envelope not built), `TagError`, `TrustError`, `IdError`, `NameError`, `FieldError` and `CanonicalError`. Refusals are their own variants, so a caller can name them. `Skip` and `Unusable` are a lenient read's outcomes, not failures.
 
 ## Test strategy
-Unit tests beside the code: the header, the transaction helper, tags and their registry, trust, ids, names, envelope fields, writing and reading, RFC 8785's vectors, `suite.toml`, git's deadline and cap. `tests/it/` (integration, no git): new, concurrent, WAL, refused and copied stores, conditioned appends, envelopes stored and read back amid foreign and unusable events, telemetry dropped under a held write lock, a read lock at commit and a held open lock, and kept to its window; the SPEC's goldens and schemas (`conformance`); the old-ledger fixtures in `tests/fixtures/` (by weighin 0.2.2 and 1.2.0 built from weigh-in's tags; 0.1.x's is 0.2.2's under WAL, as 0.1.x left it), opened only as copies, listing and bytes pinned by `tests/it/fixtures.rs`. `tests/repos/`: journals, refs and location on real repos (subdirectories, a linked worktree, a broken `.git`, none). `tests/working_dir.rs`, the one test that moves the working directory, is its own binary; `repos` and `subject` start git, so stay apart: a child forked while another thread holds `<store>.lock` keeps it.
+See [`TESTING.md`](TESTING.md).
 
 ## Do not
 - Open the store through `SqliteEventStore::open` (it switches the file to WAL).

@@ -1,0 +1,12 @@
+# Test strategy: `weighin`
+
+The test strategy section of this crate's charter ([`AGENTS.md`](AGENTS.md)), kept here so the charter chain stays under the 24 KiB cap (`tools/charters/check.sh`).
+
+Unit tests sit beside the code in `annotate`, `ci` (atoms, trailers, the append-only check and the report, all pure), `commands`, `env`, `store`, `context`, `git`, `hooks`, `journal` (committed-journal reading, refs budgets), `ops`, `pane`, `recall`, `text` and `main`; the ones that spawn processes or open SQLite carry `#[cfg_attr(miri, ignore = "...")]`. Integration tests in `tests/it/` compile as one binary over shared helpers in `support.rs`; `core_store.rs` runs the binary beside Core's 1.x ledger fixtures (`crates/core/redkiln-core/tests/fixtures/`, whose bytes each test writes into its own scratch repository; never opened in place, nor copied into this crate). `store/wire/tests.rs` holds the manual live-ledger check, ignored, run by hand with `WEIGHIN_LIVE_LEDGER`. The end-to-end tests in `cli.rs` (and the source write-back in `annotate.rs`) cover:
+- a scratch repository;
+- hooks fed the JSON Claude Code sends;
+- a linked worktree;
+- a sitting done through `batch`;
+- the board round trip.
+
+`journal_hooks.rs` covers the hooks' export (Stop exports, SubagentStop and PostToolUse do not, inbox fallback, a broken ref logged once, a hanging remote inside the timeout, Cowork, `hooks.json` timeouts), `journal_refs.rs` covers the `journal` subcommands over a bare `origin` and clones (export, inbox, relay, import, pre-push, envelopes and exit codes), `relay_workflow.rs` checks the relay workflow and runs its command, and `ci_check.rs` covers `ci-check` on real branches, over the `scratch.rs` repository, which gives each test its own temp dir. `repo_class.rs` covers the class from suite.toml and its fallback, and a `client` repository's gates. `owner.rs` covers the owner: suite.toml's, config.json's, and git's where there is no config, with git reading only a config each test writes (B-31). `pane.rs` covers what the local board pane needs (the state on stdout, one answer on stdin as surface `pane`, raw items read-only, mode `off`, no config). `recall.rs` covers the decisions an edit brings back (a match, no match, a reopened decision, the cap of three, a `Write`, a ledger that cannot be read, logged once) and that capture beside it is unchanged. `eval_seed.rs` scores marker capture against the eval seed (`eval/`, #22); `cargo test -p weighin --test it eval_seed -- --nocapture` prints the scores.
