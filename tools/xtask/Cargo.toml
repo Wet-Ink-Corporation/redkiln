@@ -13,6 +13,7 @@ knowledge-contract = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+weighin-contract = { workspace = true }
 
 [lints]
 workspace = true

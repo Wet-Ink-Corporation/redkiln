@@ -6,5 +6,6 @@ mod ids;
 mod ids_read;
 mod layers;
 mod plugins;
+mod plugins_commands;
 mod plugins_read;
 mod support;

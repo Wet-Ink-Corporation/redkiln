@@ -9,6 +9,7 @@
 //! plugin (its `hooks.json` lists `modules`) carries its module and types instead of skills,
 //! agents or commands.
 
+mod commands;
 mod read;
 
 use std::collections::BTreeMap;
@@ -16,6 +17,7 @@ use std::fmt;
 
 use serde::Deserialize;
 
+pub use commands::{Cli, check_commands};
 pub use read::{MAX_DEPTH, MAX_FILES, MAX_TEXT, ReadError, read_plugins};
 
 /// The only form a hook command may take, followed by the binary's name.
@@ -129,6 +131,25 @@ pub enum Violation {
         /// The binary it names.
         binary: String,
     },
+    /// A skill, agent or command that names a subcommand its binary's command list lacks.
+    UnknownCommand {
+        /// The plugin folder.
+        plugin: String,
+        /// The skill, agent or command file.
+        path: String,
+        /// The binary it runs.
+        binary: String,
+        /// The subcommand it names, one or two words.
+        command: String,
+    },
+    /// A launcher copy of a binary xtask has no command list for, so its mentions cannot be
+    /// checked (fail closed).
+    NoCommandList {
+        /// The plugin folder.
+        plugin: String,
+        /// The binary the launcher runs.
+        binary: String,
+    },
 }
 
 impl fmt::Display for Violation {
@@ -170,6 +191,20 @@ impl fmt::Display for Violation {
             } => write!(
                 f,
                 "{plugin}/{path}: names libexec/{binary}, which the plugin does not ship"
+            ),
+            Self::UnknownCommand {
+                plugin,
+                path,
+                binary,
+                command,
+            } => write!(
+                f,
+                "{plugin}/{path}: names `{binary} {command}`, which {binary} does not have"
+            ),
+            Self::NoCommandList { plugin, binary } => write!(
+                f,
+                "{plugin}: ships libexec/{binary}, but xtask has no command list for {binary} \
+                 (its contract crate's cli module)"
             ),
         }
     }

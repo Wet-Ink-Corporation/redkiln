@@ -1322,6 +1322,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "weighin-contract",
 ]
 
 [[package]]
