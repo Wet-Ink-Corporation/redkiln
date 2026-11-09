@@ -116,6 +116,10 @@ pub(crate) struct Envelope<'a, D> {
     pub(crate) data: &'a D,
     pub(crate) findings: &'a [Finding],
     pub(crate) exit: Exit,
+    /// What a success shows (CLI-02's `proves`); `None` writes no key.
+    pub(crate) proves: Option<&'static str>,
+    /// What a success does not show (CLI-02's `does_not_prove`); `None` writes no key.
+    pub(crate) does_not_prove: Option<&'static str>,
 }
 
 /// The envelope's keys in CLI-02's order.
@@ -126,6 +130,10 @@ struct Wire<'a, D> {
     command: &'static str,
     data: &'a D,
     findings: &'a [Finding],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proves: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    does_not_prove: Option<&'static str>,
 }
 
 impl<D: Serialize> Envelope<'_, D> {
@@ -140,6 +148,8 @@ impl<D: Serialize> Envelope<'_, D> {
             command: self.command,
             data: self.data,
             findings: self.findings,
+            proves: self.proves,
+            does_not_prove: self.does_not_prove,
         };
         serde_json::to_writer(&mut out, &wire)?;
         out.write_all(b"\n")
@@ -166,6 +176,8 @@ mod tests {
             data: &data,
             findings: &findings,
             exit: Exit::Success,
+            proves: None,
+            does_not_prove: None,
         }
         .write(&mut out)
         .expect("written");

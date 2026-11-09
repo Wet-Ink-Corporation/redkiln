@@ -1,8 +1,11 @@
-//! The JSON `weighin ci-check --json` writes, schema `weighin.ci-check/1`.
+//! The JSON `weighin ci-check --json` wrote before #48, schema `weighin.ci-check/1`.
 //!
 //! assay's Weigh-In gate reads it (redkiln `docs/plan/move-1-weigh-in.md`, Consumers), so it is
-//! kept byte for byte: field order is wire order, and a change is a `/2` with assay told first.
-//! weighin builds a [`Report`] and serialises it; a reader deserialises the same type.
+//! kept byte for byte: field order is wire order. A reader deserialises [`Report`].
+//!
+//! `/1` is frozen and readable for Review until it moves; weighin writes [`v2`].
+
+pub mod v2;
 
 use crate::id::ItemId;
 use crate::open::Status;

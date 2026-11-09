@@ -266,3 +266,63 @@ fn a_live_ledger_reads_untouched_and_every_event_maps_through_the_wire() {
     assert_eq!(refused, Vec::<String>::new(), "events the wire refuses");
     assert_eq!(listing(dir), before, "the ledger's directory is unchanged");
 }
+
+/// A JR-02 line of `event_type` at `version`, with an `origin` when `origin`, no `\n`.
+fn journal_line(event_type: &str, version: u32, origin: bool) -> String {
+    let origin = if origin {
+        r#""origin":"0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:7","#
+    } else {
+        ""
+    };
+    format!(
+        r#"{{"type":"{event_type}","version":{version},"ts":"{TS}","actor":"agent","trust":{{"level":"asserted"}},"writer":{{"binary":"weighin","version":"2.0.0","spec":"1.0.0"}},{origin}"data":{{"item_id":"wi-930e15"}}}}"#
+    )
+}
+
+#[test]
+fn a_weighin_event_exported_as_a_line_reads_back_as_the_same_ledger_event() {
+    let written = one_of_each();
+
+    let read: Vec<EventEnvelope> = stored(written.clone())
+        .iter()
+        .zip(1_u64..)
+        .map(|(stored, number)| {
+            let line = redkiln_core::journal::encode_line(stored).expect("a line");
+            let text = line.strip_suffix(b"\n").expect("ended");
+            from_line(number, text).expect("usable")
+        })
+        .collect();
+
+    assert_eq!(read, written);
+}
+
+#[test]
+fn a_line_of_another_namespace_is_foreign() {
+    let line = journal_line("bench.run_finished", 1, true);
+
+    let skipped = from_line(1, line.as_bytes());
+
+    assert!(matches!(skipped, Err(LineSkip::Foreign)), "{skipped:?}");
+}
+
+#[test]
+fn a_weighin_line_of_a_newer_version_is_unusable_naming_its_type() {
+    let line = journal_line("weighin.item_raised", 2, true);
+
+    let skipped = from_line(1, line.as_bytes());
+
+    assert!(
+        matches!(&skipped, Err(LineSkip::Unusable { event_type }) if event_type == "weighin.item_raised"),
+        "{skipped:?}"
+    );
+}
+
+#[test]
+fn a_line_with_no_origin_is_malformed() {
+    let no_origin = journal_line("weighin.item_raised", 1, false);
+
+    for text in [no_origin.as_bytes(), b"not an envelope".as_slice()] {
+        let skipped = from_line(1, text);
+        assert!(matches!(skipped, Err(LineSkip::Malformed)), "{skipped:?}");
+    }
+}

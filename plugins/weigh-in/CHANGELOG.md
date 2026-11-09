@@ -11,6 +11,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   release, or uses a copy of this release in a connected `redkiln` or `redkiln-plugins` checkout.
 - A copy of the plugin with no build for any platform (a source checkout) now says so at session
   start and names where releases come from and `cargo xtask build`.
+- `weighin ci-check` reads the journal refs, inbox copies and broken refs present in the clone
+  (it never fetches), and checks each journal ref's whole history. It writes
+  `weighin.ci-check/2`, the CLI envelope (`data.read` says what it read; `data.unreadable`
+  counts events it cannot read), and exits 70, not 1, when it cannot run.
 - The mod's band reads `weighin status --json`: when capture is off it says so with the first
   error ("Weigh-In: capture is off: …"), and when Weigh-In is degraded it adds the number of
   warnings to the counts ("· 2 warning(s): /wi status"), even with nothing open. `/wi status`

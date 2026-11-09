@@ -1,13 +1,12 @@
-//! The `ci-check` report: its wire format (`weighin.ci-check/1`), the rules that build it from
-//! the folded journals and the attested decisions, and its one-line text form. No I/O.
+//! The `ci-check` report: the rules that build `weighin.ci-check/2`'s `data` from the folded
+//! journals and the attested decisions. No I/O; the envelope and the text form are `emit`'s.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::Write;
-use weighin_contract::ci_check::{Decision, JournalCheck, OpenItem, Report, SCHEMA};
+use weighin_contract::ci_check::v2::{Data, Decision, JournalCheck, OpenItem, Read};
 use weighin_core::{Item, ItemId, Ledger};
 
-// The report's wire types are Weigh-In's contract since Move 1 step 5 (`weighin.ci-check/1`).
-pub(crate) use weighin_contract::ci_check::{Blocks, Reason, Source, Violation};
+// The report's wire types are Weigh-In's contract (`weighin.ci-check/2` since #48).
+pub(crate) use weighin_contract::ci_check::v2::{Blocks, Source, Violation};
 
 /// Which source's commit the report names first: the trailer's, then the atom's, then the
 /// journal line's.
@@ -24,8 +23,8 @@ pub(crate) struct Attested {
     pub(crate) commit: Option<String>,
 }
 
-/// What [`build`] reads (API-10).
-#[derive(Debug, Clone, Copy)]
+/// What [`build`] reads (API-10); what the report keeps as it is, it takes.
+#[derive(Debug)]
 pub(crate) struct Inputs<'a> {
     /// The base commit's full sha.
     pub(crate) base: &'a str,
@@ -39,11 +38,16 @@ pub(crate) struct Inputs<'a> {
     pub(crate) reopens: &'a BTreeMap<ItemId, When>,
     /// Every source's word on the decisions the range adds, trailers oldest first.
     pub(crate) attested: &'a [Attested],
-    pub(crate) violations: &'a [Violation],
+    /// Every violation, of committed journals and journal refs, in any order.
+    pub(crate) violations: Vec<Violation>,
+    /// What was read.
+    pub(crate) read: Read,
+    /// Weighin events this build cannot read, by type (EV-10).
+    pub(crate) unreadable: BTreeMap<String, u64>,
 }
 
-/// The report: open items by id, decisions by (id, option), violations by (path, line).
-pub(crate) fn build(inputs: Inputs<'_>) -> Report {
+/// The report: open items by id, decisions by (id, option), violations in their order.
+pub(crate) fn build(inputs: Inputs<'_>) -> Data {
     let Inputs {
         base,
         head,
@@ -51,7 +55,9 @@ pub(crate) fn build(inputs: Inputs<'_>) -> Report {
         closing,
         reopens,
         attested,
-        violations,
+        mut violations,
+        read,
+        unreadable,
     } = inputs;
     let open_items = ledger
         .items
@@ -60,11 +66,8 @@ pub(crate) fn build(inputs: Inputs<'_>) -> Report {
         .filter(|i| still_open(closing.get(&i.id).copied(), reopens.get(&i.id).copied()))
         .map(|i| open_item(i, ledger))
         .collect();
-    // The report is its own document, so it owns a copy of what it names (H-08).
-    let mut violations = violations.to_vec();
     violations.sort();
-    Report {
-        schema: SCHEMA.to_owned(),
+    Data {
         base: base.to_owned(),
         head: head.to_owned(),
         open_items,
@@ -73,6 +76,8 @@ pub(crate) fn build(inputs: Inputs<'_>) -> Report {
             ok: violations.is_empty(),
             violations,
         },
+        read,
+        unreadable,
     }
 }
 
@@ -238,46 +243,6 @@ pub(crate) fn blame_lines(porcelain: &str) -> HashMap<u64, String> {
         .collect()
 }
 
-/// The text form: one summary line, then one line per violation.
-///
-/// # Errors
-/// Fails when `out` cannot be written.
-pub(crate) fn render_text(r: &Report, out: &mut impl Write) -> std::io::Result<()> {
-    let count = |b: Blocks| r.open_items.iter().filter(|i| i.blocks == b).count();
-    let journal = if r.journal.ok {
-        "journal ok".to_owned()
-    } else {
-        format!("journal: {} violation(s)", r.journal.violations.len())
-    };
-    writeln!(
-        out,
-        "ci-check {}..{}: {} open ({} block merge, {} block release, {} unknown) · {} decision(s) · {journal}",
-        short(&r.base),
-        short(&r.head),
-        r.open_items.len(),
-        count(Blocks::Merge),
-        count(Blocks::Release),
-        count(Blocks::Unknown),
-        r.decisions.len(),
-    )?;
-    for v in &r.journal.violations {
-        let line = v.line.map_or_else(|| "-".to_owned(), |n| n.to_string());
-        let reason = match v.reason {
-            Reason::Removed => "removed",
-            Reason::Missing => "missing",
-            Reason::Altered => "altered",
-            Reason::Undecodable => "undecodable",
-        };
-        writeln!(out, "  {}:{line} {reason}", v.path)?;
-    }
-    Ok(())
-}
-
-/// A sha's first seven characters, as git abbreviates it.
-fn short(sha: &str) -> &str {
-    sha.get(..7).unwrap_or(sha)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,7 +399,12 @@ mod tests {
             closing: &closing,
             reopens: &reopens,
             attested,
-            violations: &[],
+            violations: Vec::new(),
+            read: Read {
+                files: Vec::new(),
+                refs: Vec::new(),
+            },
+            unreadable: BTreeMap::new(),
         });
         serde_json::to_value(&r).expect("the report serialises")
     }
@@ -551,35 +521,5 @@ mod tests {
 
         let expected: HashMap<u64, String> = [(1, sha.clone()), (2, sha)].into();
         assert_eq!(lines, expected);
-    }
-
-    #[test]
-    fn the_text_form_is_one_summary_line_and_one_line_per_violation() -> std::io::Result<()> {
-        let l = ledger(&[raised(A), triaged(A, "before-merge"), raised(B)]);
-        let none = BTreeMap::new();
-        let attested = [attested(C, Some("A"), Source::Trailer, Some("t"))];
-        let violations = [Violation {
-            path: "j.jsonl".to_owned(),
-            line: Some(2),
-            reason: Reason::Missing,
-        }];
-        let r = build(Inputs {
-            base: "abcdef0123",
-            head: "0123456789",
-            ledger: &l,
-            closing: &none,
-            reopens: &none,
-            attested: &attested,
-            violations: &violations,
-        });
-        let mut out = Vec::new();
-
-        render_text(&r, &mut out)?;
-
-        assert_eq!(
-            String::from_utf8_lossy(&out),
-            "ci-check abcdef0..0123456: 2 open (1 block merge, 0 block release, 1 unknown) · 1 decision(s) · journal: 1 violation(s)\n  j.jsonl:2 missing\n"
-        );
-        Ok(())
     }
 }

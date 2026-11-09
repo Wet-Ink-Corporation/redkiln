@@ -12,10 +12,10 @@ contract (Weigh-In's). No file, clock, process or environment access.
 - Never: another plugin's crates, `weighin-core` or `weighin`, anything that does I/O in its own code.
 
 ## Public surface
-Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check`, `status`, `cli`, and with `core` `request` and `answer`; `Card`, `EventEnvelope`, `LedgerEvent` and `ItemId` at the root. Workspace-internal, never published.
+Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check` (with `ci_check::v2`), `status`, `cli`, and with `core` `request` and `answer`; `Card`, `EventEnvelope`, `LedgerEvent` and `ItemId` at the root. Workspace-internal, never published.
 
 ## Invariants
-- `ci_check::Report` is `weighin.ci-check/1` byte for byte; a change is a `/2` with assay told first (`docs/plan/move-1-weigh-in.md`).
+- `ci_check::Report` is `weighin.ci-check/1` byte for byte, readable for Review until it moves; `ci_check::v2` is `/2`'s envelope `data`, which weighin writes (#48).
 - `status::Status` is `weighin.status/1`'s `data`, field order wire order, every `Option` written `null`; it reads a later key (CLI-04), and `spec/fixtures/status/` pins it.
 - `cli::COMMANDS` and `cli::VALUE_OPTIONS` are what weighin's clap accepts; weighin's `cli_pin` test pins both.
 - `open::OpenItem` writes what weighin 1.2.0's `open --json` wrote; weighin-core's test pins it against its projection's `Item`.
@@ -24,7 +24,7 @@ Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check`, `s
 - A one-way or unsure item is never defaulted (`guard::may_route_to_default` for triage's route, `Request::check` for a request).
 
 ## Errors
-`card::CardError`, `guard::DefaultRefused`, `request::RequestError`, `answer::AnswerRefused` `ci_check::ReadError` (a report of another shape or schema) and `status::ReadError` are domain refusals; `RequestError` also carries Core's id, tag and envelope refusals.
+`card::CardError`, `guard::DefaultRefused`, `request::RequestError`, `answer::AnswerRefused` `ci_check::ReadError` (a report of another shape or schema), `ci_check::v2::ReadError` (another shape, schema or command, or a failed run) and `status::ReadError` are domain refusals; `RequestError` also carries Core's id, tag and envelope refusals.
 
 ## Test strategy
 Unit tests beside each module; `request` reads the SPEC's decision-request goldens (`spec/fixtures/decision-request/`) and `status` its status goldens (`spec/fixtures/status/valid/`) and writes a request through a temporary Core store. Run `cargo test -p weighin-contract --all-features`, and without features for the pure half.

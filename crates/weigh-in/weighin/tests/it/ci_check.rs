@@ -45,24 +45,29 @@ fn on_a_branch() -> TestResult<Repo> {
     Ok(repo)
 }
 
-/// `ci-check --base main --json`, which must exit 0; the report.
+/// `ci-check --base main --json`, which must exit 0; the report, the envelope's `data`.
 fn report(repo: &Repo) -> TestResult<Value> {
     let out = repo.ok("ci", &["ci-check", "--base", "main", "--json"], None)?;
-    Ok(serde_json::from_str(&out)?)
+    let mut envelope: Value = serde_json::from_str(&out)?;
+    Ok(envelope
+        .get_mut("data")
+        .ok_or("an envelope with data")?
+        .take())
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn the_report_is_weighin_contract_s_type_byte_for_byte() -> TestResult {
+fn the_report_is_weighin_contract_s_v2_data_byte_for_byte() -> TestResult {
     let repo = on_a_branch()?;
     repo.raise("s", "Keep three retries?")?;
     commit_journalled(&repo, "raise")?;
 
     let out = repo.ok("ci", &["ci-check", "--base", "main", "--json"], None)?;
-    let report: weighin_contract::ci_check::Report = serde_json::from_str(&out)?;
+    let data = weighin_contract::ci_check::v2::Data::from_envelope(out.trim_end())?;
 
-    assert_eq!(serde_json::to_string(&report)?, out.trim_end());
-    assert_eq!(report.open_items.len(), 1, "{out}");
+    let written = format!("\"data\":{},\"findings\":", serde_json::to_string(&data)?);
+    assert!(out.contains(&written), "{out}");
+    assert_eq!(data.open_items.len(), 1, "{out}");
     Ok(())
 }
 
@@ -73,10 +78,11 @@ fn an_untriaged_item_raised_on_the_branch_is_reported_open_with_nothing_recorded
     let id = repo.raise("s", "Keep three retries?")?;
     let head = commit_journalled(&repo, "raise")?;
 
-    let r = report(&repo)?;
+    let out = repo.ok("ci", &["ci-check", "--base", "main", "--json"], None)?;
+    let envelope: Value = serde_json::from_str(&out)?;
 
+    assert_eq!(envelope["schema"], json!("weighin.ci-check/2"));
     let expected = json!({
-        "schema": "weighin.ci-check/1",
         "base": repo.rev("main")?,
         "head": head,
         "open_items": [{
@@ -85,9 +91,11 @@ fn an_untriaged_item_raised_on_the_branch_is_reported_open_with_nothing_recorded
             "question": "Keep three retries?"
         }],
         "decisions": [],
-        "journal": {"ok": true, "violations": []}
+        "journal": {"ok": true, "violations": []},
+        "read": {"files": [JOURNAL], "refs": []},
+        "unreadable": {}
     });
-    assert_eq!(r, expected);
+    assert_eq!(envelope["data"], expected);
     Ok(())
 }
 
@@ -306,8 +314,7 @@ fn a_line_the_branch_deletes_is_a_violation_and_still_exits_zero() -> TestResult
 
     let r = report(&repo)?;
 
-    let expected =
-        json!({"ok": false, "violations": [{"path": JOURNAL, "line": 2, "reason": "missing"}]});
+    let expected = json!({"ok": false, "violations": [{"journal": JOURNAL, "kind": "file", "commit": null, "line": 2, "reason": "missing"}]});
     assert_eq!(r["journal"], expected);
     Ok(())
 }
@@ -352,7 +359,7 @@ fn without_json_the_report_is_one_summary_line() -> TestResult {
 
     let short = |s: &str| s.get(..7).map(str::to_owned).unwrap_or_default();
     let expected = format!(
-        "ci-check {}..{}: 1 open (0 block merge, 0 block release, 1 unknown) · 0 decision(s) · journal ok\n",
+        "ci-check {}..{}: 1 open (0 block merge, 0 block release, 1 unknown) · 0 decision(s) · journal ok · 0 journal ref(s)\n",
         short(&base),
         short(&head)
     );
@@ -389,31 +396,43 @@ fn a_reader_that_stops_early_is_not_a_failure_in_either_form() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_base_that_names_no_commit_exits_one_naming_it() -> TestResult {
+fn a_base_that_names_no_commit_exits_70_naming_it() -> TestResult {
     let repo = on_a_branch()?;
 
     let out = repo.run("ci", &["ci-check", "--base", "nope"], None)?;
 
     let stderr = String::from_utf8(out.stderr)?;
-    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert_eq!(out.status.code(), Some(70), "{stderr}");
     assert!(
-        stderr.starts_with("weighin: resolving --base nope"),
+        stderr.starts_with("weighin: error: resolving --base nope"),
         "{stderr}"
     );
+
+    let out = repo.run("ci", &["ci-check", "--base", "nope", "--json"], None)?;
+
+    assert_eq!(out.status.code(), Some(70));
+    let envelope: Value = serde_json::from_slice(&out.stdout)?;
+    assert_eq!(
+        (&envelope["ok"], &envelope["data"]),
+        (&json!(false), &json!({}))
+    );
+    let findings = envelope["findings"].as_array().ok_or("findings")?;
+    let keys: Vec<&Value> = findings.iter().map(|f| &f["key"]).collect();
+    assert_eq!(keys, [&json!("internal")], "{envelope}");
     Ok(())
 }
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn outside_git_ci_check_exits_one() -> TestResult {
+fn outside_git_ci_check_exits_70() -> TestResult {
     let repo = Repo::new(false)?;
     let plain = repo.sibling("plain")?;
 
     let out = repo.run_in(&plain, &["ci-check", "--base", "main"])?;
 
     let stderr = String::from_utf8(out.stderr)?;
-    assert_eq!(out.status.code(), Some(1), "{stderr}");
-    assert_eq!(stderr, "weighin: ci-check needs a git repository\n");
+    assert_eq!(out.status.code(), Some(70), "{stderr}");
+    assert_eq!(stderr, "weighin: error: ci-check needs a git repository\n");
     Ok(())
 }
 
@@ -448,7 +467,11 @@ fn a_fresh_clone_with_no_ledger_gets_its_report_and_no_store() -> TestResult {
         String::from_utf8_lossy(&out.stderr)
     );
     let r: Value = serde_json::from_slice(&out.stdout)?;
-    assert_eq!(r["open_items"].as_array().map(Vec::len), Some(1), "{r}");
+    assert_eq!(
+        r["data"]["open_items"].as_array().map(Vec::len),
+        Some(1),
+        "{r}"
+    );
     let created = [
         store.exists(),
         clone.join(".git/weighin").exists() || clone.join(".git/redkiln").exists(),

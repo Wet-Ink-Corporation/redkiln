@@ -313,6 +313,8 @@ fn write(found: &Found, json: bool) -> Exit {
                 data: &found.data,
                 findings: &found.findings,
                 exit: Exit::Success,
+                proves: None,
+                does_not_prove: None,
             }
             .write(out)
         } else {
@@ -388,6 +390,8 @@ fn could_not_run(json: bool, e: &anyhow::Error) -> Exit {
             data: &serde_json::Map::new(),
             findings: &findings,
             exit: Exit::Internal,
+            proves: None,
+            does_not_prove: None,
         }
         .write(out)
     })
