@@ -86,7 +86,7 @@ run download 1.2.0 "$asset_sha"
 go download
 expect download "B=$home/.weighin/1.2.0/weighin"
 expect download "weighin 1.2.0"
-grep -q 'releases/download/v1.2.0/weighin-x86_64-unknown-linux-musl' "$CURL_LOG" || fail "download: wrong URL: $(cat "$CURL_LOG")"
+grep -q 'github.com/Wet-Ink-Corporation/redkiln/releases/download/rk-weigh-in--v1.2.0/weighin-x86_64-unknown-linux-musl' "$CURL_LOG" || fail "download: wrong URL: $(cat "$CURL_LOG")"
 [ ! -e "$home/.weighin/1.2.0/weighin.part" ] || fail "download: left the .part file"
 
 # 5. the next sitting in the same chat: the installed binary is reused, no download.
@@ -119,6 +119,16 @@ printf 'not a binary\n' > "$home/mnt/repo/plugin/libexec/x86_64-unknown-linux-mu
 go broken
 expect broken "(does not run; this release is 1.2.0)"
 expect broken "B= (no Weigh-In binary)"
+
+# 9. the monorepo's plugin folder and the release repository's, connected: both are found.
+run monorepo 1.2.0 none
+fake_bin 1.2.0 "$home/mnt/redkiln/plugins/weigh-in/libexec/x86_64-unknown-linux-musl/weighin"
+go monorepo
+expect monorepo "B=$home/mnt/redkiln/plugins/weigh-in/libexec/x86_64-unknown-linux-musl/weighin"
+run release-repo 1.2.0 none
+fake_bin 1.2.0 "$home/mnt/redkiln-plugins/plugins/rk-weigh-in/libexec/x86_64-unknown-linux-musl/weighin"
+go release-repo
+expect release-repo "B=$home/mnt/redkiln-plugins/plugins/rk-weigh-in/libexec/x86_64-unknown-linux-musl/weighin"
 
 [ "$failed" = 0 ] || exit 1
 echo "cowork-fetch: ok"

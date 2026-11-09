@@ -1,2 +1,5 @@
 .temper/
 /target/
+# Builds `cargo xtask build` writes into a plugin (releases package them; never committed).
+/plugins/*/libexec/*-*/
+/plugins/*/libexec/*.exe

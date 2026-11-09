@@ -8,4 +8,5 @@ mod layers;
 mod plugins;
 mod plugins_commands;
 mod plugins_read;
+mod release;
 mod support;

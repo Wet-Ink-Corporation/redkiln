@@ -3,7 +3,8 @@
 //!
 //! A plugin is a thin integration of its binary into the harness: manifests, hooks that run
 //! `<binary> hook ...`, skills, agents and commands that tell the model which command to run,
-//! launcher copies, builds and, for a binary that runs in Cowork, one fetch script its skill
+//! launcher copies, builds (with the Windows one also at `libexec/<binary>.exe`, the path
+//! exec-form hooks resolve to there, M1-E) and, for a binary that runs in Cowork, one fetch script its skill
 //! sends to the device shell (`libexec/<binary>-cowork-fetch.sh`, M1-D). Anything else in
 //! `plugins/<plugin>/` is functionality that belongs in the CLI, and fails the check. A mod
 //! plugin (its `hooks.json` lists `modules`) carries its module and types instead of skills,
@@ -358,7 +359,11 @@ fn place(path: &str, is_mod: bool, launchers: &[&str]) -> Place {
         [".claude-plugin", "plugin.json"] | ["hooks", "hooks.json"] => true,
         [file] => ROOT_FILES.contains(file),
         ["libexec", name] => {
-            is_launcher(name) || bootstrap_binary(name).is_some_and(|b| launchers.contains(&b))
+            is_launcher(name)
+                || bootstrap_binary(name).is_some_and(|b| launchers.contains(&b))
+                || name
+                    .strip_suffix(".exe")
+                    .is_some_and(|binary| launchers.contains(&binary))
         }
         ["libexec", target, build] => is_build(target, build, launchers),
         ["skills", _, rest @ ..] => {
@@ -412,7 +417,7 @@ fn is_binary_char(c: char) -> bool {
 }
 
 /// The binaries the plugin ships a launcher copy for.
-fn launchers(plugin: &Plugin) -> Vec<&str> {
+pub(crate) fn launchers(plugin: &Plugin) -> Vec<&str> {
     plugin
         .files
         .iter()

@@ -1,0 +1,291 @@
+# Releases one plugin package (`docs/plan/move-1-weigh-in.md`, Release and cutover). Run by hand
+# from `main` once the release PR is merged:
+#
+#   gh workflow run release.yml --ref main -f plugin=weigh-in -f version=2.0.0
+#
+# check, test, build and package are free and need no approval. publish runs in the `release`
+# environment, which waits for Ryan's approval: it creates the tag rk-<plugin>--v<version> on the
+# checked commit with the GitHub release (notes from plugins/<plugin>/CHANGELOG.md, assets with
+# SHA256SUMS), then writes the packaged plugins into Wet-Ink-Corporation/redkiln-plugins, the
+# suite's release repository (M1-G), whose push is what claude.ai's sync delivers. That push is one
+# commit on top of its main, never a force push: 1.x's weigh and weigh-mod stay beside rk-* until
+# they retire. The push authenticates as the release App (wi-31aa59; RELEASE_APP_ID and
+# RELEASE_APP_PRIVATE_KEY in the environment), installed on redkiln-plugins only.
+#
+# Finish a failed release with "Re-run failed jobs": publish reuses the run's own builds, the
+# release gets the same assets and notes again, and a release repository already holding this
+# exact content gets no new commit. A new run for a version whose tag exists is refused, since it
+# would rebuild and replace published assets.
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: "Plugin folder under plugins/"
+        type: choice
+        options: [weigh-in]
+        required: true
+      version:
+        description: "Version to release (every version site must already say it)"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.plugin }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  PLUGIN: ${{ inputs.plugin }}
+  VERSION: ${{ inputs.version }}
+  TAG: rk-${{ inputs.plugin }}--v${{ inputs.version }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: From main, at a version with no tag yet
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] \
+            || { echo "::error::run the release from main (this is $GITHUB_REF); merge the release PR first"; exit 1; }
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::version $VERSION is not <major>.<minor>.<patch>"; exit 1 ;;
+          esac
+          # A new run rebuilds, and builds are not bit-reproducible: once the tag exists, a new
+          # run would replace published assets under the checksum synced copies stamp. Finish a
+          # failed release with "Re-run failed jobs", which reuses this run's builds.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::$TAG exists already. To finish a failed release, re-run only its failed jobs (they reuse its builds); a released version is never rebuilt."
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Version sites agree; the changelog has the release's section
+        run: cargo xtask release-check "$PLUGIN" "$VERSION" > notes.md && cat notes.md
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: notes.md
+
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          # Cross-built with mingw, as weigh-in's build-plugin-bins.sh did.
+          - { os: ubuntu-latest, target: x86_64-pc-windows-gnu }
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: ${{ matrix.target }}
+      - name: Cross linkers
+        if: matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'x86_64-pc-windows-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools gcc-mingw-w64-x86-64
+          {
+            echo "CC_x86_64_unknown_linux_musl=musl-gcc"
+            echo "CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc"
+            echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc"
+          } >> "$GITHUB_ENV"
+      - name: Build (cargo xtask build)
+        run: cargo xtask build --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-${{ matrix.target }}
+          path: plugins/${{ inputs.plugin }}/libexec/${{ matrix.target }}/
+          if-no-files-found: error
+
+  package:
+    needs: [check, test, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          path: ${{ runner.temp }}/builds
+      - name: Builds into the plugin's libexec/<target>/
+        shell: bash
+        run: |
+          for d in "$RUNNER_TEMP"/builds/build-*; do
+            t=${d##*/build-}
+            mkdir -p "plugins/$PLUGIN/libexec/$t"
+            cp "$d"/* "plugins/$PLUGIN/libexec/$t/"
+          done
+          ls -lR "plugins/$PLUGIN/libexec"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # redkiln is public, so the Cowork fetch script may download the musl build from this
+      # release with no login: stamp its checksum (weigh-in D-0021).
+      - name: Package (cargo xtask package --download)
+        run: cargo xtask package dist/plugins --download
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: claude plugin validate --strict, each packaged plugin
+        shell: bash
+        run: |
+          for manifest in dist/plugins/*/.claude-plugin/plugin.json; do
+            npx --yes @anthropic-ai/claude-code@2.1.316 plugin validate --strict "$manifest"
+          done
+      - name: Release assets
+        shell: bash
+        run: |
+          mkdir assets
+          for d in plugins/"$PLUGIN"/libexec/*-*/; do
+            t=$(basename "$d")
+            for f in "$d"*; do
+              b=$(basename "$f")
+              case "$b" in
+                *.exe) cp "$f" "assets/${b%.exe}-$t.exe" ;;
+                *) cp "$f" "assets/$b-$t" ;;
+              esac
+            done
+          done
+          for p in dist/plugins/*/; do
+            n=$(basename "$p")
+            (cd "$p" && zip -qr "$GITHUB_WORKSPACE/assets/$n-$VERSION.zip" .)
+          done
+          (cd assets && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: assets/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: packaged-plugins
+          path: dist/plugins/
+          if-no-files-found: error
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write   # the tag and the GitHub release on this repository
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: assets
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: packaged-plugins
+          path: ${{ runner.temp }}/packages
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/notes
+      - name: The release App is configured
+        shell: bash
+        env:
+          APP_ID: ${{ vars.RELEASE_APP_ID }}
+          APP_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          [ -n "$APP_ID" ] && [ -n "$APP_KEY" ] || {
+            echo "::error::RELEASE_APP_ID (variable) and RELEASE_APP_PRIVATE_KEY (secret) must be set in the release environment (wi-31aa59)"
+            exit 1
+          }
+      - uses: actions/create-github-app-token@df432ceedc7162793a195dd1713ff69aefc7379e # v2.0.6
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: Wet-Ink-Corporation
+          repositories: redkiln-plugins
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # Assembled and validated before anything is published.
+      - name: Assemble the release repository (cargo xtask marketplace)
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          repo="$RUNNER_TEMP/redkiln-plugins"
+          git clone --quiet --depth 1 \
+            "https://x-access-token:${APP_TOKEN}@github.com/Wet-Ink-Corporation/redkiln-plugins.git" "$repo"
+          # Artifact downloads drop the executable bit; packaging sets it again on the way in.
+          cargo xtask marketplace "$RUNNER_TEMP/packages" "$repo"
+          git -C "$repo" add -A
+          git -C "$repo" status --short
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: claude plugin validate --strict, the assembled marketplace
+        run: npx --yes @anthropic-ai/claude-code@2.1.316 plugin validate --strict "$RUNNER_TEMP/redkiln-plugins"
+      - name: Publish the GitHub release (creates the tag on the checked commit)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            cat "$RUNNER_TEMP/notes/notes.md"
+            echo
+            echo "Installable from Wet-Ink-Corporation/redkiln-plugins (claude.ai sync and Claude Code). SHA256SUMS lists every asset."
+          } > notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" assets/* --target "$GITHUB_SHA" \
+              --title "rk-$PLUGIN $VERSION" --notes-file notes.md
+          fi
+      - name: Push the release repository (one commit on its main; never forced)
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          repo="$RUNNER_TEMP/redkiln-plugins"
+          if git -C "$repo" diff --cached --quiet; then
+            echo "redkiln-plugins already holds this release"
+            exit 0
+          fi
+          git -C "$repo" -c user.name="redkiln release" \
+            -c user.email="noreply@github.com" -c commit.gpgsign=false \
+            commit -q -m "rk-$PLUGIN $VERSION" -m "From Wet-Ink-Corporation/redkiln@$GITHUB_SHA ($TAG)."
+          git -C "$repo" push --quiet origin HEAD:main
+          git -C "$repo" log --oneline -1
