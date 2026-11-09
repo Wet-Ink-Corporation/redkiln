@@ -86,8 +86,12 @@ const ERRORS_LOG: &str = "hook-errors.log";
 /// beside the log.
 const ERRORS_SEEN: &str = "hook-errors.seen";
 
-/// The most of the log a report reads: past it, the lines before are counted as "at least".
-const MAX_REPORTED_LOG: u64 = 256 * 1024;
+/// The most of the log a report reads, in KiB: past it, the lines before are counted as "at
+/// least".
+const MAX_REPORTED_LOG_KIB: u64 = 256;
+
+/// [`MAX_REPORTED_LOG_KIB`] in bytes.
+const MAX_REPORTED_LOG: u64 = MAX_REPORTED_LOG_KIB * 1024;
 
 /// How much of the log's first line `hook-errors.seen` keeps: the timestamp and event, and more.
 const SEEN_HEAD_BYTES: u64 = 80;
@@ -182,10 +186,11 @@ impl Tail {
         match (lines.last(), self.cut) {
             (Some(last), true) => Some((format!("at least {}", lines.len()), clip(last, 200))),
             (Some(last), false) => Some((lines.len().to_string(), clip(last, 200))),
-            // Cut with no whole line: one line longer than all the report reads.
+            // Cut with no whole line: one line longer than all the report reads, or one cut
+            // line and blank ones after it.
             (None, true) => Some((
                 "at least 1".to_owned(),
-                "a line longer than the 256 KiB the report reads".to_owned(),
+                format!("no whole line in the last {MAX_REPORTED_LOG_KIB} KiB the report reads"),
             )),
             (None, false) => None,
         }
@@ -403,6 +408,30 @@ mod tests {
             clip(&report, 300)
         );
         assert_eq!(new_errors(&env), None, "reported once");
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads and writes the error log through the file system"
+    )]
+    fn a_cut_tail_of_blank_lines_says_it_read_no_whole_line() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let state = tmp.path().join(".redkiln/weighin");
+        std::fs::create_dir_all(&state).expect("state dir");
+        let env = env_in(tmp.path());
+        // One line past the cap, then only blank lines: the tail holds no whole line to show.
+        let log = format!("2026-10-01T00:00:00Z Stop: {}\n\n\n", "x".repeat(300_000));
+        std::fs::write(state.join("hook-errors.log"), &log).expect("log");
+
+        let report = new_errors(&env).expect("the cut line is reported");
+
+        assert!(
+            report.starts_with("Weigh-In: at least 1 hook error(s) since the last session")
+                && report.contains("Last: no whole line in the last 256 KiB the report reads"),
+            "{}",
+            clip(&report, 300)
+        );
     }
 
     #[cfg(unix)]
