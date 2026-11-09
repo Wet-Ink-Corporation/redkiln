@@ -111,6 +111,35 @@ fn classify() {
 }
 
 #[test]
+fn a_slot_reads_one_way_as_time_passes() {
+    // Deadline 1010: past it the margin rule alone decides, whatever the beat's age; before it
+    // only a stale beat is dead.
+    let cases = [
+        (
+            "a fresh beat 4 s before the deadline, 1 s past it: the margin rule",
+            slot(State::Running, 1000, 1006),
+            1011,
+            State::Interrupted,
+        ),
+        (
+            "the same slot 1 s later, its beat now stale, reads the same",
+            slot(State::Running, 1000, 1006),
+            1012,
+            State::Interrupted,
+        ),
+        (
+            "a stale beat before the deadline: interrupted",
+            slot(State::Running, 1000, 1001),
+            1007,
+            State::Interrupted,
+        ),
+    ];
+    for (case, slot, now, state) in cases {
+        assert_eq!(slot.state_at(now), state, "{case}");
+    }
+}
+
+#[test]
 fn only_a_dead_running_slot_is_lost() {
     let cases = [
         (slot(State::Running, 1000, 1007), 1013, Some(Lost::TimedOut)),
@@ -124,6 +153,16 @@ fn only_a_dead_running_slot_is_lost() {
         (slot(State::Finished, 1000, 1002), 9999, None),
         (slot(State::Running, 1000, 1009), 1011, Some(Lost::TimedOut)),
         (slot(State::Running, 1000, 1009), 1010, None),
+        (
+            slot(State::Running, 1000, 1006),
+            1011,
+            Some(Lost::Interrupted),
+        ),
+        (
+            slot(State::Running, 1000, 1006),
+            1012,
+            Some(Lost::Interrupted),
+        ),
     ];
     for (slot, now, lost) in cases {
         assert_eq!(slot.lost(now), lost, "{slot:?} at {now}");

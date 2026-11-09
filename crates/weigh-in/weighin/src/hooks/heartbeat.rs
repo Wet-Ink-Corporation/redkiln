@@ -9,12 +9,14 @@
 //! `<git-common-dir>/redkiln/` does not exist yet, so no hook creates it; the event is one of the
 //! four weighin is registered for, never payload text.
 //!
-//! Before its dispatch every such hook reads all four slots. A `running` slot whose beat is more
-//! than [`STALE`] seconds old is dead: it timed out when its last beat came within [`MARGIN`]
-//! seconds of its deadline, and was interrupted otherwise (cancelled, the session ended, a
-//! crash). One with a fresher beat is dead too once its deadline has passed (the harness killed
-//! it), so the next hook of the same event, starting at once, still finds it; one interrupted
-//! less than [`STALE`] seconds before the next hook of its event starts is overwritten unseen.
+//! Before its dispatch every such hook reads all four slots. A `running` slot past its deadline
+//! is dead whatever its beat's age: it timed out when its last beat came within [`MARGIN`]
+//! seconds of the deadline, and was interrupted otherwise (cancelled, the session ended, a
+//! crash). Before its deadline a slot whose beat is more than [`STALE`] seconds old is dead,
+//! interrupted. Times are whole seconds, and `started` is floored and read after the harness's
+//! timer starts, so a hook its timeout killed less than about a second before the next hook of
+//! its event starts, or one interrupted less than [`STALE`] seconds before, is overwritten
+//! unseen.
 //! The hook logs one line for it under the dead hook's event, which the next
 //! `SessionStart` reports with the other hook errors, and rewrites the slot to that state so it
 //! is logged once. Two hooks finding the same dead slot may both log it, and two `PostToolUse`
@@ -147,30 +149,30 @@ impl Slot {
         })
     }
 
-    /// The slot's state as a reader at `now` sees it: a `running` slot whose beat is more than
-    /// [`STALE`] seconds old is timed out or interrupted ([`Slot::lost`]); a beat in the future
+    /// The slot's state as a reader at `now` sees it: a dead `running` slot is timed out or
+    /// interrupted ([`Slot::lost`]); a beat in the future
     /// (a clock that went back) is left as it is. `status` reports this, and writes nothing.
     pub(crate) fn state_at(&self, now: u64) -> State {
         self.lost(now).map_or(self.state, Lost::state)
     }
 
-    /// How the hook ended when its slot is `running` and dead at `now`. A beat more than
-    /// [`STALE`] seconds old: timed out when it came within [`MARGIN`] seconds of the deadline,
-    /// else interrupted. A fresher beat with `now` past the deadline: timed out, since the
-    /// harness kills a hook at its timeout (so the next hook of the same event, starting at
-    /// once, still finds it).
+    /// How the hook ended when its slot is `running` and dead at `now`. Past the deadline it is
+    /// dead whatever its beat's age (the harness kills a hook at its timeout): timed out when its
+    /// last beat came within [`MARGIN`] seconds of the deadline, else interrupted. Before the
+    /// deadline it is dead, interrupted, only once its beat is more than [`STALE`] seconds old.
+    /// The answer for a slot never changes once given, as `now` grows.
     fn lost(&self, now: u64) -> Option<Lost> {
         if self.state != State::Running || self.beat > now {
             return None;
         }
-        if now.saturating_sub(self.beat) <= STALE {
-            return (now > self.deadline()).then_some(Lost::TimedOut);
+        if now > self.deadline() {
+            return Some(if self.beat.saturating_add(MARGIN) >= self.deadline() {
+                Lost::TimedOut
+            } else {
+                Lost::Interrupted
+            });
         }
-        if self.beat.saturating_add(MARGIN) >= self.deadline() {
-            Some(Lost::TimedOut)
-        } else {
-            Some(Lost::Interrupted)
-        }
+        (now.saturating_sub(self.beat) > STALE).then_some(Lost::Interrupted)
     }
 
     fn deadline(&self) -> u64 {
