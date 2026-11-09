@@ -5,6 +5,14 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  # SQLite before 3.54.0 can return uninitialised page-cache memory when a database is opened with
+  # a sibling `-wal` of another page size. Reaches us as libsqlite3-sys 0.38.2 through rusqlite 0.40
+  # and happenstance-sqlite 0.4.5; the fix (libsqlite3-sys 0.39, rusqlite 0.41) needs a happenstance
+  # release first. Local only, and Core's stores run under TRUNCATE with no `-wal`. Remove with that
+  # release (Ryan, 2026-11-09).
+  { id = "RUSTSEC-2026-0459", reason = "fix needs happenstance on rusqlite 0.41; local-only, no -wal in Core stores" },
+]
 
 [licenses]
 version = 2
