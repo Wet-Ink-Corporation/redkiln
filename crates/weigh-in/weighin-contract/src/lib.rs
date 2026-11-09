@@ -10,6 +10,7 @@
 //! * [`guard`]: triage's rule for routing an item to `default` (two-way judgment calls only).
 //! * [`open`] and [`ci_check`]: the JSON `weighin open --json` and `weighin ci-check --json`
 //!   write.
+//! * [`status`]: the `data` of `weighin status --json` (SPEC CLI-12).
 //!
 //! With the `core` feature, the event payloads are Core [`Payload`](redkiln_core::envelope::Payload)s
 //! and the decision request ([`request`], DR-01 to DR-04) and its answer ([`answer`], DR-05 and
@@ -26,6 +27,7 @@ pub mod names;
 pub mod open;
 #[cfg(feature = "core")]
 pub mod request;
+pub mod status;
 pub mod vocab;
 
 pub use card::Card;
