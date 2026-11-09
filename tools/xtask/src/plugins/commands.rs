@@ -275,9 +275,10 @@ enum Named<'t> {
 
 impl Named<'_> {
     /// Whether the list has this command. clap's generated `help`, which no list holds, passes
-    /// for every binary.
+    /// for every binary, and under every parent with subcommands (`weighin board help`): a
+    /// command reads two words only after a listed parent.
     fn is_listed(self, commands: &[&str]) -> bool {
-        matches!(self, Self::One(CLAP_HELP))
+        matches!(self, Self::One(CLAP_HELP) | Self::Two(_, CLAP_HELP))
             || commands.iter().any(|&listed| match self {
                 Self::One(word) => listed == word,
                 Self::Two(first, second) => listed.split_once(' ') == Some((first, second)),

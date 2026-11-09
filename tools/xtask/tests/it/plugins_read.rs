@@ -7,17 +7,17 @@ use std::path::PathBuf;
 
 use xtask::plugins::{MAX_DEPTH, MAX_FILES, MAX_TEXT, Plugin, ReadError, read_plugins};
 
-use crate::support::{many, scratch, tree};
+use crate::support::{Scratch, many, scratch, tree};
 
 /// A `plugins/` folder for one test, holding one plugin with a manifest.
-fn plugins_root(name: &str) -> io::Result<PathBuf> {
+fn plugins_root(name: &str) -> io::Result<Scratch> {
     let root = scratch(name)?;
     tree(&root, &[("rk-weigh-in/.claude-plugin/plugin.json", "{}")])?;
     Ok(root)
 }
 
 /// A `plugins/` folder whose plugin has one skill holding `contents`.
-fn with_skill(name: &str, contents: &[u8]) -> io::Result<PathBuf> {
+fn with_skill(name: &str, contents: &[u8]) -> io::Result<Scratch> {
     let root = plugins_root(name)?;
     let folder = root.join("rk-weigh-in/skills/x");
     fs::create_dir_all(&folder)?;
@@ -113,7 +113,7 @@ fn files_one_folder_past_the_depth_limit_are_refused() {
 }
 
 /// A `plugins/` folder whose plugin holds `count` files beside its manifest, in two folders.
-fn with_files(name: &str, count: usize) -> io::Result<PathBuf> {
+fn with_files(name: &str, count: usize) -> io::Result<Scratch> {
     let root = plugins_root(name)?;
     let plugin = root.join("rk-weigh-in");
     let half = count / 2;
@@ -170,9 +170,8 @@ mod symlinks {
     #[test]
     fn a_symlinked_plugins_folder_is_refused() {
         let real = plugins_root("root-real").expect("a plugins folder");
-        let link = scratch("root-link")
-            .expect("a scratch directory")
-            .join("plugins");
+        let dir = scratch("root-link").expect("a scratch directory");
+        let link = dir.join("plugins");
         symlink(&real, &link).expect("create the symlink");
         let found = read_plugins(&link);
         assert!(

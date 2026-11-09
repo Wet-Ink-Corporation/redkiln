@@ -522,9 +522,8 @@ fn the_reader_loads_a_plugin_tree() {
 
 #[test]
 fn the_reader_finds_nothing_when_there_is_no_plugins_folder() {
-    let root = scratch("absent")
-        .expect("a scratch directory")
-        .join("plugins");
+    let dir = scratch("absent").expect("a scratch directory");
+    let root = dir.join("plugins");
     assert_eq!(
         read_plugins(&root).expect("an absent folder is empty"),
         vec![]

@@ -8,10 +8,10 @@ use std::path::{Path, PathBuf};
 
 use xtask::ids::{AtomFile, MAX_DEPTH, MAX_FILES, MAX_TEXT, ReadError, read_kb};
 
-use crate::support::{many, scratch, tree};
+use crate::support::{Scratch, many, scratch, tree};
 
 /// A `.kb/` folder for one test holding one atom with `contents`.
-fn with_atom(name: &str, contents: &[u8]) -> io::Result<PathBuf> {
+fn with_atom(name: &str, contents: &[u8]) -> io::Result<Scratch> {
     let kb = scratch(name)?;
     fs::create_dir_all(kb.join("decision"))?;
     fs::write(kb.join("decision/a.md"), contents)?;
@@ -98,7 +98,7 @@ fn many_md(dir: &Path, count: usize) -> io::Result<()> {
 
 /// A `.kb/` holding `count` Markdown files, split over two folders so no folder passes the entry
 /// limit.
-fn with_files(name: &str, count: usize) -> io::Result<PathBuf> {
+fn with_files(name: &str, count: usize) -> io::Result<Scratch> {
     let kb = scratch(name)?;
     let half = count / 2;
     many_md(&kb.join("a"), half)?;
@@ -118,7 +118,7 @@ fn a_knowledge_base_one_file_over_the_limit_is_refused_naming_its_root() {
     let kb = with_files("ids-files-over", MAX_FILES + 1).expect("write the files");
     let found = read_kb(&kb);
     assert!(
-        matches!(&found, Err(ReadError::TooMany { path, limit }) if *path == kb && *limit == MAX_FILES),
+        matches!(&found, Err(ReadError::TooMany { path, limit }) if path.as_path() == &*kb && *limit == MAX_FILES),
         "{found:?}"
     );
 }
@@ -173,9 +173,8 @@ mod symlinks {
     #[test]
     fn a_symlinked_knowledge_base_is_refused() {
         let real = with_atom("ids-root-real", b"").expect("a knowledge base");
-        let kb = scratch("ids-root-link")
-            .expect("a scratch folder")
-            .join(".kb");
+        let dir = scratch("ids-root-link").expect("a scratch folder");
+        let kb = dir.join(".kb");
         symlink(&real, &kb).expect("create the symlink");
         let found = read_kb(&kb);
         assert!(
