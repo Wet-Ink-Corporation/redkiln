@@ -140,6 +140,32 @@ fn a_slot_reads_one_way_as_time_passes() {
 }
 
 #[test]
+fn every_slot_on_a_grid_reads_one_way_as_time_passes() {
+    // The property `lost` promises, over every beat from the start to past the deadline (1010)
+    // and every reading from the beat to well past it: as `now` grows a running slot is read as
+    // running until it reads as dead once, and from then on always the same way.
+    for beat in 1000..=1013 {
+        let slot = slot(State::Running, 1000, beat);
+        let mut answer = None;
+        for now in beat..=1030 {
+            let state = slot.state_at(now);
+            match answer {
+                None if state != State::Running => answer = Some((state, now)),
+                None => {}
+                Some((first, at)) => assert_eq!(
+                    state, first,
+                    "beat {beat}: read {first:?} at {at}, then {state:?} at {now}"
+                ),
+            }
+        }
+        assert!(
+            answer.is_some(),
+            "beat {beat}: a running slot past its deadline is dead"
+        );
+    }
+}
+
+#[test]
 fn only_a_dead_running_slot_is_lost() {
     let cases = [
         (slot(State::Running, 1000, 1007), 1013, Some(Lost::TimedOut)),

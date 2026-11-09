@@ -366,4 +366,9 @@ fn this_repository_check_reads_a_command_named_only_through_the_alias() -> Resul
 #[test]
 fn clap_s_generated_help_passes() {
     assert_eq!(skill("`weighin help` and `weighin help open`"), vec![]);
+    // clap also generates `help` under every parent with subcommands.
+    assert_eq!(
+        skill("`weighin board help` and `weighin board help export`"),
+        vec![]
+    );
 }

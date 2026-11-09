@@ -8,7 +8,7 @@ Tool (`tools/`). A library (`src/lib.rs`, the tasks) plus a thin binary (`src/ma
 
 ## Allowed dependencies
 - Workspace crates: Core, kits and contract crates. Today `knowledge-contract`, for the atom kinds and the frontmatter reader `ids` uses, and `weighin-contract` (pure, no features), for `cli`'s command lists `main.rs` passes to `check_commands`. Never a plugin's internal crates.
-- Third-party: `serde` (derive, for the `cargo metadata` and `hooks.json` DTOs), `serde_json` (to read them), `thiserror` (the `ReadError`s), `sha2` (the Cowork fetch script's stamp). All four are on `.claude/temper.json`'s pre-approved list.
+- Third-party: `serde` (derive, for the `cargo metadata` and `hooks.json` DTOs), `serde_json` (to read them), `thiserror` (the `ReadError`s), `sha2` (the Cowork fetch script's stamp). All four are on `.claude/temper.json`'s pre-approved list. Dev: `tempfile` (pre-approved), a fresh scratch folder per test.
 - Never: `cargo_metadata` or other crates for what `cargo metadata` and serde already give; `anyhow` in `src/lib.rs`.
 
 ## Public surface
@@ -28,7 +28,7 @@ Tool (`tools/`). A library (`src/lib.rs`, the tasks) plus a thin binary (`src/ma
 `ReadError`: `Spawn` (cargo could not start), `Cargo` (it failed; carries its status and stderr), `Parse` (output was not the metadata expected), `OutsideWorkspace` and `NonUtf8` (a member's directory cannot be placed). `plugins::ReadError`: `Io`, `RootNotFolder`, `NonUtf8`, `NonUtf8Text`, `TooMany`, `TooManyEntries`, `TooDeep`, `TooLarge`. `harness::ReadError` and `ids::ReadError`: `Io`, `RootNotFolder`, `NonUtf8`, `NonUtf8Text`, `TooMany`, `TooManyEntries`, `NotRegular`, `TooDeep`, `TooLarge`. `release::ReleaseError`: `Read` (a plugin tree, naming which: the source plugins, the staged package or the packages to assemble), `Io`, `Json`, `Spawn`, `Failed`, `NoHost`, `OutExists`, `BadName`, `NoBuild`, `VersionsDiffer`, `VersionMismatch`, `NoChangelogSection`, `Plugin`, `Stamp`, `Marketplace`, `Rules`. Violations are values (`Violation`), not errors.
 
 ## Test strategy
-Integration tests in `tests/it/` against synthetic workspaces, plugins and atoms, one per rule, plus trees written under `CARGO_TARGET_TMPDIR` for the plugin reader and one test each that reads this repository. Run with `cargo test -p xtask`.
+Integration tests in `tests/it/` against synthetic workspaces, plugins and atoms, one per rule, plus fresh per-test `tempfile` folders under `CARGO_TARGET_TMPDIR` for the readers and one test each that reads this repository. Run with `cargo test -p xtask`.
 
 ## Do not
 - Do not relax a rule here to admit a crate or a plugin file; change `AGENTS.md`'s layer rules first, as an H-16 decision, then the code and its tests.

@@ -3,18 +3,36 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::ops::Deref;
+use std::path::Path;
 
-/// A fresh, empty directory for one test, under cargo's per-target scratch space.
-pub(crate) fn scratch(name: &str) -> io::Result<PathBuf> {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join("xtask-plugins")
-        .join(name);
-    if dir.exists() {
-        fs::remove_dir_all(&dir)?;
+/// A fresh, empty directory for one test, removed when dropped.
+pub(crate) struct Scratch(tempfile::TempDir);
+
+impl Deref for Scratch {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        self.0.path()
     }
-    fs::create_dir_all(&dir)?;
-    Ok(dir)
+}
+
+impl AsRef<Path> for Scratch {
+    fn as_ref(&self) -> &Path {
+        self.0.path()
+    }
+}
+
+/// A fresh, empty directory for one test under cargo's per-target scratch space, named
+/// `<name>` plus a random suffix. Each call gets its own directory, so two runs of the suite at
+/// once (two gates in one checkout) never share one, which the fixed `<name>` paths did.
+pub(crate) fn scratch(name: &str) -> io::Result<Scratch> {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("xtask-plugins");
+    fs::create_dir_all(&root)?;
+    tempfile::Builder::new()
+        .prefix(&format!("{name}-"))
+        .tempdir_in(root)
+        .map(Scratch)
 }
 
 /// Writes each `(path, contents)` under `root`, creating folders as needed.

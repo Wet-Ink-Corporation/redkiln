@@ -4,11 +4,11 @@
 use std::fs;
 use std::io;
 use std::num::TryFromIntError;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use xtask::harness::{MAX_DEPTH, MAX_FILES, MAX_TEXT, ReadError, SourceFile, read_sources};
 
-use crate::support::{many, scratch, tree};
+use crate::support::{Scratch, many, scratch, tree};
 
 fn paths(files: &[SourceFile]) -> Vec<&str> {
     files.iter().map(|f| f.path.as_str()).collect()
@@ -93,7 +93,7 @@ fn max_text() -> Result<usize, TryFromIntError> {
     usize::try_from(MAX_TEXT)
 }
 
-fn with_source(name: &str, contents: &[u8]) -> io::Result<PathBuf> {
+fn with_source(name: &str, contents: &[u8]) -> io::Result<Scratch> {
     let crates = scratch(name)?;
     fs::create_dir_all(crates.join("a/b/src"))?;
     fs::write(crates.join("a/b/src/lib.rs"), contents)?;
@@ -178,7 +178,7 @@ fn many_rs(dir: &Path, count: usize) -> io::Result<()> {
 
 /// A `crates/` holding `count` Rust files, split over two folders so no folder passes the entry
 /// limit.
-fn with_files(name: &str, count: usize) -> io::Result<PathBuf> {
+fn with_files(name: &str, count: usize) -> io::Result<Scratch> {
     let crates = scratch(name)?;
     let half = count / 2;
     many_rs(&crates.join("a"), half)?;
@@ -202,7 +202,7 @@ fn the_reader_stops_at_max_files() {
     let found = read_sources(&crates);
 
     assert!(
-        matches!(&found, Err(ReadError::TooMany { path, limit }) if *path == crates && *limit == MAX_FILES),
+        matches!(&found, Err(ReadError::TooMany { path, limit }) if path.as_path() == &*crates && *limit == MAX_FILES),
         "{found:?}"
     );
 }
@@ -277,9 +277,8 @@ mod symlinks {
     #[test]
     fn a_symlinked_crates_folder_is_refused() {
         let real = with_source("harness-root-real", b"").expect("write it");
-        let crates = scratch("harness-root-link")
-            .expect("a scratch folder")
-            .join("crates");
+        let link = scratch("harness-root-link").expect("a scratch folder");
+        let crates = link.join("crates");
         symlink(&real, &crates).expect("create the symlink");
 
         let found = read_sources(&crates);
