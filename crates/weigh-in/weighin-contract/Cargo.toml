@@ -1,7 +1,7 @@
 [package]
 name = "weighin-contract"
 description = "Weigh-In's contract: the event vocabulary and names, item ids, the decision card and request with their guards, and the JSON of open and ci-check."
-version = "1.2.0"                # the plugin's own version (AGENTS.md, Versions and tags)
+version = "2.0.0"              # the plugin's own version (AGENTS.md, Versions and tags)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

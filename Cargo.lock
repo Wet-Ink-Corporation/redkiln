@@ -1243,7 +1243,7 @@ dependencies = [
 
 [[package]]
 name = "weighin"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1260,7 +1260,7 @@ dependencies = [
 
 [[package]]
 name = "weighin-contract"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "redkiln-core",
  "serde",
@@ -1272,7 +1272,7 @@ dependencies = [
 
 [[package]]
 name = "weighin-core"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
  "knowledge-contract",
  "serde",
