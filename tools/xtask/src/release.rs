@@ -33,8 +33,14 @@ pub use package::{Download, Packaged, package, stamp};
 #[derive(Debug, thiserror::Error)]
 pub enum ReleaseError {
     /// A plugin tree could not be read.
-    #[error("cannot read the plugins")]
-    Read(#[from] plugins::ReadError),
+    #[error("cannot read {tree}")]
+    Read {
+        /// Which tree.
+        tree: Tree,
+        /// Why.
+        #[source]
+        source: plugins::ReadError,
+    },
     /// A file or folder could not be read or written.
     #[error("cannot read or write {}", path.display())]
     Io {
@@ -82,7 +88,7 @@ pub enum ReleaseError {
         path: PathBuf,
     },
     /// A name that cannot be a folder name in a plugin or release repository.
-    #[error("`{name}` is not a plugin name")]
+    #[error("`{name}` is not a plugin, binary or target name (ASCII letters, digits, `-`, `_`)")]
     BadName {
         /// The name.
         name: String,
@@ -163,6 +169,32 @@ pub enum ReleaseError {
     },
 }
 
+/// Which plugin tree a release task was reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tree {
+    /// The repository's own `plugins/`.
+    Source,
+    /// The plugins [`package`] staged, read back for the rules check.
+    Staged,
+    /// The packaged plugins [`assemble`] writes into the release repository.
+    Packages,
+}
+
+impl std::fmt::Display for Tree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Source => "the repository's plugins",
+            Self::Staged => "the staged package",
+            Self::Packages => "the packaged plugins",
+        })
+    }
+}
+
+/// [`plugins::read_plugins`] of `root`, an error naming `tree`.
+fn read_tree(root: &Path, tree: Tree) -> Result<Vec<plugins::Plugin>, ReleaseError> {
+    plugins::read_plugins(root).map_err(|source| ReleaseError::Read { tree, source })
+}
+
 /// The part of `.claude-plugin/plugin.json` the release tasks read.
 #[derive(Debug, Deserialize)]
 struct Manifest {
@@ -236,7 +268,7 @@ fn copy_plugin(
     Ok(())
 }
 
-/// Marks `path` executable for everyone who can read it: hooks start launchers in exec form, and
+/// Adds `rwxr-xr-x` to `path`'s mode: hooks start launchers in exec form, and
 /// launchers exec the builds, whatever mode an artifact download left them in.
 #[cfg(unix)]
 fn make_executable(path: &Path) -> Result<(), ReleaseError> {

@@ -12,8 +12,10 @@
 # they retire. The push authenticates as the release App (wi-31aa59; RELEASE_APP_ID and
 # RELEASE_APP_PRIVATE_KEY in the environment), installed on redkiln-plugins only.
 #
-# A re-run after a failure is safe: the release gets this run's assets and notes again, and a
-# release repository already holding this exact content gets no new commit.
+# Finish a failed release with "Re-run failed jobs": publish reuses the run's own builds, the
+# release gets the same assets and notes again, and a release repository already holding this
+# exact content gets no new commit. A new run for a version whose tag exists is refused, since it
+# would rebuild and replace published assets.
 name: release
 on:
   workflow_dispatch:
@@ -60,11 +62,12 @@ jobs:
             [0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "::error::version $VERSION is not <major>.<minor>.<patch>"; exit 1 ;;
           esac
+          # A new run rebuilds, and builds are not bit-reproducible: once the tag exists, a new
+          # run would replace published assets under the checksum synced copies stamp. Finish a
+          # failed release with "Re-run failed jobs", which reuses this run's builds.
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)
-            [ "$sha" = "$GITHUB_SHA" ] \
-              || { echo "::error::$TAG already exists at $sha, not this commit $GITHUB_SHA"; exit 1; }
-            echo "$TAG exists at this commit: a re-run"
+            echo "::error::$TAG exists already. To finish a failed release, re-run only its failed jobs (they reuse its builds); a released version is never rebuilt."
+            exit 1
           fi
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
         with:

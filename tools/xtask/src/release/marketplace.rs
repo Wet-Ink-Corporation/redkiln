@@ -6,8 +6,9 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::{ReleaseError, checked_name, copy_plugin, make_executable, read_manifest};
-use crate::plugins;
+use super::{
+    ReleaseError, Tree, checked_name, copy_plugin, make_executable, read_manifest, read_tree,
+};
 
 /// Writes the packaged plugins into a checkout of the release repository.
 ///
@@ -43,7 +44,10 @@ pub fn assemble(packages: &Path, release_repository: &Path) -> Result<Vec<String
         .and_then(Value::as_array_mut)
         .ok_or_else(|| shape("no `plugins` list"))?;
     let mut written = Vec::new();
-    for plugin in plugins::read_plugins(packages)?.iter().filter(|p| p.folder) {
+    for plugin in read_tree(packages, Tree::Packages)?
+        .iter()
+        .filter(|p| p.folder)
+    {
         let from = packages.join(&plugin.name);
         let manifest = read_manifest(&from)?;
         if manifest.name != plugin.name {

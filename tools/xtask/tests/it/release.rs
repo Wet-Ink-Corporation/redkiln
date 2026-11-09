@@ -48,11 +48,15 @@ fn the_stamp_takes_the_version_and_the_checksum() {
 
 #[test]
 fn a_script_without_exactly_one_stamp_is_refused() {
-    for script in ["ls\n", "V=a; S=b;\nV=c; S=d;\n", "V=a;\nS=b;\n"] {
+    for (script, count) in [
+        ("ls\n", 0),
+        ("V=a; S=b;\nV=c; S=d;\n", 2),
+        ("V=a;\nS=b;\n", 0),
+    ] {
         assert!(
             matches!(
                 release::stamp(script, "2.0.0", None),
-                Err(ReleaseError::Stamp { found, .. }) if found != 1
+                Err(ReleaseError::Stamp { found, .. }) if found == count
             ),
             "{script:?}"
         );
@@ -216,7 +220,7 @@ fn packaging_refuses_a_binary_with_no_build() {
     let refused = release::package(&dir.join("plugins"), &dir.join("out"), Download::Off);
 
     assert!(
-        matches!(refused, Err(ReleaseError::NoBuild { .. })),
+        matches!(&refused, Err(ReleaseError::NoBuild { for_target, .. }) if for_target.is_empty()),
         "{refused:?}"
     );
 }
@@ -230,7 +234,59 @@ fn a_download_stamp_needs_the_musl_build() {
     let refused = release::package(&dir.join("plugins"), &dir.join("out"), Download::Stamp);
 
     assert!(
-        matches!(refused, Err(ReleaseError::NoBuild { .. })),
+        matches!(&refused, Err(ReleaseError::NoBuild { for_target, .. })
+            if for_target.contains("x86_64-unknown-linux-musl")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn without_an_msvc_build_the_root_exe_is_the_gnu_build() {
+    let dir = scratch("release-package-gnu").unwrap();
+    plugins(&dir.join("plugins"), "2.0.0").unwrap();
+    fs::remove_dir_all(dir.join("plugins/demo/libexec/x86_64-pc-windows-msvc")).unwrap();
+    tree(
+        &dir.join("plugins/demo/libexec"),
+        &[("x86_64-pc-windows-gnu/demo.exe", "gnu build")],
+    )
+    .unwrap();
+    let out = dir.join("out");
+
+    release::package(&dir.join("plugins"), &out, Download::Off).unwrap();
+
+    assert_eq!(read(&out.join("rk-demo/libexec/demo.exe")), "gnu build");
+}
+
+#[test]
+fn without_a_windows_build_no_root_exe_ships() {
+    let dir = scratch("release-package-nowin").unwrap();
+    plugins(&dir.join("plugins"), "2.0.0").unwrap();
+    fs::remove_dir_all(dir.join("plugins/demo/libexec/x86_64-pc-windows-msvc")).unwrap();
+    let out = dir.join("out");
+
+    release::package(&dir.join("plugins"), &out, Download::Off).unwrap();
+
+    assert!(
+        !out.join("rk-demo/libexec/demo.exe").exists(),
+        "the stale source exe must not ship"
+    );
+}
+
+#[test]
+fn packaging_refuses_a_tree_that_breaks_the_plugin_rules() {
+    let dir = scratch("release-package-rules").unwrap();
+    plugins(&dir.join("plugins"), "2.0.0").unwrap();
+    tree(
+        &dir.join("plugins/demo"),
+        &[("scripts/helper.py", "print()\n")],
+    )
+    .unwrap();
+
+    let refused = release::package(&dir.join("plugins"), &dir.join("out"), Download::Off);
+
+    assert!(
+        matches!(&refused, Err(ReleaseError::Rules { violations })
+            if violations.len() == 1 && violations.iter().all(|v| v.contains("scripts/helper.py"))),
         "{refused:?}"
     );
 }
@@ -319,6 +375,47 @@ fn assembly_makes_launchers_and_builds_executable_again() {
     assert_eq!(mode("libexec/demo"), 0o755);
     assert_eq!(mode("libexec/x86_64-unknown-linux-musl/demo"), 0o755);
     assert_eq!(mode("libexec/demo.cmd"), 0o644);
+}
+
+#[cfg(unix)]
+#[test]
+fn assembly_refuses_a_symlink_where_a_plugin_folder_goes() {
+    let dir = scratch("release-assemble-symlink").unwrap();
+    plugins(&dir.join("plugins"), "2.0.0").unwrap();
+    release::package(&dir.join("plugins"), &dir.join("out"), Download::Off).unwrap();
+    let repo = dir.join("release-repo");
+    marketplace(&repo).unwrap();
+    let elsewhere = dir.join("elsewhere");
+    tree(&elsewhere, &[("keep.txt", "not the release's")]).unwrap();
+    fs::remove_dir_all(repo.join("plugins/rk-demo")).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, repo.join("plugins/rk-demo")).unwrap();
+
+    let refused = release::assemble(&dir.join("out"), &repo);
+
+    assert!(
+        matches!(&refused, Err(ReleaseError::Plugin { plugin, .. }) if plugin == "rk-demo"),
+        "{refused:?}"
+    );
+    assert_eq!(read(&elsewhere.join("keep.txt")), "not the release's");
+}
+
+#[test]
+fn assembly_refuses_a_package_whose_manifest_names_another_plugin() {
+    let dir = scratch("release-assemble-name").unwrap();
+    plugins(&dir.join("plugins"), "2.0.0").unwrap();
+    let out = dir.join("out");
+    release::package(&dir.join("plugins"), &out, Download::Off).unwrap();
+    fs::rename(out.join("rk-demo"), out.join("rk-other")).unwrap();
+    let repo = dir.join("release-repo");
+    marketplace(&repo).unwrap();
+
+    let refused = release::assemble(&out, &repo);
+
+    assert!(
+        matches!(&refused, Err(ReleaseError::Plugin { plugin, .. }) if plugin == "rk-other"),
+        "{refused:?}"
+    );
+    assert!(!repo.join("plugins/rk-other").exists());
 }
 
 #[test]

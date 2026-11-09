@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::{ReleaseError, checked_name, copy_file, copy_plugin, make_executable, read_manifest};
+use super::{
+    ReleaseError, Tree, checked_name, copy_file, copy_plugin, make_executable, read_manifest,
+    read_tree,
+};
 use crate::plugins;
 
 /// The build a Cowork fetch script downloads (`libexec/<binary>-cowork-fetch.sh`, M1-D).
@@ -67,12 +70,21 @@ pub fn package(
     out: &Path,
     download: Download,
 ) -> Result<Vec<Packaged>, ReleaseError> {
-    if fs::symlink_metadata(out).is_ok() {
-        return Err(ReleaseError::OutExists {
-            path: out.to_owned(),
-        });
+    match fs::symlink_metadata(out) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(source) => {
+            return Err(ReleaseError::Io {
+                path: out.to_owned(),
+                source,
+            });
+        }
+        Ok(_) => {
+            return Err(ReleaseError::OutExists {
+                path: out.to_owned(),
+            });
+        }
     }
-    let all = plugins::read_plugins(plugins_dir)?;
+    let all = read_tree(plugins_dir, Tree::Source)?;
     let builds = pool_builds(&all, plugins_dir);
     let mut versions: BTreeMap<&str, (&str, String)> = BTreeMap::new();
     let mut packaged = Vec::new();
@@ -104,7 +116,7 @@ pub fn package(
             builds: count,
         });
     }
-    let violations: Vec<String> = plugins::check(&plugins::read_plugins(out)?)
+    let violations: Vec<String> = plugins::check(&read_tree(out, Tree::Staged)?)
         .iter()
         .map(ToString::to_string)
         .collect();

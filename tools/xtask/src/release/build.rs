@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::notes::read_metadata;
-use super::{ReleaseError, checked_name, copy_file, make_executable};
+use super::{ReleaseError, Tree, checked_name, copy_file, make_executable, read_tree};
 use crate::plugins;
 
 /// Builds every plugin binary for one target into the plugins' `libexec/<target>/`.
@@ -37,7 +37,7 @@ pub fn build(
     } else {
         ""
     };
-    let all = plugins::read_plugins(&repository.join("plugins"))?;
+    let all = read_tree(&repository.join("plugins"), Tree::Source)?;
     let binaries: BTreeSet<&str> = all
         .iter()
         .filter(|p| p.folder)

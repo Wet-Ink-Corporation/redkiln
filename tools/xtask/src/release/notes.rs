@@ -7,7 +7,7 @@ use std::process::Command;
 
 use serde::Deserialize;
 
-use super::{ReleaseError, checked_name, read_manifest};
+use super::{ReleaseError, Tree, checked_name, read_manifest, read_tree};
 use crate::plugins;
 
 /// The body of a changelog's `## <version>` section.
@@ -59,7 +59,7 @@ pub fn release_check(
 ) -> Result<String, ReleaseError> {
     let plugin = checked_name(plugin)?;
     let root = repository.join("plugins");
-    let all = plugins::read_plugins(&root)?;
+    let all = read_tree(&root, Tree::Source)?;
     let target = all
         .iter()
         .find(|p| p.folder && p.name == plugin)
