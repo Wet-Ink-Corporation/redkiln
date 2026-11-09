@@ -26,7 +26,7 @@ Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check`, `s
 `card::CardError`, `guard::DefaultRefused`, `request::RequestError`, `answer::AnswerRefused` `ci_check::ReadError` (a report of another shape or schema) and `status::ReadError` are domain refusals; `RequestError` also carries Core's id, tag and envelope refusals.
 
 ## Test strategy
-Unit tests beside each module; `request` reads the SPEC's decision-request goldens (`spec/fixtures/decision-request/`) and writes a request through a temporary Core store. Run `cargo test -p weighin-contract --all-features`, and without features for the pure half.
+Unit tests beside each module; `request` reads the SPEC's decision-request goldens (`spec/fixtures/decision-request/`) and `status` its status goldens (`spec/fixtures/status/valid/`) and writes a request through a temporary Core store. Run `cargo test -p weighin-contract --all-features`, and without features for the pure half.
 
 ## Do not
 - Fold, project or render here: that is weighin-core's.
