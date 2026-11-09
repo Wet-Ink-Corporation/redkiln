@@ -7,6 +7,8 @@
 //! `redkiln/inbox/<name>` instead, which [`relay`] (run by a repository's relay workflow) merges
 //! into the ref and deletes. Every write is a merge by `origin` (JR-07), so it only appends.
 //! [`import_refs`] reads them back, with refs set aside as broken and inboxes not yet relayed.
+//! [`read_local`] reads the same local sources with no store and no fetch, checking each journal
+//! ref's whole history, for a gate.
 //!
 //! A network failure, a timeout included, is an outcome, not an error: the events stay in the
 //! store, and the next checkpoint exports them (JR-07). So is a journal ref or inbox that cannot
@@ -15,6 +17,7 @@
 mod checkpoint;
 mod direct;
 mod git;
+mod local;
 mod oid;
 mod read;
 mod relay;
@@ -26,6 +29,10 @@ use std::time::{Duration, Instant};
 
 pub use checkpoint::{
     Deferral, MAX_CALLS_PAST_DEADLINE, RefsCheckpoint, RefsExported, checkpoint_refs,
+};
+pub use local::{
+    ChainBreak, Flaw, LocalFile, LocalJournals, LocalSource, MAX_HISTORY_COMMITS, SourceKind,
+    read_local,
 };
 pub use read::{BROKEN_REFS, ImportedRef, MAX_IMPORT_CALLS_PAST_DEADLINE, RefsImport, import_refs};
 pub use relay::{Deleted, Refusal, Relayed, relay};
@@ -186,22 +193,41 @@ pub(crate) fn read_journal(ctx: &Ctx<'_>, name: &JournalName) -> Result<State, R
     if repo.has_merge(&tip)? {
         return Ok(State::Broken(Breach::Merge));
     }
-    let Some(entries) = repo.entries(&tip, None)? else {
-        return Ok(State::Broken(Breach::Tree));
+    let file = match journal_file_at(ctx, name, &tip)? {
+        Ok(file) => file,
+        Err(breach) => return Ok(State::Broken(breach)),
+    };
+    if unended(&file) {
+        return Ok(State::Broken(Breach::Unended));
+    }
+    Ok(State::Good { tip, file })
+}
+
+/// `name`'s journal file at `commit`, checked as a writer checks a tip (JR-05): `Tree` when the
+/// commit's tree is not exactly the regular file `<name>.jsonl`, `TooLarge` past the context's
+/// cap. Whether it ends in `\n` is [`unended`]'s. Three git calls: the listing, the size, the read.
+pub(crate) fn journal_file_at(
+    ctx: &Ctx<'_>,
+    name: &JournalName,
+    commit: &Oid,
+) -> Result<Result<Vec<u8>, Breach>, RefsError> {
+    let repo = ctx.repo;
+    let Some(entries) = repo.entries(commit, None)? else {
+        return Ok(Err(Breach::Tree));
     };
     let blob = match entries.as_slice() {
         [only] if only.mode == REGULAR && only.kind == "blob" && only.path == name.file_name() => {
             &only.oid
         }
-        _ => return Ok(State::Broken(Breach::Tree)),
+        _ => return Ok(Err(Breach::Tree)),
     };
-    let Some(file) = repo.blob(blob, ctx.max_bytes)? else {
-        return Ok(State::Broken(Breach::TooLarge));
-    };
-    if file.last().is_some_and(|last| *last != b'\n') {
-        return Ok(State::Broken(Breach::Unended));
-    }
-    Ok(State::Good { tip, file })
+    Ok(repo.blob(blob, ctx.max_bytes)?.ok_or(Breach::TooLarge))
+}
+
+/// Whether a journal `file` breaks JR-05 by not ending its last line: it is not empty and its
+/// last byte is not `\n`.
+pub(crate) fn unended(file: &[u8]) -> bool {
+    file.last().is_some_and(|last| *last != b'\n')
 }
 
 /// The clone's copy of an inbox branch as read.

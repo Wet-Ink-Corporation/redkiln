@@ -201,27 +201,28 @@ pub(crate) fn held(text: &[u8]) -> Held {
     }
 }
 
-/// A journal line read for an import (JR-10 to JR-12).
+/// A journal line as an import stores it (JR-10 to JR-12), so a reader without a store maps
+/// it exactly as `journal import` would.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReadLine {
+pub struct ReadLine {
     /// The identity it is stored under.
-    pub(crate) origin: EventId,
+    pub origin: EventId,
     /// Its type, in EV-03's grammar; its namespace may be one this build does not know.
-    pub(crate) event_type: String,
+    pub event_type: String,
     /// The bytes stored: the line without `origin`, `trust` imported.
-    pub(crate) data: Vec<u8>,
+    pub data: Vec<u8>,
     /// Core's tags from the envelope (`plugin`, `trust`, `session`, `worktree`), then the
     /// caller's tags the line carries.
-    pub(crate) tags: Vec<Tag>,
+    pub tags: Vec<Tag>,
     /// The line's `ts`, as the recorded time an import keeps.
-    pub(crate) recorded_at_millis: i64,
+    pub recorded_at_millis: i64,
 }
 
-/// A line's `text` as an import stores it.
+/// A line's `text` (a [`Line::text`], without its `\n`), as an import stores it.
 ///
 /// # Errors
 /// [`LineError`] naming why the line is malformed.
-pub(crate) fn read_line(text: &[u8]) -> Result<ReadLine, LineError> {
+pub fn read_line(text: &[u8]) -> Result<ReadLine, LineError> {
     if text.len() > MAX_LINE_BYTES {
         return Err(LineError::TooLong { len: text.len() });
     }

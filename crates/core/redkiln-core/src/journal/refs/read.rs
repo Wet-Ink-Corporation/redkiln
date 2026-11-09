@@ -25,7 +25,7 @@ use crate::store::{Filter, Store};
 pub const BROKEN_REFS: &str = "refs/redkiln/broken/";
 
 /// The most bytes of ref or commit listing read at once (H-13).
-const MAX_LISTING_BYTES: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_LISTING_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Records read from the store per page.
 const PAGE: NonZeroUsize = match NonZeroUsize::new(512) {
@@ -236,11 +236,7 @@ fn import_broken(
         if importer.late(report) {
             return Ok(());
         }
-        let name = refname
-            .strip_prefix(BROKEN_REFS)
-            .and_then(|rest| rest.split_once('/'))
-            .and_then(|(name, _)| JournalName::parse(name).ok());
-        let Some(name) = name else {
+        let Some(name) = broken_name(&refname) else {
             report.passed_over.push(refname);
             continue;
         };
@@ -276,6 +272,15 @@ fn import_broken(
         }
     }
     Ok(())
+}
+
+/// The journal name of a broken ref, `refs/redkiln/broken/<name>/<sha>`, or `None` when it
+/// names none.
+pub(super) fn broken_name(refname: &str) -> Option<JournalName> {
+    refname
+        .strip_prefix(BROKEN_REFS)
+        .and_then(|rest| rest.split_once('/'))
+        .and_then(|(name, _)| JournalName::parse(name).ok())
 }
 
 /// Fetches the journal and broken refs in one fetch, and the inbox branches, pruned, in a fetch
@@ -323,7 +328,11 @@ fn named(refname: &str, prefix: &str, report: &mut RefsImport) -> Option<Journal
 
 /// The file `path` at `commit`, or `None` when there is no such blob or it is larger than the
 /// context's cap: two git calls, the listing and the read.
-fn file_at(ctx: &Ctx<'_>, commit: &Oid, path: &str) -> Result<Option<Vec<u8>>, RefsError> {
+pub(super) fn file_at(
+    ctx: &Ctx<'_>,
+    commit: &Oid,
+    path: &str,
+) -> Result<Option<Vec<u8>>, RefsError> {
     match ctx.repo.entries(commit, Some(path))?.as_deref() {
         Some([entry]) if entry.mode == REGULAR && entry.kind == "blob" && entry.path == path => {
             ctx.repo.file(entry, ctx.max_bytes)
