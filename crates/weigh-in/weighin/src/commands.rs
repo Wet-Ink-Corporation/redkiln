@@ -1,13 +1,15 @@
 //! What each command does. `main.rs` parses the command line and dispatches here; the modules
 //! group the commands by what they touch: the config (`init`), the items as they stand (`view`),
 //! the write path (`write`), the defaults and the untriaged (`digest`), the health numbers
-//! (`stats`) and the board (`board`).
+//! (`stats`), the board (`board`), the journal refs (`journal`) and the plugin's health
+//! (`status`, SPEC CLI-12).
 
 mod board;
 mod digest;
 mod init;
 pub(crate) mod journal;
 mod stats;
+pub(crate) mod status;
 mod view;
 mod write;
 

@@ -1,5 +1,5 @@
-//! The hook heartbeat (HK-5): how the next hook, and later `status`, tell a hook its timeout
-//! killed from one that was interrupted or finished.
+//! The hook heartbeat (HK-5): how the next hook, and `status` ([`slots`], read only), tell a
+//! hook its timeout killed from one that was interrupted or finished.
 //!
 //! A hook of a registered event keeps one slot, `hook-heartbeat-<Event>` in the default state
 //! dir `<git-common-dir>/redkiln/weighin/`, as six text lines ([`Slot`]): `running` before its
@@ -34,6 +34,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use super::errors::log_error;
 use super::failures::{Logged, one_line};
 use super::{Failures, Hook, HookEvent};
+use crate::env::Env;
 use crate::state_file::{Presence, real_dir, regular_or_absent};
 
 /// How often a running hook rewrites its beat.
@@ -156,6 +157,17 @@ impl Slot {
         self.lost(now).map_or(self.state, Lost::state)
     }
 
+    /// The line the next hook will log for this slot, when it is `running` and dead at `now`:
+    /// a death no hook has logged yet. `status` reports it, and writes nothing.
+    pub(crate) fn lost_report(&self, now: u64) -> Option<String> {
+        self.lost(now).map(|lost| self.lost_line(lost))
+    }
+
+    /// The slot's last sign of life, RFC 3339: its last beat, or when it finished.
+    pub(crate) fn at(&self) -> String {
+        rfc3339(self.beat)
+    }
+
     /// How the hook ended when its slot is `running` and dead at `now`. Past the deadline it is
     /// dead whatever its beat's age (the harness kills a hook at its timeout): timed out when its
     /// last beat came within [`MARGIN`] seconds of the deadline, else interrupted. Before the
@@ -220,7 +232,7 @@ fn rfc3339(secs: u64) -> String {
 }
 
 /// The seconds since 1970; `None` when the clock reads before it.
-fn unix_now() -> Option<u64> {
+pub(crate) fn unix_now() -> Option<u64> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
@@ -425,6 +437,24 @@ pub(super) fn around<T>(
         hook.log(failures, &e);
     }
     out
+}
+
+/// Each registered event's slot in `env`'s default state dir, by event name, for `status`: a
+/// slot that is not a regular file, or cannot be read, as its error; an event with no slot, or a
+/// torn or foreign one, is left out, as is every event outside git. Reads only: no slot is
+/// written or rewritten, and nothing is created.
+pub(crate) fn slots(env: &Env) -> Vec<(&'static str, Result<Slot>)> {
+    let Some(dir) = env.default_state_dir() else {
+        return Vec::new();
+    };
+    SlotEvent::ALL
+        .into_iter()
+        .filter_map(|event| match read_slot(&event.slot_in(&dir)) {
+            Ok(None) => None,
+            Ok(Some(slot)) => Some((event.name(), Ok(slot))),
+            Err(e) => Some((event.name(), Err(e))),
+        })
+        .collect()
 }
 
 /// Logs each slot in `dir` that is dead at `now`, under its own event, and rewrites it to how it

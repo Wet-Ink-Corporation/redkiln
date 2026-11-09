@@ -71,6 +71,10 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<JournalCmd>,
     },
+    /// The store, its schema and Weigh-In's health (SPEC CLI-12); exits 0 whenever it reports.
+    /// It imports nothing, creates no store, marks nothing seen and rewrites no hook slot;
+    /// opening an existing store may make Core's own repairs (ST-05, ID-01).
+    Status(JsonArgs),
 }
 
 /// The journal-ref commands. Each writes the CLI envelope with `--json` and exits with SPEC
@@ -409,6 +413,7 @@ fn main() -> ExitCode {
     let cmd = match cmd {
         Cmd::Hook { event } => return run_hook_guarded(event.as_deref()),
         Cmd::Journal { cmd: Some(sub) } => return commands::journal::run(globals, sub),
+        Cmd::Status(a) => return commands::status::run(globals, a.json),
         Cmd::Journal { cmd: None } => LedgerCmd::Journal,
         Cmd::Ledger(cmd) => cmd,
     };

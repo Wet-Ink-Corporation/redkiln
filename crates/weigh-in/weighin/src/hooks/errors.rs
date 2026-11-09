@@ -136,7 +136,7 @@ pub(super) fn new_errors(env: &Env) -> Option<String> {
         }
     };
     // Worked out before the record is written, so nothing is marked seen unreported.
-    let reported = tail.reported();
+    let found = tail.reported();
     let marked = match recorded {
         Ok(_) => match std::fs::write(&seen_path, format!("{}\n{}", log.len, log.head)) {
             Ok(()) => String::new(),
@@ -147,11 +147,59 @@ pub(super) fn new_errors(env: &Env) -> Option<String> {
             clip(&format!("{e:#}"), 300)
         ),
     };
-    let (count, last) = reported?;
+    let found = found?;
     Some(format!(
-        "Weigh-In: {count} hook error(s) since the last session, so capture may be off. Last: {last} (full log: {}){marked}",
+        "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {} (full log: {}){marked}",
+        found.count(),
+        found.last,
         log_path.display()
     ))
+}
+
+/// What the next `SessionStart` would report of the log ([`new_errors`]), read only: nothing is
+/// marked seen, so that report still comes. `status` reads it (CLI-12's `hook_errors`).
+///
+/// # Errors
+/// The log is not a regular file (HK-6), or it cannot be read.
+pub(crate) fn unreported(env: &Env) -> Result<Option<Unreported>> {
+    // No store located is no state dir, so no log to report, as for `new_errors`.
+    let Ok(dir) = env.state_dir() else {
+        return Ok(None);
+    };
+    let Some(mut log) = Log::open(&dir.join(ERRORS_LOG))? else {
+        return Ok(None);
+    };
+    // A record that cannot be read reports the whole log, as it does in `new_errors`.
+    let seen = match read_seen(&dir.join(ERRORS_SEEN)) {
+        Ok(Some(recorded)) => log.seen(&recorded),
+        Ok(None) | Err(_) => 0,
+    };
+    if seen == log.len {
+        return Ok(None);
+    }
+    Ok(log.tail(seen)?.reported())
+}
+
+/// The lines added to the log since it was last reported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Unreported {
+    /// The whole lines read; past the read cap, the lines before were not counted.
+    pub(crate) lines: usize,
+    /// Whether lines before those read were left unread, so `lines` is "at least".
+    pub(crate) cut: bool,
+    /// The last line, cut to 200 characters.
+    pub(crate) last: String,
+}
+
+impl Unreported {
+    /// The count as a report says it: `3`, or `at least 3` when cut.
+    pub(crate) fn count(&self) -> String {
+        if self.cut {
+            format!("at least {}", self.lines)
+        } else {
+            self.lines.to_string()
+        }
+    }
 }
 
 /// The error log as a report reads it.
@@ -174,7 +222,7 @@ struct Tail {
 
 impl Tail {
     /// The count and last line to report; `None` when only blank lines were added.
-    fn reported(&self) -> Option<(String, String)> {
+    fn reported(&self) -> Option<Unreported> {
         let read = String::from_utf8_lossy(&self.bytes);
         let whole = if self.cut {
             // Up to the first newline is the end of a line begun before the cut.
@@ -184,14 +232,20 @@ impl Tail {
         };
         let lines: Vec<&str> = whole.lines().filter(|l| !l.trim().is_empty()).collect();
         match (lines.last(), self.cut) {
-            (Some(last), true) => Some((format!("at least {}", lines.len()), clip(last, 200))),
-            (Some(last), false) => Some((lines.len().to_string(), clip(last, 200))),
+            (Some(last), cut) => Some(Unreported {
+                lines: lines.len(),
+                cut,
+                last: clip(last, 200),
+            }),
             // Cut with no whole line: one line longer than all the report reads, or one cut
             // line and blank ones after it.
-            (None, true) => Some((
-                "at least 1".to_owned(),
-                format!("no whole line in the last {MAX_REPORTED_LOG_KIB} KiB the report reads"),
-            )),
+            (None, true) => Some(Unreported {
+                lines: 1,
+                cut: true,
+                last: format!(
+                    "no whole line in the last {MAX_REPORTED_LOG_KIB} KiB the report reads"
+                ),
+            }),
             (None, false) => None,
         }
     }
@@ -277,7 +331,7 @@ fn read_seen(path: &Path) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::new_errors;
+    use super::{new_errors, unreported};
     use crate::env::{Env, Vars};
     use crate::text::clip;
     use redkiln_core::store::Wait;
@@ -313,6 +367,33 @@ mod tests {
                 && report.contains("Last: 2026-10-02T00:00:00Z Stop: logged since"),
             "{report}"
         );
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads and writes the error log through the file system"
+    )]
+    fn unreported_reads_what_the_next_session_start_reports_and_marks_nothing() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let state = tmp.path().join(".redkiln/weighin");
+        std::fs::create_dir_all(&state).expect("state dir");
+        let env = env_in(tmp.path());
+        assert_eq!(unreported(&env).expect("no log reads"), None);
+        let lines = "2026-10-01T00:00:00Z Stop: one\n2026-10-02T00:00:00Z Stop: two\n";
+        std::fs::write(state.join("hook-errors.log"), lines).expect("log");
+
+        let found = unreported(&env).expect("read").expect("two lines");
+
+        assert_eq!((found.lines, found.cut), (2, false));
+        assert_eq!(found.last, "2026-10-02T00:00:00Z Stop: two");
+        assert!(
+            !state.join("hook-errors.seen").exists(),
+            "nothing marked seen"
+        );
+        let report = new_errors(&env).expect("still reported");
+        assert!(report.starts_with("Weigh-In: 2 hook error(s)"), "{report}");
+        assert_eq!(unreported(&env).expect("read"), None, "once reported");
     }
 
     #[test]

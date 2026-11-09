@@ -187,6 +187,24 @@ fn the_lost_line_says_how_the_hook_ended() {
 }
 
 #[test]
+fn status_sees_a_slot_as_the_next_hook_would_and_when_it_last_beat() {
+    let dead = slot(State::Running, 1_762_560_000, 1_762_560_002);
+    let live = slot(State::Running, 1_762_560_000, 1_762_560_002);
+    let logged = slot(State::Interrupted, 1_762_560_000, 1_762_560_002);
+
+    assert_eq!(
+        dead.lost_report(1_762_560_020).as_deref(),
+        Some(
+            "the hook started at 2025-11-08T00:00:00Z ended 8 s before its 10 s timeout \
+             without finishing (interrupted)"
+        )
+    );
+    assert_eq!(live.lost_report(1_762_560_003), None, "still beating");
+    assert_eq!(logged.lost_report(1_762_560_020), None, "a hook logged it");
+    assert_eq!(dead.at(), "2025-11-08T00:00:02Z", "its last beat");
+}
+
+#[test]
 fn beats_run_while_the_work_runs() {
     let (tx, rx) = mpsc::sync_channel::<()>(1);
 

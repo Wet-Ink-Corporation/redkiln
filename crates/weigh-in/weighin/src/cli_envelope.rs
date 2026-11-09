@@ -1,8 +1,10 @@
 //! The CLI envelope (SPEC CLI-01 to CLI-05): one JSON object on one line, whose `ok` and the
 //! process's exit code come from one [`Exit`] value, so they cannot disagree.
 //!
-//! Only the `journal` subcommands write it so far; step 6 brings the other commands onto it.
+//! The `journal` subcommands and `status` write it; the other commands come onto it later. It
+//! also says errors and warnings on stderr (CLI-08) and settles a failed stdout (CLI-07).
 
+use std::fmt::Display;
 use std::io::{self, Write};
 
 use serde::Serialize;
@@ -79,6 +81,32 @@ pub(crate) fn one_line(text: &str) -> String {
         .map(|c| if matches!(c, '\n' | '\r') { ' ' } else { c })
         .collect();
     crate::text::clip(&flat, MAX_MESSAGE_CHARS)
+}
+
+/// The exit after stdout failed with `e`: when its reader stopped reading, the exit the command
+/// earned, said nowhere (CLI-07: a success stays 0, a failure keeps its code, CLI-05); else 74,
+/// said on stderr.
+pub(crate) fn output_failed(e: &io::Error, earned: Exit) -> Exit {
+    if e.kind() == io::ErrorKind::BrokenPipe {
+        return earned;
+    }
+    say(
+        "error",
+        &format_args!("writing standard output: {e}"),
+        Exit::Output,
+    )
+}
+
+/// `weighin: <level>: <message>` on stderr, the message on one line (CLI-08); `exit`, or 74 for
+/// a success that cannot be said.
+pub(crate) fn say(level: &str, message: &dyn Display, exit: Exit) -> Exit {
+    let message = one_line(&message.to_string());
+    match writeln!(io::stderr().lock(), "weighin: {level}: {message}") {
+        Ok(()) => exit,
+        // A failure keeps its own code: with stderr gone, the code is the only report left.
+        Err(_) if !exit.ok() => exit,
+        Err(_) => Exit::Output,
+    }
 }
 
 /// One command result as CLI-01 writes it. `data` is borrowed, never cloned (OWN-01).

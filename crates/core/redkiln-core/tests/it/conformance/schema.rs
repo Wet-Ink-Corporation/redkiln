@@ -23,7 +23,8 @@ use super::{golden, spec_dir, value_of};
 enum Reader {
     /// Core refuses it where it reads that shape.
     Refuses,
-    /// No Core code reads this shape (the CLI envelope, decision requests, approval data).
+    /// No Core code reads this shape (the CLI envelope, decision requests, approval data, a
+    /// status's `data`).
     NotCoreShape,
 }
 
@@ -38,6 +39,7 @@ const SCHEMAS: &[&str] = &[
     "core.import_completed-1",
     "decision-request-1",
     "cli-envelope-1",
+    "status-1",
 ];
 
 /// Valid goldens and the schema each passes; a `.jsonl` journal is checked line by line.
@@ -82,6 +84,9 @@ const VALID: &[(&str, &str)] = &[
     ("cli/valid/ok-with-warning.json", "cli-envelope-1"),
     ("cli/valid/internal-error.json", "cli-envelope-1"),
     ("decision-request/valid/dr-02.json", "decision-request-1"),
+    // Their `data` against `status-1` in `status.rs`.
+    ("status/valid/weighin-ok.json", "cli-envelope-1"),
+    ("status/valid/weighin-off.json", "cli-envelope-1"),
 ];
 
 /// Fixtures a writer must not write and a reader reads: their schema, and where they break it.
@@ -301,6 +306,24 @@ const INVALID: &[(&str, &str, Expected, Reader)] = &[
         &[("/subject/hash", "pattern")],
         Reader::NotCoreShape,
     ),
+    (
+        "status/invalid/missing-health.json",
+        "status-1",
+        &[("", "required")],
+        Reader::NotCoreShape,
+    ),
+    (
+        "status/invalid/unknown-health.json",
+        "status-1",
+        &[("/health", "enum")],
+        Reader::NotCoreShape,
+    ),
+    (
+        "status/invalid/store-schema-not-major-minor.json",
+        "status-1",
+        &[("/store_schema", "pattern")],
+        Reader::NotCoreShape,
+    ),
 ];
 
 /// Journals read only by Core's scenario tests (`journal.rs`): several lines, some malformed or
@@ -363,7 +386,7 @@ fn documents(rel: &str) -> Vec<Value> {
 }
 
 /// Asserts `doc` passes `<stem>`, saying `what` it is when it does not.
-fn assert_valid(stem: &str, doc: &Value, what: &str) {
+pub(super) fn assert_valid(stem: &str, doc: &Value, what: &str) {
     let found = violations(stem, doc);
     assert!(found.is_empty(), "{what} breaks {stem}: {found:?}");
 }

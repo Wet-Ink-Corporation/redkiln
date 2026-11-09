@@ -11,6 +11,7 @@ use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags};
 
 use super::aside::{set_aside, set_journal_aside, sibling};
 use super::header::{self, Found, Header};
+use super::schema::{StampOutOfRange, StoreSchema};
 use super::{OpenError, Step};
 
 /// The journal mode every store connection runs under, as `PRAGMA journal_mode` reports it.
@@ -72,6 +73,15 @@ pub(super) enum Mode {
 /// stamped in Core's range (1000 to 1999) is taken to be a store: only Core writes that stamp
 /// (ST-06).
 pub(super) fn open(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEventStore, OpenError> {
+    open_store(path, busy, mode).map(|(store, _schema)| store)
+}
+
+/// [`open`], with the schema the file's stamp gives, as the open read it.
+pub(super) fn open_store(
+    path: &Path,
+    busy: Duration,
+    mode: Mode,
+) -> Result<(SqliteEventStore, StoreSchema), OpenError> {
     if mode == Mode::Create
         && let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty())
     {
@@ -152,7 +162,11 @@ fn take_lock(path: &Path, busy: Duration) -> Result<Option<Locked>, OpenError> {
 
 /// [`open`] under the open lock: the header is read again, since it may have changed while the
 /// lock was awaited.
-fn open_locked(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEventStore, OpenError> {
+fn open_locked(
+    path: &Path,
+    busy: Duration,
+    mode: Mode,
+) -> Result<(SqliteEventStore, StoreSchema), OpenError> {
     let found = header::read(path)?;
     refuse_found(&found, mode)?;
     match found {
@@ -187,12 +201,13 @@ fn open_locked(path: &Path, busy: Duration, mode: Mode) -> Result<SqliteEventSto
         (Contents::Store, _) => {}
         (Contents::Foreign, _) => return Err(OpenError::NotAStore),
     }
-    check_stamp(user_version(&conn)?)?;
+    let schema = schema_of(user_version(&conn)?)?;
     // TRUNCATE is in force, so no connection is using a WAL now; one left beside the store is
     // stale (its frames were checkpointed when the mode switched) and is never replayed.
     set_aside(path, "-wal")?;
     keep_identity_at(&conn, path)?;
-    SqliteEventStore::new(conn).map_err(OpenError::Store)
+    let store = SqliteEventStore::new(conn).map_err(OpenError::Store)?;
+    Ok((store, schema))
 }
 
 /// ST-07's refusals, decided from the header alone so that no connection touches the file: a
@@ -222,6 +237,16 @@ fn check_stamp(found: i64) -> Result<(), OpenError> {
     } else {
         Ok(())
     }
+}
+
+/// The schema of a stamp this build opens ([`check_stamp`]). A stamp it lets through is 1000
+/// to 1999, so always a schema; one that were not would be past any major this build reads.
+fn schema_of(found: i64) -> Result<StoreSchema, OpenError> {
+    check_stamp(found)?;
+    StoreSchema::try_from(found).map_err(|StampOutOfRange(found)| OpenError::NewerMajor {
+        found,
+        supported: STORE_SCHEMA,
+    })
 }
 
 /// A connection with no busy wait to a store [`open`] has opened, under TRUNCATE: for Core's own
@@ -634,6 +659,20 @@ mod tests {
         let created = open(&path, Duration::ZERO, Mode::Create).expect("created");
         let reopened = open(&path, Duration::ZERO, Mode::Existing).expect("opened");
         assert_eq!(reopened.store_id(), created.store_id());
+    }
+
+    #[test]
+    fn the_schema_is_the_stamp_read_at_open() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        let (_, created) = open_store(&path, Duration::ZERO, Mode::Create).expect("created");
+        assert_eq!(created.to_string(), "1.0", "a new store is STORE_SCHEMA");
+        let conn = Connection::open(&path).expect("open");
+        conn.execute_batch("PRAGMA user_version = 1003")
+            .expect("a newer minor");
+        drop(conn);
+        let (_, reopened) = open_store(&path, Duration::ZERO, Mode::Existing).expect("opened");
+        assert_eq!(reopened.to_string(), "1.3", "the file's own minor");
     }
 
     #[test]

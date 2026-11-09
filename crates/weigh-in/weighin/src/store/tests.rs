@@ -103,7 +103,7 @@ fn a_second_raise_conflicts_and_of_two_writers_that_read_alike_the_first_wins() 
         loaded.ledger.get(&id).expect("the item").status,
         Status::Dismissed
     );
-    assert_eq!((loaded.ledger.head, loaded.unusable), (2, 0));
+    assert_eq!((loaded.ledger.head, loaded.unusable.total()), (2, 0));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn another_namespace_neither_conflicts_a_write_nor_reads_as_weighin() {
     assert_eq!(last(&written.expect("append")), Some(4));
     let read = store.read_all().expect("read");
     let positions: Vec<u64> = read.events.iter().map(|(p, _)| *p).collect();
-    assert_eq!((positions, read.unusable), (vec![1, 4], 0));
+    assert_eq!((positions, read.unusable.total()), (vec![1, 4], 0));
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn a_weighin_event_this_build_cannot_use_is_skipped_and_counted() {
         .ledger()
         .expect("an unusable event does not fail the read");
 
-    assert_eq!(loaded.unusable, 2);
+    assert_eq!(loaded.unusable.total(), 2);
     assert!(loaded.ledger.get(&a).is_some_and(|i| i.status.is_open()));
     assert_eq!(
         loaded.ledger.get(&b),
@@ -197,6 +197,40 @@ fn a_weighin_event_this_build_cannot_use_is_skipped_and_counted() {
         last(&blocked.expect("append")),
         None,
         "fail closed on what it cannot read"
+    );
+}
+
+#[test]
+fn unusable_events_are_counted_by_type() {
+    let (_dir, store) = store();
+    let id = ItemId::mint("s1", "a?");
+    let dismissed = "weighin.item_dismissed";
+    raw(
+        &store,
+        wire::RAISED,
+        br#"{"type":"weighin.item_raised"}"#,
+        &id,
+    );
+    raw(
+        &store,
+        wire::RAISED,
+        br#"{"type":"weighin.item_raised"}"#,
+        &id,
+    );
+    raw(
+        &store,
+        dismissed,
+        br#"{"type":"weighin.item_dismissed"}"#,
+        &id,
+    );
+
+    let read = store.read_all().expect("read");
+
+    assert_eq!(read.unusable.total(), 3);
+    let by_type: Vec<(String, u64)> = read.unusable.into_by_type().into_iter().collect();
+    assert_eq!(
+        by_type,
+        [(dismissed.to_owned(), 1), (wire::RAISED.to_owned(), 2)]
     );
 }
 
@@ -240,4 +274,40 @@ fn only_a_file_core_refuses_as_a_store_is_a_refusal_however_it_is_wrapped() {
     assert!(is_refused(&refusal), "{refusal:#}");
     assert!(is_refused(&refusal.context("reading the ledger")));
     assert!(!is_refused(&other), "{other:#}");
+}
+
+#[test]
+fn each_refusal_core_makes_is_classified_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let old = dir.path().join("ledger.sqlite3");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../core/redkiln-core/tests/fixtures/weighin-1.2.0.sqlite3"),
+        &old,
+    )
+    .expect("fixture copied");
+    let not_sqlite = dir.path().join("text.sqlite3");
+    std::fs::write(&not_sqlite, "not a database").expect("written");
+    let newer = anyhow::Error::new(StoreError::Open {
+        path: dir.path().join("newer.sqlite3"),
+        source: OpenError::NewerMajor {
+            found: 2000,
+            supported: 1000,
+        },
+    })
+    .context("opening the store");
+    let other = Store::open(&old.join("events.sqlite3"), Wait::Command)
+        .expect_err("a file is no directory");
+
+    let old = Store::open(&old, Wait::Command).expect_err("an old ledger is refused");
+    let not_sqlite = Store::open(&not_sqlite, Wait::Command).expect_err("not a store");
+
+    assert_eq!(refusal(&old), Some(Refusal::OldOrForeign), "{old:#}");
+    assert_eq!(refusal(&not_sqlite), Some(Refusal::OldOrForeign));
+    assert_eq!(refusal(&newer), Some(Refusal::NewerMajor), "{newer:#}");
+    assert_eq!(refusal(&other), None, "{other:#}");
+    assert!(
+        !is_refused(&newer),
+        "a newer major is no store refused as old or foreign, as before"
+    );
 }

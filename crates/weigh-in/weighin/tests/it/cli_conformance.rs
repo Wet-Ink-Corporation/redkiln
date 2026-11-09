@@ -78,3 +78,16 @@ fn internal_error_envelope_conforms() -> TestResult {
     assert_eq!(envelope["findings"][0]["severity"], "error");
     Ok(())
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn status_envelope_conforms() -> TestResult {
+    let repo = Repo::new(true)?;
+
+    let out = repo.run("s1", &["status", "--json"], None)?;
+
+    assert_eq!(out.status.code(), Some(0), "CLI-06: a report exits 0");
+    let envelope = conforms(&out)?;
+    assert_eq!(envelope["schema"], "weighin.status/1");
+    Ok(())
+}

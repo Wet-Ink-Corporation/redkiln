@@ -33,6 +33,7 @@ mod header;
 mod ingest;
 mod open;
 mod retention;
+mod schema;
 mod tag;
 mod telemetry;
 
@@ -50,6 +51,7 @@ use happenstance_sqlite::happenstance_sync::IngestError;
 use happenstance_sqlite::rusqlite;
 
 pub use open::STORE_SCHEMA;
+pub use schema::{StampOutOfRange, StoreSchema};
 pub use tag::{CoreKey, Tag, TagError};
 pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 
@@ -487,6 +489,8 @@ impl Stored {
 /// An open store.
 pub struct Store {
     inner: SqliteEventStore,
+    /// The schema the file's stamp gave when it was opened.
+    schema: StoreSchema,
     runtime: Driver,
     /// The store's absolute path; the telemetry side store sits beside it.
     path: PathBuf,
@@ -546,13 +550,14 @@ impl Store {
         let opened = std::path::absolute(path)
             .map_err(OpenError::AbsolutePath)
             .and_then(|absolute| {
-                let inner = open::open(path, wait.timeout(), mode)?;
+                let (inner, schema) = open::open_store(path, wait.timeout(), mode)?;
                 let runtime = Driver::new().map_err(OpenError::Runtime)?;
-                Ok((inner, runtime, absolute))
+                Ok((inner, schema, runtime, absolute))
             });
         match opened {
-            Ok((inner, runtime, path)) => Ok(Self {
+            Ok((inner, schema, runtime, path)) => Ok(Self {
                 inner,
+                schema,
                 runtime,
                 path,
                 wait: wait.timeout(),
@@ -570,6 +575,13 @@ impl Store {
     #[must_use]
     pub const fn store_id(&self) -> StoreId {
         self.inner.store_id()
+    }
+
+    /// The store's schema, from the stamp read when it was opened: [`STORE_SCHEMA`] for a store
+    /// this open created, the file's own minor for one a newer 1.x build wrote (ST-06, ST-07).
+    #[must_use]
+    pub const fn schema(&self) -> StoreSchema {
+        self.schema
     }
 
     /// Appends `events` in one transaction, unless `condition` matches an event.

@@ -22,6 +22,8 @@ A schema describes what a writer writes (EV-05): optional keys absent, never `nu
 
 Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-1` gives `cites` `minItems: 1`, since a writer leaves out an empty list as it leaves out any absent optional key (Core writes no `cites` when there are none), and `cli-envelope-1` limits `command` to printable characters with no control character. Each may be dropped if the SPEC says otherwise.
 
+`status-1` is the one schema that allows keys it does not define (`additionalProperties: true`): CLI-12 has each plugin add its own keys beside the common ones, and a reader must take them (decision D7, Move 1 step 6d).
+
 ## Files
 
 | File | Covers | Read by (in `conformance/`) |
@@ -52,6 +54,9 @@ Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-
 | `cli/invalid/*.json` | CLI-02, CLI-03 | `schema.rs`, `cli.rs` |
 | `decision-request/valid/dr-02.json` | DR-02's example | `decision_request.rs`, `spec_text.rs`; `weighin-contract`'s `request` tests |
 | `decision-request/invalid/*.json` | DR-02: options, option ids, door, `default` on a one-way item, subject hash form | `schema.rs`; `weighin-contract`'s `request` tests |
+| `status/valid/weighin-ok.json` | CLI-12: weighin's `status --json` with a located store and one finished `Stop` hook; weighin's own keys (`hook_errors`, `hooks`) beside the common ones | `status.rs`, `schema.rs`; `weighin-contract`'s `status` tests |
+| `status/valid/weighin-off.json` | CLI-12: a store that cannot be located, its keys `null` and one error finding (decision D7) | `status.rs`, `schema.rs` |
+| `status/invalid/*.json` | CLI-12 `data` only: `health` missing or unknown, `store_schema` not `<major>.<minor>` | `schema.rs` |
 
 The tables in `conformance/schema.rs` give each `invalid/` and `lenient/` file's exact violations. weighin's integration tests (`crates/weigh-in/weighin/tests/it/cli_conformance.rs`) validate its real `--json` output against `cli-envelope-1`.
 
@@ -65,6 +70,7 @@ The tables in `conformance/schema.rs` give each `invalid/` and `lenient/` file's
 | `core.import_completed-1.schema.json` | the `data` of `core.import_completed` | JR-13, ST-15 |
 | `decision-request-1.schema.json` | the decision request record | DR-02 |
 | `cli-envelope-1.schema.json` | the CLI result envelope | CLI-02, CLI-03 |
+| `status-1.schema.json` | the `data` of `status --json` | CLI-12 |
 
 Each file is self-contained: no `$ref` crosses files, since the validator resolves none. `journal-line-1` copies `envelope-1`'s `$defs` and properties, and `decision-request-1` copies AP-01's `subject`; `shared_defs_are_identical` checks the copies. The closed lists (namespaces, `via` values and the levels they may back, hash methods, the tag keys Core sets) are checked against Core's registries. `-1` is the shape's version: until SPEC 1.0 freezes at Move 2 a draft schema may be edited in place, and after that a new version is a new file (EV-06, CLI-04).
 

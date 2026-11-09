@@ -48,6 +48,19 @@ fn refusal(path: &Path) -> OpenError {
 }
 
 #[test]
+fn a_new_store_reports_store_schema() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("events.sqlite3");
+    let schema = open(&path).schema();
+    assert_eq!(schema.stamp(), STORE_SCHEMA);
+    assert_eq!(schema.to_string(), "1.0");
+    let existing = Store::open_existing(&path, Wait::Command)
+        .expect("opens")
+        .expect("a store");
+    assert_eq!(existing.schema(), schema, "the reopened file's stamp");
+}
+
+#[test]
 fn a_new_store_is_stamped_runs_under_truncate_and_reopening_writes_nothing() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("redkiln/events.sqlite3");

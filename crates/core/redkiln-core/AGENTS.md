@@ -13,7 +13,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 
 ## Public surface
-- `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `CoreKey`, `Filter`, `Page`, `Condition`, `Appended`, `Stored`, `TelemetryEvent`, `Recorded`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`, `TELEMETRY_WINDOW`.
+- `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `CoreKey`, `Filter`, `Page`, `Condition`, `Appended`, `Stored`, `TelemetryEvent`, `Recorded`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`, `StoreSchema`, `StampOutOfRange`, `TELEMETRY_WINDOW`.
 - `location`: `locate`, `Search`, `Located`, `Source`, `Workspace`, `LocateError`, `GitError`, `STORE_ENV`, `STORE_FILE`, `GIT_TIMEOUT`.
 - `suite`: `Suite`, `RepoClass`, `ClassSource`, `Owner`, `OwnerError`, `Key`, `Warning`, `Problem`, `SUITE_FILE`, `LEGACY_CONFIG`, `MAX_CONFIG_BYTES`.
 - `envelope`: `Envelope`, `Author`, `Payload`, `Class`, `Namespace`, `TypeName`, `NameError`, `Timestamp`, `Actor`, `ActorName`, `Writer`, `Field`, `FieldError`, `EnvelopeError`, `decode`, `decode_all`, `Decoded`, `Skip`, `Unusable`, `SPEC_VERSION`, `MAX_ENVELOPE_BYTES`, `MAX_TYPE_BYTES`.
