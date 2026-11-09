@@ -9,7 +9,7 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - `weighin status [--json]` says where the store is, its schema, the repository class and
   how Weigh-In is doing: `ok`, `degraded` (events this build cannot read, hook errors the next
   session start will report, a hook that died without finishing, a broken config) or `off` (no
-  store can be located or the store is refused). With `--json` it writes the envelope
+  store can be located or the store is refused or cannot be read). With `--json` it writes the envelope
   `weighin.status/1` (SPEC CLI-12). It creates no store, never runs the one-time 1.x import (it
   says when one is due), marks nothing as reported and rewrites no hook heartbeat; opening an
   existing store may still let the store make its own repairs, as any read does. It exits 0
