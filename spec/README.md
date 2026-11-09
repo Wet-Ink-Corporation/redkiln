@@ -17,7 +17,7 @@ The SPEC is the part of Redkiln Core that is text: the formats every Redkiln bin
 | [journals.md](journals.md) | The JSONL export of durable facts, its checkpoint and idempotent import | JR |
 | [cli.md](cli.md) | The CLI result envelope, exit codes, stderr, hooks and `status --json` | CLI |
 
-[`fixtures/`](fixtures/) holds a golden file for every JSON document these sections define (`status --json` follows with its first command, Move 1 step 6), and [`schemas/`](schemas/) a JSON Schema for each (Draft 2020-12); `redkiln-core`'s tests read both, and [`fixtures/README.md`](fixtures/README.md) indexes them.
+[`fixtures/`](fixtures/) holds a golden file for every JSON document these sections define (`status --json` included, from weighin's, Move 1 step 6), and [`schemas/`](schemas/) a JSON Schema for each (Draft 2020-12); `redkiln-core`'s tests read both, and [`fixtures/README.md`](fixtures/README.md) indexes them.
 
 Each requirement has an id (`ST-03`, `EV-11`) so that a conformance fixture, a test or a review comment can cite it. Ids are permanent: a dropped requirement keeps its id, marked withdrawn, and is never reused.
 

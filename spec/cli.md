@@ -74,4 +74,4 @@ Codes 1 and 3 to 63 are each command's own (1 is "cycle" for one command and "te
 | `dropped` | Telemetry events dropped on a busy lock since the count was last reported (ST-09) |
 | `health` | `ok`, `degraded` or `off` |
 
-The suite's status view reads every installed plugin's `status --json`, so a plugin adds its own keys beside these, never in place of them.
+`store` and `store_source` are `null` when the store cannot be located, and `store_schema` is also `null` when there is no store yet. The suite's status view reads every installed plugin's `status --json`, so a plugin adds its own keys beside these, never in place of them.

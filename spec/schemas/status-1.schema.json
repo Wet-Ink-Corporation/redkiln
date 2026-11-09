@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:status:1",
+  "title": "The data of a plugin's status --json (SPEC CLI-12)",
+  "description": "The keys every plugin's status carries. A plugin adds its own beside them (CLI-12), so other keys are allowed.",
+  "type": "object",
+  "required": [
+    "plugin",
+    "version",
+    "spec",
+    "store",
+    "store_source",
+    "store_schema",
+    "repo_class",
+    "unreadable",
+    "dropped",
+    "health"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "plugin": {
+      "description": "The install id, such as rk-weigh-in.",
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "description": "The binary's version.",
+      "type": "string",
+      "minLength": 1
+    },
+    "spec": {
+      "description": "The SPEC version the binary conforms to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "store": {
+      "description": "The store's path; null when it cannot be located.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "store_source": {
+      "description": "The ST-03 step that chose the store; null when it cannot be located.",
+      "enum": [
+        "flag",
+        "env",
+        "config",
+        "git_common_dir",
+        "folder",
+        null
+      ]
+    },
+    "store_schema": {
+      "description": "<major>.<minor> of the store's stamp (ST-06); null when it was refused, cannot be located or does not exist yet.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+    },
+    "repo_class": {
+      "description": "ST-13.",
+      "enum": [
+        "own",
+        "client"
+      ]
+    },
+    "unreadable": {
+      "description": "Events of the plugin's own types it skipped, by type (EV-10).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "dropped": {
+      "description": "Telemetry events dropped on a busy lock since the count was last reported (ST-09).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "health": {
+      "enum": [
+        "ok",
+        "degraded",
+        "off"
+      ]
+    }
+  }
+}

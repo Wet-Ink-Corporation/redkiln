@@ -10,6 +10,7 @@ mod journal;
 mod records;
 mod schema;
 mod spec_text;
+mod status;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
