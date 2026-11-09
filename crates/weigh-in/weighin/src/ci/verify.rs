@@ -6,7 +6,7 @@
 //! appear twice.
 
 use std::collections::{HashMap, HashSet};
-use weighin_contract::ci_check::{Reason, Violation};
+use weighin_contract::ci_check::v2::{JournalKind, Reason, Violation};
 use weighin_core::EventEnvelope;
 
 use crate::journal::lines;
@@ -38,7 +38,9 @@ pub(crate) fn verify(path: &str, base: &[u8], head: Option<&[u8]>) -> Vec<Violat
         return Vec::new();
     }
     let violation = |line, reason| Violation {
-        path: path.to_owned(),
+        journal: path.to_owned(),
+        kind: JournalKind::File,
+        commit: None,
         line,
         reason,
     };
@@ -77,7 +79,9 @@ pub(crate) fn decode(path: &str, bytes: &[u8]) -> (Vec<(u64, EventEnvelope)>, Ve
             // A cut-short last line is a write the next run repeats, not a broken journal.
             Err(_) if !l.complete => {}
             Err(_) => violations.push(Violation {
-                path: path.to_owned(),
+                journal: path.to_owned(),
+                kind: JournalKind::File,
+                commit: None,
                 line: Some(l.number),
                 reason: Reason::Undecodable,
             }),
@@ -97,7 +101,9 @@ mod tests {
 
     fn violation(line: Option<u64>, reason: Reason) -> Violation {
         Violation {
-            path: PATH.to_owned(),
+            journal: PATH.to_owned(),
+            kind: JournalKind::File,
+            commit: None,
             line,
             reason,
         }

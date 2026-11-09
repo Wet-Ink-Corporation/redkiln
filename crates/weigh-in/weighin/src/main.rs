@@ -77,6 +77,9 @@ enum Cmd {
     /// It imports nothing, creates no store, marks nothing seen and rewrites no hook slot;
     /// opening an existing store may make Core's own repairs (ST-05, ID-01).
     Status(JsonArgs),
+    /// Branch report for CI: open items, decisions since --base, append-only journals and journal
+    /// refs. Exits 0 whenever it reports, 70 when it cannot run; never opens a store or fetches.
+    CiCheck(CiCheckArgs),
 }
 
 /// The journal-ref commands. Each writes the CLI envelope with `--json` and exits with SPEC
@@ -160,8 +163,6 @@ enum LedgerCmd {
     /// JSON lines, as 1.x committed them in .kb/_ledger/journal/.
     #[command(skip)]
     Journal,
-    /// Branch report for CI: open items, decisions since --base, append-only journals.
-    CiCheck(CiCheckArgs),
 }
 
 #[derive(Args)]
@@ -169,7 +170,7 @@ struct CiCheckArgs {
     /// The revision the branch is compared with (a merge base, `origin/main`, a sha).
     #[arg(long)]
     base: String,
-    /// The report as one JSON document (schema `weighin.ci-check/1`).
+    /// The report as the CLI envelope (schema `weighin.ci-check/2`).
     #[arg(long)]
     json: bool,
 }
@@ -416,6 +417,7 @@ fn main() -> ExitCode {
         Cmd::Hook { event } => return run_hook_guarded(event.as_deref()),
         Cmd::Journal { cmd: Some(sub) } => return commands::journal::run(globals, sub),
         Cmd::Status(a) => return commands::status::run(globals, a.json),
+        Cmd::CiCheck(a) => return ci::run(globals, &a.base, a.json),
         Cmd::Journal { cmd: None } => LedgerCmd::Journal,
         Cmd::Ledger(cmd) => cmd,
     };
@@ -519,19 +521,15 @@ fn run_hook_guarded(event: Option<&str>) -> ExitCode {
 }
 
 /// Run `cmd`: its result, and the warnings to print after it whatever the result: what locating
-/// the store found (a 2.x fallback), then what the one-time 1.x import did, which every command
-/// but `ci-check` runs first (`legacy_import`, decision H5). An appending command exports
+/// the store found (a 2.x fallback), then what the one-time 1.x import did, which every one of
+/// these commands runs first (`legacy_import`, decision H5). An appending command exports
 /// nothing: its events leave at the next Stop, `journal pre-push` or `journal checkpoint` (JR-08).
 fn run(g: Globals, cmd: LedgerCmd, out: &mut impl Write) -> (Result<()>, Vec<String>) {
     let mut env = match environment(g) {
         Ok(env) => env,
         Err(e) => return (Err(e), Vec::new()),
     };
-    // `ci-check` never opens the ledger (B-28).
-    let legacy = match cmd {
-        LedgerCmd::CiCheck(_) => Vec::new(),
-        _ => legacy_warnings(&env),
-    };
+    let legacy = legacy_warnings(&env);
     let result = dispatch(&mut env, cmd, out);
     let mut warnings: Vec<String> = env.notices.iter().map(ToString::to_string).collect();
     warnings.extend(legacy);
@@ -628,7 +626,6 @@ fn dispatch(env: &mut Env, cmd: LedgerCmd, out: &mut impl Write) -> Result<()> {
             cmd: BoardCmd::Apply(a),
         } => commands::board_apply(env, &a, out),
         LedgerCmd::Journal => journal::write(&ops::stored_events(env)?, out),
-        LedgerCmd::CiCheck(a) => ci::run(env, &a.base, a.json, out),
     }
 }
 

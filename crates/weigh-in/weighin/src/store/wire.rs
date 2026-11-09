@@ -6,10 +6,12 @@
 //! payloads are Core [`Payload`]s in `weighin-contract` (`names`, Move 1 step 5).
 
 use anyhow::{Context as _, Result};
+use redkiln_core::EventId;
 use redkiln_core::envelope::{
     Actor, Author, Envelope, Namespace, Payload, Skip, Timestamp, Writer, decode,
 };
 use redkiln_core::ids::{SessionId, WorktreeId};
+use redkiln_core::journal::{LineError, ReadLine, read_line};
 use redkiln_core::store::{CoreKey, Filter, NewEvent, StoreError, Stored, Tag};
 use redkiln_core::trust::Trust;
 use weighin_core::event::{
@@ -80,6 +82,52 @@ wire_types! {
     ItemLinked(Linked),
     RecordWritten(RecordWritten),
     ItemAcknowledged(Acknowledged),
+}
+
+/// Why a journal line gave no ledger event.
+#[derive(Debug)]
+pub(crate) enum LineSkip {
+    /// Not a JR-02 line Core reads (no envelope, no `origin`, bad `tags`, ...): JR-10's
+    /// malformed. The caller reports the line by its place, so Core's reason is not kept.
+    Malformed,
+    /// Another namespace's type: passed over (EV-08).
+    Foreign,
+    /// A weighin type this build cannot use (EV-10).
+    Unusable {
+        /// Its identity, so a reader counts one event once wherever it is read.
+        origin: EventId,
+        /// Its type.
+        event_type: String,
+    },
+}
+
+/// `text`, one complete journal line without its `\n` (line `number` of its file), as
+/// weighin-core's envelope: mapped as `journal import` stores it (Core's `read_line`, JR-12),
+/// then read as a stored event is.
+pub(crate) fn from_line(number: u64, text: &[u8]) -> Result<EventEnvelope, LineSkip> {
+    let ReadLine {
+        origin,
+        event_type,
+        data,
+        tags,
+        recorded_at_millis,
+    } = read_line(text).map_err(|_why: LineError| LineSkip::Malformed)?;
+    let stored = Stored {
+        // `from_stored` never reads the position; the line number stands in for it.
+        position: number,
+        id: origin,
+        recorded_at_millis,
+        event_type,
+        data,
+        tags,
+    };
+    from_stored(&stored).map_err(|skip| match skip {
+        Skip::Foreign => LineSkip::Foreign,
+        Skip::Unusable(_) => LineSkip::Unusable {
+            origin: stored.id,
+            event_type: stored.event_type,
+        },
+    })
 }
 
 /// The type `item_raised` is written as: the `NotYetRaised` guard's.

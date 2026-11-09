@@ -300,8 +300,22 @@ impl Repo<'_> {
         cap: u64,
     ) -> Result<Option<Vec<Oid>>, RefsError> {
         let not = since.map(|since| format!("^{since}"));
-        let mut args = vec!["rev-list", "--reverse", tip.as_str()];
-        args.extend(not.as_deref());
+        let mut flags = vec!["--reverse"];
+        flags.extend(not.as_deref());
+        self.commits(tip, &flags, cap)
+    }
+
+    /// `git rev-list <flags> <tip>`: the commits it lists, in its order; `None` when the listing
+    /// is longer than `cap` bytes.
+    pub(crate) fn commits(
+        &self,
+        tip: &Oid,
+        flags: &[&str],
+        cap: u64,
+    ) -> Result<Option<Vec<Oid>>, RefsError> {
+        let mut args = vec!["rev-list"];
+        args.extend(flags);
+        args.push(tip.as_str());
         let Some(out) = self.ok_spooled(&args, cap)? else {
             return Ok(None);
         };

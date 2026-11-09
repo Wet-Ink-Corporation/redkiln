@@ -181,6 +181,8 @@ fn emit<D: Serialize>(named: Named, json: bool, outcome: &Outcome<D>) -> Exit {
             data: &outcome.data,
             findings: &outcome.findings,
             exit: outcome.exit,
+            proves: None,
+            does_not_prove: None,
         }
         .write(&mut stdout)
     } else {

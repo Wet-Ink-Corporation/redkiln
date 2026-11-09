@@ -21,6 +21,6 @@ pub use import::{
     ImportCompleted, ImportError, ImportReport, ImportSource, MAX_PROBLEMS, Problem, Recording,
     import, import_file,
 };
-pub use line::{Line, LineError, MAX_LINE_BYTES, encode_line, lines};
+pub use line::{Line, LineError, MAX_LINE_BYTES, ReadLine, encode_line, lines, read_line};
 pub use mapped::{Mapped, MappedImport, import_mapped};
 pub use name::{JOURNAL_SUFFIX, JournalName, MAX_NAME_BYTES, NameError};

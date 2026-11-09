@@ -16,6 +16,8 @@
 pub(crate) mod legacy;
 mod wire;
 
+pub(crate) use wire::{LineSkip, from_line};
+
 use std::collections::BTreeMap;
 use std::num::NonZeroUsize;
 use std::path::Path;

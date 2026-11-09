@@ -176,7 +176,7 @@ weighin journal pre-push <remote> [<url>] [--json]
                                          pre-push git hook: export unless only journal refs are
                                          pushed; always exits 0
 weighin ci-check --base <ref> [--json]   CI report: open items, decisions since <ref>, append-only
-                                         journals (schema weighin.ci-check/1)
+                                         journals and journal refs (schema weighin.ci-check/2)
 weighin trailer <id>                     the commit trailer for a decided item
 weighin decisions --path <file> [--line <n>] [--json]
                                          decisions still standing that are anchored at a file,
@@ -252,13 +252,17 @@ Weigh-In 1.x kept each session's events in `.kb/_ledger/journal/<session>.jsonl`
 the session's work (B-28). Those files stay where they are and are never written again; `stats`
 and `ci-check` still read them.
 
-`weighin ci-check --base <ref> --json` reads only git and the checkout, never a ledger. It reports
+`weighin ci-check --base <ref> --json` reads only git, the checkout and the journal refs the
+clone holds (`refs/redkiln/journal/*`, inbox copies and broken refs), never a ledger or store, and
+never fetches: fetch `+refs/redkiln/journal/*:refs/redkiln/journal/*` first for it to read them.
+It writes the CLI envelope `weighin.ci-check/2`, whose `data` reports
 `open_items` (each with its triaged `door` and `authority`, or `null` before triage, and
 `blocks`: `merge`, `release`, `none` for a date deadline, or `unknown`), the `decisions` the
 branch adds with their option, commit and `sources` (`journal`, `atom`, `trailer`), and
-`journal.ok` with the `violations` of the append-only rule. It exits 0 whenever it writes a
-report, whatever the report finds, and 1 only on its own errors: a `--base` that names no
-commit, no git repository, git or I/O failing, or a broken config. CI must have the base
+`journal.ok` with the `violations` of the append-only rule (committed files, and each journal
+ref's whole history), `read` (the files and refs it read) and `unreadable` (events this build
+cannot read, by type). It exits 0 whenever it writes a report, whatever the report finds, and 70
+when it cannot run: a `--base` that names no commit, no git repository, or git or I/O failing. CI must have the base
 commit, so check out with `fetch-depth: 0` or fetch the base first.
 
 ## Guards the CLI enforces

@@ -1,36 +1,65 @@
-//! `weighin ci-check --base <ref>`: the branch report CI reads (B-28). It reads only git and the
-//! checkout, never the ledger, since CI has none: the open items of the journals at head, the
-//! decisions the branch adds (from journals, atoms and trailers, each with its commit), and
-//! whether every complete journal line at base is still there at head. Its findings are data:
-//! it exits 0 whenever it writes a report, and 1 only on its own errors.
+//! `weighin ci-check --base <ref>`: the branch report CI reads (B-28), `weighin.ci-check/2`. It
+//! reads only git, the checkout and the clone's local journal refs, never a ledger or store,
+//! since CI has none, and it never fetches: the open items of the journals at head and of every
+//! journal source the clone holds, the decisions the branch adds (from journals, atoms and
+//! trailers, each with its commit), whether every complete journal line at base is still there
+//! at head, and whether each journal ref's history only appended. Its findings are data: it
+//! exits 0 whenever it writes a report, and 70 when it could not run (SPEC CLI-05, CLI-06).
+//!
+//! Ref events reach only the fold of open items, after every committed journal's (the older
+//! history), deduped with them by `journal::pool`. They have no place in the range, so they
+//! feed neither `closing`, `reopens` nor the decisions: an atom or trailer in the range still
+//! closes an item a ref reopened, a decision only a ref records is not listed, and an item a
+//! ref decided folds closed. Refs are the whole clone's, not one branch's (D2), and sources
+//! fold in ref-name order, not time order, as committed journals fold in file-name order.
 
 mod atom;
+mod emit;
+mod legacy;
+mod refs;
 mod report;
 mod trailer;
 mod verify;
 
 use anyhow::{Context as _, Result, anyhow};
+use redkiln_core::location::{GIT_TIMEOUT, Workspace};
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Write;
-use std::path::Path;
-use weighin_core::{EventEnvelope, ItemId, LedgerEvent};
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use weighin_contract::ci_check::v2::{Data, Read};
+use weighin_core::{ItemId, LedgerEvent};
 
+use self::legacy::{HeadJournals, check_base, tree_paths};
 use self::report::{Attested, Inputs, Source, When};
-use crate::env::Env;
+use crate::Globals;
 use crate::{git, journal};
-use weighin_contract::ci_check::Violation;
 
-/// Write the report on the branch at HEAD against `base`: JSON when `json`, else one summary
-/// line and a line per violation.
+/// Write the report on the branch at HEAD against `base`: the envelope when `json`, else one
+/// summary line and a line per violation; the exit code (0, 70 or 74).
+pub(crate) fn run(g: Globals, base: &str, json: bool) -> ExitCode {
+    let exit = match repo_root(g).and_then(|root| gather(&root, base)) {
+        Ok(data) => emit::write(&data, json),
+        Err(e) => emit::could_not_run(json, &e),
+    };
+    ExitCode::from(exit.code())
+}
+
+/// The worktree root of the folder the options name, as Core's bounded git finds it. No store
+/// is located: `--store` and the session are accepted and ignored, so Review's argv keeps
+/// working where no store could be located.
+fn repo_root(g: Globals) -> Result<PathBuf> {
+    let cwd = crate::working_dir(g.dir)?;
+    match Workspace::discover(&cwd, GIT_TIMEOUT).context("finding the git repository")? {
+        Workspace::Git { root, .. } => Ok(root),
+        Workspace::Folder(_) => Err(anyhow!("ci-check needs a git repository")),
+    }
+}
+
+/// The report on the branch at HEAD of `root` against `base`.
 ///
 /// # Errors
-/// Fails when the folder is not a git worktree, `base` names no commit, git fails, a journal or
-/// atom cannot be read, or `out` cannot be written.
-pub(crate) fn run(env: &Env, base: &str, json: bool, out: &mut impl Write) -> Result<()> {
-    let root = env
-        .repo_root
-        .as_deref()
-        .ok_or_else(|| anyhow!("ci-check needs a git repository"))?;
+/// `base` names no commit, git fails, or a journal or atom cannot be read.
+fn gather(root: &Path, base: &str) -> Result<Data> {
     let base_sha = commit(root, &format!("{base}^{{commit}}"))
         .with_context(|| format!("resolving --base {base}"))?;
     let head_sha = commit(root, "HEAD").context("resolving HEAD")?;
@@ -52,33 +81,36 @@ pub(crate) fn run(env: &Env, base: &str, json: bool, out: &mut impl Write) -> Re
             commit: Some(t.commit),
         });
     }
+    let refs = refs::read(root)?;
     let HeadJournals {
         files,
         mut violations,
     } = head;
-    let events = files
-        .into_iter()
-        .flat_map(|f| f.events.into_iter().map(|(_, e)| e))
-        .collect();
+    let mut paths = Vec::with_capacity(files.len());
+    let mut events = Vec::new();
+    for file in files {
+        paths.push(file.path);
+        events.extend(file.events.into_iter().map(|(_, e)| e));
+    }
+    // Committed journals first, the older history, then the refs in Core's order.
+    events.extend(refs.events);
     let ledger = journal::pool(Vec::new(), events)?;
     violations.extend(base_check.violations);
-    let report = report::build(Inputs {
+    violations.extend(refs.violations);
+    Ok(report::build(Inputs {
         base: &base_sha,
         head: &head_sha,
         ledger: &ledger,
         closing: &closing,
         reopens: &reopens,
         attested: &attested,
-        violations: &violations,
-    });
-    if json {
-        // Encoded first and written as text: serde's writer would hide a closed stdout inside
-        // its own error, and `report` would no longer tell it from a failure.
-        writeln!(out, "{}", serde_json::to_string(&report)?)?;
-    } else {
-        report::render_text(&report, out)?;
-    }
-    Ok(())
+        violations,
+        read: Read {
+            files: paths,
+            refs: refs.read,
+        },
+        unreadable: refs.unreadable,
+    }))
 }
 
 /// The range, `<base>..<head>` by full shas, and its commits in time order, so records can be
@@ -120,92 +152,6 @@ fn latest(map: &mut BTreeMap<ItemId, When>, id: ItemId, when: When) {
 fn commit(root: &Path, rev: &str) -> Result<String> {
     let sha = git::run(root, &["rev-parse", "--verify", "--end-of-options", rev])?;
     Ok(sha.trim().to_owned())
-}
-
-/// A journal in the checkout, decoded.
-struct HeadJournal {
-    path: String,
-    bytes: Vec<u8>,
-    events: Vec<(u64, EventEnvelope)>,
-}
-
-/// Every journal in the checkout, and the lines of them that are not events.
-struct HeadJournals {
-    files: Vec<HeadJournal>,
-    violations: Vec<Violation>,
-}
-
-impl HeadJournals {
-    fn read(root: &Path) -> Result<Self> {
-        let mut files = Vec::new();
-        let mut violations = Vec::new();
-        for f in journal::files(root)? {
-            let (events, bad) = verify::decode(&f.path, &f.bytes);
-            violations.extend(bad);
-            files.push(HeadJournal {
-                path: f.path,
-                bytes: f.bytes,
-                events,
-            });
-        }
-        Ok(Self { files, violations })
-    }
-
-    fn bytes_of(&self, path: &str) -> Option<&[u8]> {
-        self.files
-            .iter()
-            .find(|f| f.path == path)
-            .map(|f| f.bytes.as_slice())
-    }
-}
-
-/// The base journals' append-only violations, and the keys of every complete base line.
-struct BaseCheck {
-    violations: Vec<Violation>,
-    keys: HashSet<Vec<u8>>,
-}
-
-fn check_base(root: &Path, base_sha: &str, head: &HeadJournals) -> Result<BaseCheck> {
-    let mut check = BaseCheck {
-        violations: Vec::new(),
-        keys: HashSet::new(),
-    };
-    let dir = format!("{}/", journal::DIR);
-    for path in tree_paths(root, base_sha, &dir)? {
-        let is_journal = path
-            .strip_prefix(&dir)
-            // As `journal::files` picks them in the checkout.
-            .is_some_and(|name| {
-                !name.contains('/') && Path::new(name).extension().is_some_and(|x| x == "jsonl")
-            });
-        if !is_journal {
-            continue;
-        }
-        let base = git::output(root, &["show", &format!("{base_sha}:{path}")])
-            .with_context(|| format!("reading {path} at {base_sha}"))?;
-        check
-            .violations
-            .extend(verify::verify(&path, &base, head.bytes_of(&path)));
-        check.keys.extend(
-            journal::lines(&base)
-                .filter(|l| l.complete && !l.is_blank())
-                .map(|l| verify::key(l.text)),
-        );
-    }
-    Ok(check)
-}
-
-/// The paths of the files under `prefix` in the tree of `rev`.
-fn tree_paths(root: &Path, rev: &str, prefix: &str) -> Result<Vec<String>> {
-    let listed = git::run(
-        root,
-        &["ls-tree", "-r", "-z", "--name-only", rev, "--", prefix],
-    )?;
-    Ok(listed
-        .split('\0')
-        .filter(|p| !p.is_empty())
-        .map(str::to_owned)
-        .collect())
 }
 
 /// What the journals at head record beyond the folded items: each `item_decided` event no

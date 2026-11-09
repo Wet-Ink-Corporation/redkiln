@@ -11,6 +11,7 @@ mod annotate;
 mod atom_ids;
 mod board_guard;
 mod ci_check;
+mod ci_check_refs;
 mod cli;
 mod cli_conformance;
 mod core_store;
