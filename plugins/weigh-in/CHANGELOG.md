@@ -6,6 +6,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- The mod's band reads `weighin status --json`: when capture is off it says so with the first
+  error ("Weigh-In: capture is off: …"), and when Weigh-In is degraded it adds the number of
+  warnings to the counts ("· 2 warning(s): /wi status"), even with nothing open. `/wi status`
+  prints `weighin status`. With an older weighin that has no `status`, the band is as before.
 - `weighin status [--json]` says where the store is, its schema, the repository class and
   how Weigh-In is doing: `ok`, `degraded` (events this build cannot read, hook errors the next
   session start will report, a hook that died without finishing, a broken config) or `off` (no

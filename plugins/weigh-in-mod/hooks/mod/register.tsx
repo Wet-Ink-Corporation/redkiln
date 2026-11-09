@@ -3,7 +3,7 @@
 // decisions anchored at a file an edit just touched.
 //
 // The ledger has one writer, the weighin CLI: the mod reads `open --repo --json`, `digest
-// --json`, `board export --stdout` and `decisions --path <file> --json` from this plugin's own
+// --json`, `status --json`, `board export --stdout` and `decisions --path <file> --json` from this plugin's own
 // launcher, and writes only through `decide`, `defer`, `board apply --surface pane` and `batch`,
 // run by argv with no shell. It observes the events it hooks and returns every `next(e)` result
 // unchanged. Where no terminal or desktop draws (the VS Code panel, cloud sessions, Cowork,
@@ -39,6 +39,7 @@ const USAGE = [
   '  /wi open                     open items in this repository',
   '  /wi board                    the board pane: decide, defer or dismiss grounded cards',
   '  /wi stats                    the ledger\'s health numbers',
+  '  /wi status                   where the store is and whether capture works',
   '  /wi decide <id> <option> [note]',
   '  /wi decide <id>: <option> (note: …)',
   '  /wi defer <id> — trigger: …; resolve by: …; default: <X> (note: …)',
@@ -80,6 +81,51 @@ export function countsOf(openJson: string, digestJson: string): WeighCounts | nu
   }
 }
 
+/** The envelope `status --json` writes (SPEC CLI-12); the only one the band reads. */
+export const STATUS_SCHEMA = 'weighin.status/1'
+
+/** What `status --json` says that changes the band: capture is off (with the first error
+ * finding's message), or degraded (with its warning count). */
+export type Health = { health: 'ok' } | { health: 'degraded'; warnings: number } | { health: 'off'; why: string }
+
+/**
+ * Capture's health from `status --json`, or null when the document is not a `weighin.status/1`
+ * envelope with a known `health` and a findings list. Keys it does not know are ignored (CLI-04).
+ */
+export function healthOf(stdout: string): Health | null {
+  try {
+    const doc: unknown = JSON.parse(stdout)
+    if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return null
+    const { schema, data, findings } = doc as { schema?: unknown; data?: unknown; findings?: unknown }
+    if (schema !== STATUS_SCHEMA || typeof data !== 'object' || data === null || !Array.isArray(findings)) return null
+    const list: readonly unknown[] = findings
+    const health: unknown = (data as { health?: unknown }).health
+    const of = (severity: string) =>
+      list.filter((f): f is { message?: unknown } => (f as { severity?: unknown } | null)?.severity === severity)
+    switch (health) {
+      case 'ok':
+        return { health: 'ok' }
+      case 'degraded':
+        return { health: 'degraded', warnings: of('warning').length }
+      case 'off': {
+        const message = of('error').map(f => f.message).find((m): m is string => typeof m === 'string')
+        return { health: 'off', why: firstLine(message ?? '') || 'run /wi status to see why' }
+      }
+      default:
+        return null
+    }
+  } catch {
+    return null
+  }
+}
+
+/** The health a `status --json` run gave, or null when it did not run, failed (an older weighin
+ * has no `status`) or printed what this mod does not read: the band is then drawn as before. */
+function healthOfRun(run: Run): Health | null {
+  if (run.kind !== 'ran' || run.result.exitCode !== 0 || run.result.isStdoutTruncated) return null
+  return healthOf(run.result.stdout)
+}
+
 /** The item's door as triaged, else as raised: `Item::door` in weighin-core. */
 function doorOf(item: unknown): unknown {
   const i = item as { door?: unknown; door_hint?: unknown } | null
@@ -95,12 +141,23 @@ function failure(run: Run): WeighView {
   return { kind: 'unavailable', line: `Weigh-In: ledger unavailable: ${why.replace(/^weighin:\s*/, '')}` }
 }
 
-/** One refresh: both documents, read side by side. */
+/** One refresh: the three documents, read side by side. Capture being off says more than the
+ * counts or their failure; a degraded health adds its warnings to the counts. */
 async function readView($: EngineInterface): Promise<WeighView> {
-  const [open, digest] = await Promise.all([
+  const [open, digest, status] = await Promise.all([
     weighin($, ['open', '--repo', '--json', '--top', ALL], REFRESH_TIMEOUT_MS),
     weighin($, ['digest', '--json'], REFRESH_TIMEOUT_MS),
+    weighin($, ['status', '--json'], REFRESH_TIMEOUT_MS),
   ])
+  const health = healthOfRun(status)
+  if (health?.health === 'off') return { kind: 'off', line: `Weigh-In: capture is off: ${health.why}` }
+  const counted = countsView(open, digest)
+  if (counted.kind !== 'counts' || health?.health !== 'degraded') return counted
+  return { ...counted, warnings: health.warnings }
+}
+
+/** The counts from `open` and `digest`, or the band's line for why they could not be read. */
+function countsView(open: Run, digest: Run): WeighView {
   if (open.kind !== 'ran' || open.result.exitCode !== 0) return failure(open)
   if (digest.kind !== 'ran' || digest.result.exitCode !== 0) return failure(digest)
   if (open.result.isStdoutTruncated || digest.result.isStdoutTruncated) {
@@ -130,8 +187,8 @@ async function registerCommand($: EngineInterface): Promise<void> {
   commandRegistered = true
   await $.command.register({
     name: 'wi',
-    description: 'Weigh-In ledger: open, stats, the board pane, decide or defer an item, with no Claude turn',
-    argumentHint: 'open | stats | board | decide <id> <option> [note] | defer <id> — trigger: …; resolve by: …; default: <X>',
+    description: 'Weigh-In ledger: open, stats, status, the board pane, decide or defer an item, with no Claude turn',
+    argumentHint: 'open | stats | status | board | decide <id> <option> [note] | defer <id> — trigger: …; resolve by: …; default: <X>',
   })
 }
 
@@ -145,6 +202,8 @@ export function commandArgs(input: string): { args: string[] } | { board: true }
       return rest.length === 0 ? { args: ['open', '--repo'] } : { usage: USAGE }
     case 'stats':
       return rest.length === 0 ? { args: ['stats'] } : { usage: USAGE }
+    case 'status':
+      return rest.length === 0 ? { args: ['status'] } : { usage: USAGE }
     case 'board':
       return rest.length === 0 ? { board: true } : { usage: USAGE }
     case 'decide':
@@ -201,11 +260,16 @@ export function answer(run: Run, isWrite = false): { text: string; exitCode?: nu
   return { text, exitCode: Math.min(255, Math.max(1, Math.trunc(exitCode))) }
 }
 
+/** What a degraded health adds to the counts line; nothing when there are no warnings. */
+export function warningsSuffix(warnings = 0): string {
+  return warnings > 0 ? ` · ${warnings} warning(s): /wi status` : ''
+}
+
 /** The band's line, fitted to `columns`, or null when it has no room. `button` is the room the
- * buttons after it take. */
-export function bandLine(c: WeighCounts, columns: number, button: number): string | null {
-  const full = `Weigh-In · ${c.open} open here · ${c.oneWay} one-way · ${c.defaults} defaults`
-  const short = `Weigh-In · ${c.open} open · ${c.oneWay} 1-way · ${c.defaults} dflt`
+ * buttons after it take; `warnings`, a degraded health's count, goes after the counts. */
+export function bandLine(c: WeighCounts, columns: number, button: number, warnings = 0): string | null {
+  const full = statusLine(c, warnings)
+  const short = `Weigh-In · ${c.open} open · ${c.oneWay} 1-way · ${c.defaults} dflt${warningsSuffix(warnings)}`
   for (const line of [full, short]) {
     if (line.length + button <= columns) return line
   }
@@ -213,8 +277,8 @@ export function bandLine(c: WeighCounts, columns: number, button: number): strin
 }
 
 /** The status entry: the full line, where the band has no room for it. */
-export function statusLine(c: WeighCounts): string {
-  return `Weigh-In · ${c.open} open here · ${c.oneWay} one-way · ${c.defaults} defaults`
+export function statusLine(c: WeighCounts, warnings = 0): string {
+  return `Weigh-In · ${c.open} open here · ${c.oneWay} one-way · ${c.defaults} defaults${warningsSuffix(warnings)}`
 }
 
 /** Asks for (or withdraws) the status entry for one surface; shows it while any surface asks. */
@@ -391,7 +455,8 @@ export const register: Register = on => {
     if (off || !DRAWS.has(e.surface)) return next(e)
     const v = await read($, view)
     const a = e.props.hasSurvey ? null : await read($, anchored)
-    if (v === null || (v.kind === 'counts' && v.counts.open === 0 && v.counts.defaults === 0)) {
+    // Nothing to show at zero, unless a degraded health has warnings to point at.
+    if (v === null || (v.kind === 'counts' && v.counts.open === 0 && v.counts.defaults === 0 && !(v.warnings ?? 0))) {
       wantStatus($, e.surface, undefined)
       if (a === null) return next(e)
       const { Box, Text } = $.ui.resolve(e)
@@ -411,9 +476,9 @@ export const register: Register = on => {
         </Box>
       )
     }
-    const line = e.props.hasSurvey ? null : bandLine(v.counts, e.props.bodyColumns, BUTTONS_WIDTH)
+    const line = e.props.hasSurvey ? null : bandLine(v.counts, e.props.bodyColumns, BUTTONS_WIDTH, v.warnings)
     if (line === null) {
-      wantStatus($, e.surface, statusLine(v.counts))
+      wantStatus($, e.surface, statusLine(v.counts, v.warnings))
       return next(e)
     }
     wantStatus($, e.surface, undefined)

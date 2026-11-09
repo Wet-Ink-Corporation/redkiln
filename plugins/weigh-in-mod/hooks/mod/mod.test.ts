@@ -1,7 +1,8 @@
 // Weigh-In mod (#114-#116), under `claude plugin test plugin-mod`. The test's own hooks answer
 // `$.process.run` (the weighin launcher), `$.session.*`, `$.env.get`, `$.ui.open` and the tool
 // beneath `tool.call`, so no process runs: each case hands the mod what `open --repo --json`,
-// `digest --json`, `board export --stdout` and `decisions --json` print and reads what it draws.
+// `digest --json`, `status --json`, `board export --stdout` and `decisions --json` print and reads
+// what it draws.
 import { expect, mock, test } from 'claude-code/testing'
 import type { On, RenderSurface } from 'claude-code'
 
@@ -19,7 +20,27 @@ const dflt = (id: string, acknowledged = false) => ({ id, status: 'defaulted', d
 const OPEN3 = JSON.stringify([item('wi-000001', 'one-way'), item('wi-000002', null, 'one-way'), item('wi-000003', 'two-way', 'one-way')])
 const DIGEST = (defaults: unknown[] = []) => JSON.stringify({ defaults, untriaged_from_other_sessions: [] })
 
-type Out = { exitCode?: number; stdout?: string; stderr?: string }
+type Out = { exitCode?: number; stdout?: string; stderr?: string; isStdoutTruncated?: boolean }
+
+/** `status --json` as weighin writes it: the goldens `spec/fixtures/status/valid/weighin-ok.json`
+ * and `weighin-off.json`, and a degraded one built the same way. */
+const STATUS_DATA = {
+  plugin: 'rk-weigh-in', version: '2.0.0', spec: '1.0.0', store: '/work/repo/.git/redkiln/events.sqlite3', store_source: 'git_common_dir',
+  store_schema: '1.0', repo_class: 'own', unreadable: {}, dropped: 0, health: 'ok', hook_errors: 0, hooks: { Stop: { state: 'finished', at: '2026-11-08T09:00:00Z' } },
+}
+const STATUS = (data: Record<string, unknown> = {}, findings: unknown[] = [], over: Record<string, unknown> = {}) =>
+  JSON.stringify({ schema: 'weighin.status/1', ok: true, command: 'status', data: { ...STATUS_DATA, ...data }, findings, ...over })
+const STATUS_OK = STATUS()
+const UNLOCATED = 'locating the store: the store path from env starts `~/`, and there is no home directory'
+const STATUS_OFF = STATUS(
+  { store: null, store_source: null, store_schema: null, repo_class: 'client', health: 'off', hooks: {} },
+  [{ key: 'store/unlocated', message: UNLOCATED, severity: 'error' }],
+)
+const STATUS_DEGRADED = STATUS({ health: 'degraded', hook_errors: 2 }, [
+  { key: 'legacy/due', message: '1 weighin 1.x ledger(s) and 0 1.x journal(s) wait for the one-time import, which the next weighin command or session start runs', severity: 'note' },
+  { key: 'hooks/errors', message: '2 hook error(s) since the last session start, so capture may be off. Last: Stop: disk full', severity: 'warning' },
+  { key: 'hooks/lost:Stop', message: 'Stop: ended without finishing', severity: 'warning' },
+])
 type Answer = (argv: string[], stdin?: string) => Out | Error
 
 const DOOR_NOTE = 'a schema other services read'
@@ -67,7 +88,7 @@ const PANE = {
 
 /** The world beneath the mod: the CLI's answers, the session, the environment; records each run. */
 type World = {
-  answer?: Answer; open?: string; digest?: string; surfaces?: RenderSurface[]; env?: Record<string, string>
+  answer?: Answer; open?: string; digest?: string; status?: Out; surfaces?: RenderSurface[]; env?: Record<string, string>
   board?: Out; decisions?: string; isPlaced?: boolean; tool?: () => unknown
   /** Holds a run before it answers: a slow CLI. */
   wait?: (argv: string[]) => Promise<void> | undefined
@@ -86,6 +107,7 @@ function world(on: On, opts: World = {}) {
   const answer: Answer = opts.answer ?? (argv => {
     if (argv.includes('export')) return opts.board ?? { stdout: BOARD() }
     if (argv.includes('decisions')) return { stdout: opts.decisions ?? '[]' }
+    if (argv.includes('status') && argv.includes('--json')) return opts.status ?? { stdout: STATUS_OK }
     if (argv.includes('open') && argv.includes('--json')) return { stdout: opts.open ?? OPEN3 }
     if (argv.includes('digest')) return { stdout: opts.digest ?? DIGEST([dflt('wi-000009'), dflt('wi-00000a'), dflt('wi-00000b', true)]) }
     return { stdout: '' }
@@ -97,7 +119,7 @@ function world(on: On, opts: World = {}) {
     await opts.wait?.(argv)
     const out = answer(argv, e.init?.stdin)
     if (out instanceof Error) return { deny: out.message } as any
-    return { value: { exitCode: out.exitCode ?? 0, stdout: out.stdout ?? '', stderr: out.stderr ?? '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: out.exitCode ?? 0, stdout: out.stdout ?? '', stderr: out.stderr ?? '', isStdoutTruncated: out.isStdoutTruncated ?? false, isStderrTruncated: false } }
   })
   on('session.surfaces', async () => ({ value: opts.surfaces ?? ['terminal'] }) as any)
   on('session.id', async () => ({ value: 'test-session' }) as any)
@@ -164,13 +186,13 @@ for (const surface of SURFACES) {
     expect(w.submits).toHaveLength(1)
     expect(w.submits[0]).toMatchObject({ command: 'weigh-in', args: '' })
     await ui.unmount()
-    // One refresh: both documents, with the skill's `W` globals, through this plugin's launcher.
-    expect(w.runs).toHaveLength(2)
+    // One refresh: the three documents, with the skill's `W` globals, through this plugin's launcher.
+    expect(w.runs).toHaveLength(3)
     for (const run of w.runs) {
       expect(run[0]).toMatch(/\/libexec\/weighin$/)
       expect(run.slice(1, 5)).toEqual(['--session', 'test-session', '--dir', '/w'])
     }
-    expect(w.runs.map(r => r.slice(5, 8))).toEqual([['open', '--repo', '--json'], ['digest', '--json']])
+    expect(w.runs.map(r => r.slice(5, 8))).toEqual([['open', '--repo', '--json'], ['digest', '--json'], ['status', '--json']])
     expect(w.runs[0]?.slice(8, 9)).toEqual(['--top'])
     expect(w.commands).toEqual(['wi'])
     // The start clears a status entry a previous load of the module left up, and asks for none.
@@ -239,22 +261,128 @@ for (const surface of SURFACES) {
   })
 }
 
+// Capture's health from `status --json` (step 6f): `off` replaces the band with its first error,
+// `degraded` adds its warning count to the counts; `ok`, and a status that fails to run or parse
+// (an older weighin has no `status`), leave the band as it was.
+
+const COUNTS = 'Weigh-In · 3 open here · 2 one-way · 2 defaults'
+const WARNED = `${COUNTS} · 2 warning(s): /wi status`
+
+for (const surface of SURFACES) {
+  test(`band on ${surface}: status off says capture is off, with its first error`, async ($, on) => {
+    world(on, { surfaces: [surface], status: { stdout: STATUS_OFF } })
+    await start($, surface)
+    const { ui, texts, sit } = await band($, surface)
+    expect(texts).toBe(`Weigh-In: capture is off: ${UNLOCATED}`)
+    expect(sit).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`band on ${surface}: status degraded adds its warnings to the counts`, async ($, on) => {
+    const w = world(on, { surfaces: [surface], status: { stdout: STATUS_DEGRADED } })
+    await start($, surface)
+    const { ui, texts, sit } = await band($, surface)
+    expect(texts).toBe(`${WARNED}  `)
+    expect(sit?.text).toContain('Sit')
+    await ui.unmount()
+    expect(w.status).toEqual([undefined])
+  })
+}
+
+test('status off wins over a failing open: the band says capture is off, not the ledger error', async ($, on) => {
+  const first = 'locating the store: no git repository and no folder store'
+  world(on, {
+    answer: argv => argv.includes('status')
+      ? { stdout: STATUS({ health: 'off' }, [{ key: 'config/broken', message: 'a later warning', severity: 'warning' }, { key: 'store/unlocated', message: first, severity: 'error' }, { key: 'store/refused', message: 'second', severity: 'error' }]) }
+      : { exitCode: 1, stderr: `weighin: ${first}\n` },
+  })
+  await start($)
+  expect(await bandText($, 'terminal')).toBe(`Weigh-In: capture is off: ${first}`)
+})
+
+test('status off with no error finding still says capture is off, and where to look', async ($, on) => {
+  world(on, { status: { stdout: STATUS({ health: 'off' }) } })
+  await start($)
+  expect(await bandText($, 'terminal')).toBe('Weigh-In: capture is off: run /wi status to see why')
+})
+
+test('status off under a survey goes to the status entry, as other band lines do', async ($, on) => {
+  const w = world(on, { status: { stdout: STATUS_OFF } })
+  await start($)
+  expect(await bandText($, 'terminal', { hasSurvey: true })).toBe('')
+  expect(w.status).toEqual([undefined, `Weigh-In: capture is off: ${UNLOCATED}`])
+})
+
+test('status degraded: narrow, the short line keeps the warnings; too narrow, the status entry carries them', async ($, on) => {
+  const w = world(on, { status: { stdout: STATUS_DEGRADED } })
+  await start($)
+  expect(await bandText($, 'terminal', { bodyColumns: 90 })).toBe('Weigh-In · 3 open · 2 1-way · 2 dflt · 2 warning(s): /wi status  ')
+  expect(await bandText($, 'terminal', { bodyColumns: 40 })).toBe('')
+  expect(w.status).toEqual([undefined, WARNED])
+})
+
+test('status degraded with nothing open still draws the band, so the warnings are seen', async ($, on) => {
+  world(on, { open: '[]', digest: DIGEST(), status: { stdout: STATUS(
+    { health: 'degraded' }, [{ key: 'events/unreadable', message: '1 event(s) in the store are of a form this weighin cannot read', severity: 'warning' }],
+  ) } })
+  await start($)
+  expect(await bandText($, 'terminal')).toBe('Weigh-In · 0 open here · 0 one-way · 0 defaults · 1 warning(s): /wi status  ')
+})
+
+test('status degraded does not hide a failing open: the ledger error stands', async ($, on) => {
+  world(on, { answer: argv => (argv.includes('status') ? { stdout: STATUS_DEGRADED } : { exitCode: 1, stderr: 'weighin: the store is busy\n' }) })
+  await start($)
+  expect(await bandText($, 'terminal')).toBe('Weigh-In: ledger unavailable: the store is busy')
+})
+
+test('status ok leaves the band as it was, later keys and all (CLI-04)', async ($, on) => {
+  world(on, { status: { stdout: STATUS({ later_key: { any: 'shape' } }, [{ key: 'legacy/due', message: 'a note', severity: 'note', later: 1 }], { proves: 'later envelope key' }) } })
+  await start($)
+  expect(await bandText($, 'terminal')).toBe(`${COUNTS}  `)
+})
+
+const LEFT_ALONE: [string, Out | Error][] = [
+  ['does not parse', { stdout: '{ not json' }],
+  ['is not an object', { stdout: '[]' }],
+  ['is another schema', { stdout: STATUS({ health: 'off' }, [{ key: 'store/unlocated', message: UNLOCATED, severity: 'error' }], { schema: 'weighin.status/2' }) }],
+  ['has an unknown health', { stdout: STATUS({ health: 'broken' }) }],
+  ['has no health', { stdout: STATUS({ health: undefined }) }],
+  ['has no findings list', { stdout: STATUS({ health: 'off' }, [], { findings: null }) }],
+  ['exits non-zero though it printed off', { exitCode: 1, stdout: STATUS_OFF }],
+  ['was truncated', { stdout: STATUS_OFF, isStdoutTruncated: true }],
+  ['comes from an older weighin without status (exit 2)', { exitCode: 2, stderr: "error: unrecognized subcommand 'status'\n\nUsage: weighin [OPTIONS] <COMMAND>\n" }],
+  ['cannot start', new Error('spawn EAGAIN')],
+  ['timed out', new Error('process timed out after 10000 ms')],
+]
+
+for (const [what, out] of LEFT_ALONE) {
+  test(`status that ${what} leaves the band as it was`, async ($, on) => {
+    const w = world(on, { answer: argv => {
+      if (argv.includes('status')) return out
+      return argv.includes('digest') ? { stdout: DIGEST([dflt('wi-000009'), dflt('wi-00000a')]) } : { stdout: OPEN3 }
+    } })
+    await start($)
+    expect(await bandText($, 'terminal')).toBe(`${COUNTS}  `)
+    expect(w.logs).toEqual([])
+  })
+}
+
 test('a turn ending refreshes once; the same turn again, and a subagent turn, do not', async ($, on) => {
   const clock = mock.clock(on)
   let open = OPEN3
   const w = world(on, { answer: argv => (argv.includes('digest') ? { stdout: DIGEST() } : { stdout: open }) })
   await start($)
-  expect(w.runs).toHaveLength(2)
+  expect(w.runs).toHaveLength(3)
   expect(await bandText($, 'terminal')).toContain('3 open here')
   open = JSON.stringify([item('wi-000001', 'one-way')])
   await turnEnd($, clock, 't1')
-  expect(w.runs).toHaveLength(4)
+  expect(w.runs).toHaveLength(6)
   expect(await bandText($, 'terminal')).toContain('1 open here · 1 one-way · 0 defaults')
   await turnEnd($, clock, 't1')
   await turnEnd($, clock, 's1', 'agent-1')
-  expect(w.runs).toHaveLength(4)
-  await turnEnd($, clock, 't2')
   expect(w.runs).toHaveLength(6)
+  await turnEnd($, clock, 't2')
+  expect(w.runs).toHaveLength(9)
 })
 
 test('WEIGHIN_MOD=0: nothing registered, run or drawn', async ($, on) => {
@@ -304,7 +432,7 @@ test('a desktop client attaching after the start registers /wi and draws the ban
   await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
   await clock.advance(0)
   expect(commands).toEqual(['wi'])
-  expect(runs).toHaveLength(2)
+  expect(runs).toHaveLength(3)
   expect(await bandText($, 'desktop')).toContain('3 open here')
 })
 
@@ -327,6 +455,7 @@ test('on Windows the launcher is libexec/weighin.exe, else libexec/weighin.cmd',
 const COMMANDS: [string, string, string[]][] = [
   ['open', 'open', ['open', '--repo']],
   ['stats', 'stats', ['stats']],
+  ['status', 'status', ['status']],
   ['decide, plain', 'decide wi-562c91 A', ['decide', '--', 'wi-562c91', 'A']],
   ['decide with a note', 'decide wi-562c91 B keep it short; "quoted" $(not run)', ['decide', '--note=keep it short; "quoted" $(not run)', '--', 'wi-562c91', 'B']],
   ['decide as the board copies it', 'decide wi-562c91: A (note: short ttl (for now))', ['decide', '--note=short ttl (for now)', '--', 'wi-562c91', 'A']],
@@ -355,7 +484,7 @@ for (const [what, args, argv] of COMMANDS) {
     expect(run?.[0]).toMatch(/\/libexec\/weighin$/)
     expect(run?.slice(1)).toEqual(['--session', 'test-session', '--dir', '/w', ...argv])
     // A decision or deferral changes the counts: the band refreshes once after it.
-    const refreshed = argv[0] === 'decide' || argv[0] === 'defer' ? 2 : 0
+    const refreshed = argv[0] === 'decide' || argv[0] === 'defer' ? 3 : 0
     expect(w.runs.length - before).toBe(1 + refreshed)
   })
 }
@@ -386,7 +515,7 @@ test('/wi whose spawn cannot start says so', async ($, on) => {
   expect(out.exitCode).toBe(1)
 })
 
-for (const args of ['', 'help', 'open --all', 'decide wi-1', 'defer wi-1 tomorrow', 'board now']) {
+for (const args of ['', 'help', 'open --all', 'status --json', 'decide wi-1', 'defer wi-1 tomorrow', 'board now']) {
   test(`/wi ${args || '(nothing)'}: the usage, and nothing run`, async ($, on) => {
     const w = world(on)
     await start($)
@@ -520,7 +649,7 @@ test('pane: an option button writes a choose Answer with its note and card_rev, 
   expect(w.runs[before]?.slice(1, 5)).toEqual(['--session', 'test-session', '--dir', '/w'])
   expect(w.stdins[before]).toBe('{"item_id":"wi-aaaaa1","action":"choose","option":"B","card_rev":2,"note":"one node for now"}')
   // Then the pane's two documents, and the band's.
-  expect(runs.slice(1).map(r => r?.slice(0, 2).join(' ')).sort()).toEqual(['board export', 'digest --json', 'open --repo', 'open --repo'])
+  expect(runs.slice(1).map(r => r?.slice(0, 2).join(' ')).sort()).toEqual(['board export', 'digest --json', 'open --repo', 'open --repo', 'status --json'])
   expect(await texts(ui)).toContain('✓ decided wi-aaaaa1 → B (override)')
   expect((await ui.find({ type: 'Text', text: '✓ decided wi-aaaaa1' }))?.props.color).toBe('success')
   await ui.unmount()
@@ -915,7 +1044,7 @@ test('/wi decide that timed out says it may have been applied, and the band is r
   await start($)
   const before = w.runs.length
   expect(await wi($, 'decide wi-1 A')).toEqual({ text: 'Weigh-In: weighin timed out; the answer may have been applied', exitCode: 1 })
-  expect(w.runs.length - before).toBe(3)
+  expect(w.runs.length - before).toBe(4)
 })
 
 test('pane: the defer form pre-selects the default where the card pre-selects its pick', async ($, on) => {
