@@ -6,7 +6,7 @@
 | --- | --- |
 | [README.md](README.md) | Gate status, corrections to the frozen plan, open calls |
 | [move-1-weigh-in.md](move-1-weigh-in.md) | The Move 1 runbook: Weigh-In 1.2.0 into `rk-weigh-in` 2.0.0, with `redkiln-core` extracted from its store |
-| [move-2-bench.md](move-2-bench.md) | The Move 2 runbook: anneal into `rk-bench` and `rk-bench-cockpit`, Core and SPEC 1.0, the guard, github and calibrate kits; written from anneal's import manifest, since anneal is frozen |
+| [move-2-bench.md](move-2-bench.md) | The Move 2 runbook: anneal into `rk-bench` and `rk-bench-cockpit`, Core and SPEC 1.0, the guard and github kits and `redkiln-calibrate`; written from anneal's import manifest, since anneal is frozen |
 | [move-3-review.md](move-3-review.md) | Draft Move 3 runbook: assay into `rk-review` and `deploy/review/`, written early because assay finished its preparation and is frozen |
 | [rust-2.md](rust-2.md) | Draft Redkiln Rust 2.0 runbook: temper's import and port, beside temper's own import manifest (`docs/plans/redkiln-move.md` there) |
 
