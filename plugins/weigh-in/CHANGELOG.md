@@ -4,7 +4,14 @@ One section per release, newest first. The release workflow publishes the sectio
 tagged version as the release notes and fails when it is missing, so add it in the commit that
 bumps the version. Keep an `Unreleased` section at the top while work lands on `main`.
 
-## Unreleased
+## 2.0.0 (2026-11-09)
+
+The first release from the redkiln monorepo, as `rk-weigh-in` and `rk-weigh-in-mod` in the
+`Wet-Ink-Corporation/redkiln-plugins` release repository. The ledger moves into the suite's
+store and a 1.x ledger and its committed journals are imported once, untouched; sessions keep
+their journals in `refs/redkiln/journal/<session>` instead of committed files. The skill is
+still `/weigh-in` and the binary still `weighin`. 1.x's `weigh` and `weigh-mod` stay in the
+release repository until 1.x retires; install one or the other, not both.
 
 - Releases come from `Wet-Ink-Corporation/redkiln` under `rk-weigh-in--v<version>`, and install from
   `Wet-Ink-Corporation/redkiln-plugins`. In Cowork the skill downloads the Linux binary from that
