@@ -13,7 +13,9 @@
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
 //! hook exits 0. A failing hook also says so in its own output (CLI-09, [`Hook::note`]), and the
-//! adapter tells output it could not write in one line on stderr. A store path the user gave
+//! adapter tells output it could not write in one line on stderr. A hook of a registered event
+//! keeps a heartbeat while it runs (`heartbeat`, HK-5), so the next hook logs one its timeout
+//! killed or that was interrupted. A store path the user gave
 //! that Core refuses (a 1.x ledger, another program's database) gets nothing beside it: its
 //! refusal goes to the default store's state dir,
 //! `<git-common-dir>/redkiln/weighin/` (outside git nowhere), and `SessionStart` reports it.
@@ -32,13 +34,14 @@
 
 mod errors;
 mod failures;
+mod heartbeat;
 mod session_start;
 mod turn;
 
 use anyhow::Result;
 use redkiln_core::store::Wait;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{Env, Vars};
@@ -189,7 +192,7 @@ pub(crate) fn serve(hook: &Hook, unread: Option<anyhow::Error>) -> HookOutput {
             failures.push(&e, Logged::Not(why.to_owned()));
         }
     }
-    let mut output = hook.run(&mut failures);
+    let mut output = heartbeat::around(hook, &mut failures, |failures| hook.run(failures));
     if let Some(note) = hook.note(&failures) {
         output.message = Some(match output.message {
             Some(message) => format!("{message} {note}"),
@@ -210,6 +213,9 @@ pub(crate) struct Hook {
     cowork: bool,
     /// When the hook started: the Stop hook's journal export is budgeted from here.
     started: Instant,
+    /// The harness's timeout for the hook's event, which its heartbeat records (HK-5); `None`
+    /// keeps no heartbeat.
+    timeout: Option<Duration>,
 }
 
 impl Hook {
@@ -221,7 +227,14 @@ impl Hook {
             env,
             cowork,
             started,
+            timeout: None,
         }
+    }
+
+    /// This hook, with `timeout` the harness's timeout for its event (HK-5).
+    #[must_use]
+    pub(crate) fn timed(self, timeout: Option<Duration>) -> Self {
+        Self { timeout, ..self }
     }
 
     /// This hook, with `named` the event the harness named outside the payload.

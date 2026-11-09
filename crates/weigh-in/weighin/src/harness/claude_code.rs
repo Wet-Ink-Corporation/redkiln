@@ -22,7 +22,7 @@
 use serde_json::{Map, Value};
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::env::{Harness, Vars};
 use crate::hooks::{
@@ -79,10 +79,36 @@ pub(crate) fn entry(
         session,
     } = input_of(payload);
     let env = hooks::discover(cwd.as_deref(), session, Vars::from_process());
-    let hook =
-        Hook::new(event, env, detect() == Harness::Cowork, started).named(named.map(str::to_owned));
+    let timeout = timeout(&event);
+    let hook = Hook::new(event, env, detect() == Harness::Cowork, started)
+        .named(named.map(str::to_owned))
+        .timed(timeout);
     respond(&hook, unread, output, errors);
 }
+
+/// The timeout `hooks.json` gives `event`, which its heartbeat records (HK-5); `None` for an
+/// event weighin is not registered for.
+fn timeout(event: &HookEvent) -> Option<Duration> {
+    match event {
+        HookEvent::SessionStart { .. } => Some(SESSION_START_TIMEOUT),
+        HookEvent::Stop(_) => Some(STOP_TIMEOUT),
+        HookEvent::SubagentStop(_) => Some(SUBAGENT_STOP_TIMEOUT),
+        HookEvent::PostToolUse(_) => Some(POST_TOOL_USE_TIMEOUT),
+        HookEvent::Other(_) | HookEvent::Unnamed => None,
+    }
+}
+
+/// `SessionStart`'s timeout in `hooks.json`; `Budget::SESSION_START` ends inside it.
+const SESSION_START_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// `Stop`'s timeout in `hooks.json`; `Budget::STOP` ends inside it.
+const STOP_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// `SubagentStop`'s timeout in `hooks.json`.
+const SUBAGENT_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// `PostToolUse`'s timeout in `hooks.json`.
+const POST_TOOL_USE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How much of stdin a hook reads, by the event named on the command line, which is known before
 /// the payload is read (HK-6, decision D9): a session start's payload is small, a turn's last

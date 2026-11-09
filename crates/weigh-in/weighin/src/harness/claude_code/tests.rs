@@ -1,4 +1,4 @@
-use super::{Cap, Form, harness_of, input_of, read_payload, render, respond};
+use super::{Cap, Form, harness_of, input_of, read_payload, render, respond, timeout};
 use crate::env::{Env, Harness, Vars};
 use crate::git;
 use crate::hooks::{Hook, HookEvent, HookInput, HookOutput, Tool, ToolWrite, Turn, discover};
@@ -305,6 +305,39 @@ fn input_of_the_null_payload_or_an_empty_event_is_unnamed() {
             HookEvent::Unnamed
         )
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "reads hooks.json through the file system")]
+fn the_timeouts_match_hooks_json() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("..")
+        .join("plugins")
+        .join("weigh-in")
+        .join("hooks")
+        .join("hooks.json");
+    let hooks: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).expect("hooks.json readable"))
+            .expect("hooks.json is JSON");
+    let turn = || Turn {
+        message: String::new(),
+        agent: None,
+    };
+    let events = [
+        ("SessionStart", HookEvent::SessionStart { source: None }),
+        ("Stop", HookEvent::Stop(turn())),
+        ("SubagentStop", HookEvent::SubagentStop(turn())),
+        ("PostToolUse", HookEvent::PostToolUse(None)),
+    ];
+    for (name, event) in events {
+        let registered = hooks["hooks"][name][0]["hooks"][0]["timeout"].as_u64();
+
+        assert_eq!(timeout(&event).map(|t| t.as_secs()), registered, "{name}");
+    }
+    assert_eq!(timeout(&HookEvent::Other("Notification".to_owned())), None);
+    assert_eq!(timeout(&HookEvent::Unnamed), None);
 }
 
 #[test]
