@@ -8,6 +8,8 @@
 mod annotate;
 mod ci;
 mod cli_envelope;
+#[cfg(test)]
+mod cli_pin;
 mod commands;
 mod context;
 mod env;
