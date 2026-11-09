@@ -16,6 +16,7 @@ mod cli_conformance;
 mod core_store;
 mod decision_request;
 mod eval_seed;
+mod heartbeat;
 mod hook_notes;
 mod journal;
 mod journal_hooks;

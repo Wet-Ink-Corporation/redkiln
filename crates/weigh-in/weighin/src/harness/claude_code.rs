@@ -22,7 +22,7 @@
 use serde_json::{Map, Value};
 use std::io::{self, ErrorKind, Read, Write};
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::env::{Harness, Vars};
 use crate::hooks::{
@@ -79,9 +79,24 @@ pub(crate) fn entry(
         session,
     } = input_of(payload);
     let env = hooks::discover(cwd.as_deref(), session, Vars::from_process());
-    let hook =
-        Hook::new(event, env, detect() == Harness::Cowork, started).named(named.map(str::to_owned));
+    let timeout = timeout(&event);
+    let hook = Hook::new(event, env, detect() == Harness::Cowork, started)
+        .named(named.map(str::to_owned))
+        .timed(timeout);
     respond(&hook, unread, output, errors);
+}
+
+/// The timeout `hooks.json` gives `event`, which its heartbeat records (HK-5); `None` for an
+/// event weighin is not registered for.
+fn timeout(event: &HookEvent) -> Option<Duration> {
+    let secs = match event {
+        HookEvent::Stop(_) => 20,
+        HookEvent::SessionStart { .. } | HookEvent::SubagentStop(_) | HookEvent::PostToolUse(_) => {
+            10
+        }
+        HookEvent::Other(_) | HookEvent::Unnamed => return None,
+    };
+    Some(Duration::from_secs(secs))
 }
 
 /// How much of stdin a hook reads, by the event named on the command line, which is known before
