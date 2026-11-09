@@ -11,7 +11,8 @@ pub const BINARY: &str = "weighin";
 /// Every subcommand path `weighin` accepts, sorted, words separated by one space.
 ///
 /// A command with subcommands under it is listed itself only when it runs without one, so
-/// `journal` is listed and `board` is not. clap's generated `help` is not listed.
+/// `journal` is listed and `board` is not. clap's generated `help` is not listed; xtask's check
+/// lets it through for every binary.
 pub const COMMANDS: &[&str] = &[
     "batch",
     "board apply",

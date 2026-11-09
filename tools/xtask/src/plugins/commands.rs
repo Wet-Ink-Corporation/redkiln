@@ -9,7 +9,11 @@
 //! holds in the whole file). After the invocation, a value option and the token after it, and any
 //! other token starting with `-`, are skipped; the next token, if it is a lowercase word, is the
 //! command. When the list has paths under that word and the token after it is a word too, the two
-//! words must be a listed path; otherwise the one word must be.
+//! words must be a listed path; otherwise the one word must be. clap's generated `help` passes.
+//!
+//! A fenced block opens on three or more backticks or tildes (a backtick fence's info string
+//! holds no backtick) and closes only on a run of the same character at least as long, with
+//! nothing after it, so a shorter fence inside it is code.
 //!
 //! Not read: the mod's argv arrays in TypeScript, which its own plugin tests pin.
 
@@ -17,6 +21,9 @@ use super::{Plugin, Violation, has_extension, is_prompt, launchers};
 
 /// The prompt files read: Markdown and text, not a skill's HTML or JSON assets.
 const PROMPT_EXTENSIONS: [&str; 2] = ["md", "txt"];
+
+/// The subcommand clap generates for every binary with subcommands; command lists leave it out.
+const CLAP_HELP: &str = "help";
 
 /// What a binary accepts, as far as the check needs it.
 #[derive(Debug, Clone, Copy)]
@@ -98,25 +105,48 @@ fn code_lines(text: &str) -> Vec<Vec<Span<'_>>> {
     let mut lines = Vec::new();
     let mut fence = None;
     for line in text.lines() {
-        match (fence, fence_char(line)) {
-            (None, Some(opened)) => fence = Some(opened),
-            (Some(open), Some(closed)) if open == closed => fence = None,
-            (Some(_), _) => lines.push(vec![Span {
+        match fence {
+            None => match Fence::opened_by(line) {
+                Some(opened) => fence = Some(opened),
+                None => lines.push(inline_spans(line)),
+            },
+            Some(open) if open.is_closed_by(line) => fence = None,
+            Some(_) => lines.push(vec![Span {
                 code: line,
                 after: "",
             }]),
-            (None, None) => lines.push(inline_spans(line)),
         }
     }
     lines
 }
 
-/// The character of the fence `line` opens or closes, if it is one.
-fn fence_char(line: &str) -> Option<char> {
-    let line = line.trim_start();
-    ['`', '~']
-        .into_iter()
-        .find(|&c| line.chars().take(3).filter(|&d| d == c).count() == 3)
+/// An open fenced block: the character of its opening run and that run's length, as Markdown's
+/// spec reads fences.
+#[derive(Clone, Copy)]
+struct Fence {
+    mark: char,
+    length: usize,
+}
+
+impl Fence {
+    /// The fence `line` opens: three or more backticks or tildes, where a backtick fence's info
+    /// string holds no backtick (so a one-line triple-backtick span opens nothing).
+    fn opened_by(line: &str) -> Option<Self> {
+        let line = line.trim_start();
+        ['`', '~'].into_iter().find_map(|mark| {
+            let length = line.chars().take_while(|&c| c == mark).count();
+            let info = line.trim_start_matches(mark);
+            (length >= 3 && !(mark == '`' && info.contains('`'))).then_some(Self { mark, length })
+        })
+    }
+
+    /// Whether `line` closes this fence: a run of its character at least as long as the opening
+    /// one, followed by nothing but whitespace.
+    fn is_closed_by(self, line: &str) -> bool {
+        let line = line.trim_start();
+        let length = line.chars().take_while(|&c| c == self.mark).count();
+        length >= self.length && line.trim_start_matches(self.mark).trim().is_empty()
+    }
 }
 
 /// The inline code spans of `line`: a run of backticks opens one and the next run of the same
@@ -244,11 +274,14 @@ enum Named<'t> {
 }
 
 impl Named<'_> {
+    /// Whether the list has this command. clap's generated `help`, which no list holds, passes
+    /// for every binary.
     fn is_listed(self, commands: &[&str]) -> bool {
-        commands.iter().any(|&listed| match self {
-            Self::One(word) => listed == word,
-            Self::Two(first, second) => listed.split_once(' ') == Some((first, second)),
-        })
+        matches!(self, Self::One(CLAP_HELP))
+            || commands.iter().any(|&listed| match self {
+                Self::One(word) => listed == word,
+                Self::Two(first, second) => listed.split_once(' ') == Some((first, second)),
+            })
     }
 }
 

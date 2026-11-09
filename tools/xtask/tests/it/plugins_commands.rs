@@ -4,7 +4,9 @@
 
 use std::path::Path;
 
-use xtask::plugins::{Cli, FileKind, Plugin, PluginFile, Violation, check_commands, read_plugins};
+use xtask::plugins::{
+    Cli, FileKind, Plugin, PluginFile, ReadError, Violation, check_commands, read_plugins,
+};
 
 const SKILL: &str = "skills/weigh-in/SKILL.md";
 
@@ -162,6 +164,27 @@ fn every_line_of_a_fenced_block_is_read() {
 }
 
 #[test]
+fn a_shorter_fence_inside_a_longer_one_does_not_close_it() {
+    let found = skill("````md\n```sh\nweighin one\n```\nweighin two\n```` \nweighin three\n");
+
+    assert_eq!(found, vec![unknown(SKILL, "one"), unknown(SKILL, "two")]);
+}
+
+#[test]
+fn a_fence_closes_only_on_its_own_character_with_nothing_after() {
+    let found = skill("~~~\n```\nweighin one\n~~~ sh\nweighin two\n~~~~\nweighin three\n");
+
+    assert_eq!(found, vec![unknown(SKILL, "one"), unknown(SKILL, "two")]);
+}
+
+#[test]
+fn a_one_line_triple_backtick_span_opens_no_fence() {
+    let found = skill("```weighin one```\n`weighin two`\n");
+
+    assert_eq!(found, vec![unknown(SKILL, "one"), unknown(SKILL, "two")]);
+}
+
+#[test]
 fn an_alias_names_its_binary() {
     let found = skill(
         "`W` below means `sh \"${CLAUDE_PLUGIN_ROOT}/libexec/weighin\" --session \"${CLAUDE_SESSION_ID}\"`. \
@@ -292,4 +315,55 @@ fn this_repository_names_only_existing_subcommands() {
     };
 
     assert_eq!(check_commands(&plugins, &[weighin]), vec![]);
+}
+
+/// The violations of this repository's plugins against weighin's list without `command`.
+fn this_repository_without(command: &str) -> Result<Vec<Violation>, ReadError> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+    let plugins = read_plugins(&root)?;
+    let commands: Vec<&str> = weighin_contract::cli::COMMANDS
+        .iter()
+        .copied()
+        .filter(|&listed| listed != command)
+        .collect();
+    let weighin = Cli {
+        binary: weighin_contract::cli::BINARY,
+        commands: &commands,
+        value_options: weighin_contract::cli::VALUE_OPTIONS,
+    };
+    Ok(check_commands(&plugins, &[weighin]))
+}
+
+#[test]
+fn this_repository_check_reads_the_libexec_path_and_the_alias() -> Result<(), ReadError> {
+    let open = Violation::UnknownCommand {
+        plugin: "weigh-in".to_owned(),
+        path: SKILL.to_owned(),
+        binary: "weighin".to_owned(),
+        command: "open".to_owned(),
+    };
+
+    // SKILL.md names `open` once by its `libexec/weighin` path (the injected ledger line) and
+    // twice as `W open`: a check that missed either form would find fewer.
+    assert_eq!(this_repository_without("open")?, vec![open; 3]);
+    Ok(())
+}
+
+#[test]
+fn this_repository_check_reads_a_command_named_only_through_the_alias() -> Result<(), ReadError> {
+    assert_eq!(
+        this_repository_without("digest")?,
+        vec![Violation::UnknownCommand {
+            plugin: "weigh-in".to_owned(),
+            path: SKILL.to_owned(),
+            binary: "weighin".to_owned(),
+            command: "digest".to_owned(),
+        }]
+    );
+    Ok(())
+}
+
+#[test]
+fn clap_s_generated_help_passes() {
+    assert_eq!(skill("`weighin help` and `weighin help open`"), vec![]);
 }
