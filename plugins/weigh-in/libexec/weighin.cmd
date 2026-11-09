@@ -29,12 +29,21 @@ exit /b %ERRORLEVEL%
 %N%.exe %*
 exit /b %ERRORLEVEL%
 :nobinary
+rem A copy with no build for any platform is a source copy: say where a release comes from.
+set "S="
+for /d %%T in ("%D%*-*") do if exist "%%T\%N%.exe" set "S=1"
+for /d %%T in ("%D%*-*") do if exist "%%T\%N%" set "S=1"
 if /i not "%~1"=="hook" goto missing
 if /i "%~2"=="SessionStart" goto hint
 exit /b 0
 :hint
+if not defined S goto source
 echo {"systemMessage":"%N% is off: no %N% build for Windows in this plugin's libexec and none on PATH. Install a release that ships one."}
 exit /b 0
+:source
+echo {"systemMessage":"%N% is off: this plugin is a source copy with no %N% builds. Install it from the Wet-Ink-Corporation/redkiln-plugins release repository, or build one with cargo xtask build."}
+exit /b 0
 :missing
->&2 echo %N%: no %N% build under %D% and none on PATH
+if not defined S >&2 echo %N%: this plugin is a source copy with no %N% builds under %D%. Install it from the Wet-Ink-Corporation/redkiln-plugins release repository, or build one with cargo xtask build
+if defined S >&2 echo %N%: no %N% build under %D% and none on PATH
 exit /b 127

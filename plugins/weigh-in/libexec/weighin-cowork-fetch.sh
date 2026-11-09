@@ -3,14 +3,14 @@ V=dev; S=none;
 B="$HOME/.weighin/$V/weighin"
 if [ ! -x "$B" ] && [ "$S" != none ]; then
   mkdir -p "${B%/*}" &&
-    curl -fsSL --max-time 90 -o "$B.part" "https://github.com/Wet-Ink-Corporation/weigh-in/releases/download/v$V/weighin-x86_64-unknown-linux-musl" &&
+    curl -fsSL --max-time 90 -o "$B.part" "https://github.com/Wet-Ink-Corporation/redkiln/releases/download/rk-weigh-in--v$V/weighin-x86_64-unknown-linux-musl" &&
     echo "$S  $B.part" | sha256sum -c --quiet - &&
     chmod +x "$B.part" && mv "$B.part" "$B" ||
     echo "download failed or did not match the pinned SHA-256"
 fi
 if [ ! -x "$B" ]; then
   B=
-  for c in "$HOME"/mnt/*/plugin/libexec/x86_64-unknown-linux-musl/weighin "$HOME"/mnt/*/libexec/x86_64-unknown-linux-musl/weighin; do
+  for c in "$HOME"/mnt/*/plugins/rk-weigh-in/libexec/x86_64-unknown-linux-musl/weighin "$HOME"/mnt/*/plugins/weigh-in/libexec/x86_64-unknown-linux-musl/weighin "$HOME"/mnt/*/plugin/libexec/x86_64-unknown-linux-musl/weighin "$HOME"/mnt/*/libexec/x86_64-unknown-linux-musl/weighin; do
     [ -f "$c" ] || continue
     v=$("$c" --version 2>/dev/null)
     if [ "$V" = dev ] || [ "$v" = "weighin $V" ]; then B=$c; break; fi

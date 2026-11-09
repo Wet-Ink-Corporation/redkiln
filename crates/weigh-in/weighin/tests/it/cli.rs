@@ -683,7 +683,8 @@ fn launcher_session_start_without_a_binary_says_weighin_is_off() {
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn launcher_command_names_a_copy_with_no_binaries() {
     // No build for any platform: the development tree, synced or copied as is (B-18). The suite's
-    // shared launcher names the missing build the same way whatever else the copy holds.
+    // shared launcher calls it a source copy and names where a release comes from (Ryan,
+    // 2026-11-02, decision card C).
     let (_tmp, launcher, path) = isolated_launcher();
 
     let run = run_within(
@@ -696,7 +697,12 @@ fn launcher_command_names_a_copy_with_no_binaries() {
 
     assert_eq!(run.status.code(), Some(127));
     let err = String::from_utf8_lossy(&run.stderr);
-    assert!(err.starts_with("weighin: no weighin build for "), "{err}");
+    assert!(
+        err.starts_with("weighin: this plugin is a source copy with no weighin builds")
+            && err.contains("Wet-Ink-Corporation/redkiln-plugins")
+            && err.contains("cargo xtask build"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -718,7 +724,9 @@ fn launcher_session_start_names_a_copy_with_no_binaries() -> Result<(), Box<dyn 
     let out: Value = serde_json::from_slice(&start.stdout)?;
     let message = out["systemMessage"].as_str().ok_or("no systemMessage")?;
     assert!(
-        message.starts_with("weighin is off: no weighin build for "),
+        message.starts_with("weighin is off: this plugin is a source copy with no weighin builds")
+            && message.contains("Wet-Ink-Corporation/redkiln-plugins")
+            && message.contains("cargo xtask build"),
         "{out}"
     );
     Ok(())

@@ -61,7 +61,7 @@ out=$(run hook PreToolUse --fail-closed); code=$?
 check "a hook with no build exits 0 silently" "0:" "$code:$out"
 out=$(CLAUDE_CODE_ENTRYPOINT=cli run hook SessionStart); code=$?
 case "$out" in
-  '{"systemMessage":"demo is off: no demo build for '*) shape=warns ;;
+  '{"systemMessage":"demo is off: '*) shape=warns ;;
   *) shape="$out" ;;
 esac
 check "SessionStart with no build warns and exits 0" "0:warns" "$code:$shape"
@@ -69,5 +69,30 @@ out=$(CLAUDE_CODE_ENTRYPOINT=remote_cowork run hook SessionStart); code=$?
 check "SessionStart in Cowork stays silent" "0:" "$code:$out"
 run status 2>/dev/null; code=$?
 check "a plain call with no build exits 127" 127 "$code"
+
+# A source copy (no build for any platform) names the release repository and the build command;
+# a copy with another platform's build only says this platform has none.
+plugin
+out=$(CLAUDE_CODE_ENTRYPOINT=cli run hook SessionStart)
+case "$out" in
+  *'source copy with no demo builds'*'Wet-Ink-Corporation/redkiln-plugins'*'cargo xtask build.'*) shape=source ;;
+  *) shape="$out" ;;
+esac
+check "SessionStart in a source copy names the release repository" source "$shape"
+err=$(run status 2>&1 >/dev/null)
+case "$err" in
+  *'source copy with no demo builds'*'cargo xtask build'*) shape=source ;;
+  *) shape="$err" ;;
+esac
+check "a plain call in a source copy names the build command" source "$shape"
+plugin
+fake "$work/libexec/x86_64-pc-windows-msvc/demo.exe" other 0
+out=$(CLAUDE_CODE_ENTRYPOINT=cli run hook SessionStart)
+case "$out" in
+  *'source copy'*) shape="$out" ;;
+  '{"systemMessage":"demo is off: no demo build for '*'Install a release that ships one."}') shape=platform ;;
+  *) shape="$out" ;;
+esac
+check "another platform's build is not a source copy" platform "$shape"
 
 exit $failed

@@ -87,6 +87,30 @@ fn a_plugin_with_every_allowed_part_passes() {
 }
 
 #[test]
+fn a_root_exe_of_a_shipped_binary_passes() {
+    // M1-E: Windows resolves the exec-form `libexec/weighin` only to `libexec/weighin.exe`.
+    assert_eq!(with(file("libexec/weighin.exe")), vec![]);
+}
+
+#[test]
+fn a_root_exe_of_a_binary_without_a_launcher_fails() {
+    for path in [
+        "libexec/other.exe",
+        "libexec/.exe",
+        "libexec/weighin.cmd.exe",
+    ] {
+        assert_eq!(
+            with(file(path)),
+            vec![Violation::Unlisted {
+                plugin: "rk-weigh-in".to_owned(),
+                path: path.to_owned()
+            }],
+            "{path}"
+        );
+    }
+}
+
+#[test]
 fn a_plugin_with_only_a_manifest_passes() {
     assert_eq!(violations(vec![file(".claude-plugin/plugin.json")]), vec![]);
 }

@@ -9,17 +9,34 @@
 //!
 //! Each exits 0 when the repository follows its rules, 1 with one line per violation when it does
 //! not, and 2 when it cannot check.
+//!
+//! The release tasks (`docs/plan/move-1-weigh-in.md`, Release and cutover) exit 0 when done and 2
+//! when they cannot finish:
+//!
+//! - `build [--target <triple>]`: release builds of every plugin binary into the plugins'
+//!   `libexec/<target>/` (the host's target by default).
+//! - `package <out> [--download]`: every plugin staged into `<out>/<name>/` with its builds, the
+//!   Windows build at `libexec/<binary>.exe` and its Cowork fetch script stamped (with the musl
+//!   build's SHA-256 under `--download`), checked against the plugin rules.
+//! - `marketplace <packages> <release-repository>`: the packaged plugins written into a checkout
+//!   of the release repository and its `marketplace.json`.
+//! - `release-check <plugin> <version>`: every version site of `plugins/<plugin>` is `version`;
+//!   prints its changelog section, the release notes.
 
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt::Display;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use xtask::{harness, ids, layers, plugins};
+use xtask::{harness, ids, layers, plugins, release};
 
-const USAGE: &str = "usage: cargo xtask <ids|layers|plugins>";
+const USAGE: &str = "usage: cargo xtask <ids|layers|plugins>\n       \
+cargo xtask build [--target <triple>]\n       \
+cargo xtask package <out> [--download]\n       \
+cargo xtask marketplace <packages> <release-repository>\n       \
+cargo xtask release-check <plugin> <version>";
 
 fn main() -> ExitCode {
     let task: Vec<OsString> = env::args_os().skip(1).collect();
@@ -27,6 +44,16 @@ fn main() -> ExitCode {
         [name] if name == "ids" => run_ids(),
         [name] if name == "layers" => run_layers(),
         [name] if name == "plugins" => run_plugins(),
+        [name] if name == "build" => run_build(None),
+        [name, flag, target] if name == "build" && flag == "--target" => run_build(Some(target)),
+        [name, out] if name == "package" => run_package(out, release::Download::Off),
+        [name, out, flag] if name == "package" && flag == "--download" => {
+            run_package(out, release::Download::Stamp)
+        }
+        [name, packages, repository] if name == "marketplace" => {
+            run_marketplace(packages, repository)
+        }
+        [name, plugin, version] if name == "release-check" => run_release_check(plugin, version),
         _ => Err(USAGE.to_owned()),
     };
     match outcome {
@@ -59,9 +86,8 @@ fn run_ids() -> Result<ExitCode, String> {
 /// Checks this workspace's members against the layer rules.
 fn run_layers() -> Result<ExitCode, String> {
     let manifest = repository().join("Cargo.toml");
-    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let packages =
-        layers::read_workspace(&cargo, &manifest).map_err(|error| error_chain(&error))?;
+        layers::read_workspace(&cargo(), &manifest).map_err(|error| error_chain(&error))?;
     let violations = layers::check(&packages);
     conclude("layers", &violations, "workspace members", packages.len())
 }
@@ -89,6 +115,62 @@ fn run_plugins() -> Result<ExitCode, String> {
         .collect();
     let checked = format!("{}, Rust files checked: {}", plugins.len(), sources.len());
     conclude("plugins", &violations, "plugins", checked)
+}
+
+/// The program cargo runs this task with, or `cargo` on `PATH`.
+fn cargo() -> OsString {
+    env::var_os("CARGO").unwrap_or_else(|| "cargo".into())
+}
+
+/// Builds every plugin binary for `target` (the host's when `None`).
+fn run_build(target: Option<&OsStr>) -> Result<ExitCode, String> {
+    let target = target
+        .map(|t| t.to_str().ok_or("--target is not UTF-8"))
+        .transpose()?;
+    let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    let written = release::build(&cargo(), &rustc, &repository(), target)
+        .map_err(|error| error_chain(&error))?;
+    let mut out = io::stdout().lock();
+    for path in &written {
+        writeln!(out, "build: {}", path.display()).map_err(|error| error.to_string())?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Stages every plugin into `out`.
+fn run_package(out: &OsStr, download: release::Download) -> Result<ExitCode, String> {
+    let packaged = release::package(&repository().join("plugins"), Path::new(out), download)
+        .map_err(|error| error_chain(&error))?;
+    let mut stdout = io::stdout().lock();
+    for plugin in &packaged {
+        writeln!(
+            stdout,
+            "package: {} {} with {} build(s)",
+            plugin.name, plugin.version, plugin.builds
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Writes the packaged plugins into a release repository checkout.
+fn run_marketplace(packages: &OsStr, repository: &OsStr) -> Result<ExitCode, String> {
+    let written = release::assemble(Path::new(packages), Path::new(repository))
+        .map_err(|error| error_chain(&error))?;
+    writeln!(io::stdout().lock(), "marketplace: {}", written.join(", "))
+        .map_err(|error| error.to_string())?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Checks a plugin's version sites and prints its release notes.
+fn run_release_check(plugin: &OsStr, version: &OsStr) -> Result<ExitCode, String> {
+    let (Some(plugin), Some(version)) = (plugin.to_str(), version.to_str()) else {
+        return Err("the plugin and version must be UTF-8".to_owned());
+    };
+    let notes = release::release_check(&repository(), &cargo(), plugin, version)
+        .map_err(|error| error_chain(&error))?;
+    writeln!(io::stdout().lock(), "{notes}").map_err(|error| error.to_string())?;
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Reports `violations` on stderr, or an ok line on stdout naming how many `things` were checked.

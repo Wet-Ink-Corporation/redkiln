@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Releases come from `Wet-Ink-Corporation/redkiln` under `rk-weigh-in--v<version>`, and install from
+  `Wet-Ink-Corporation/redkiln-plugins`. In Cowork the skill downloads the Linux binary from that
+  release, or uses a copy of this release in a connected `redkiln` or `redkiln-plugins` checkout.
+- A copy of the plugin with no build for any platform (a source checkout) now says so at session
+  start and names where releases come from and `cargo xtask build`.
 - The mod's band reads `weighin status --json`: when capture is off it says so with the first
   error ("Weigh-In: capture is off: …"), and when Weigh-In is degraded it adds the number of
   warnings to the counts ("· 2 warning(s): /wi status"), even with nothing open. `/wi status`

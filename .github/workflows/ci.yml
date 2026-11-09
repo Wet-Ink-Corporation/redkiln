@@ -15,12 +15,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:      # release.yml runs every job before it builds (all areas on: no base)
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}   # "release" when release.yml calls it
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -72,7 +73,7 @@ jobs:
             echo "$1: $on"
             echo "$1=$on" >> "$GITHUB_OUTPUT"
           }
-          area rust '^(Cargo\.(toml|lock)|rust-toolchain\.toml|clippy\.toml|rustfmt\.toml|deny\.toml|\.cargo/|\.claude/temper/|\.claude/temper\.json|crates/|tools/[^/]+/(Cargo\.toml|src/|tests/|benches/|build\.rs)|spec/)'
+          area rust '^(Cargo\.(toml|lock)|rust-toolchain\.toml|clippy\.toml|rustfmt\.toml|deny\.toml|\.cargo/|\.claude/temper/|\.claude/temper\.json|crates/|tools/[^/]+/(Cargo\.toml|src/|tests/|benches/|build\.rs)|tools/launcher/(launcher|exec-form-check)|spec/)'
           area launcher '^tools/launcher/'
           area plugins '^(plugins/|tools/launcher/launcher)'
           area typescript '(^|/)(package(-lock)?\.json|tsconfig[^/]*\.json)$|\.(ts|tsx|mts)$'
@@ -168,6 +169,15 @@ jobs:
           toolchain: "1.98.1"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: cargo test --locked --workspace --all-features
+      # M1-E: a packaged plugin's exec-form hook runs with no Git Bash on PATH.
+      - name: Exec-form hook without Git Bash
+        shell: pwsh
+        run: |
+          cargo xtask build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cargo xtask package "$env:RUNNER_TEMP\pkg"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node tools/launcher/exec-form-check.mjs "$env:RUNNER_TEMP\pkg\rk-weigh-in"
 
   # macOS is a release target of every binary, and its symlinked temp dirs are a case weigh-in's
   # tests pin (weigh-in B-08), so the tests run there as they did in weigh-in's CI.

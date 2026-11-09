@@ -1321,6 +1321,7 @@ dependencies = [
  "knowledge-contract",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
  "weighin-contract",
 ]

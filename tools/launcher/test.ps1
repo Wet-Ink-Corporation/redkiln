@@ -20,6 +20,18 @@ try {
   Check 'SessionStart with no build warns and exits 0' '0:True' "${LASTEXITCODE}:$($message -like 'demo is off:*')"
   & $demo status 2>$null
   Check 'a plain call with no build exits 127' 127 $LASTEXITCODE
+  Check 'SessionStart in a source copy names the release repository' 'True' "$($message -like '*source copy with no demo builds*Wet-Ink-Corporation/redkiln-plugins*cargo xtask build.')"
+  $err = & $demo status 2>&1 | Out-String
+  Check 'a plain call in a source copy names the build command' 'True' "$($err -like '*source copy with no demo builds*cargo xtask build*')"
+
+  # Another platform's build only: this platform has none, but the copy is not a source copy.
+  $linux = Join-Path $libexec 'x86_64-unknown-linux-musl'
+  New-Item -ItemType Directory -Path $linux | Out-Null
+  Set-Content -Path (Join-Path $linux 'demo') -Value 'not a Windows build'
+  $out = & $demo hook SessionStart
+  $message = ($out | ConvertFrom-Json).systemMessage
+  Check "another platform's build is not a source copy" 'True' "$(($message -like 'demo is off: no demo build for Windows*') -and -not ($message -like '*source copy*'))"
+  Remove-Item -Recurse -Force $linux
 
   $msvc = Join-Path $libexec 'x86_64-pc-windows-msvc'
   New-Item -ItemType Directory -Path $msvc | Out-Null

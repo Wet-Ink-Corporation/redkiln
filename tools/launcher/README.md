@@ -6,7 +6,7 @@ What it does, in order:
 
 1. Runs the newest build among the platform's targets (musl before gnu on Linux, msvc before gnu on Windows, unless the later one is newer).
 2. Falls back to a `<binary>` on `PATH` that is not this launcher.
-3. With nothing to run: a hook call (`<binary> hook <event> ...`) exits 0, guards included, and `hook SessionStart` prints a `systemMessage` saying the plugin is off (not in Cowork). Any other call exits 127.
+3. With nothing to run: a hook call (`<binary> hook <event> ...`) exits 0, guards included, and `hook SessionStart` prints a `systemMessage` saying the plugin is off (not in Cowork). Any other call exits 127. When the copy holds no build for any platform (a source copy), both messages say so and name the release repository (`Wet-Ink-Corporation/redkiln-plugins`) and `cargo xtask build`.
 
 A build's exit code is the launcher's, so a guard whose binary runs and fails still blocks. Hooks fail open only when the plugin has no build at all.
 

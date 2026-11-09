@@ -5,3 +5,4 @@ pub mod harness;
 pub mod ids;
 pub mod layers;
 pub mod plugins;
+pub mod release;
