@@ -4,8 +4,8 @@
 //!   atom, each atom in its kind's folder, one question per `wi-` id.
 //! - `layers`: check the workspace against the layer rules in `AGENTS.md`.
 //! - `plugins`: check `plugins/` against the plugin rules in `AGENTS.md` (CLI first, harness
-//!   second), and `crates/` against its rule that harness protocol stays in one adapter module
-//!   per binary.
+//!   second), every subcommand a prompt names against its binary's command list, and `crates/`
+//!   against the rule that harness protocol stays in one adapter module per binary.
 //!
 //! Each exits 0 when the repository follows its rules, 1 with one line per violation when it does
 //! not, and 2 when it cannot check.
@@ -66,8 +66,16 @@ fn run_layers() -> Result<ExitCode, String> {
     conclude("layers", &violations, "workspace members", packages.len())
 }
 
-/// Checks this repository's `plugins/` against the plugin rules, then its `crates/` against the
-/// rule that harness protocol stays in an adapter module (`harness`).
+/// The command lists of the binaries plugins ship, from their contract crates.
+const CLIS: [plugins::Cli<'static>; 1] = [plugins::Cli {
+    binary: weighin_contract::cli::BINARY,
+    commands: weighin_contract::cli::COMMANDS,
+    value_options: weighin_contract::cli::VALUE_OPTIONS,
+}];
+
+/// Checks this repository's `plugins/` against the plugin rules and every subcommand its prompts
+/// name against the binaries' command lists, then its `crates/` against the rule that harness
+/// protocol stays in an adapter module (`harness`).
 fn run_plugins() -> Result<ExitCode, String> {
     let plugins = plugins::read_plugins(&repository().join("plugins"))
         .map_err(|error| error_chain(&error))?;
@@ -75,6 +83,7 @@ fn run_plugins() -> Result<ExitCode, String> {
         harness::read_sources(&repository().join("crates")).map_err(|error| error_chain(&error))?;
     let violations: Vec<String> = plugins::check(&plugins)
         .iter()
+        .chain(&plugins::check_commands(&plugins, &CLIS))
         .map(ToString::to_string)
         .chain(harness::check(&sources).iter().map(ToString::to_string))
         .collect();

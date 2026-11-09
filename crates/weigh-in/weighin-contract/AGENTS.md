@@ -1,7 +1,7 @@
 # Crate charter: `weighin-contract`
 
 ## Purpose
-Weigh-In's contract (blueprint, Contract crate; SPEC DR): what another plugin needs to raise, read and answer Weigh-In items without reaching into Weigh-In's internals. It holds the event payloads and their `weighin.*` names with versions, `wi-` ids, the vocabulary (kind, door, authority), the decision card, the shared guards, the JSON of `open --json` and `ci-check --json`, the `data` of `status --json` (CLI-12), and, with the `core` feature, the decision request (DR-01 to DR-04) and its answer (DR-05, DR-06). Born at Move 1 step 5.
+Weigh-In's contract (blueprint, Contract crate; SPEC DR): what another plugin needs to raise, read and answer Weigh-In items without reaching into Weigh-In's internals. It holds the event payloads and their `weighin.*` names with versions, `wi-` ids, the vocabulary (kind, door, authority), the decision card, the shared guards, the JSON of `open --json` and `ci-check --json`, the `data` of `status --json` (CLI-12), the command line's subcommands and value options (`cli`), and, with the `core` feature, the decision request (DR-01 to DR-04) and its answer (DR-05, DR-06). Born at Move 1 step 5.
 
 ## Layer
 contract (Weigh-In's). No file, clock, process or environment access.
@@ -12,11 +12,12 @@ contract (Weigh-In's). No file, clock, process or environment access.
 - Never: another plugin's crates, `weighin-core` or `weighin`, anything that does I/O in its own code.
 
 ## Public surface
-Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check`, `status`, and with `core` `request` and `answer`; `Card`, `EventEnvelope`, `LedgerEvent` and `ItemId` at the root. Workspace-internal, never published.
+Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check`, `status`, `cli`, and with `core` `request` and `answer`; `Card`, `EventEnvelope`, `LedgerEvent` and `ItemId` at the root. Workspace-internal, never published.
 
 ## Invariants
 - `ci_check::Report` is `weighin.ci-check/1` byte for byte; a change is a `/2` with assay told first (`docs/plan/move-1-weigh-in.md`).
 - `status::Status` is `weighin.status/1`'s `data`, field order wire order, every `Option` written `null`; it reads a later key (CLI-04), and `spec/fixtures/status/` pins it.
+- `cli::COMMANDS` and `cli::VALUE_OPTIONS` are what weighin's clap accepts; weighin's `cli_pin` test pins both.
 - `open::OpenItem` writes what weighin 1.2.0's `open --json` wrote; weighin-core's test pins it against its projection's `Item`.
 - Every payload is version 1 and durable under `weighin.<serde tag>` (`names`).
 - A request is refused, and nothing written, when it breaks a DR-04 guard or a per-field shape of `decision-request-1.schema.json` (`Request::check`, run by `raise_event`); its item id is ID-04 over `redkiln.id/weighin.request/1`, its namespace and key (DR-03).
