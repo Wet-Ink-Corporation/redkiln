@@ -275,3 +275,39 @@ fn only_a_file_core_refuses_as_a_store_is_a_refusal_however_it_is_wrapped() {
     assert!(is_refused(&refusal.context("reading the ledger")));
     assert!(!is_refused(&other), "{other:#}");
 }
+
+#[test]
+fn each_refusal_core_makes_is_classified_once() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let old = dir.path().join("ledger.sqlite3");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../core/redkiln-core/tests/fixtures/weighin-1.2.0.sqlite3"),
+        &old,
+    )
+    .expect("fixture copied");
+    let not_sqlite = dir.path().join("text.sqlite3");
+    std::fs::write(&not_sqlite, "not a database").expect("written");
+    let newer = anyhow::Error::new(StoreError::Open {
+        path: dir.path().join("newer.sqlite3"),
+        source: OpenError::NewerMajor {
+            found: 2000,
+            supported: 1000,
+        },
+    })
+    .context("opening the store");
+    let other = Store::open(&old.join("events.sqlite3"), Wait::Command)
+        .expect_err("a file is no directory");
+
+    let old = Store::open(&old, Wait::Command).expect_err("an old ledger is refused");
+    let not_sqlite = Store::open(&not_sqlite, Wait::Command).expect_err("not a store");
+
+    assert_eq!(refusal(&old), Some(Refusal::OldOrForeign), "{old:#}");
+    assert_eq!(refusal(&not_sqlite), Some(Refusal::OldOrForeign));
+    assert_eq!(refusal(&newer), Some(Refusal::NewerMajor), "{newer:#}");
+    assert_eq!(refusal(&other), None, "{other:#}");
+    assert!(
+        !is_refused(&newer),
+        "a newer major is no store refused as old or foreign, as before"
+    );
+}

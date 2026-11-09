@@ -304,6 +304,41 @@ fn status_runs_no_legacy_import_and_reports_it_due() -> TestResult {
 }
 
 #[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "spawns a shell and the weighin binary")]
+fn a_removed_working_directory_exits_70_with_an_internal_envelope() -> TestResult {
+    let repo = Repo::new(false)?;
+    let parent = repo.sibling("gone-parent")?;
+    std::fs::create_dir_all(parent.join("d"))?;
+
+    // The shell enters `d`, removes it, then runs weighin there: no working directory.
+    let out = Command::new("sh")
+        .current_dir(&parent)
+        .args([
+            "-c",
+            "cd d && rmdir ../d && exec \"$0\" status --json",
+            bin(),
+        ])
+        .env_remove("REDKILN_STORE")
+        .env_remove("WEIGHIN_STORE")
+        .stdin(Stdio::null())
+        .output()?;
+
+    let text = String::from_utf8(out.stdout)?;
+    assert_eq!(out.status.code(), Some(70), "CLI-05: {text}");
+    assert!(!parent.join("d").exists(), "the directory was removed");
+    let envelope: Value = serde_json::from_str(&text)?;
+    assert_eq!(breaks("cli-envelope-1", &envelope)?, Vec::<String>::new());
+    assert_eq!(envelope["schema"], status::SCHEMA);
+    assert_eq!(envelope["ok"], false);
+    assert_eq!(envelope["data"], serde_json::json!({}));
+    assert_eq!(keys(&envelope), ["internal"]);
+    let stderr = String::from_utf8(out.stderr)?;
+    assert!(stderr.starts_with("weighin: error: "), "CLI-08: {stderr}");
+    Ok(())
+}
+
+#[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_closed_stdout_exits_0() -> TestResult {
     let repo = Repo::new(true)?;

@@ -39,7 +39,9 @@ pub struct Status {
     pub dropped: u64,
     /// `ok`, `degraded` or `off`, from the envelope's findings alone.
     pub health: Health,
-    /// Lines of the hook error log the next `SessionStart` would report.
+    /// Lines of the hook error log the next `SessionStart` would report. A lower bound when the
+    /// unreported part of the log is past the read cap (256 KiB): the lines before it are not
+    /// counted, and the finding says "at least".
     pub hook_errors: u64,
     /// Each registered hook event's last run, by event name; an event with no record is absent.
     pub hooks: BTreeMap<String, HookRun>,

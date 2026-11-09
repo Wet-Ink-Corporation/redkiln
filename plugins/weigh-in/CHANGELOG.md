@@ -10,9 +10,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   how Weigh-In is doing: `ok`, `degraded` (events this build cannot read, hook errors the next
   session start will report, a hook that died without finishing, a broken config) or `off` (no
   store can be located or the store is refused). With `--json` it writes the envelope
-  `weighin.status/1` (SPEC CLI-12). It only reads: it creates no store, never runs the one-time
-  1.x import (it says when one is due) and marks nothing as reported. It exits 0 whenever it
-  reports.
+  `weighin.status/1` (SPEC CLI-12). It creates no store, never runs the one-time 1.x import (it
+  says when one is due), marks nothing as reported and rewrites no hook heartbeat; opening an
+  existing store may still let the store make its own repairs, as any read does. It exits 0
+  whenever it reports.
 - Hooks keep a heartbeat in `.git/redkiln/weighin/` while they run, so the next hook can tell
   one its timeout killed from one that was interrupted: it logs one line for each, which the
   next session start reports with the other hook errors. Nothing is written in Cowork, outside

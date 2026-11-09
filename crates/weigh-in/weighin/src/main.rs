@@ -71,8 +71,9 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<JournalCmd>,
     },
-    /// The store, its schema and Weigh-In's health (SPEC CLI-12); exits 0 whenever it reports,
-    /// and changes nothing.
+    /// The store, its schema and Weigh-In's health (SPEC CLI-12); exits 0 whenever it reports.
+    /// It imports nothing, creates no store, marks nothing seen and rewrites no hook slot;
+    /// opening an existing store may make Core's own repairs (ST-05, ID-01).
     Status(JsonArgs),
 }
 

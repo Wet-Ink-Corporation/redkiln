@@ -240,20 +240,54 @@ fn refused(error: StoreError) -> anyhow::Error {
     }
 }
 
-/// The file Core refused to open as a store, when `error` is that refusal: an old ledger or
-/// another program's database.
-fn refused_path(error: &StoreError) -> Option<&Path> {
+/// Why Core refused to open a file as a store (ST-07), the file left as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    /// An old plugin ledger, imported rather than opened, or another program's database:
+    /// nothing is written beside it, not even weighin's state dir (D4, review F2).
+    OldOrForeign,
+    /// A store of a newer SPEC major: a newer weighin wrote it.
+    NewerMajor,
+}
+
+/// The one list of Core's refusals: which, if any, `error` is, and the file refused.
+fn refusal_of(error: &StoreError) -> Option<(Refusal, &Path)> {
     match error {
         StoreError::Open {
             path,
             source: OpenError::OldLedger { .. } | OpenError::NotAStore,
-        } => Some(path),
+        } => Some((Refusal::OldOrForeign, path)),
+        StoreError::Open {
+            path,
+            source: OpenError::NewerMajor { .. },
+        } => Some((Refusal::NewerMajor, path)),
         _ => None,
     }
 }
 
-/// Whether `error`, or any error it was caused by, is Core refusing to open a file as a store.
-/// Nothing is written beside such a file, not even weighin's state dir (D4, review F2).
+/// The file Core refused to open as a store, when `error` is an old ledger or another
+/// program's database.
+fn refused_path(error: &StoreError) -> Option<&Path> {
+    match refusal_of(error) {
+        Some((Refusal::OldOrForeign, path)) => Some(path),
+        Some((Refusal::NewerMajor, _)) | None => None,
+    }
+}
+
+/// The refusal `error`, or the first error it was caused by that is one, names: what `status`
+/// reports as `store/refused`.
+pub(crate) fn refusal(error: &anyhow::Error) -> Option<Refusal> {
+    error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<StoreError>()
+            .and_then(refusal_of)
+            .map(|(refusal, _)| refusal)
+    })
+}
+
+/// Whether `error`, or any error it was caused by, is Core refusing an old ledger or another
+/// program's database as a store. Nothing is written beside such a file, not even weighin's
+/// state dir (D4, review F2). A newer major is not one: its store is weighin's own.
 pub(crate) fn is_refused(error: &anyhow::Error) -> bool {
     error.chain().any(|cause| {
         cause

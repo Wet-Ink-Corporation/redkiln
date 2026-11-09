@@ -8,12 +8,14 @@
 //! | 70 | it could not run: no working directory |
 //! | 74 | output failed |
 //!
-//! A closed stdout exits as earned, saying nothing (CLI-07). `status` only reads: it locates
-//! the store as `Env::discover` does, without stopping where a command would (an unlocated or
-//! refused store, a refused session and a broken config are what it reports), opens an existing
-//! store under `Wait::Command` and never creates one, reads every weighin event once, and never
-//! runs the one-time 1.x import (decision D3), marks the hook error log seen or rewrites a
-//! heartbeat slot. `health` comes from the findings alone, so the two cannot disagree.
+//! A closed stdout exits as earned, saying nothing (CLI-07). `status` locates the store as
+//! `Env::discover` does, without stopping where a command would (an unlocated or refused store,
+//! a refused session and a broken config are what it reports), opens an existing store under
+//! `Wait::Command` and never creates one, reads every weighin event once, and never runs the
+//! one-time 1.x import (decision D3), marks the hook error log seen or rewrites a heartbeat
+//! slot. Opening an existing store may still make Core's own repairs: a stale `-wal` set aside,
+//! a store left in WAL switched to TRUNCATE (ST-05), an identity re-minted at a new path
+//! (ID-01). `health` comes from the findings alone, so the two cannot disagree.
 
 use std::collections::BTreeMap;
 use std::io::{self, StdoutLock, Write};
@@ -21,7 +23,7 @@ use std::process::ExitCode;
 
 use redkiln_core::envelope::SPEC_VERSION;
 use redkiln_core::location::Source;
-use redkiln_core::store::{OpenError, StoreError, Wait};
+use redkiln_core::store::Wait;
 use weighin_contract::status::{self as contract, Health, HookRun, HookState, Status, StoreSource};
 
 use crate::Globals;
@@ -29,7 +31,7 @@ use crate::cli_envelope::{Envelope, Exit, Finding, Severity, output_failed, say}
 use crate::env::{ConfigSource, Env, RepoClass, Vars};
 use crate::hooks::{self, State};
 use crate::legacy_import;
-use crate::store::Store;
+use crate::store::{self, Store};
 use crate::text::Report;
 
 /// The command as the envelope names it.
@@ -113,7 +115,8 @@ fn read_store(env: &Env, findings: &mut Vec<Finding>) -> StoreRead {
     let store = match Store::open_existing(path, Wait::Command) {
         Ok(store) => store,
         Err(e) => {
-            let key = if refused(&e) {
+            // Core's refusals (ST-07): an old ledger, another program's file, a newer major.
+            let key = if store::refusal(&e).is_some() {
                 "store/refused"
             } else {
                 "store/unreadable"
@@ -150,21 +153,6 @@ fn read_store(env: &Env, findings: &mut Vec<Finding>) -> StoreRead {
     }
     legacy_due(env, store.as_ref(), findings);
     read
-}
-
-/// Whether `e` is Core refusing the file (ST-07): an old ledger, not a store, a newer major.
-fn refused(e: &anyhow::Error) -> bool {
-    e.chain().any(|cause| {
-        matches!(
-            cause.downcast_ref::<StoreError>(),
-            Some(StoreError::Open {
-                source: OpenError::OldLedger { .. }
-                    | OpenError::NotAStore
-                    | OpenError::NewerMajor { .. },
-                ..
-            })
-        )
-    })
 }
 
 /// A note when 1.x sources wait for the one-time import, which `status` never runs (D3).

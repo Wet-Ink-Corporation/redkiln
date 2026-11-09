@@ -28,7 +28,7 @@ None. This is a binary crate; its modules are private (`annotate`, `ci`, `cli_en
 - **Only the Stop hook, `journal checkpoint` and `journal pre-push` export journals**, in an `own` repository (ST-13, D8 A), inside a budget that ends before the hook timeout (`journal/refs.rs`, D3, D11), the Stop over its session's journal first, then only the journals past its repository's watermark (`journal/watermark.rs`); the Stop hook logs only what needs a person (D12). SessionStart imports journal sources before it primes, inside `Budget::SESSION_START` (D10). Nothing writes under `.kb/_ledger/journal/`; 1.x committed journals there are read only: imported once (`legacy_import`), and read by `stats` (an event held twice counted once) and `ci-check` (`journal.rs`, B-21).
 - **The class and owner are suite.toml's** (`.redkiln/suite.toml`, read through Core's `Suite` whatever chose the store): `repo_class`, below it config.json's with a warning (M1-F), else `client`; `owner`, then config.json's, then git's. `init` writes the class only to a new suite.toml, never to config.json (#17 PR 5b).
 - **`ci-check` never opens the ledger.** It reads git and the checkout only, and exits 0 whenever it writes a report; its findings are data (`ci.rs`, B-28).
-- **`status` only reads.** It creates no store, imports nothing (D3), marks no log seen and rewrites no slot; it exits 0 whenever it reports (`commands/status.rs`, CLI-12).
+- **`status` imports nothing (D3),** creates no store, marks no log seen and rewrites no slot (opening a store may make Core's repairs, ST-05); it exits 0 whenever it reports (`commands/status.rs`, CLI-12).
 - **Context packs stay bounded** by `caps.context_chars`, about 600 tokens (`context.rs`).
 
 ## Hooks
