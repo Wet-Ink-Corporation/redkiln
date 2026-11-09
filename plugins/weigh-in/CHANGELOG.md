@@ -6,6 +6,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Hooks keep a heartbeat in `.git/redkiln/weighin/` while they run, so the next hook can tell
+  one its timeout killed from one that was interrupted: it logs one line for each, which the
+  next session start reports with the other hook errors. Nothing is written in Cowork, outside
+  git, or before Weigh-In has made `.git/redkiln/`.
 - A failing hook now says so in its own output: Stop, SubagentStop and PostToolUse add one
   sentence to their message the first time capture fails since the last session start (and
   every time a failure cannot be logged), naming the failure and the log; SessionStart notes
