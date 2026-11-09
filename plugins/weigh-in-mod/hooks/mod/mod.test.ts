@@ -20,7 +20,7 @@ const dflt = (id: string, acknowledged = false) => ({ id, status: 'defaulted', d
 const OPEN3 = JSON.stringify([item('wi-000001', 'one-way'), item('wi-000002', null, 'one-way'), item('wi-000003', 'two-way', 'one-way')])
 const DIGEST = (defaults: unknown[] = []) => JSON.stringify({ defaults, untriaged_from_other_sessions: [] })
 
-type Out = { exitCode?: number; stdout?: string; stderr?: string }
+type Out = { exitCode?: number; stdout?: string; stderr?: string; isStdoutTruncated?: boolean }
 
 /** `status --json` as weighin writes it: the goldens `spec/fixtures/status/valid/weighin-ok.json`
  * and `weighin-off.json`, and a degraded one built the same way. */
@@ -119,7 +119,7 @@ function world(on: On, opts: World = {}) {
     await opts.wait?.(argv)
     const out = answer(argv, e.init?.stdin)
     if (out instanceof Error) return { deny: out.message } as any
-    return { value: { exitCode: out.exitCode ?? 0, stdout: out.stdout ?? '', stderr: out.stderr ?? '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: out.exitCode ?? 0, stdout: out.stdout ?? '', stderr: out.stderr ?? '', isStdoutTruncated: out.isStdoutTruncated ?? false, isStderrTruncated: false } }
   })
   on('session.surfaces', async () => ({ value: opts.surfaces ?? ['terminal'] }) as any)
   on('session.id', async () => ({ value: 'test-session' }) as any)
@@ -349,6 +349,7 @@ const LEFT_ALONE: [string, Out | Error][] = [
   ['has no health', { stdout: STATUS({ health: undefined }) }],
   ['has no findings list', { stdout: STATUS({ health: 'off' }, [], { findings: null }) }],
   ['exits non-zero though it printed off', { exitCode: 1, stdout: STATUS_OFF }],
+  ['was truncated', { stdout: STATUS_OFF, isStdoutTruncated: true }],
   ['comes from an older weighin without status (exit 2)', { exitCode: 2, stderr: "error: unrecognized subcommand 'status'\n\nUsage: weighin [OPTIONS] <COMMAND>\n" }],
   ['cannot start', new Error('spawn EAGAIN')],
   ['timed out', new Error('process timed out after 10000 ms')],

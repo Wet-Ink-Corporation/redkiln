@@ -98,9 +98,10 @@ export function healthOf(stdout: string): Health | null {
     if (typeof doc !== 'object' || doc === null || Array.isArray(doc)) return null
     const { schema, data, findings } = doc as { schema?: unknown; data?: unknown; findings?: unknown }
     if (schema !== STATUS_SCHEMA || typeof data !== 'object' || data === null || !Array.isArray(findings)) return null
+    const list: readonly unknown[] = findings
     const health: unknown = (data as { health?: unknown }).health
     const of = (severity: string) =>
-      findings.filter((f): f is { message?: unknown } => (f as { severity?: unknown } | null)?.severity === severity)
+      list.filter((f): f is { message?: unknown } => (f as { severity?: unknown } | null)?.severity === severity)
     switch (health) {
       case 'ok':
         return { health: 'ok' }
