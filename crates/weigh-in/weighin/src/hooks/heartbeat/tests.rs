@@ -75,6 +75,18 @@ fn classify() {
             State::Interrupted,
         ),
         (
+            "a fresh beat past the deadline: the timeout killed it",
+            slot(State::Running, 1000, 1009),
+            1011,
+            State::TimedOut,
+        ),
+        (
+            "a fresh beat at the deadline is still live",
+            slot(State::Running, 1000, 1009),
+            1010,
+            State::Running,
+        ),
+        (
             "a beat in the future is left alone",
             slot(State::Running, 1000, 1020),
             1010,
@@ -110,6 +122,8 @@ fn only_a_dead_running_slot_is_lost() {
         (slot(State::Running, 1000, 1005), 1010, None),
         (slot(State::TimedOut, 1000, 1007), 1013, None),
         (slot(State::Finished, 1000, 1002), 9999, None),
+        (slot(State::Running, 1000, 1009), 1011, Some(Lost::TimedOut)),
+        (slot(State::Running, 1000, 1009), 1010, None),
     ];
     for (slot, now, lost) in cases {
         assert_eq!(slot.lost(now), lost, "{slot:?} at {now}");

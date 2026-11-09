@@ -176,6 +176,63 @@ fn a_dead_running_slot_is_logged_once_by_the_next_hook() -> TestResult {
     Ok(())
 }
 
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_same_event_slot_past_its_deadline_is_logged_even_with_a_fresh_beat() -> TestResult {
+    let (_tmp, repo) = setup();
+    std::fs::create_dir_all(state_of(&repo))?;
+    let now = now()?;
+    // A 20 s Stop that started 25 s ago and beat 2 s ago: its timeout killed it moments ago,
+    // and the next Stop starts before its last beat is stale.
+    std::fs::write(
+        slot_of(&repo, "Stop"),
+        running(now.saturating_sub(25), now.saturating_sub(2), 20),
+    )?;
+
+    hook(&repo, &stop(&repo, "Nothing to capture."));
+
+    let lost = lost_lines(&repo)?;
+    assert_eq!(lost.len(), 1, "{lost:?}");
+    assert!(
+        lost.iter()
+            .all(|line| line.contains(" Stop: the hook started at ")
+                && line.ends_with("was killed by its 20 s timeout")),
+        "{lost:?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_lost_line_that_cannot_be_logged_is_noted_with_the_dead_event() -> TestResult {
+    let (_tmp, repo) = setup();
+    // A directory where the log goes: nothing can be appended.
+    std::fs::create_dir_all(state_of(&repo).join("hook-errors.log"))?;
+    let now = now()?;
+    let started = now.saturating_sub(100);
+    std::fs::write(
+        slot_of(&repo, "PostToolUse"),
+        running(started, started + 8, 10),
+    )?;
+
+    let printed = hook(&repo, &stop(&repo, "Nothing to capture."));
+
+    let out: Value = serde_json::from_str(&printed)?;
+    let message = out
+        .get("systemMessage")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("no systemMessage in {printed}"))?;
+    assert!(
+        message.contains("PostToolUse: the hook started at ")
+            && message.contains("was killed by its 10 s timeout")
+            && message.contains("It could not be logged: "),
+        "{message}"
+    );
+    let posted = std::fs::read_to_string(slot_of(&repo, "PostToolUse"))?;
+    assert_eq!(field(&posted, "state"), Some("timed-out"), "{posted}");
+    Ok(())
+}
+
 #[cfg(unix)]
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]

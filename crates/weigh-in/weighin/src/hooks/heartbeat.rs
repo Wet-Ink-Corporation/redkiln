@@ -12,7 +12,10 @@
 //! Before its dispatch every such hook reads all four slots. A `running` slot whose beat is more
 //! than [`STALE`] seconds old is dead: it timed out when its last beat came within [`MARGIN`]
 //! seconds of its deadline, and was interrupted otherwise (cancelled, the session ended, a
-//! crash). The hook logs one line for it under the dead hook's event, which the next
+//! crash). One with a fresher beat is dead too once its deadline has passed (the harness killed
+//! it), so the next hook of the same event, starting at once, still finds it; one interrupted
+//! less than [`STALE`] seconds before the next hook of its event starts is overwritten unseen.
+//! The hook logs one line for it under the dead hook's event, which the next
 //! `SessionStart` reports with the other hook errors, and rewrites the slot to that state so it
 //! is logged once. Two hooks finding the same dead slot may both log it, and two `PostToolUse`
 //! hooks share a slot, so one finishing can hide the other's death for a second; neither makes
@@ -151,12 +154,17 @@ impl Slot {
         self.lost(now).map_or(self.state, Lost::state)
     }
 
-    /// How the hook ended when its slot is `running` and dead at `now`: timed out when its last
-    /// beat came within [`MARGIN`] seconds of its deadline, else interrupted.
+    /// How the hook ended when its slot is `running` and dead at `now`. A beat more than
+    /// [`STALE`] seconds old: timed out when it came within [`MARGIN`] seconds of the deadline,
+    /// else interrupted. A fresher beat with `now` past the deadline: timed out, since the
+    /// harness kills a hook at its timeout (so the next hook of the same event, starting at
+    /// once, still finds it).
     fn lost(&self, now: u64) -> Option<Lost> {
-        let live = self.beat > now || now.saturating_sub(self.beat) <= STALE;
-        if self.state != State::Running || live {
+        if self.state != State::Running || self.beat > now {
             return None;
+        }
+        if now.saturating_sub(self.beat) <= STALE {
+            return (now > self.deadline()).then_some(Lost::TimedOut);
         }
         if self.beat.saturating_add(MARGIN) >= self.deadline() {
             Some(Lost::TimedOut)
@@ -331,17 +339,29 @@ fn with_beats<T>(
 
 /// Where `hook` keeps its heartbeat: its slot event, the default state dir and its timeout in
 /// seconds; `None` when it keeps none (module doc).
-fn place(hook: &Hook) -> Option<(SlotEvent, PathBuf, u64)> {
-    if hook.cowork {
-        return None;
-    }
-    let event = SlotEvent::of(&hook.event)?;
-    let timeout = hook.timeout?.as_secs();
-    let dir = hook.env.default_state_dir()?;
+///
+/// # Errors
+/// What is at `<git-common-dir>/redkiln/` cannot be told: its metadata fails other than as
+/// not found.
+fn place(hook: &Hook) -> Result<Option<(SlotEvent, PathBuf, u64)>> {
+    let Some((event, timeout, dir)) = (!hook.cowork)
+        .then(|| SlotEvent::of(&hook.event))
+        .flatten()
+        .zip(hook.timeout)
+        .and_then(|(event, timeout)| Some((event, timeout, hook.env.default_state_dir()?)))
+    else {
+        return Ok(None);
+    };
     // `redkiln/` must be there already, and be a directory rather than a link to one.
-    let redkiln = dir.parent()?;
-    let there = std::fs::symlink_metadata(redkiln).is_ok_and(|meta| meta.file_type().is_dir());
-    there.then_some((event, dir, timeout))
+    let Some(redkiln) = dir.parent() else {
+        return Ok(None);
+    };
+    match std::fs::symlink_metadata(redkiln) {
+        Ok(meta) if meta.file_type().is_dir() => Ok(Some((event, dir, timeout.as_secs()))),
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(anyhow::Error::new(e).context(format!("reading {}", redkiln.display()))),
+    }
 }
 
 /// Runs `work` under `hook`'s heartbeat, when it keeps one: logs and rewrites each dead slot,
@@ -352,8 +372,16 @@ pub(super) fn around<T>(
     failures: &mut Failures,
     work: impl FnOnce(&mut Failures) -> T,
 ) -> T {
-    let Some((event, dir, timeout)) = place(hook) else {
-        return work(failures);
+    let (event, dir, timeout) = match place(hook) {
+        Ok(Some(place)) => place,
+        Ok(None) => return work(failures),
+        Err(e) => {
+            hook.log(
+                failures,
+                &e.context("finding where the hook keeps its heartbeat"),
+            );
+            return work(failures);
+        }
     };
     let Some(now) = unix_now() else {
         let e = anyhow::anyhow!("the clock reads before 1970, so the hook keeps no heartbeat");
@@ -409,18 +437,18 @@ fn scan_lost(hook: &Hook, dir: &Path, now: u64, failures: &mut Failures) {
         let Ok(Some(slot)) = read_slot(&path) else {
             continue;
         };
-        // Only a slot still `running` is lost now; one rewritten before was logged then.
-        let lost = match (slot.state, slot.state_at(now)) {
-            (State::Running, State::TimedOut) => Lost::TimedOut,
-            (State::Running, State::Interrupted) => Lost::Interrupted,
-            _ => continue,
+        let Some(lost) = slot.lost(now) else {
+            continue;
         };
-        let line = anyhow::anyhow!("{}", slot.lost_line(lost));
-        if let Err(why) = log_error(&hook.env, event.name(), &line) {
-            failures.push(&line, Logged::Not(one_line(&why, 300)));
+        let line = slot.lost_line(lost);
+        if let Err(why) = log_error(&hook.env, event.name(), &anyhow::anyhow!("{line}")) {
+            // The note names the hook that runs, so the line names the one that died.
+            let noted = anyhow::anyhow!("{}: {line}", event.name());
+            failures.push(&noted, Logged::Not(one_line(&why, 300)));
         }
+        // The state any reader now sees (`lost`'s), so the slot is logged once.
         let rewritten = Slot {
-            state: lost.state(),
+            state: slot.state_at(now),
             ..slot
         };
         if let Err(e) = write_slot(&path, &rewritten) {
