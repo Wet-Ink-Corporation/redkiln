@@ -14,7 +14,6 @@
 //! and a failure keeps its CLI-05 code (CLI-07 read with CLI-05); stderr is a separate stream,
 //! so a failure's error, `--json` or not, and the store's notices are still said there.
 
-use std::fmt::Display;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -24,7 +23,7 @@ use redkiln_core::journal::JournalName;
 use redkiln_core::journal::refs::{Deleted, RefsError, RefsExported, RefsImport, Relayed};
 use serde::Serialize;
 
-use crate::cli_envelope::{Envelope, Exit, Finding, Severity, one_line};
+use crate::cli_envelope::{Envelope, Exit, Finding, Severity, output_failed, say};
 use crate::env::Env;
 use crate::journal::pre_push::{self, Pushing};
 use crate::journal::refs::{self, Budget, Checkpointed, Imported, Marked, Scope, Skip};
@@ -230,32 +229,6 @@ fn failed<D: Serialize>(named: Named, json: bool, e: &anyhow::Error, failure: Fa
         line: String::new(),
     };
     settle(json, said, emit(named, json, &outcome))
-}
-
-/// The exit after stdout failed with `e`: when its reader stopped reading, the exit the command
-/// earned, said nowhere (CLI-07: a success stays 0, a failure keeps its code, CLI-05); else 74,
-/// said on stderr.
-fn output_failed(e: &io::Error, earned: Exit) -> Exit {
-    if e.kind() == io::ErrorKind::BrokenPipe {
-        return earned;
-    }
-    say(
-        "error",
-        &format_args!("writing standard output: {e}"),
-        Exit::Output,
-    )
-}
-
-/// `weighin: <level>: <message>` on stderr, the message on one line (CLI-08); `exit`, or 74 for
-/// a success that cannot be said.
-fn say(level: &str, message: &dyn Display, exit: Exit) -> Exit {
-    let message = one_line(&message.to_string());
-    match writeln!(io::stderr().lock(), "weighin: {level}: {message}") {
-        Ok(()) => exit,
-        // A failure keeps its own code: with stderr gone, the code is the only report left.
-        Err(_) if !exit.ok() => exit,
-        Err(_) => Exit::Output,
-    }
 }
 
 /// `second`, unless it succeeded and `first` did not.

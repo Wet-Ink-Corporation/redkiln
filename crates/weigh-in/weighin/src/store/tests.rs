@@ -103,7 +103,7 @@ fn a_second_raise_conflicts_and_of_two_writers_that_read_alike_the_first_wins() 
         loaded.ledger.get(&id).expect("the item").status,
         Status::Dismissed
     );
-    assert_eq!((loaded.ledger.head, loaded.unusable), (2, 0));
+    assert_eq!((loaded.ledger.head, loaded.unusable.total()), (2, 0));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn another_namespace_neither_conflicts_a_write_nor_reads_as_weighin() {
     assert_eq!(last(&written.expect("append")), Some(4));
     let read = store.read_all().expect("read");
     let positions: Vec<u64> = read.events.iter().map(|(p, _)| *p).collect();
-    assert_eq!((positions, read.unusable), (vec![1, 4], 0));
+    assert_eq!((positions, read.unusable.total()), (vec![1, 4], 0));
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn a_weighin_event_this_build_cannot_use_is_skipped_and_counted() {
         .ledger()
         .expect("an unusable event does not fail the read");
 
-    assert_eq!(loaded.unusable, 2);
+    assert_eq!(loaded.unusable.total(), 2);
     assert!(loaded.ledger.get(&a).is_some_and(|i| i.status.is_open()));
     assert_eq!(
         loaded.ledger.get(&b),
@@ -197,6 +197,40 @@ fn a_weighin_event_this_build_cannot_use_is_skipped_and_counted() {
         last(&blocked.expect("append")),
         None,
         "fail closed on what it cannot read"
+    );
+}
+
+#[test]
+fn unusable_events_are_counted_by_type() {
+    let (_dir, store) = store();
+    let id = ItemId::mint("s1", "a?");
+    let dismissed = "weighin.item_dismissed";
+    raw(
+        &store,
+        wire::RAISED,
+        br#"{"type":"weighin.item_raised"}"#,
+        &id,
+    );
+    raw(
+        &store,
+        wire::RAISED,
+        br#"{"type":"weighin.item_raised"}"#,
+        &id,
+    );
+    raw(
+        &store,
+        dismissed,
+        br#"{"type":"weighin.item_dismissed"}"#,
+        &id,
+    );
+
+    let read = store.read_all().expect("read");
+
+    assert_eq!(read.unusable.total(), 3);
+    let by_type: Vec<(String, u64)> = read.unusable.into_by_type().into_iter().collect();
+    assert_eq!(
+        by_type,
+        [(dismissed.to_owned(), 1), (wire::RAISED.to_owned(), 2)]
     );
 }
 

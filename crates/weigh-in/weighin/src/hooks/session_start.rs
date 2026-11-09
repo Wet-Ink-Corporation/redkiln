@@ -29,7 +29,10 @@ pub(super) fn session_start(
     let env = &hook.env;
     let broken = broken_config(env);
     let (primed, unusable) = match ops::loaded(env) {
-        Ok(loaded) => (prime_from(env, source, &loaded.ledger), loaded.unusable),
+        Ok(loaded) => (
+            prime_from(env, source, &loaded.ledger),
+            loaded.unusable.total(),
+        ),
         Err(e) => (Err(e), 0),
     };
     // A given store Core refuses is told to the user here, every session until it is fixed, and

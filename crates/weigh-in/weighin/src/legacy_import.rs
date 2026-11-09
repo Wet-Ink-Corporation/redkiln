@@ -215,6 +215,31 @@ pub(crate) fn import_due(env: &Env, mode: Mode, actor: &str) -> Result<Legacy> {
     Ok(Legacy::Ran(report))
 }
 
+/// How many 1.x sources wait for the import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Due {
+    pub(crate) ledgers: usize,
+    pub(crate) journals: usize,
+}
+
+/// The 1.x sources `store` has not imported (every one when there is no store yet), counted
+/// and read only: `status` reports them and imports nothing (decision D3).
+///
+/// # Errors
+/// The journal directory cannot be listed, or the store's import records cannot be read.
+pub(crate) fn due(env: &Env, store: Option<&Store>) -> Result<Due> {
+    let journals = journal_files(&env.root())?;
+    let done = match store {
+        Some(store) => imported_sources(store)?,
+        None => HashSet::new(),
+    };
+    let not_done = |p: &&PathBuf| !done.contains(p.to_string_lossy().as_ref());
+    Ok(Due {
+        ledgers: env.old_ledgers.iter().filter(not_done).count(),
+        journals: journals.iter().filter(not_done).count(),
+    })
+}
+
 /// The store could not be opened for the import: a hook leaves telling it to the prime, which
 /// opens it again.
 #[derive(Debug)]

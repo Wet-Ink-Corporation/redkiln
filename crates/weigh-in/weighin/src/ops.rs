@@ -191,7 +191,7 @@ impl<'a> Session<'a> {
                 let Loaded { ledger, unusable } = self.store()?.ledger()?;
                 self.ledger = ledger;
                 let moved = self.ledger.get(id).map_or(0, |i| i.last_position) != since;
-                if !moved && unusable > 0 {
+                if !moved && unusable.total() > 0 {
                     bail!(
                         "{id} has events a newer weighin wrote, which this build cannot read; upgrade weighin to change it"
                     )
