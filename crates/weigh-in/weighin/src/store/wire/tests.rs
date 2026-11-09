@@ -312,7 +312,7 @@ fn a_weighin_line_of_a_newer_version_is_unusable_naming_its_type() {
     let skipped = from_line(1, line.as_bytes());
 
     assert!(
-        matches!(&skipped, Err(LineSkip::Unusable { event_type }) if event_type == "weighin.item_raised"),
+        matches!(&skipped, Err(LineSkip::Unusable { event_type, .. }) if event_type == "weighin.item_raised"),
         "{skipped:?}"
     );
 }

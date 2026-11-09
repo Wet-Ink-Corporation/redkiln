@@ -3,10 +3,11 @@
 //! line is mapped as `journal import` would store it ([`from_line`]); each journal ref's JR-05
 //! flaws, each ref Core could not read whole and each malformed line become `ref` violations.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use anyhow::{Context as _, Result};
+use redkiln_core::EventId;
 use redkiln_core::journal::lines;
 use redkiln_core::journal::refs::{Breach, Flaw, LocalFile, LocalSource, SourceKind, read_local};
 use redkiln_core::location::GIT_TIMEOUT;
@@ -24,8 +25,11 @@ pub(super) struct RefJournals {
     pub(super) violations: Vec<Violation>,
     /// Each source read.
     pub(super) read: Vec<RefRead>,
-    /// Weighin events this build cannot read, by type (EV-10).
+    /// Weighin events this build cannot read, by type (EV-10), each event counted once.
     pub(super) unreadable: BTreeMap<String, u64>,
+    /// The identities of the events counted in `unreadable`: one event may sit in several
+    /// sources (an inbox copy and its ref) or files (a rewritten predecessor and the tip).
+    counted: HashSet<EventId>,
 }
 
 /// Every local journal source of the repository at `root`.
@@ -55,9 +59,11 @@ fn decode(file: LocalFile<'_>, found: &mut RefJournals) {
         match from_line(line.number, line.text) {
             Ok(event) => found.events.push(event),
             Err(LineSkip::Foreign) => {}
-            Err(LineSkip::Unusable { event_type }) => {
-                let count = found.unreadable.entry(event_type).or_default();
-                *count = count.saturating_add(1);
+            Err(LineSkip::Unusable { origin, event_type }) => {
+                if found.counted.insert(origin) {
+                    let count = found.unreadable.entry(event_type).or_default();
+                    *count = count.saturating_add(1);
+                }
             }
             Err(LineSkip::Malformed) => found.violations.push(Violation {
                 journal: file.refname.to_owned(),

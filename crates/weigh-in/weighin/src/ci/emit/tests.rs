@@ -2,14 +2,15 @@
 
 use std::collections::BTreeMap;
 
+use weighin_contract::ci_check::Blocks;
 use weighin_contract::ci_check::v2::{
-    Blocks, Data, JournalCheck, JournalKind, OpenItem, Read, Reason, RefKind, RefRead, Violation,
+    Data, JournalCheck, JournalKind, OpenItem, Read, Reason, RefKind, RefRead, Violation,
 };
 use weighin_contract::id::ItemId;
 use weighin_contract::open::Status;
 use weighin_contract::vocab::Kind;
 
-use super::{findings, render_text};
+use super::{findings, render_text, write_envelope};
 use crate::cli_envelope::{Finding, Severity};
 
 const FILE: &str = ".kb/_ledger/journal/s.jsonl";
@@ -95,6 +96,46 @@ fn no_refs_read_is_one_warning_finding() {
             "ci-check/no-journal-refs".to_owned(),
             "no journal refs in this clone; fetch +refs/redkiln/journal/*:refs/redkiln/journal/* to read them",
             Severity::Warning,
+        )]
+    );
+}
+
+#[test]
+fn the_envelope_of_each_golden_s_data_is_the_golden_byte_for_byte()
+-> Result<(), Box<dyn std::error::Error>> {
+    let goldens = [
+        include_str!("../../../../weighin-contract/fixtures/ci-check/v2-full.json"),
+        include_str!("../../../../weighin-contract/fixtures/ci-check/v2-nothing-read.json"),
+    ];
+    for golden in goldens {
+        let data = Data::from_envelope(golden)?;
+        let mut out = Vec::new();
+
+        write_envelope(&data, &mut out)?;
+
+        assert_eq!(String::from_utf8_lossy(&out), golden);
+    }
+    Ok(())
+}
+
+#[test]
+fn refs_that_exist_but_were_all_passed_over_are_no_no_refs_warning() {
+    let passed_over = Violation {
+        journal: REF.to_owned(),
+        kind: JournalKind::Ref,
+        commit: None,
+        line: None,
+        reason: Reason::Unreadable,
+    };
+
+    let got = findings(&data(vec![passed_over], Vec::new()));
+
+    assert_eq!(
+        got,
+        vec![Finding::new(
+            format!("ci-check/unreadable:{REF}"),
+            &format!("{REF}:- unreadable"),
+            Severity::Error,
         )]
     );
 }

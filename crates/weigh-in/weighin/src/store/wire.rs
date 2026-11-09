@@ -6,6 +6,7 @@
 //! payloads are Core [`Payload`]s in `weighin-contract` (`names`, Move 1 step 5).
 
 use anyhow::{Context as _, Result};
+use redkiln_core::EventId;
 use redkiln_core::envelope::{
     Actor, Author, Envelope, Namespace, Payload, Skip, Timestamp, Writer, decode,
 };
@@ -93,6 +94,8 @@ pub(crate) enum LineSkip {
     Foreign,
     /// A weighin type this build cannot use (EV-10).
     Unusable {
+        /// Its identity, so a reader counts one event once wherever it is read.
+        origin: EventId,
         /// Its type.
         event_type: String,
     },
@@ -121,6 +124,7 @@ pub(crate) fn from_line(number: u64, text: &[u8]) -> Result<EventEnvelope, LineS
     from_stored(&stored).map_err(|skip| match skip {
         Skip::Foreign => LineSkip::Foreign,
         Skip::Unusable(_) => LineSkip::Unusable {
+            origin: stored.id,
             event_type: stored.event_type,
         },
     })

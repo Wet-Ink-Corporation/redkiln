@@ -15,6 +15,7 @@
 
 mod atom;
 mod emit;
+mod legacy;
 mod refs;
 mod report;
 mod trailer;
@@ -26,9 +27,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use weighin_contract::ci_check::v2::{Data, Read};
-use weighin_core::{EventEnvelope, ItemId, LedgerEvent};
+use weighin_core::{ItemId, LedgerEvent};
 
-use self::report::{Attested, Inputs, Source, Violation, When};
+use self::legacy::{HeadJournals, check_base, tree_paths};
+use self::report::{Attested, Inputs, Source, When};
 use crate::Globals;
 use crate::{git, journal};
 
@@ -150,92 +152,6 @@ fn latest(map: &mut BTreeMap<ItemId, When>, id: ItemId, when: When) {
 fn commit(root: &Path, rev: &str) -> Result<String> {
     let sha = git::run(root, &["rev-parse", "--verify", "--end-of-options", rev])?;
     Ok(sha.trim().to_owned())
-}
-
-/// A journal in the checkout, decoded.
-struct HeadJournal {
-    path: String,
-    bytes: Vec<u8>,
-    events: Vec<(u64, EventEnvelope)>,
-}
-
-/// Every journal in the checkout, and the lines of them that are not events.
-struct HeadJournals {
-    files: Vec<HeadJournal>,
-    violations: Vec<Violation>,
-}
-
-impl HeadJournals {
-    fn read(root: &Path) -> Result<Self> {
-        let mut files = Vec::new();
-        let mut violations = Vec::new();
-        for f in journal::files(root)? {
-            let (events, bad) = verify::decode(&f.path, &f.bytes);
-            violations.extend(bad);
-            files.push(HeadJournal {
-                path: f.path,
-                bytes: f.bytes,
-                events,
-            });
-        }
-        Ok(Self { files, violations })
-    }
-
-    fn bytes_of(&self, path: &str) -> Option<&[u8]> {
-        self.files
-            .iter()
-            .find(|f| f.path == path)
-            .map(|f| f.bytes.as_slice())
-    }
-}
-
-/// The base journals' append-only violations, and the keys of every complete base line.
-struct BaseCheck {
-    violations: Vec<Violation>,
-    keys: HashSet<Vec<u8>>,
-}
-
-fn check_base(root: &Path, base_sha: &str, head: &HeadJournals) -> Result<BaseCheck> {
-    let mut check = BaseCheck {
-        violations: Vec::new(),
-        keys: HashSet::new(),
-    };
-    let dir = format!("{}/", journal::DIR);
-    for path in tree_paths(root, base_sha, &dir)? {
-        let is_journal = path
-            .strip_prefix(&dir)
-            // As `journal::files` picks them in the checkout.
-            .is_some_and(|name| {
-                !name.contains('/') && Path::new(name).extension().is_some_and(|x| x == "jsonl")
-            });
-        if !is_journal {
-            continue;
-        }
-        let base = git::output(root, &["show", &format!("{base_sha}:{path}")])
-            .with_context(|| format!("reading {path} at {base_sha}"))?;
-        check
-            .violations
-            .extend(verify::verify(&path, &base, head.bytes_of(&path)));
-        check.keys.extend(
-            journal::lines(&base)
-                .filter(|l| l.complete && !l.is_blank())
-                .map(|l| verify::key(l.text)),
-        );
-    }
-    Ok(check)
-}
-
-/// The paths of the files under `prefix` in the tree of `rev`.
-fn tree_paths(root: &Path, rev: &str, prefix: &str) -> Result<Vec<String>> {
-    let listed = git::run(
-        root,
-        &["ls-tree", "-r", "-z", "--name-only", rev, "--", prefix],
-    )?;
-    Ok(listed
-        .split('\0')
-        .filter(|p| !p.is_empty())
-        .map(str::to_owned)
-        .collect())
 }
 
 /// What the journals at head record beyond the folded items: each `item_decided` event no

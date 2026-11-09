@@ -3,7 +3,36 @@
 use redkiln_core::journal::refs::{Breach, ChainBreak, Flaw, LocalSource, SourceKind};
 use weighin_contract::ci_check::v2::{JournalKind, Reason, RefKind, RefRead, Violation};
 
-use super::{passed_over, split};
+use redkiln_core::journal::refs::LocalFile;
+
+use super::{RefJournals, decode, passed_over, split};
+
+#[test]
+fn one_unusable_event_read_from_two_sources_counts_once() {
+    let line = r#"{"type":"weighin.item_raised","version":2,"ts":"2026-10-31T04:12:40Z","actor":"agent","trust":{"level":"asserted"},"writer":{"binary":"weighin","version":"9.0.0","spec":"1.0.0"},"origin":"0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:7","data":{"item_id":"wi-930e15"}}"#.to_owned() + "\n";
+    let commit = "c".repeat(40);
+    let mut found = RefJournals::default();
+
+    for (refname, kind) in [
+        ("refs/redkiln/inbox/s1", SourceKind::Inbox),
+        (REF, SourceKind::Journal),
+    ] {
+        decode(
+            LocalFile {
+                refname,
+                kind,
+                commit: &commit,
+                bytes: line.as_bytes(),
+            },
+            &mut found,
+        );
+    }
+
+    assert_eq!(
+        found.unreadable,
+        [("weighin.item_raised".to_owned(), 1)].into()
+    );
+}
 
 const REF: &str = "refs/redkiln/journal/s1";
 

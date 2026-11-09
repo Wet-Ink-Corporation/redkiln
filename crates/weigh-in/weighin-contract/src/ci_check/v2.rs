@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub use super::{Blocks, Source};
+use super::{Blocks, Source};
 use crate::id::ItemId;
 use crate::open::Status;
 use crate::vocab::{Authority, Door, Kind};

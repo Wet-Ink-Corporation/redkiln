@@ -5,7 +5,8 @@
 
 use std::io::{self, StdoutLock, Write};
 
-use weighin_contract::ci_check::v2::{Blocks, COMMAND, Data, Reason, SCHEMA, Violation};
+use weighin_contract::ci_check::Blocks;
+use weighin_contract::ci_check::v2::{COMMAND, Data, Reason, SCHEMA, Violation};
 
 use crate::cli_envelope::{Envelope, Exit, Finding, Severity, output_failed, say};
 
@@ -19,20 +20,28 @@ const DOES_NOT_PROVE: &str = "that this clone fetched the journal refs (data.rea
 pub(super) fn write(data: &Data, json: bool) -> Exit {
     emit(Exit::Success, |out| {
         if json {
-            Envelope {
-                schema: SCHEMA,
-                command: COMMAND,
-                data,
-                findings: &findings(data),
-                exit: Exit::Success,
-                proves: Some(PROVES),
-                does_not_prove: Some(DOES_NOT_PROVE),
-            }
-            .write(out)
+            write_envelope(data, out)
         } else {
             render_text(data, out)
         }
     })
+}
+
+/// `data` as the `/2` envelope of a report written, on one line.
+///
+/// # Errors
+/// Encoding or writing failed.
+fn write_envelope(data: &Data, out: &mut impl Write) -> io::Result<()> {
+    Envelope {
+        schema: SCHEMA,
+        command: COMMAND,
+        data,
+        findings: &findings(data),
+        exit: Exit::Success,
+        proves: Some(PROVES),
+        does_not_prove: Some(DOES_NOT_PROVE),
+    }
+    .write(out)
 }
 
 /// ci-check could not run (70): `e` on stderr, and with `--json` the envelope with `data: {}`
@@ -68,8 +77,8 @@ fn emit(earned: Exit, write: impl FnOnce(&mut StdoutLock<'static>) -> io::Result
     }
 }
 
-/// The report's findings: an error per violation, a warning when no journal ref was read, and
-/// a warning per weighin type this build could not read.
+/// The report's findings: an error per violation, a warning when the clone holds no journal
+/// ref (none read, none passed over), and a warning per weighin type this build could not read.
 fn findings(data: &Data) -> Vec<Finding> {
     let mut found: Vec<Finding> = data
         .journal
@@ -77,7 +86,13 @@ fn findings(data: &Data) -> Vec<Finding> {
         .iter()
         .map(|v| Finding::new(key(v), &violation_line(v), Severity::Error))
         .collect();
-    if data.read.refs.is_empty() {
+    // No ref was read and none was there unread: a ref passed over is its own violation.
+    let passed_over = data
+        .journal
+        .violations
+        .iter()
+        .any(|v| v.reason == Reason::Unreadable);
+    if data.read.refs.is_empty() && !passed_over {
         found.push(Finding::new(
             "ci-check/no-journal-refs".to_owned(),
             "no journal refs in this clone; fetch +refs/redkiln/journal/*:refs/redkiln/journal/* to read them",

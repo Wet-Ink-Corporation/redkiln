@@ -427,8 +427,10 @@ fn foreign_line(event_type: &str, version: u32) -> String {
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_weighin_line_this_build_cannot_read_is_counted_by_type_not_a_violation() -> TestResult {
     let repo = on_a_branch()?;
+    // Two events this build cannot read; the first is in both commits, counted once.
     let newer = foreign_line("weighin.item_raised", 2);
-    chain_at(&repo, S1, "s1", &[&newer, &(newer.clone() + &newer)])?;
+    let another = newer.replacen("2e4f:7", "2e4f:8", 1);
+    chain_at(&repo, S1, "s1", &[&newer, &(newer.clone() + &another)])?;
 
     let envelope = envelope(&repo)?;
 

@@ -6,7 +6,8 @@ use weighin_contract::ci_check::v2::{Data, Decision, JournalCheck, OpenItem, Rea
 use weighin_core::{Item, ItemId, Ledger};
 
 // The report's wire types are Weigh-In's contract (`weighin.ci-check/2` since #48).
-pub(crate) use weighin_contract::ci_check::v2::{Blocks, Source, Violation};
+pub(crate) use weighin_contract::ci_check::v2::Violation;
+pub(crate) use weighin_contract::ci_check::{Blocks, Source};
 
 /// Which source's commit the report names first: the trailer's, then the atom's, then the
 /// journal line's.
