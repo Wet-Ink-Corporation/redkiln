@@ -194,6 +194,9 @@ jobs:
           name: packaged-plugins
           path: dist/plugins/
           if-no-files-found: error
+          # Each plugin's manifest is in .claude-plugin/, which upload-artifact leaves out by
+          # default; without it publish's `cargo xtask marketplace` finds no plugin.json.
+          include-hidden-files: true
 
   publish:
     needs: package
