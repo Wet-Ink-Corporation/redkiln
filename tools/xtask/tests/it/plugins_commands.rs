@@ -314,10 +314,18 @@ fn this_repository_names_only_existing_subcommands() {
         value_options: weighin_contract::cli::VALUE_OPTIONS,
     };
 
-    assert_eq!(check_commands(&plugins, &[weighin]), vec![]);
+    assert_eq!(check_commands(&plugins, &[BENCH, weighin]), vec![]);
 }
 
-/// The violations of this repository's plugins against weighin's list without `command`.
+/// Bench's command list, which the repository's `rk-bench` plugins are checked against too.
+const BENCH: Cli<'static> = Cli {
+    binary: bench_contract::cli::BINARY,
+    commands: bench_contract::cli::COMMANDS,
+    value_options: bench_contract::cli::VALUE_OPTIONS,
+};
+
+/// The violations of this repository's plugins against weighin's list without `command` (and
+/// Bench's whole list).
 fn this_repository_without(command: &str) -> Result<Vec<Violation>, ReadError> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
     let plugins = read_plugins(&root)?;
@@ -331,7 +339,7 @@ fn this_repository_without(command: &str) -> Result<Vec<Violation>, ReadError> {
         commands: &commands,
         value_options: weighin_contract::cli::VALUE_OPTIONS,
     };
-    Ok(check_commands(&plugins, &[weighin]))
+    Ok(check_commands(&plugins, &[BENCH, weighin]))
 }
 
 #[test]

@@ -7,12 +7,12 @@ description: Use when requirements are agreed, even if the spec seems obvious; w
 
 ## Overview
 
-Turns requirements the human confirmed into a spec a script can check, written in the interview's session. Its template is `data.content` of `anneal playbook show spec-template`.
+Turns requirements the human confirmed into a spec a script can check, written in the interview's session. Its template is `data.content` of `bench playbook show spec-template`.
 
-- You MUST write the spec from the template and run `anneal lint spec <file>` until it exits 0, applying each finding's `fix`.
-- You MUST write every acceptance criterion in EARS (`WHEN <trigger>, THE <system> SHALL <response>.` and its variants); `anneal lint spec` rejects any other form.
-- You MUST mark each point the human did not confirm `[NEEDS CLARIFICATION: <question>]` instead of guessing; `anneal lint spec` allows at most 3 and reports the count.
-- You MUST check the spec against `constitution.md` and justify every violated gate in the Complexity table; `anneal lint spec` checks the version, the gates and the justifications.
+- You MUST write the spec from the template and run `bench lint spec <file>` until it exits 0, applying each finding's `fix`.
+- You MUST write every acceptance criterion in EARS (`WHEN <trigger>, THE <system> SHALL <response>.` and its variants); `bench lint spec` rejects any other form.
+- You MUST mark each point the human did not confirm `[NEEDS CLARIFICATION: <question>]` instead of guessing; `bench lint spec` allows at most 3 and reports the count.
+- You MUST check the spec against `constitution.md` and justify every violated gate in the Complexity table; `bench lint spec` checks the version, the gates and the justifications.
 
 ## When to use
 
@@ -27,7 +27,7 @@ Turns requirements the human confirmed into a spec a script can check, written i
 4. **Scope it out.** List what it will not do, and why; record each out-of-scope ruling in `.out-of-scope/`. It's working if Out of Scope is not empty.
 5. **Mark the gaps.** Give each unconfirmed point a marker and an Open questions entry. It's working if nothing unconfirmed reads as fact.
 6. **Check the constitution.** Read `constitution.md`, write its version, mark each gate `pass`, `violated: <why>` or `n/a`, and add a Complexity row per violation. It's working if every gate has a status.
-7. **Lint.** Run `anneal lint spec docs/specs/<topic>.md`; apply each fix. It's working if it exits 0.
+7. **Lint.** Run `bench lint spec docs/specs/<topic>.md`; apply each fix. It's working if it exits 0.
 8. **Close the questions.** Ask each open question with a recommended answer, then remove its marker. It's working if `data.needs_clarification` is 0 before `plan`.
 
 ## Rationalizations
@@ -49,5 +49,5 @@ Turns requirements the human confirmed into a spec a script can check, written i
 
 ## Verification
 
-- `anneal lint spec docs/specs/<topic>.md` exits 0.
+- `bench lint spec docs/specs/<topic>.md` exits 0.
 - Its `data.needs_clarification` is 0, or each remaining marker is in front of the human.

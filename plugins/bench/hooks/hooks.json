@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "bootstrap"],
             "timeout": 15,
             "onFailure": "continue"
@@ -19,14 +19,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "route"],
             "timeout": 5,
             "onFailure": "continue"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "ruled-before"],
             "timeout": 5,
             "onFailure": "continue"
@@ -39,14 +39,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "fast-check"],
             "timeout": 15,
             "onFailure": "continue"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "injection-scan"],
             "timeout": 2,
             "onFailure": "continue"
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "context-monitor"],
             "timeout": 5,
             "onFailure": "continue"
@@ -71,14 +71,14 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "guard", "--fail-closed"],
             "timeout": 5,
             "onFailure": "block"
           },
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "merge-gate", "--fail-closed"],
             "timeout": 5,
             "onFailure": "block"
@@ -90,7 +90,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "preconditions", "--fail-closed"],
             "timeout": 5,
             "onFailure": "block"
@@ -102,7 +102,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "brief", "--fail-closed"],
             "timeout": 5,
             "onFailure": "block"
@@ -115,7 +115,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "completeness"],
             "timeout": 30,
             "onFailure": "continue"
@@ -128,7 +128,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "status"],
             "timeout": 15,
             "onFailure": "continue"
@@ -141,7 +141,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "handoff"],
             "timeout": 30,
             "onFailure": "continue"
@@ -154,7 +154,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
+            "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "standing-orders"],
             "timeout": 5,
             "onFailure": "continue"

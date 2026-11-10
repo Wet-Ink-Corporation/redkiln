@@ -7,8 +7,8 @@ its cost. Cheap checks run often; expensive ones run rarely, but always before m
 
 | Tier | Budget | Runs | Where | Examples |
 |---|---|---|---|---|
-| Fast | under 5 s | after every batch of edits | `PostToolBatch` (`anneal hook fast-check`) | `check:fast`, `anneal floor-guard`, avoided terms, `anneal lint spec`/`lint plan` |
-| Task | under 90 s | at a task boundary, before Stop | `anneal task done <id> -- <cmd>`, Stop hooks | the task's `Test:` command, `temper:gate` in Rust |
+| Fast | under 5 s | after every batch of edits | `PostToolBatch` (`bench hook fast-check`) | `check:fast`, `bench floor-guard`, avoided terms, `bench lint spec`/`lint plan` |
+| Task | under 90 s | at a task boundary, before Stop | `bench task done <id> -- <cmd>`, Stop hooks | the task's `Test:` command, `temper:gate` in Rust |
 | Full | no limit | on every push | CI | the whole suite, every platform, supply chain |
 
 A check that does not fit its tier's budget moves down a tier; it is never dropped. The fast
@@ -51,7 +51,7 @@ One section per constraint, each naming the check that enforces it and its tier:
   "coverage": {"value": 81.5, "direction": "up"}}}
 ```
 
-`down` means lower is better, `up` higher is better. `anneal floor-guard` compares each ratchet
+`down` means lower is better, `up` higher is better. `bench floor-guard` compares each ratchet
 with the merge base: one moved the wrong way, removed or turned around is a lowered floor, and
 the `fast-check` hook blocks on it. Tighten a ratchet in the same change that earns it; loosening
 one is the human's decision.

@@ -1,1 +1,1 @@
-../../../../README.md
+../../../../../plugins/bench/README.md

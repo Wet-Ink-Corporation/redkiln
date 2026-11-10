@@ -14,7 +14,12 @@ resolver = "3"
 # sits in one of these places and that its edges point the allowed way. Cargo refuses a glob that
 # matches nothing or a folder without a manifest, so the first crate of each layer adds its
 # `crates/<layer>/*` glob here, and tools are listed one by one (tools/ also holds scripts).
-members = ["crates/core/*", "crates/knowledge/*", "crates/weigh-in/*", "tools/xtask"]
+members = ["crates/bench/*", "crates/core/*", "crates/knowledge/*", "crates/weigh-in/*", "tools/xtask"]
+# HELD FOR RYAN (Move 2 step 1): bench-ledger's happenstance 0.3.2 links libsqlite3-sys 0.38 and
+# Core's =0.6.0 links 0.39, and cargo allows one `links = "sqlite3"` per resolve, so the two
+# crates cannot join this workspace until bench-ledger's store moves (an H-16 migration call).
+# Until then they build and test as their own workspace (docs/plan/move-2-bench.md, step 1).
+exclude = ["crates/bench/bench", "crates/bench/bench-ledger"]
 
 [workspace.package]
 edition = "2024"
@@ -60,6 +65,15 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 tempfile = "3"
+
+# Bench's crates as imported at Move 2 (docs/plan/move-2-bench.md, step 1). bench-ledger declares
+# its own happenstance 0.3.2 until step 3 moves it onto Core; no other crate may take 0.3.2.
+bench-contract = { path = "crates/bench/bench-contract" }
+bench-ledger = { path = "crates/bench/bench-ledger" }
+# Clef's HTTP transport and `verdict set`'s commit status, for the bench crate only (M2-A, Ryan
+# 2026-11-09, as anneal had it since 2026-10-12): blocking, rustls with bundled Mozilla roots, no
+# gzip or proxy features.
+ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 
 # Test-only: validates the SPEC's golden fixtures against their JSON Schemas (Move 1 step 3,
 # #18). Default features off: no HTTP, TLS or file resolution; every schema is read from

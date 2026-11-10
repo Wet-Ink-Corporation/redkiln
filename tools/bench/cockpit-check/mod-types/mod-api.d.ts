@@ -1,5 +1,5 @@
 // A minimal, hand-written declaration of the Claude Code mods API, in this repository's own
-// words, covering only what plugin-cockpit/hooks/cockpit.tsx and plugin-cockpit/tests/cockpit.test.ts use.
+// words, covering only what plugins/bench-cockpit/hooks/mod/cockpit.tsx and cockpit.test.ts use.
 //
 // It mirrors the documented API (https://code.claude.com/docs/en/plugins/mods/reference) as of
 // Claude Code 2.1.303. It is not Claude Code's own declaration file, which is not under this

@@ -1,12 +1,12 @@
-// The anneal cockpit (#56): the mod, shipped as its own plugin, `anneal-cockpit`, next to `anneal`.
+// The Bench cockpit (anneal #56): the mod, shipped as its own plugin, `rk-bench-cockpit`, next to `rk-bench`.
 // It is a separate plugin because the desktop app's chats turn off a whole plugin that ships a
 // mod, skills included, so the mod must never sit in the plugin that carries anneal's skills.
 //
 // Hooks enforce, the mod shows and collects. Every gate stays a settings hook in the `anneal`
 // plugin's `hooks.json` calling the `anneal` CLI; this module holds no logic of its own. It
-// renders what `anneal status --json` prints (through this plugin's own copy of the launcher),
+// renders what `bench status --json` prints (through this plugin's own copy of the launcher),
 // keeps the last reading in `$.state`, and writes nothing to the ledger. anneal works fully
-// without it (`anneal-cockpit` not installed, `--safe-mode`, `disableAllHooks` or a host without
+// without it (`rk-bench-cockpit` not installed, `--safe-mode`, `disableAllHooks` or a host without
 // mods).
 //
 // - The band (`AbovePrompt`): one row, `anneal · build · plan ✓ a1b2c3 · task 3/7 · ctx 58%`,
@@ -17,12 +17,12 @@
 // - Refresh: at `session.start`, `turn.complete`, and once a Bash, Edit or Write call has
 //   settled; at most once a second, each run of the CLI given 2 s.
 // - Where nothing draws (`/anneal` with no surface attached, or a pane no surface places), the
-//   command answers with `anneal status`'s text form instead.
+//   command answers with `bench status`'s text form instead.
 // - Calibration (`/anneal calibration`, #63): a pane tab (a section of the cockpit pane on a
-//   narrow terminal) with one row per Clef decision point from `anneal calibrate`, and the
+//   narrow terminal) with one row per Clef decision point from `bench calibrate`, and the
 //   selected point's reliability diagram, a `Raster` on the terminal and an `Svg` elsewhere. It
-//   runs `anneal calibrate` on open and on `/anneal calibration refresh`, never on a timer, and
-//   has no apply button: promotion stays `anneal calibrate --apply`, run by a person (#44).
+//   runs `bench calibrate` on open and on `/anneal calibration refresh`, never on a timer, and
+//   has no apply button: promotion stays `bench calibrate --apply`, run by a person (#44).
 
 import type { CommandRunInput, CommandRunResult, EngineInterface, Register, RenderElement, RenderInput } from 'claude-code'
 
@@ -35,12 +35,12 @@ import type {
   AnnealGate,
   AnnealReading,
   AnnealStatus,
-} from '../types'
+} from '../../types'
 
 /** The pane's id, which its `ui.render` hook matches as `requestId`. */
 export const PANE = 'anneal'
 
-/** How long one refresh's `anneal status --json` may run. */
+/** How long one refresh's `bench status --json` may run. */
 export const REFRESH_TIMEOUT_MS = 2_000
 
 /** The least time between the starts of two refreshes. */
@@ -62,27 +62,27 @@ const CALIBRATION_FIELDS = [...BAND_FIELDS, 'clef'] as const
 const DOCK_COLUMNS = 56
 const INLINE_ROWS = 18
 
-/** What `/anneal` answers when there is no `anneal status` to run: no launcher starts, or the CLI has no such command. */
-export const NOT_BUILT = 'anneal status is not built yet'
+/** What `/anneal` answers when there is no `bench status` to run: no launcher starts, or the CLI has no such command. */
+export const NOT_BUILT = 'bench status is not built yet'
 
-/** What `/anneal` answers when `anneal status` started but gave no text: a timeout, cut output or an error. */
-export const UNAVAILABLE = 'anneal status unavailable'
+/** What `/anneal` answers when `bench status` started but gave no text: a timeout, cut output or an error. */
+export const UNAVAILABLE = 'bench status unavailable'
 
 /** What the band, the pane and the calibration show for a reading they cannot draw from. */
 export const UNREADABLE_BAND = 'anneal · status unreadable'
-export const UNREADABLE_PANE = 'anneal status unreadable'
-export const UNREADABLE_CALIBRATION = 'anneal calibrate unreadable'
+export const UNREADABLE_PANE = 'bench status unreadable'
+export const UNREADABLE_CALIBRATION = 'bench calibrate unreadable'
 
-const reading = { plugin: 'anneal-cockpit', key: 'reading' } as const
-const expanded = { plugin: 'anneal-cockpit', key: 'expanded' } as const
+const reading = { plugin: 'rk-bench-cockpit', key: 'reading' } as const
+const expanded = { plugin: 'rk-bench-cockpit', key: 'expanded' } as const
 
 /**
  * The launchers the plugin ships, in the order they are tried: the sh launcher, then the
  * Windows one when the first cannot start.
  */
 const launchers = (root: string): readonly string[] => [
-  `${root}/libexec/anneal`,
-  `${root}/libexec/anneal.cmd`,
+  `${root}/libexec/bench`,
+  `${root}/libexec/bench.cmd`,
 ]
 
 /**
@@ -269,7 +269,7 @@ export const readStatusDocument = (
   return { status: kept as AnnealStatus, unreadable }
 }
 
-/** The status document inside `anneal status --json`'s envelope, when it is a schema 1 one. */
+/** The status document inside `bench status --json`'s envelope, when it is a schema 1 one. */
 export const readEnvelope = (
   text: string,
 ): {
@@ -452,7 +452,7 @@ export const bandLine = (status: AnnealStatus): { readonly text: string; readonl
 }
 
 /**
- * The text `/anneal` answers where nothing draws: `anneal status`'s text form (it prints one
+ * The text `/anneal` answers where nothing draws: `bench status`'s text form (it prints one
  * with a ledger or without), else one line saying why there is none.
  */
 export const statusText = async ($: EngineInterface): Promise<string> => {
@@ -472,7 +472,7 @@ export const statusText = async ($: EngineInterface): Promise<string> => {
 /** The calibration pane's id: a second pane, which the surface shows as a tab beside `anneal`. */
 export const CALIBRATION_PANE = 'anneal-calibration'
 
-/** How long one `anneal calibrate` may run: it reads the whole decision log, once, when asked. */
+/** How long one `bench calibrate` may run: it reads the whole decision log, once, when asked. */
 export const CALIBRATION_TIMEOUT_MS = 10_000
 
 /**
@@ -493,9 +493,9 @@ export const CALIBRATION_USAGE = 'usage: /anneal calibration [refresh]'
 /** The cells of the labelled-decisions bar. */
 const BAR_CELLS = 10
 
-const calibration = { plugin: 'anneal-cockpit', key: 'calibration' } as const
-const selectedPoint = { plugin: 'anneal-cockpit', key: 'selected_point' } as const
-const calibrationSection = { plugin: 'anneal-cockpit', key: 'calibration_section' } as const
+const calibration = { plugin: 'rk-bench-cockpit', key: 'calibration' } as const
+const selectedPoint = { plugin: 'rk-bench-cockpit', key: 'selected_point' } as const
+const calibrationSection = { plugin: 'rk-bench-cockpit', key: 'calibration_section' } as const
 
 const isCalibrationBin = (value: unknown): boolean =>
   isObject(value) &&
@@ -537,7 +537,7 @@ const isCalibrationPoint = (value: unknown): value is AnnealCalibrationPoint =>
   isListOf(value.questions, isCalibrationQuestion)
 
 /**
- * The points and proposals path of an `anneal calibrate` envelope (docs/calibrate.md, Output),
+ * The points and proposals path of an `bench calibrate` envelope (docs/calibrate.md, Output),
  * or `null` when the text is not one. A point whose fields, or any of whose questions' fields,
  * do not have the types the dashboard reads is dropped and counted in `dropped`.
  */
@@ -562,7 +562,7 @@ export const readCalibration = (text: string): AnnealCalibration | null => {
   }
 }
 
-/** One run of `anneal calibrate`, read. */
+/** One run of `bench calibrate`, read. */
 const runCalibrate = async ($: EngineInterface): Promise<AnnealCalibrationReading> => {
   const ran = await runAnneal($, ['calibrate'], CALIBRATION_TIMEOUT_MS)
   if (!ran.isRun) return { kind: 'unavailable', reason: ran.reason }
@@ -572,10 +572,10 @@ const runCalibrate = async ($: EngineInterface): Promise<AnnealCalibrationReadin
   return { kind: 'unavailable', reason: firstLine(ran.stderr) ?? firstLine(ran.stdout) ?? `exit ${ran.exitCode}` }
 }
 
-/** Whether a run of `anneal calibrate` is under way; an ask meanwhile starts none. */
+/** Whether a run of `bench calibrate` is under way; an ask meanwhile starts none. */
 let isCalibrating = false
 
-/** What is stored of `anneal calibrate`, or `unread`. */
+/** What is stored of `bench calibrate`, or `unread`. */
 const heldCalibration = async ($: EngineInterface): Promise<AnnealCalibrationReading> =>
   (await $.state.get(calibration)).value ?? { kind: 'unread' }
 
@@ -615,7 +615,7 @@ export type CalibrationRefresh = {
 }
 
 /**
- * Runs `anneal calibrate` and stores what it printed: a failure after a good run keeps that run
+ * Runs `bench calibrate` and stores what it printed: a failure after a good run keeps that run
  * and says why, and an unchanged result writes nothing. Resolves to what is stored; a run under
  * way absorbs the ask and resolves to what is stored now, marked absorbed. It never rejects: a
  * host that refuses a call is recorded as the reason.
@@ -650,7 +650,7 @@ const selectPoint = async ($: EngineInterface, point: string): Promise<void> => 
 export const primaryQuestion = (point: AnnealCalibrationPoint): AnnealCalibrationQuestion | undefined =>
   point.questions.find(question => question.threshold.band !== null) ?? point.questions[0]
 
-/** How close a point is to promotion, as `anneal calibrate`'s verdict and reasons say. */
+/** How close a point is to promotion, as `bench calibrate`'s verdict and reasons say. */
 export type Readiness = 'ready' | 'short of labels' | 'Brier too high' | 'ask rate too high' | 'stay shadow'
 
 /**
@@ -928,16 +928,16 @@ const binText = (bin: AnnealCalibrationBin, isLast: boolean): string =>
 
 /** The note under the rows: proposals only, and how a person promotes (#44). No button does it. */
 export const APPLY_NOTE = 'Proposals only, nothing applied. A person promotes with'
-export const APPLY_COMMAND = '  anneal calibrate --apply --thresholds <file>'
+export const APPLY_COMMAND = '  bench calibrate --apply --thresholds <file>'
 
 /**
  * `/anneal calibration`'s text where nothing draws: a line per point and per question's
  * threshold, else one line saying why there is none.
  */
 export const calibrationText = (held: AnnealCalibrationReading, status: AnnealReading): string => {
-  if (held.kind === 'unread') return 'anneal calibrate has not run.'
-  if (held.kind === 'unavailable') return `anneal calibrate unavailable (${held.reason}).`
-  const lines = ['anneal calibrate:']
+  if (held.kind === 'unread') return 'bench calibrate has not run.'
+  if (held.kind === 'unavailable') return `bench calibrate unavailable (${held.reason}).`
+  const lines = ['bench calibrate:']
   for (const point of held.calibration.points) {
     lines.push(pointRow(point, modeOf(status, point.point)))
     for (const question of point.questions) lines.push(`  ${thresholdText(question)}`)
@@ -997,7 +997,7 @@ const calibrationTree = async ($: EngineInterface, e: PaneRender, columns: numbe
     return (
       <Box flexDirection="column">
         {heading}
-        {row('cal-note', 'Reading anneal calibrate…', true)}
+        {row('cal-note', 'Reading bench calibrate…', true)}
       </Box>
     )
   }
@@ -1005,7 +1005,7 @@ const calibrationTree = async ($: EngineInterface, e: PaneRender, columns: numbe
     return (
       <Box flexDirection="column">
         {heading}
-        {row('cal-note', `anneal calibrate unavailable: ${held.reason}`, true)}
+        {row('cal-note', `bench calibrate unavailable: ${held.reason}`, true)}
       </Box>
     )
   }
@@ -1235,7 +1235,7 @@ export const register: Register = on => {
     if (value.kind === 'unread') {
       return (
         <Box flexDirection="column">
-          {row('note', 'Reading anneal status…', true)}
+          {row('note', 'Reading bench status…', true)}
           {section}
         </Box>
       )
@@ -1251,7 +1251,7 @@ export const register: Register = on => {
     if (value.kind === 'unavailable') {
       return (
         <Box flexDirection="column">
-          {row('note', `anneal status unavailable: ${value.reason}`, true)}
+          {row('note', `bench status unavailable: ${value.reason}`, true)}
           {section}
         </Box>
       )

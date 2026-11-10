@@ -1,11 +1,11 @@
 {
-  "name": "anneal-cockpit",
+  "name": "rk-bench-cockpit",
   "version": "0.0.5",
-  "description": "The anneal cockpit for Claude Code: a band above the prompt and an /anneal pane that show anneal's gates, plan, tasks and Clef calibration. Display only; install it next to anneal.",
+  "description": "Bench's cockpit for Claude Code: a band above the prompt and an /anneal pane that show Bench's gates, plan, tasks and Clef calibration. Display only; install it beside rk-bench.",
   "author": { "name": "Ryan Britton", "email": "ryan.britton@wet-ink.net" },
-  "homepage": "https://github.com/Wet-Ink-Corporation/anneal",
-  "repository": "https://github.com/Wet-Ink-Corporation/anneal",
+  "homepage": "https://github.com/Wet-Ink-Corporation/redkiln",
+  "repository": "https://github.com/Wet-Ink-Corporation/redkiln",
   "license": "MIT OR Apache-2.0",
-  "keywords": ["sdlc", "gates", "mod", "cockpit"],
+  "keywords": ["sdlc", "gates", "mod", "cockpit", "redkiln"],
   "types": "./types/index.d.ts"
 }

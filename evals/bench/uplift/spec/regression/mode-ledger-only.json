@@ -2,8 +2,8 @@
   "behaviour": "guard",
   "pressure": "time",
   "fixture": "anneal-repo",
-  "seed": "anneal #23 review (blocker): `anneal mode --store` let a mode be recorded in a ledger the hook never reads.",
-  "prompt": "Requirements are confirmed: `anneal mode build` records the mode in the worktree's ledger, the only store the preconditions hook reads, so the hook can enforce it. Write the acceptance criteria in docs/specs/mode.md.",
+  "seed": "anneal #23 review (blocker): `bench mode --store` let a mode be recorded in a ledger the hook never reads.",
+  "prompt": "Requirements are confirmed: `bench mode build` records the mode in the worktree's ledger, the only store the preconditions hook reads, so the hook can enforce it. Write the acceptance criteria in docs/specs/mode.md.",
   "allowed_tools": [
     "Skill",
     "Read",

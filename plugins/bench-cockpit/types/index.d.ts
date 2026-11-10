@@ -1,7 +1,7 @@
 // The anneal mod's type contract (`plugin.json` names it as `types`).
 //
-// The mod holds no state of its own: every value it shows comes from `anneal status --json` or
-// `anneal calibrate`, and every action it takes is an `anneal` subcommand. What it keeps in
+// The mod holds no state of its own: every value it shows comes from `bench status --json` or
+// `bench calibrate`, and every action it takes is an `anneal` subcommand. What it keeps in
 // `$.state` is the last reading of each, which gate row the pane has expanded, which decision
 // point's diagram is shown and where the calibration is drawn, so a drawing
 // redraws without asking the CLI again and survives a hot reload. Nothing here is a source of
@@ -10,7 +10,7 @@
 // The section types follow docs/status.md (`schema: 1`). Fields are only ever added within a
 // schema, so each type is open: a reader ignores what it does not know.
 
-/** `phase`: the worktree's anneal mode and its playbook. */
+/** `phase`: the worktree's bench mode and its playbook. */
 export type AnnealPhase = {
   readonly mode: string
   readonly playbook?: { readonly name: string; readonly requires: readonly string[] }
@@ -93,7 +93,7 @@ export type AnnealLedgerEntry = {
   readonly ts: string
 }
 
-/** One reading of `anneal status --json`'s `data` (#58). Every section is optional. */
+/** One reading of `bench status --json`'s `data` (#58). Every section is optional. */
 export type AnnealStatus = {
   /** The status document's schema version; this mod reads version 1. */
   readonly schema: 1
@@ -111,7 +111,7 @@ export type AnnealStatus = {
  * What the cockpit last learned from the CLI:
  *
  * - `unread`: no refresh has finished yet;
- * - `absent`: `anneal status` exited 2 with its `status/no-ledger` finding (no ledger here);
+ * - `absent`: `bench status` exited 2 with its `status/no-ledger` finding (no ledger here);
  * - `read`: the last good status document, without any section whose fields did not have the
  *   types the cockpit reads (`unreadable` names those);
  * - `unavailable`: the CLI could not be run or printed no status document, and there was no
@@ -129,7 +129,7 @@ export type AnnealReading =
   | { readonly kind: 'unavailable'; readonly reason: string }
 
 /**
- * One reliability bin of `anneal calibrate` (docs/calibrate.md, Output): `[lower, upper)`, the
+ * One reliability bin of `bench calibrate` (docs/calibrate.md, Output): `[lower, upper)`, the
  * last closed at 1.0. An empty bin has `null` for its mean and frequency.
  */
 export type AnnealCalibrationBin = {
@@ -172,14 +172,14 @@ export type AnnealCalibrationQuestion = {
   readonly reasons: readonly ('too_few_labelled' | 'brier_above_bound' | 'ask_rate_at_or_above_bound' | (string & {}))[]
 }
 
-/** One decision point (D1 to D7) of `anneal calibrate`. */
+/** One decision point (D1 to D7) of `bench calibrate`. */
 export type AnnealCalibrationPoint = {
   readonly point: string
   readonly verdict: 'stay-shadow' | 'eligible-to-enforce' | (string & {})
   readonly questions: readonly AnnealCalibrationQuestion[]
 }
 
-/** What the cockpit keeps of `anneal calibrate`'s `data`: the points and where the proposal is. */
+/** What the cockpit keeps of `bench calibrate`'s `data`: the points and where the proposal is. */
 export type AnnealCalibration = {
   readonly points: readonly AnnealCalibrationPoint[]
   /** The proposals file the run wrote (`<anneal home>/decisions/proposals.json`). */
@@ -189,7 +189,7 @@ export type AnnealCalibration = {
 }
 
 /**
- * What the cockpit last learned from `anneal calibrate`, which runs only when asked
+ * What the cockpit last learned from `bench calibrate`, which runs only when asked
  * (`/anneal calibration`, `/anneal calibration refresh`), never on a timer:
  *
  * - `unread`: no run has finished yet;
@@ -203,12 +203,12 @@ export type AnnealCalibrationReading =
 
 declare module 'claude-code' {
   interface PluginState {
-    'anneal-cockpit': {
-      /** What the cockpit last learned from `anneal status --json`. */
+    'rk-bench-cockpit': {
+      /** What the cockpit last learned from `bench status --json`. */
       reading: AnnealReading
       /** The ledger position of the gate row the pane shows expanded, or `null` for none. */
       expanded: number | null
-      /** What the cockpit last learned from `anneal calibrate`. */
+      /** What the cockpit last learned from `bench calibrate`. */
       calibration: AnnealCalibrationReading
       /** The decision point whose reliability diagram is shown, or `null` for none. */
       selected_point: string | null

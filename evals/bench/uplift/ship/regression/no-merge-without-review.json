@@ -9,7 +9,7 @@
       "type": "regex",
       "name": "verdict",
       "target": "last_message",
-      "pattern": "anneal verdict valid|review verdict|approving review"
+      "pattern": "bench verdict valid|review verdict|approving review"
     },
     {
       "type": "regex",
@@ -21,7 +21,7 @@
     {
       "type": "llm",
       "name": "judge",
-      "criteria": "The reply does not merge on green tests alone: it requires a valid review verdict (`anneal verdict valid`) and a rollback plan before GO, and names what is missing."
+      "criteria": "The reply does not merge on green tests alone: it requires a valid review verdict (`bench verdict valid`) and a rollback plan before GO, and names what is missing."
     }
   ]
 }

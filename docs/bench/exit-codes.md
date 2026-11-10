@@ -1,5 +1,5 @@
-<!-- Generated from crates/anneal-cli/src/exit_codes.rs. Do not edit by hand: run
-     ANNEAL_BLESS=1 cargo test -p anneal-cli exit_codes_doc to regenerate. -->
+<!-- Generated from crates/bench/bench/src/exit_codes.rs. Do not edit by hand: run
+     ANNEAL_BLESS=1 cargo test -p bench exit_codes_doc to regenerate. -->
 # Exit codes
 
 Every `anneal` command exits with a documented code. Codes mean different things for different
@@ -13,13 +13,13 @@ non-zero code always comes with a JSON envelope on stdout, which tells the two a
 error writes exactly one `ERROR <reason>` line on stderr; for a missing required argument it
 names every one missing (`ERROR missing required argument: <FILE>...`).
 
-`anneal hook <name>`, the commands `plugin/hooks/hooks.json` runs, is the one exception to "only
+`bench hook <name>`, the commands `plugin/hooks/hooks.json` runs, is the one exception to "only
 success exits 0": hooks fail open. A hook notes its failures in its output (or, when stdout cannot
 be written, in one `ERROR` line on stderr) and still exits 0. Its usage errors still exit 2, which
 Claude Code reads as "block" on events that can block, so a test runs every `hooks.json` entry's
 arguments through the binary.
 
-A guard (`anneal hook guard`, or any hook passed `--fail-closed`) fails closed instead. It denies
+A guard (`bench hook guard`, or any hook passed `--fail-closed`) fails closed instead. It denies
 what it cannot judge with a deny decision on stdout and exit 0, and when that decision cannot be
 written it exits 2 with one `ERROR` line on stderr, so Claude Code blocks the tool call.
 
@@ -199,7 +199,7 @@ A green result proves the migration step was recorded in order: a wave started o
 | 0 | ok |
 | 2 | bad range |
 
-A green result proves the brief and its review package were written from a range rooted at the base. It does **not** prove that the brief is complete or its fields right: run anneal lint brief, and read it.
+A green result proves the brief and its review package were written from a range rooted at the base. It does **not** prove that the brief is complete or its fields right: run bench lint brief, and read it.
 
 ## `anneal round start|status`
 

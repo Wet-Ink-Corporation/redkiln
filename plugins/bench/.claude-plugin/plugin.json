@@ -1,12 +1,12 @@
 {
-  "name": "anneal",
+  "name": "rk-bench",
   "version": "0.0.5",
-  "description": "Enforced SDLC gates for Claude Code: skills for each phase, a deterministic CLI behind hooks, and calibrated judgement calls that run in shadow until they earn enforcement.",
+  "description": "Bench: enforced SDLC gates for Claude Code: skills for each phase, a deterministic CLI behind hooks, and calibrated judgement calls that run in shadow until they earn enforcement.",
   "author": { "name": "Ryan Britton", "email": "ryan.britton@wet-ink.net" },
-  "homepage": "https://github.com/Wet-Ink-Corporation/anneal",
-  "repository": "https://github.com/Wet-Ink-Corporation/anneal",
+  "homepage": "https://github.com/Wet-Ink-Corporation/redkiln",
+  "repository": "https://github.com/Wet-Ink-Corporation/redkiln",
   "license": "MIT OR Apache-2.0",
-  "keywords": ["sdlc", "gates", "hooks", "tdd", "review"],
+  "keywords": ["sdlc", "gates", "hooks", "tdd", "review", "redkiln"],
   "userConfig": {
     "cf_account_id": {
       "type": "string",

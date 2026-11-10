@@ -13,5 +13,5 @@
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment"
   },
-  "include": ["../mod-types", "hooks", "types", "tests"]
+  "include": ["mod-types", "../../../plugins/bench-cockpit/hooks", "../../../plugins/bench-cockpit/types"]
 }

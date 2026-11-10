@@ -23,13 +23,13 @@ A slice that cannot end green alone is two slices, or half of one. Merge or re-c
 reads, a command it calls. Sharing a file is not a block; sequencing by habit is not a block.
 Fewer edges mean more tasks a team (or `/anneal:orchestrate`) can run at once.
 
-- Every blocker must be another task of the plan; `anneal lint plan` reports one that is not,
+- Every blocker must be another task of the plan; `bench lint plan` reports one that is not,
   a task blocked by itself, and a cycle.
 - A blocker outside the plan (another team's ticket, a release) belongs in the tracker, not
   in `Blocked by:`.
-- When the tasks become tickets, `anneal dag check` checks the same graph across the tracker
-  (cycles, dangling blockers) and `anneal dag frontier` lists what can start now. Name each
-  ticket by its task's id; `anneal dag check --plan <plan>` then fails when a task has no
+- When the tasks become tickets, `bench dag check` checks the same graph across the tracker
+  (cycles, dangling blockers) and `bench dag frontier` lists what can start now. Name each
+  ticket by its task's id; `bench dag check --plan <plan>` then fails when a task has no
   ticket, a ticket that blocks no task has no task, or a ticket's blockers among the tasks
   differ from the plan's.
 

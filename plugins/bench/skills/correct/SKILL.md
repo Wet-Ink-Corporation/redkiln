@@ -11,8 +11,8 @@ argument-hint: "[the mistake, finding or correction]"
 
 A mistake becomes a check, never a sentence. Fix it at the highest level that holds, and write a rule down only with the hook, lint or test that enforces it.
 
-- You MUST name the enforcer of every rule you write, and run `anneal lint rules <file>` until it exits 0.
-- You MUST emit a hook entry, lint configuration or test from the retro, never prose alone; `anneal lint rules` fails a rule whose enforcer is missing or cannot be found.
+- You MUST name the enforcer of every rule you write, and run `bench lint rules <file>` until it exits 0.
+- You MUST emit a hook entry, lint configuration or test from the retro, never prose alone; `bench lint rules` fails a rule whose enforcer is missing or cannot be found.
 
 ## When to use
 
@@ -38,7 +38,7 @@ Take the first rung that would have stopped the mistake.
 2. **Climb the ladder.** Fix at the first rung that would have caught it. It's working if the fix makes the original mistake fail a check, not a reader.
 3. **Emit the enforcer.** Write the test, lint or hook. A new hook gets its `hooks/hooks.json` entry and metadata row together; `.anneal/config.json` (`check_fast`) is the human's file, so hand them the exact JSON. It's working if the enforcer fails on the mistake and passes on the fix.
 4. **Record the rule.** Add one item under `## Rules` in the rule document (`docs/rules.md` unless the repository keeps another): the rule, then `Enforcer:` and, in backticks, `hook <id>`, `anneal <command> ...` or `test <file>::<fn>`. It's working if a stranger can find the check from the line.
-5. **Lint the rules.** Run `anneal lint rules docs/rules.md` (for hooks not anneal's, `--hooks <file>` listing every id). It's working if it exits 0.
+5. **Lint the rules.** Run `bench lint rules docs/rules.md` (for hooks not anneal's, `--hooks <file>` listing every id). It's working if it exits 0.
 6. **Report.** Name the rung, the enforcer and the rule's line. It's working if the human can run the enforcer unaided.
 
 ## Rationalizations
@@ -58,6 +58,6 @@ Take the first rung that would have stopped the mistake.
 
 ## Verification
 
-- `anneal lint rules docs/rules.md` exits 0.
+- `bench lint rules docs/rules.md` exits 0.
 - The enforcer fails on the original mistake and passes on the fix.
 - The rule's line names that enforcer.

@@ -38,6 +38,7 @@ jobs:
       typescript: ${{ steps.paths.outputs.typescript }}
       labels: ${{ steps.paths.outputs.labels }}
       weigh-in: ${{ steps.paths.outputs.weigh-in }}
+      bench: ${{ steps.paths.outputs.bench }}
       charters: ${{ steps.paths.outputs.charters }}
       kb: ${{ steps.paths.outputs.kb }}
       has-plugins: ${{ steps.paths.outputs.has-plugins }}
@@ -86,6 +87,7 @@ jobs:
           area charters '(^|/)AGENTS\.md$|^tools/charters/'
           area kb '^(\.kb/|crates/knowledge/|tools/xtask/)'
           area weigh-in '^(plugins/weigh-in(-mod)?/|tools/weigh-in/|tools/launcher/weighin-)'
+          area bench '^(plugins/bench(-cockpit)?/|tools/bench/|tools/launcher/bench-)'
 
   rust:
     needs: changes
@@ -344,8 +346,30 @@ jobs:
           TSC: npx --yes -p typescript@6.0.2 tsc
         run: bash tools/weigh-in/mod-check/mod-check.sh
 
+  # Bench's own checks, imported with it (Move 2): the cockpit mod's manifest, plugin tests and
+  # strict tsc (anneal's cockpit job). No model calls. The Rust legs, `lint skills` (a cargo test,
+  # repo_gates) and the launcher smoke test of tools/launcher/bench-test-launcher.sh, which needs
+  # a built bench, join when bench's crates join the workspace (docs/plan/move-2-bench.md, step 1).
+  bench:
+    needs: changes
+    if: needs.changes.outputs.bench == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Cockpit (validate --strict, claude plugin test, strict tsc)
+        env:
+          CLAUDE: npx --yes @anthropic-ai/claude-code@2.1.316
+          TSC: npx --yes -p typescript@6.0.2 tsc
+        run: bash tools/bench/cockpit-check/cockpit-check.sh
+
   ok:
-    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, charters, kb]
+    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, bench, charters, kb]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:

@@ -14,14 +14,14 @@ One behaviour per cycle, in the order the task's criteria give.
 - A bug starts with a test that reproduces it red; if the cause is unknown, that is `diagnose`.
 - Editing a test during refactor means the behaviour changed: go back to red.
 - Never weaken a test to get green: deleting, skipping or loosening one is a lowered floor, and
-  `anneal floor-guard` reports it.
+  `bench floor-guard` reports it.
 
-## Completion goes through `anneal task done`
+## Completion goes through `bench task done`
 
 A task is done when its test command passes under anneal, not when the code looks finished:
 
 ```sh
-anneal task done T3 -- cargo test -p notes list_is_sorted
+bench task done T3 -- cargo test -p notes list_is_sorted
 ```
 
 It runs the command without a shell, records a `test_run` with its exit code and duration, and

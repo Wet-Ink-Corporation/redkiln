@@ -1,0 +1,12 @@
+[package]
+name = "bench-contract"
+description = "Bench's contract: what other crates may name of the bench CLI (its binary, subcommands and value options)."
+version = "0.0.5"              # the plugin's own version (AGENTS.md, Versions and tags)
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

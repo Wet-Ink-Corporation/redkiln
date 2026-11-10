@@ -1,6 +1,6 @@
 # Release: rollout bands and error budgets
 
-A rollout widens in stages. Before each stage, `anneal rollout decide` judges the current
+A rollout widens in stages. Before each stage, `bench rollout decide` judges the current
 metrics against the bands: exit 0 go (widen), 1 hold (stay, investigate), 2 rollback (run the
 rollback plan now). The decision is the worst metric's band, and a metric with no value holds.
 
@@ -14,7 +14,7 @@ rollback plan now). The decision is the worst metric's band, and a metric with n
 | 4 | 50% | 4 hours |
 | 5 | 100% | 24 hours before the rollout is closed |
 
-Run `anneal rollout decide` at the end of each soak, and again at once on any page.
+Run `bench rollout decide` at the end of each soak, and again at once on any page.
 
 ## Default bands
 
@@ -42,7 +42,7 @@ As a bands file (`--bands`):
 ```
 
 ```sh
-anneal rollout decide --bands bands.json \
+bench rollout decide --bands bands.json \
   --metrics '{"error_rate": 0.003, "p99_latency_ratio": 1.04, "success_rate": 0.9994, "budget_burn_rate": 1.2}'
 ```
 

@@ -7,16 +7,16 @@ description: Use when a spec is ready, even if the work seems obvious; split it 
 
 ## Overview
 
-Turns a spec with no open questions into tasks a fresh session can build test-first, and gets the human's approval recorded by hash. Template: `data.content` of `anneal playbook show plan-template`; structure: `anneal playbook show plan-schema`.
+Turns a spec with no open questions into tasks a fresh session can build test-first, and gets the human's approval recorded by hash. Template: `data.content` of `bench playbook show plan-template`; structure: `bench playbook show plan-schema`.
 
-- You MUST write the plan from the template and run `anneal lint plan <file>` until it exits 0, applying each finding's `fix`.
-- You MUST give every task its `Files:`, one `Test:` command and its `Blocked by:` line; `anneal lint plan` rejects a task without them, a blocker that is not a task, and a cycle.
-- You MUST run `anneal plan approve <file>` only after the human approves the plan you showed them; it refuses while the spec has any `[NEEDS CLARIFICATION]` marker.
-- You MUST run `anneal plan check <file>` before building from a plan; exit 4 means it changed since approval, so it goes back to the human.
+- You MUST write the plan from the template and run `bench lint plan <file>` until it exits 0, applying each finding's `fix`.
+- You MUST give every task its `Files:`, one `Test:` command and its `Blocked by:` line; `bench lint plan` rejects a task without them, a blocker that is not a task, and a cycle.
+- You MUST run `bench plan approve <file>` only after the human approves the plan you showed them; it refuses while the spec has any `[NEEDS CLARIFICATION]` marker.
+- You MUST run `bench plan check <file>` before building from a plan; exit 4 means it changed since approval, so it goes back to the human.
 
 ## When to use
 
-- A spec passes `anneal lint spec` with `data.needs_clarification` at 0, and it has no approved plan yet.
+- A spec passes `bench lint spec` with `data.needs_clarification` at 0, and it has no approved plan yet.
 - Not when the request is new or vague (use `grill`), nor when the spec is unwritten (use `spec`), nor when an approved task is next (use `build`).
 
 ## Process
@@ -26,9 +26,9 @@ Turns a spec with no open questions into tasks a fresh session can build test-fi
 3. **Write each task.** `### T<n>: <title>`, its three lines, then test-first steps: failing test, run it red, code, run it green. It's working if a session with only this task and the spec could build it.
 4. **Block sparingly.** Add a blocker only where a task needs another's output. It's working if most tasks can run in parallel.
 5. **Write the Review focus.** Where a reviewer should look hardest, and why. It's working if each item names a file or a task.
-6. **Lint.** Run `anneal lint plan docs/plans/<feature>.md` and apply each fix. It's working if it exits 0.
-7. **Approve.** Show the human the plan; on their explicit yes, run `anneal plan approve`. It's working if it exits 0.
-8. **Keep it current.** Any edit voids the approval; on exit 4 from `anneal plan check`, show the change and approve again. It's working if the check exits 0 when building starts.
+6. **Lint.** Run `bench lint plan docs/plans/<feature>.md` and apply each fix. It's working if it exits 0.
+7. **Approve.** Show the human the plan; on their explicit yes, run `bench plan approve`. It's working if it exits 0.
+8. **Keep it current.** Any edit voids the approval; on exit 4 from `bench plan check`, show the change and approve again. It's working if the check exits 0 when building starts.
 
 ## Rationalizations
 
@@ -45,10 +45,10 @@ Turns a spec with no open questions into tasks a fresh session can build test-fi
 
 - Approving while the spec still has a `[NEEDS CLARIFICATION]` marker.
 - A task whose files are "various" or whose test is "run the tests".
-- Editing the plan after approval without running `anneal plan check`.
+- Editing the plan after approval without running `bench plan check`.
 
 ## Verification
 
-- `anneal lint plan docs/plans/<feature>.md` exits 0.
-- `anneal plan check docs/plans/<feature>.md` exits 0.
-- `anneal ledger query --type plan_approved` shows the plan's path and its `sha256:` hash.
+- `bench lint plan docs/plans/<feature>.md` exits 0.
+- `bench plan check docs/plans/<feature>.md` exits 0.
+- `bench ledger query --type plan_approved` shows the plan's path and its `sha256:` hash.

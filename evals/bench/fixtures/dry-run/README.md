@@ -16,31 +16,31 @@ repository's ledger:
 
 | Step | Command | Expect |
 |---|---|---|
-| grill | `anneal grill frontier --tree design-tree.json` | exit 0, `frontier` empty, `open` 0, `restate` true |
-| grill | `anneal grill confirm --tree design-tree.json --quote "Yes, that's it: only notes list, compact JSON, go ahead." --session dry-run --store ledger.sqlite3` | exit 0, one `grill_confirmed` |
-| spec | `anneal lint spec spec.md` | exit 0, `needs_clarification` 0, constitution version 1 with 3 gates, glossary read |
-| plan | `anneal lint plan plan.md` | exit 0, 4 tasks, `spec` is `spec.md` |
-| plan | `anneal plan approve plan.md --session dry-run --store ledger.sqlite3` | exit 0, one `plan_approved` |
-| plan | `anneal plan check plan.md --store ledger.sqlite3` | exit 0, `status` `current` |
-| tickets | `anneal dag check --dir tickets` | exit 0, 4 tickets, 2 edges |
-| tickets | `anneal dag frontier --dir tickets` | exit 0, frontier `T1`, `T4` |
+| grill | `bench grill frontier --tree design-tree.json` | exit 0, `frontier` empty, `open` 0, `restate` true |
+| grill | `bench grill confirm --tree design-tree.json --quote "Yes, that's it: only notes list, compact JSON, go ahead." --session dry-run --store ledger.sqlite3` | exit 0, one `grill_confirmed` |
+| spec | `bench lint spec spec.md` | exit 0, `needs_clarification` 0, constitution version 1 with 3 gates, glossary read |
+| plan | `bench lint plan plan.md` | exit 0, 4 tasks, `spec` is `spec.md` |
+| plan | `bench plan approve plan.md --session dry-run --store ledger.sqlite3` | exit 0, one `plan_approved` |
+| plan | `bench plan check plan.md --store ledger.sqlite3` | exit 0, `status` `current` |
+| tickets | `bench dag check --dir tickets` | exit 0, 4 tickets, 2 edges |
+| tickets | `bench dag frontier --dir tickets` | exit 0, frontier `T1`, `T4` |
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `design-tree.json` | The grill's design tree (`anneal playbook show design-tree-schema`): 7 nodes answered, 1 deferred (`pretty`), two turns ending at confidence 0.85. |
+| `design-tree.json` | The grill's design tree (`bench playbook show design-tree-schema`): 7 nodes answered, 1 deferred (`pretty`), two turns ending at confidence 0.85. |
 | `CONTEXT.md` | The toy project's glossary; `lint spec` reads it by default. |
 | `constitution.md` | The toy project's constitution, version 1, gates G1 to G3; `lint spec` reads it by default. |
-| `spec.md` | The spec, from `anneal playbook show spec-template`: five EARS criteria, no open marker. |
-| `plan.md` | The plan, from `anneal playbook show plan-template`, linking `spec.md`: tasks T1 to T4. |
+| `spec.md` | The spec, from `bench playbook show spec-template`: five EARS criteria, no open marker. |
+| `plan.md` | The plan, from `bench playbook show plan-template`, linking `spec.md`: tasks T1 to T4. |
 | `tickets/T1.md` .. `T4.md` | The plan's tasks as markdown tickets (`docs/dag.md`), ids and blockers as in the plan. |
 | `events.jsonl` | The ledger after the chain, one `ledger query` event per line, with `ts`, `worktree`, `branch` and `head` removed. |
 
 The hashes in `events.jsonl` are the sha256 of `design-tree.json` and `plan.md` as checked in
 (LF line endings, from `.gitattributes`). Editing either file means re-running the two ledger
 steps above on a fresh `--store` and re-recording the events, for example with
-`anneal ledger query --store ledger.sqlite3 | jq -c '.data.events[] | .event |= del(.ts, .worktree, .branch, .head)'`.
+`bench ledger query --store ledger.sqlite3 | jq -c '.data.events[] | .event |= del(.ts, .worktree, .branch, .head)'`.
 
 ## Friction found
 
@@ -50,9 +50,9 @@ become checks):
 1. **Nothing turns plan tasks into tickets.** The plan's `### T1` tasks and their
    `Blocked by: T1` lines were copied into `tickets/*.md` frontmatter by hand, and nothing
    checks that the two agree: a ticket could drop a blocker and `dag check` would still pass.
-   Candidate check: `anneal dag check --plan plan.md` (or a `plan tickets` export) that fails
+   Candidate check: `bench dag check --plan plan.md` (or a `plan tickets` export) that fails
    when the tickets' ids and blockers differ from the plan's tasks.
-   #75 added `anneal dag check --plan`; this fixture's plan and tickets check clean.
+   #75 added `bench dag check --plan`; this fixture's plan and tickets check clean.
 2. **`plan check` does not see a spec change.** `plan_approved` records only the plan's hash;
    after approval, adding a line to `spec.md` still checks `current`, while `--help` reads
    "4 stale: inputs changed since approval" and `proves` says "current with its inputs".

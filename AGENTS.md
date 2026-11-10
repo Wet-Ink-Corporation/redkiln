@@ -7,7 +7,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | Path | Holds | Arrives |
 |---|---|---|
 | `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/` | One workspace, toolchain 1.98.1, temper 1.6.0's lint and supply-chain policy | phase 0 |
-| `tools/xtask/` | `cargo xtask <task>`: repository tasks: `layers` and `plugins`, the structural tests below, and `ids`, the knowledge-base id check | phase 0 |
+| `tools/xtask/` | `cargo xtask <task>`: the checks below and the release tasks | phase 0 |
 | `tools/launcher/` | The shared plugin launcher (sh and `.cmd`) and its tests | phase 0 |
 | `tools/labels/`, `.github/labels.yml` | The suite label manifest (Backlog call A, wi-cef669), its check and an idempotent apply script | phase 0 |
 | `spec/` | Core SPEC, schemas, conformance fixtures | SPEC v1 draft, phase 0 |
@@ -18,7 +18,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `deploy/review/` | Review's workflow templates, App manifest and fetch-by-digest action | move 3 |
 | `docs/<plugin>/`, `.kb/` | Imported records (series kept) and the one knowledge base | with each move |
 | `evals/<plugin>/` | A plugin's eval cases and seeds; never shipped, so outside `plugins/` | move 1 |
-| `tools/<plugin>/` | A plugin's repository scripts and checks that are not crates (Weigh-In: the mod check, eval seed and weekly stats scripts) | move 1 |
+| `tools/<plugin>/` | A plugin's repository scripts and checks that are not crates (Weigh-In: the mod check, eval seed and weekly stats scripts; Bench: the cockpit check) | move 1 |
 | `docs/plan/` | The live plan: gate status, what later decisions changed in the frozen migration plan, and the runbook of the next move | 2026-11-01 |
 | `docs/guide/` | The field guide: guardrails, patterns, gotchas and prior art distilled from the source repositories; read the chapters a change touches, cite guardrails by id | 2026-11-01 |
 | `spikes/<name>/` | Phase spikes that run Core or a kit for evidence: standalone Cargo workspaces, never members, never shipped, CI advisory only (`r-sqlite`: R-SQLITE) | 2026-11-08 |
@@ -33,7 +33,10 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/weigh-in/weighin-core` | plugin (weigh-in) | The ledger domain with no I/O: markers, scanning, projection, `.kb` atoms, board format | weighin-contract, knowledge-contract, serde, serde_json, thiserror |
 | `crates/core/redkiln-core` | Core (hub) | The suite's store (ST-04 to ST-11) and its location (ST-01 to ST-03), `suite.toml` (ST-12, ST-13), the envelope and tags, trust, ids and subjects, journals with checkpoint and import, and old ledgers read from a copy | happenstance-core, happenstance-sqlite (`=0.6.0`, `sync`), tokio (`rt`), tempfile, thiserror, serde, serde_json, sha2, time, toml |
 | `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, weighin-contract, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
-| `tools/xtask` | tool | `cargo xtask layers`, `cargo xtask plugins`, `cargo xtask ids` and later packaging, version and changelog tasks; never shipped | knowledge-contract, weighin-contract, serde, serde_json, thiserror |
+| `crates/bench/bench-contract` | contract (bench) | The `bench` command list (`cli`) | none |
+| `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI | bench-ledger, bench-contract, clap, ureq, sha2, serde, serde_json, thiserror |
+| `crates/bench/bench-ledger` | plugin (bench) | anneal's ledger on happenstance 0.3.2; both held outside the workspace until step 3 | happenstance, tokio, time, tempfile, serde, serde_json, thiserror |
+| `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
 
@@ -48,11 +51,11 @@ Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer als
 - **Tools** depend on Core, kits and contract crates.
 - Dev and build dependencies follow the same rules. Only crates with a binary target use `anyhow` outside their dev-dependencies (H-09), and no crate is publishable (`publish = false`; turning it on is H-16).
 
-Beside the check, CI builds every crate alone (`cargo check -p`). Loop brings its stricter rules (no tokio in the kernel, git through one wrapper, no egress in kernel tests) when it moves, and they join the check then.
+Loop brings its stricter rules (no tokio in the kernel, git through one wrapper, no egress in kernel tests) when it moves, and they join the check then.
 
 ## CLI first, harness second
 
-Every Redkiln product is a complete Rust CLI. Its plugin is a thin integration of that CLI into one harness's lifecycle, today Claude Code's, and could be rewritten for another harness or model without touching a crate. This keeps the suite open to other harnesses and models (Ryan, 2026-11-01).
+Every Redkiln product is a complete Rust CLI. Its plugin is a thin integration of that CLI into one harness's lifecycle, today Claude Code's, and could be rewritten for another harness or model without touching a crate (Ryan, 2026-11-01).
 
 - **The CLI does the work.** Every capability is a command with a `--json` envelope (`spec/cli.md`). When a skill, hook, agent, command or mod needs something done, it calls the CLI.
 - **The plugin only connects.** `plugins/<plugin>/` holds its manifest, `hooks/hooks.json` entries that run `${CLAUDE_PLUGIN_ROOT}/libexec/<binary> hook ...`, skills, agents and commands that tell the model which command to run, launcher copies and builds. No scripts, no policy data, no prompt or agent hooks. A mod lives in its own plugin, renders `status --json` and never enforces.
@@ -60,11 +63,11 @@ Every Redkiln product is a complete Rust CLI. Its plugin is a thin integration o
 - **Harness protocol stays at the edge.** Hook payloads and responses, transcript formats, `CLAUDE_*` variables and exit 2 as "block" are read and written in one adapter module per binary, never in domain or application crates. The CLI takes what it needs as flags (`--session`, `--dir`). When a second binary brings the same code (Bench, Move 2), it becomes a kit (an H-16 crate-boundary call then).
 - **Models run behind a port.** Whatever runs a model (`redkiln-dispatch`, Loop, Review) does so through a port whose first adapter is `claude -p`, as assay's `ModelRunner` already does.
 
-`cargo xtask plugins` (`tools/xtask/src/plugins.rs`) checks `plugins/` and fails on: a file outside that allowlist (manifest, root `README.md`, `CHANGELOG.md` and licences, `hooks/hooks.json`, `skills/<skill>/` Markdown, JSON, HTML and text, `agents/*.md`, `commands/*.md`, `libexec/<binary>[.cmd]` launcher copies, a release-only `libexec/<binary>.exe` (M1-E), one `libexec/<binary>-cowork-fetch.sh` Cowork bootstrap for a binary with a launcher copy (M1-D), and builds at `libexec/<target-triple>/<binary>[.exe]` for a binary with a launcher copy; a mod plugin, whose `hooks.json` lists `modules`, adds `hooks/mod/` and `types/` TypeScript and JSON instead of skills, agents and commands); a symlink, or an entry under `plugins/` that is not a folder; a hook that is not a command hook running `${CLAUDE_PLUGIN_ROOT}/libexec/<binary>` with a launcher copy and `hook` as its first argument; and a skill text file, agent or command naming `libexec/<binary>` for a binary the plugin does not ship. CI runs it, and its tests pin each rule. It also fails on harness protocol outside a binary's `src/harness` adapter (`tools/xtask/src/harness.rs`), and on a prompt naming a subcommand its binary lacks.
+`cargo xtask plugins` (`tools/xtask/src/plugins.rs`) checks `plugins/` and fails on: a file outside that allowlist (manifest, root `README.md`, `CHANGELOG.md` and licences, `hooks/hooks.json`, `skills/<skill>/` Markdown, JSON, HTML and text, `agents/*.md`, `commands/*.md`, `libexec/<binary>[.cmd]` launcher copies, a release-only `libexec/<binary>.exe` (M1-E), one `libexec/<binary>-cowork-fetch.sh` Cowork bootstrap (M1-D) and builds at `libexec/<target-triple>/<binary>[.exe]`, each for a binary with a launcher copy; a mod plugin, whose `hooks.json` lists `modules`, adds `hooks/mod/` and `types/` TypeScript and JSON instead of skills, agents and commands); a symlink, or an entry under `plugins/` that is not a folder; a hook that is not a command hook running `${CLAUDE_PLUGIN_ROOT}/libexec/<binary>` with a launcher copy and `hook` as its first argument; and a skill text file, agent or command naming `libexec/<binary>` for a binary the plugin does not ship. CI runs it, and its tests pin each rule. It also fails on harness protocol outside a binary's `src/harness` adapter (`tools/xtask/src/harness.rs`), and on a prompt naming a subcommand its binary lacks.
 
 ## Plugin rules
 
-- **No `plugins/<plugin>/bin/`.** claude.ai rejects hosted plugins that ship one. Builds live in `libexec/<target>/`, behind copies of the shared launcher named after the binary (`tools/launcher/README.md`), and hooks call `${CLAUDE_PLUGIN_ROOT}/libexec/<binary>` by path in exec form. CI checks both.
+- **No `plugins/<plugin>/bin/`.** claude.ai rejects hosted plugins that ship one. Builds live in `libexec/<target>/`, behind copies of the shared launcher named after the binary (`tools/launcher/README.md`), called by path in exec form. CI checks both.
 - **Hooks fail open, guards fail closed, no hook waits on a sibling** (blueprint design rule 7). With no build at all, the launcher lets every hook through and says so at SessionStart.
 - **Versions and tags are per package**: tags `rk-<plugin>--v<version>` (protected by the `release-tags` ruleset), each package with its own `CHANGELOG.md`.
 - **Line endings are LF** everywhere except `*.cmd` (`.gitattributes`).
@@ -90,7 +93,7 @@ Every import follows the migration plan's eight steps: one merge commit whose se
 | CI-only checks | `cargo check -p <crate>` for each crate (ARC-16), `cargo hack check --workspace --feature-powerset` (API-16), `cargo machete` (CRF-05) |
 | Full gate (Claude Code) | `/temper:gate`, or `node "$TEMPER_CLI" gate` |
 
-CI is `.github/workflows/ci.yml` on GitHub-hosted runners: a `changes` job decides which jobs run from the paths a change touches (rust, Windows tests, launcher on three platforms, plugins, TypeScript, labels), and the `ok` job passes only when every job that ran passed. `ok` (source GitHub Actions; the PR list shows it as `ci / ok`) is the one check to require on `main`. The TypeScript job starts running once a `package.json` exists (the suite mod, wi-6e750e), and the plugins job once a plugin manifest does.
+CI is `.github/workflows/ci.yml` on GitHub-hosted runners: a `changes` job decides which jobs run from the paths a change touches (rust, Windows tests, launcher on three platforms, plugins, TypeScript, labels, bench), and the `ok` job passes only when every job that ran passed. `ok` (source GitHub Actions; the PR list shows it as `ci / ok`) is the one check to require on `main`.
 
 Toolchain 1.98.1 (`rust-toolchain.toml`). MSRV 1.98.1 (`rust-version`), equal to the pin as in weigh-in and anneal, raised only as an H-16 decision (MOD-01). Profiles are temper's template (PERF-09). Until Redkiln Rust 2.0 dogfoods, the gate is temper 1.6.0 vendored once at `.claude/temper/` (migration call E).
 
@@ -108,7 +111,6 @@ All Rust here follows rust-craft. The full text, with rule IDs, examples, the re
 - H-16 new dependencies and major-version bumps, `[patch]` overrides, `rust-version` raises, API breaks, lint exceptions, crate-boundary changes, migrations and test rewrites are human decisions.
 
 Process: explore, frame, plan (`.temper/plans/`), red, green, refactor, self-review, gate, independent review, then report with a Status block (`DONE`, `WIP` or `BLOCKED`, plus the gate result, the review verdict, what changed, decisions needed and what was not verified).
-
 
 Pre-approved dependencies are listed in `.claude/temper.json`; any other is an H-16 decision.
 
