@@ -29,8 +29,10 @@
 //! rather than let tokio panic; async code runs the store on a plain thread.
 
 mod aside;
+mod give_way;
 mod header;
 mod ingest;
+mod meta;
 mod open;
 mod retention;
 mod schema;
@@ -56,9 +58,11 @@ pub use tag::{CoreKey, Tag, TagError};
 pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 
 pub(crate) use aside::sibling;
+#[cfg(test)]
+pub(crate) use give_way::{FakeClock, PAUSE};
 pub(crate) use header::{Found, read as read_header};
 pub(crate) use ingest::{Foreign, Ingest};
-pub(crate) use open::needs_migration;
+pub(crate) use meta::needs_migration;
 pub(crate) use tag::{MAX_CALLER_TAGS, check_caller_tag, check_line_tag, is_core_set};
 
 /// How long a writer waits for another's lock (ST-09).
@@ -106,7 +110,8 @@ pub enum OpenError {
         #[source]
         source: rusqlite::Error,
     },
-    /// The store has happenstance's schema but no identity row to re-mint.
+    /// The store has happenstance's schema but no identity row; Core never mints one in its
+    /// place, at the recorded path or another (ID-01).
     #[error("the store has no identity row to re-mint")]
     MissingIdentity,
     /// SQLite would not run the store under a TRUNCATE journal.
@@ -503,6 +508,9 @@ pub struct Store {
     telemetry: Option<SqliteEventStore>,
     /// Telemetry events dropped on a busy lock since the store was opened (ST-09).
     dropped: u64,
+    /// When this handle's next durable write may start: ST-09's give-way after a write of
+    /// several events or a long one. Telemetry, which never waits, does not go through it.
+    give_way: give_way::GiveWay,
 }
 
 impl fmt::Debug for Store {
@@ -565,12 +573,20 @@ impl Store {
                 wait: wait.timeout(),
                 telemetry: None,
                 dropped: 0,
+                give_way: give_way::GiveWay::new(),
             }),
             Err(source) => Err(StoreError::Open {
                 path: path.to_path_buf(),
                 source,
             }),
         }
+    }
+
+    /// The same store, giving way on `clock` (tests only, so that none sleeps: TST-10).
+    #[cfg(test)]
+    pub(crate) fn giving_way_on(mut self, clock: std::sync::Arc<FakeClock>) -> Self {
+        self.give_way = give_way::GiveWay::with_clock(give_way::Clock::Fake(clock));
+        self
     }
 
     /// The identity this store mints event ids under (ID-01).
@@ -587,6 +603,11 @@ impl Store {
     }
 
     /// Appends `events` in one transaction, unless `condition` matches an event.
+    ///
+    /// After an append of more than one event, or one that held the lock longer than 5 ms, the
+    /// next durable write from this handle starts no sooner than 25 ms after it ended, so other
+    /// processes, hooks first, get the lock between them (ST-09). A first or a lone single-event
+    /// append is never delayed.
     ///
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Query`] for a condition happenstance cannot
@@ -608,10 +629,11 @@ impl Store {
         }
         let condition = condition.map(Condition::to_append_condition).transpose()?;
         let events: Vec<Event> = events.into_iter().map(NewEvent::into_event).collect();
-        match self
-            .runtime
-            .block_on(self.inner.append(&events, condition.as_ref()))?
-        {
+        let appended = self.give_way.write(events.len(), || {
+            self.runtime
+                .block_on(self.inner.append(&events, condition.as_ref()))
+        })?;
+        match appended {
             Ok(position) => Ok(Appended::At(u64::from(position))),
             Err(AppendError::ConditionViolated(_)) => Ok(Appended::Conflict),
             Err(other) => Err(StoreError::Append(other)),

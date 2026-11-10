@@ -40,7 +40,8 @@ pub(crate) enum Ingest {
 
 impl Store {
     /// Stores `events` under their own identities, in one transaction; each already held is
-    /// skipped, inside the write.
+    /// skipped, inside the write. It gives way as an append does (ST-09), so an import's
+    /// batches, each at most happenstance's batch limit, have the pause between them.
     ///
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Ingest`] when happenstance refuses the batch
@@ -59,7 +60,10 @@ impl Store {
             })
             .collect();
         let groups = [IngestGroup::new(&replicated, &[])];
-        match self.runtime.block_on(self.inner.ingest(&groups))? {
+        let ingested = self.give_way.write(replicated.len(), || {
+            self.runtime.block_on(self.inner.ingest(&groups))
+        })?;
+        match ingested {
             Ok(done) => Ok(Ingest::Done {
                 appended: done.appended,
                 skipped: done.skipped,
