@@ -181,6 +181,26 @@ fn a_core_store_a_missing_file_and_a_non_database_are_not_old_ledgers() {
 }
 
 #[test]
+fn another_programs_database_is_not_a_store_and_is_given_no_schema() {
+    // ST-08 migrates a copy only when it holds happenstance's schema at an older version. A
+    // database without it is refused, never given happenstance's tables and read as empty.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("other.sqlite3");
+    {
+        let conn = happenstance_sqlite::rusqlite::Connection::open(&path).expect("open");
+        conn.execute_batch("CREATE TABLE notes (body TEXT)")
+            .expect("another program's table");
+    }
+    let (bytes, names) = (std::fs::read(&path).expect("read"), listing(dir.path()));
+    assert!(
+        matches!(read_ledger(&path), Err(LegacyError::NotAStore(_))),
+        "a database without happenstance's schema is refused"
+    );
+    assert_eq!(std::fs::read(&path).expect("read"), bytes, "left unchanged");
+    assert_eq!(listing(dir.path()), names, "nothing added beside it");
+}
+
+#[test]
 fn a_ledger_mid_commit_is_reported_rather_than_copied_torn() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = fixture("weighin-0.2.2.sqlite3", dir.path());
