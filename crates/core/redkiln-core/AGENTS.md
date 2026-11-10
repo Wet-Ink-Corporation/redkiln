@@ -8,7 +8,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 
 ## Allowed dependencies
 - Workspace crates: none.
-- Third-party: `happenstance-core` and `happenstance-sqlite` at `=0.4.5` with `sync` (ST-04, 2026-11-01); `tokio` with `rt` only, to drive happenstance's async API on a private current-thread runtime; `tempfile` (the schema template and the old-ledger copy live on the local temporary disk); `thiserror`; `serde` and `serde_json` (envelope, canonical digest), `sha2` (ids, digests) and `time` (`ts`), pre-approved, added 2026-11-02. `toml` (parse only, with serde) reads `suite.toml` (approved).
+- Third-party: `happenstance-core` and `happenstance-sqlite` at `=0.6.0` with `sync` (ST-04, ST-08); `tokio` with `rt` only, to drive happenstance's async API on a private current-thread runtime; `tempfile` (the schema template and the old-ledger copy live on the local temporary disk); `thiserror`; `serde` and `serde_json` (envelope, canonical digest), `sha2` (ids, digests) and `time` (`ts`), pre-approved, added 2026-11-02. `toml` (parse only, with serde) reads `suite.toml` (approved).
 - Dev only: `jsonschema` (no default features), for `spec/`'s schemas (2026-11-08).
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 

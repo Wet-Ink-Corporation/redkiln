@@ -31,7 +31,7 @@ Each row names the frozen text, what replaced it and where that is recorded. The
 
 | Frozen text | Now | Recorded in |
 | --- | --- | --- |
-| Move 1 brings "happenstance 0.4.1" (migration plan, Work sequence; weigh-in.md, Moving the data) | Core pins every `happenstance-*` crate at `=0.4.5`, `happenstance-sqlite` with `features = ["sync"]`; ingest comes from that release, never a `[patch]` | SPEC ST-04; `docs/decisions.md`, 2026-10-31 and 2026-11-01 |
+| Move 1 brings "happenstance 0.4.1" (migration plan, Work sequence; weigh-in.md, Moving the data) | Core pins every `happenstance-*` crate at `=0.6.0` (was `=0.4.5`, the first with ingest), `happenstance-sqlite` with `features = ["sync"]`; ingest comes from a release, never a `[patch]` | SPEC ST-04; `docs/decisions.md`, 2026-10-31, 2026-11-01 and 2026-11-09 |
 | Core carries "the 0.1.x and 0.2.2 fixtures" | Also a ledger written by weigh-in 1.2.0 on happenstance 0.3.2, which is what every live ledger is today | [move-1-weigh-in.md](move-1-weigh-in.md), Core extraction |
 | Journals "where pressure-test call A says"; fallback "committed `.redkiln/journal/<session>.jsonl`" (migration plan, Risks) | OW-13 option D: one append-only ref per journal, `refs/redkiln/journal/<name>`; cloud sessions push a `redkiln/inbox/<name>` branch that an optional relay workflow merges; import reads every source, legacy committed journals included | SPEC JR-06 to JR-13; `docs/decisions.md`, 2026-11-01 |
 | Core crates "depend on nothing internal" (blueprint, dependency rules) | Core edges go through `redkiln-core` only; `cargo xtask layers` checks it | `AGENTS.md`, Layer rules; `docs/decisions.md`, 2026-10-31 |

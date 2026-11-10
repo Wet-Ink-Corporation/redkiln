@@ -23,7 +23,8 @@ use happenstance_sqlite::event_store::{SqliteEventStore, SqliteEventStoreError};
 use happenstance_sqlite::rusqlite::{self, Connection};
 
 use crate::store::{
-    Driver, Found, OpenError, STORE_SCHEMA, StoreError, Stored, read_header, sibling,
+    Driver, Found, OpenError, STORE_SCHEMA, StoreError, Stored, needs_migration, read_header,
+    sibling,
 };
 
 /// How many times a copy is taken before the source is reported as changing under it.
@@ -96,7 +97,8 @@ pub enum LegacyError {
     /// SQLite could not open the copy or read its stamp.
     #[error("SQLite could not open the copy")]
     OpenCopy(#[source] rusqlite::Error),
-    /// The copy is not a happenstance store, or its identity cannot be read.
+    /// The copy is not a happenstance store, its identity cannot be read, or migrating the copy
+    /// from an older happenstance schema failed (ST-08).
     #[error("the ledger is not a happenstance store")]
     NotAStore(#[source] SqliteEventStoreError),
     /// Reading its events failed.
@@ -273,7 +275,14 @@ fn read_copy(copy: &Path) -> Result<LegacyLedger, LegacyError> {
     let user_version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(LegacyError::OpenCopy)?;
-    let store = SqliteEventStore::new(conn).map_err(LegacyError::NotAStore)?;
+    // The copy is the reader's own, so migrating it to this happenstance's schema (ST-08)
+    // changes nothing the caller owns; the ledger itself is never opened read-write.
+    let store = if needs_migration(&conn).map_err(LegacyError::OpenCopy)? {
+        SqliteEventStore::open_on(conn)
+    } else {
+        SqliteEventStore::new(conn)
+    }
+    .map_err(LegacyError::NotAStore)?;
     let driver = Driver::new().map_err(LegacyError::Runtime)?;
     let page = NonZeroUsize::new(PAGE).unwrap_or(NonZeroUsize::MIN);
     let mut events: Vec<Stored> = Vec::new();

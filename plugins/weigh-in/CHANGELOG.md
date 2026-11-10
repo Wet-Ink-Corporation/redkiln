@@ -13,6 +13,10 @@ their journals in `refs/redkiln/journal/<session>` instead of committed files. T
 still `/weigh-in` and the binary still `weighin`. 1.x's `weigh` and `weigh-mod` stay in the
 release repository until 1.x retires; install one or the other, not both.
 
+- The store is happenstance 0.6.0's, with SQLite 3.54.1 bundled (RUSTSEC-2026-0459). A store a
+  pre-release build wrote is migrated the first time this release opens it, after which that
+  build refuses it.
+
 - Releases come from `Wet-Ink-Corporation/redkiln` under `rk-weigh-in--v<version>`, and install from
   `Wet-Ink-Corporation/redkiln-plugins`. In Cowork the skill downloads the Linux binary from that
   release, or uses a copy of this release in a connected `redkiln` or `redkiln-plugins` checkout.

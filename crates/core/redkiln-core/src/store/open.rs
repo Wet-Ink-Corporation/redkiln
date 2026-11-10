@@ -6,8 +6,8 @@ use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use happenstance_sqlite::event_store::SqliteEventStore;
-use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags};
+use happenstance_sqlite::event_store::{SCHEMA_VERSION, SqliteEventStore};
+use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags, OptionalExtension};
 
 use super::aside::{set_aside, set_journal_aside, sibling};
 use super::header::{self, Found, Header};
@@ -23,6 +23,9 @@ pub const STORE_SCHEMA: i64 = 1000;
 /// Core's own key-value table, part of schema 1.0. It holds the store's canonical path (ID-01).
 const CORE_META: &str =
     "CREATE TABLE core_meta (k TEXT PRIMARY KEY, v BLOB NOT NULL) WITHOUT ROWID";
+
+/// The `store_meta` key of happenstance's own schema version (ST-08), never `user_version`.
+const HAPPENSTANCE_SCHEMA_KEY: &str = "schema_version";
 
 /// The `core_meta` key holding the path the store was created or last re-minted at.
 const PATH_KEY: &str = "path";
@@ -206,8 +209,42 @@ fn open_locked(
     // stale (its frames were checkpointed when the mode switched) and is never replayed.
     set_aside(path, "-wal")?;
     keep_identity_at(&conn, path)?;
-    let store = SqliteEventStore::new(conn).map_err(OpenError::Store)?;
+    let store = wrap(conn)?;
     Ok((store, schema))
+}
+
+/// Hands the connection to happenstance, migrating a store an older happenstance wrote (ST-08).
+fn wrap(conn: Connection) -> Result<SqliteEventStore, OpenError> {
+    if needs_migration(&conn).map_err(at(Step::Inspect))? {
+        SqliteEventStore::open_on(conn)
+    } else {
+        SqliteEventStore::new(conn)
+    }
+    .map_err(OpenError::Store)
+}
+
+/// Whether the file holds happenstance's schema at a version older than this build's (ST-08),
+/// which only `open_on` migrates: one write transaction (`BEGIN IMMEDIATE`), keeping the journal
+/// mode and `user_version`. Every other file goes to `new`, which only reads, and whose refusals
+/// (no schema, no version row, a newer version) stand: `open_on` would give a file with no
+/// schema happenstance's tables.
+pub(crate) fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
+    let has_meta: bool = conn.query_row(
+        "SELECT count(*) > 0 FROM main.sqlite_master WHERE type = 'table' AND name = 'store_meta'",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_meta {
+        return Ok(false);
+    }
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT CAST(v AS INTEGER) FROM store_meta WHERE k = ?1",
+            [HAPPENSTANCE_SCHEMA_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(found.is_some_and(|version| (1..i64::from(SCHEMA_VERSION)).contains(&version)))
 }
 
 /// ST-07's refusals, decided from the header alone so that no connection touches the file: a

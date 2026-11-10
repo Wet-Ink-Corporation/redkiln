@@ -58,6 +58,7 @@ pub use telemetry::{Recorded, TELEMETRY_WINDOW, TelemetryEvent};
 pub(crate) use aside::sibling;
 pub(crate) use header::{Found, read as read_header};
 pub(crate) use ingest::{Foreign, Ingest};
+pub(crate) use open::needs_migration;
 pub(crate) use tag::{MAX_CALLER_TAGS, check_caller_tag, check_line_tag, is_core_set};
 
 /// How long a writer waits for another's lock (ST-09).
@@ -176,7 +177,8 @@ pub enum OpenError {
     /// happenstance built a schema template with nothing in it.
     #[error("happenstance's schema template is empty")]
     EmptyTemplate,
-    /// happenstance refused the store's connection, or its identity could not be re-minted.
+    /// happenstance refused the store's connection, could not migrate a store an older
+    /// happenstance wrote (ST-08), or could not re-mint its identity.
     #[error("happenstance refused the store")]
     Store(#[source] SqliteEventStoreError),
     /// The async runtime that drives happenstance could not start.

@@ -15,6 +15,8 @@ mod import_mapped;
 #[cfg(test)]
 mod legacy;
 #[cfg(test)]
+mod migrate;
+#[cfg(test)]
 mod store;
 #[cfg(test)]
 mod support;

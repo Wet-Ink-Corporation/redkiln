@@ -58,7 +58,7 @@ These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event car
 | OW-14 | Hash method names and digest forms | `sha256`, `git-commit`, `git-tree`, `patch-id`, `rust-fingerprint`, written `<method>:<hex>` | ID-09 |
 | OW-15 | Content-hash id derivations | Each id kind's domain string and input fields; Weigh-In's captured-item input kept as today | ID-04, DR-03 |
 
-One dependency sits beside the table: identity across imports needs a public happenstance ingest call. Ryan decided on 2026-10-31 that it comes from a happenstance release that Core then pins; 0.4.5 is that release, and Core pins every `happenstance-*` crate at `=0.4.5`, with `happenstance-sqlite`'s `sync` feature (ST-04).
+One dependency sits beside the table: identity across imports needs a public happenstance ingest call. Ryan decided on 2026-10-31 that it comes from a happenstance release that Core then pins; 0.4.5 was that release; Core now pins every `happenstance-*` crate at `=0.6.0`, with `happenstance-sqlite`'s `sync` feature (ST-04, ST-08; Ryan, 2026-11-09).
 
 Everything else in the draft is two-way: it can change in a SPEC minor or a Core release without touching stored data.
 

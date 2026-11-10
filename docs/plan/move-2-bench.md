@@ -58,7 +58,7 @@ Diffed on 2026-11-09; anything missing is an H-16 or H-05 call, not a silent mer
 | anneal has | redkiln at `e921475` | Call |
 | --- | --- | --- |
 | `ureq` 3.4 (`rustls`), `deny.toml` `CDLA-Permissive-2.0` for `webpki-roots`, `rustls` as a `once_cell` wrapper | None of them | M2-A |
-| `happenstance-*` 0.3.2 in `anneal-ledger` | `=0.4.5` with `sync`, Core only | As Move 1: `bench-ledger` keeps 0.3.2 as imported until step 3 moves it onto Core; no other crate may take 0.3.2 meanwhile |
+| `happenstance-*` 0.3.2 in `anneal-ledger` | `=0.6.0` with `sync`, Core only | As Move 1: `bench-ledger` keeps 0.3.2 as imported until step 3 moves it onto Core; no other crate may take 0.3.2 meanwhile |
 | `clap` 4 with default features off (`std`, `help`, `usage`, `error-context`, plus `derive` in the CLI) | `clap` 4 with `derive` (default features on) | None: the member takes the workspace entry; its help text may gain colour, which no test should pin (checked in the import PR) |
 | `sha2` 0.10, `time` 0.3 without `macros`, `tokio` `rt`, `tempfile`, `serde`, `serde_json`, `thiserror` 2 | Present (M1-B), `sha2` stepping to 0.11 in #50 | None, if #50 lands first and `bench` builds on 0.11 (its uses are digests through `Digest`) |
 | `clippy.toml`, `rustfmt.toml`, `[workspace.lints]` | Identical | None |
