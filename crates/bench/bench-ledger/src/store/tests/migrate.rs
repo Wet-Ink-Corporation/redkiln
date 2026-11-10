@@ -91,6 +91,66 @@ fn opening_migrates_the_schema_and_keeps_the_stamp_and_the_truncate_journal() {
     for suffix in ["-wal", "-shm"] {
         assert!(!sibling(&path, suffix).exists(), "no {suffix} beside it");
     }
+    let journal = std::fs::metadata(sibling(&path, "-journal")).expect("the journal is kept");
+    assert_eq!(
+        journal.len(),
+        0,
+        "migrated under TRUNCATE: truncated, not deleted"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn a_schema_1_ledger_with_no_identity_is_refused_untouched() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = fixture(dir.path());
+    raw(&path)
+        .execute("DELETE FROM store_meta WHERE k = 'store_id'", [])
+        .expect("set up");
+    let before = std::fs::read(&path).expect("readable");
+
+    let result = Store::open(&path);
+
+    assert!(
+        matches!(
+            &result,
+            Err(StoreError::Open {
+                source: OpenError::Store(SqliteEventStoreError::MissingIdentity),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(std::fs::read(&path).expect("readable"), before, "untouched");
+    assert_eq!(happenstance_schema(&path), 1, "not migrated");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn a_schema_1_ledger_whose_identity_is_not_sixteen_bytes_is_refused_untouched() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = fixture(dir.path());
+    raw(&path)
+        .execute(
+            "UPDATE store_meta SET v = randomblob(15) WHERE k = 'store_id'",
+            [],
+        )
+        .expect("set up");
+    let before = std::fs::read(&path).expect("readable");
+
+    let result = Store::open(&path);
+
+    assert!(
+        matches!(
+            &result,
+            Err(StoreError::Open {
+                source: OpenError::Store(SqliteEventStoreError::MalformedIdentity { len: 15 }),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(std::fs::read(&path).expect("readable"), before, "untouched");
 }
 
 #[test]

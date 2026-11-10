@@ -326,7 +326,7 @@ mod tests {
             .filter_map(|line| line.strip_prefix("- `"))
             .filter_map(|rest| rest.split_once('`').map(|(name, _)| name))
             .collect();
-        assert_eq!(listed, ["spec", "verify", "/anneal:handoff"], "{context}");
+        assert_eq!(listed, ["spec", "verify", "/rk-bench:handoff"], "{context}");
     }
 
     #[test]

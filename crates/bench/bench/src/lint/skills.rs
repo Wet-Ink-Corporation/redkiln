@@ -45,7 +45,7 @@ pub struct SkillsArgs {
     #[arg(long, value_name = "FILE")]
     pub index: Option<PathBuf>,
     /// A hooks metadata file (`{"hooks": [{"id": ...}]}`) whose hook ids count as enforcers
-    /// (rule 10) instead of anneal's own hook ids
+    /// (rule 10) instead of bench's own hook ids
     #[arg(long, value_name = "FILE")]
     pub hooks: Option<PathBuf>,
     /// Content-hash snapshot file: unchanged skills replay their stored findings instead of

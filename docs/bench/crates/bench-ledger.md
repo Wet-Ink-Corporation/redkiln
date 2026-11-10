@@ -75,7 +75,8 @@ directories. Run with `cargo test -p anneal-ledger`.
   optional fields with `#[serde(default)]` and bump `REGISTRY_VERSION`.
 - Do not move happenstance off `=0.6.0` without a schema migration step (H-16). A ledger an
   older happenstance wrote (0.3.2: its schema 1) is migrated on open through `open_on`, which
-  keeps the TRUNCATE journal and `user_version`.
+  keeps the TRUNCATE journal and `user_version`, only when it holds its sixteen-byte `store_id`;
+  without one it is refused unchanged, never given a new identity (ID-01).
 
 ## Decisions
 | Date | Decision | Rule | Decided by |

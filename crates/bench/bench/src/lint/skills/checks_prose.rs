@@ -42,7 +42,12 @@ fn hard_rule_late(skill: &Skill<'_>, line: &Line<'_>) -> Option<LintFinding> {
     })
 }
 
-/// Rule 10: a MUST line names its enforcer: `` `anneal <command>` `` or a hook id in backticks.
+/// What a MUST line with no enforcer should do; the command form is this binary's
+/// (`bench_contract::cli::BINARY`, held equal by a test).
+const ENFORCER_FIX: &str = "name the check on the same line: `bench <command> ...` or a hook id \
+                            (`bench hook --help` lists them), in backticks; or soften the MUST.";
+
+/// Rule 10: a MUST line names its enforcer: `` `bench <command>` `` or a hook id in backticks.
 fn enforcer(
     skill: &Skill<'_>,
     line: &Line<'_>,
@@ -54,8 +59,7 @@ fn enforcer(
             Checker::Enforcer,
             skill.at(line.no),
             "this MUST names no enforcer.",
-            "name the check on the same line: `anneal <command> ...` or a hook id \
-             (`bench hook --help` lists them), in backticks; or soften the MUST.",
+            ENFORCER_FIX,
         )
     })
 }
@@ -144,14 +148,34 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn an_enforcer_is_an_anneal_command_or_a_known_hook_id() {
+    fn an_enforcer_is_a_bench_command_or_a_known_hook_id() {
         let hooks: BTreeSet<String> = ["guard".to_owned()].into();
         assert!(is_enforcer("bench plan check", &hooks), "a real command");
         assert!(is_enforcer("guard", &hooks), "a known hook id");
         assert!(
-            !is_enforcer("anneal frobnicate", &hooks),
+            !is_enforcer("bench frobnicate", &hooks),
             "an unknown command"
         );
         assert!(!is_enforcer("preconditions", &hooks), "an unknown hook id");
+    }
+
+    #[test]
+    fn the_enforcer_fix_names_commands_by_this_binary() {
+        let command = format!("`{} <command> ...`", bench_contract::cli::BINARY);
+
+        assert!(
+            super::ENFORCER_FIX.contains(&command),
+            "{}",
+            super::ENFORCER_FIX
+        );
+    }
+
+    #[test]
+    fn a_command_under_the_old_binary_name_is_not_an_enforcer() {
+        let hooks: BTreeSet<String> = ["guard".to_owned()].into();
+        assert!(
+            !is_enforcer("anneal plan check", &hooks),
+            "anneal 0.x's binary name"
+        );
     }
 }

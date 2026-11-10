@@ -252,7 +252,7 @@ fn run_checks(root: &Path, files: &[String], budget: Budget, report: &mut Report
         Ok(exe) => exe,
         Err(error) => {
             report.note(format!(
-                "fast-check did not run: the anneal binary cannot be found ({error})"
+                "fast-check did not run: the bench binary cannot be found ({error})"
             ));
             return;
         }

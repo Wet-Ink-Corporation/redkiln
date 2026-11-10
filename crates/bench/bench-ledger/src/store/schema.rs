@@ -6,7 +6,7 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::time::Duration;
 
-use happenstance_sqlite::event_store::{SCHEMA_VERSION, SqliteEventStore};
+use happenstance_sqlite::event_store::{SCHEMA_VERSION, SqliteEventStore, SqliteEventStoreError};
 use happenstance_sqlite::rusqlite::{self, Connection, OptionalExtension};
 
 use super::OpenError;
@@ -65,7 +65,8 @@ pub(super) fn open(path: &Path, busy_timeout: Duration) -> Result<SqliteEventSto
 }
 
 /// Hands the connection to happenstance, migrating a ledger an older happenstance wrote (0.3.2's
-/// schema 1) in place, as Core does (ST-08).
+/// schema 1) in place when it holds its identity, as Core does (ST-08); see
+/// [`needs_migration`].
 fn wrap(conn: Connection) -> Result<SqliteEventStore, OpenError> {
     if needs_migration(&conn)? {
         SqliteEventStore::open_on(conn)
@@ -78,19 +79,49 @@ fn wrap(conn: Connection) -> Result<SqliteEventStore, OpenError> {
 /// The `store_meta` key of happenstance's own schema version, never `user_version`.
 const HAPPENSTANCE_SCHEMA_KEY: &str = "schema_version";
 
+/// The `store_meta` key of the store's identity, happenstance's sixteen-byte `StoreId`.
+const STORE_ID_KEY: &str = "store_id";
+
+/// The length of a store identity, in bytes.
+const IDENTITY_LEN: i64 = 16;
+
 /// Whether the file holds happenstance's schema at a version older than this build's, which
 /// only `open_on` migrates: one `BEGIN IMMEDIATE` that sets no pragma, so the TRUNCATE journal
 /// and `user_version` stay. Every other file goes to `new`, which only reads, and whose refusals
 /// (no version row, a newer version) stand.
+///
+/// # Errors
+/// An older schema with no identity row is [`SqliteEventStoreError::MissingIdentity`], and one
+/// whose identity is not sixteen bytes [`SqliteEventStoreError::MalformedIdentity`], refused
+/// before anything is written: `open_on` would mint a new identity for it, re-issuing the ids
+/// of events already written (ID-01), as Core's `store::meta` also refuses. A failed query is
+/// [`OpenError::Sqlite`].
 fn needs_migration(conn: &Connection) -> Result<bool, OpenError> {
-    let found: Option<i64> = conn
+    let version: Option<i64> = conn
         .query_row(
             "SELECT CAST(v AS INTEGER) FROM store_meta WHERE k = ?1",
             [HAPPENSTANCE_SCHEMA_KEY],
             |row| row.get(0),
         )
         .optional()?;
-    Ok(found.is_some_and(|version| (1..i64::from(SCHEMA_VERSION)).contains(&version)))
+    let identity_len: Option<i64> = conn
+        .query_row(
+            "SELECT length(CAST(v AS BLOB)) FROM store_meta WHERE k = ?1",
+            [STORE_ID_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if !version.is_some_and(|version| (1..i64::from(SCHEMA_VERSION)).contains(&version)) {
+        return Ok(false);
+    }
+    match identity_len {
+        Some(IDENTITY_LEN) => Ok(true),
+        None => Err(OpenError::Store(SqliteEventStoreError::MissingIdentity)),
+        // A length past what a `usize` holds is shown as the largest.
+        Some(len) => Err(OpenError::Store(SqliteEventStoreError::MalformedIdentity {
+            len: usize::try_from(len).unwrap_or(usize::MAX),
+        })),
+    }
 }
 
 /// The stamp a ledger must carry once its schema is in place. Another process may have stamped

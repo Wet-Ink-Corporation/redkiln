@@ -2,7 +2,7 @@
 //! rule 10, "Name the enforcer", applied to rules a retro writes; `docs/skill-rules.md`).
 //!
 //! A rule document is markdown with a `## Rules` section. Each list item in it is one rule, and
-//! names its enforcers after `Enforcer:` in backticks: `anneal <command> ...`, `hook <id>` or
+//! names its enforcers after `Enforcer:` in backticks: `bench <command> ...`, `hook <id>` or
 //! `test <file>::<fn>` (see the private `enforcer` module). A rule with none, or with one that
 //! cannot be found, is an `enforcer` error. Findings use the lint finding model, so the
 //! envelope and exit codes are `lint skills`' own.
@@ -29,7 +29,7 @@ const LABEL: &str = "Enforcer:";
 
 /// What a rule with no enforcer, or an unknown one, should do.
 const FIX: &str = "after `Enforcer:`, name in backticks the hook (`hook <id>`), the lint or \
-                   command (`anneal <command> ...`) or the test (`test <file>::<fn>`) that \
+                   command (`bench <command> ...`) or the test (`test <file>::<fn>`) that \
                    enforces it; a rule nothing enforces is a wish.";
 
 /// Arguments of `bench lint rules`.
@@ -43,7 +43,7 @@ pub struct RulesArgs {
     #[arg(long, value_name = "DIR", default_value = ".")]
     pub root: PathBuf,
     /// A hooks metadata file (`{"hooks": [{"id": ...}]}`) whose ids `hook <id>` enforcers name,
-    /// instead of anneal's own hook ids
+    /// instead of bench's own hook ids
     #[arg(long, value_name = "FILE")]
     pub hooks: Option<PathBuf>,
 }

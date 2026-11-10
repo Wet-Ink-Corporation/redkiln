@@ -178,6 +178,13 @@ fn the_plugin_option_variables_are_their_user_config_keys_upper_cased() {
     );
 }
 
+#[test]
+fn the_plugin_option_variable_names_are_pinned_by_literal() {
+    assert_eq!(super::ACCOUNT_VAR, "CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID");
+    assert_eq!(super::TOKEN_VAR, "CLAUDE_PLUGIN_OPTION_CF_API_TOKEN");
+    assert_eq!(super::MODE_VAR, "CLAUDE_PLUGIN_OPTION_CLEF_MODE");
+}
+
 /// What `write` puts in a fresh buffer, as text.
 fn written(write: impl FnOnce(&mut Vec<u8>) -> std::io::Result<()>) -> String {
     let mut out = Vec::new();

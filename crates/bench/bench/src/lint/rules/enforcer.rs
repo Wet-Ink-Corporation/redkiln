@@ -1,9 +1,9 @@
 //! The enforcer a rule names, and whether it can be found in the repository.
 //!
 //! Three kinds, each written in backticks after `Enforcer:`:
-//! - `anneal <command> [<subcommand>...] [args]`: a command of this binary, down to a command
+//! - `bench <command> [<subcommand>...] [args]`: a command of this binary, down to a command
 //!   with no subcommands (a lint such as `bench lint skills`, a gate such as `bench plan check`);
-//! - `hook <id>`: one of anneal's hook ids, or of the `--hooks` file when given;
+//! - `hook <id>`: one of bench's hook ids, or of the `--hooks` file when given;
 //! - `test <file>::<fn>`: a file under the repository root that defines `fn <fn>(`.
 
 use std::collections::BTreeSet;
@@ -18,7 +18,7 @@ use crate::lint::skills::discover::MAX_READ_BYTES;
 /// One enforcer as named, borrowed from the rule's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Enforcer<'a> {
-    /// The words after `anneal`.
+    /// The words after `bench`.
     Command(Vec<&'a str>),
     /// A hook id.
     Hook(&'a str),
@@ -34,7 +34,8 @@ pub(crate) enum Enforcer<'a> {
 /// Why a named enforcer cannot be found. Its `Display` completes "cannot be found: ...".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Unresolved {
-    /// The span starts with none of `anneal`, `hook` or `test`.
+    /// The span starts with none of `bench`, `hook` or `test`. anneal 0.x's `anneal` is not
+    /// read as `bench`: a rule document names commands by this binary.
     UnknownKind,
     /// A word names no subcommand of the command before it.
     NoCommand {
@@ -68,7 +69,11 @@ pub(crate) enum Unresolved {
 impl Display for Unresolved {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownKind => f.write_str("it starts with none of `anneal`, `hook` or `test`"),
+            Self::UnknownKind => write!(
+                f,
+                "it starts with none of `{}`, `hook` or `test`",
+                bench_contract::cli::BINARY
+            ),
             Self::NoCommand { path, word } => write!(f, "`{path}` has no command `{word}`"),
             Self::IncompleteCommand { path } => {
                 write!(f, "`{path}` needs a subcommand to name one check")
@@ -184,7 +189,7 @@ pub(crate) fn resolve(
     }
 }
 
-/// Walks `words` down the command tree. `anneal` itself must be followed by a command, and a
+/// Walks `words` down the command tree. `bench` itself must be followed by a command, and a
 /// command that requires a subcommand by one of its subcommands; the walk ends at a command
 /// with no subcommands, or at one that runs without (`decide`, beside `decide label`) when the
 /// next word names none of them.

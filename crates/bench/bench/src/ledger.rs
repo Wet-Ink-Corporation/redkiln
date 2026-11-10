@@ -208,7 +208,7 @@ fn refuse_a_claimed_giver(event: &LedgerEvent) -> Result<(), CliError> {
     };
     Err(CliError::Usage {
         reason: format!(
-            "ledger append does not write a `by` on {kind}: use `anneal {writer} --actor/--via`"
+            "ledger append does not write a `by` on {kind}: use `bench {writer} --actor/--via`"
         ),
     })
 }

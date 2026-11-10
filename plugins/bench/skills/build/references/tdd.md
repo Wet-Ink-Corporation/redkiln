@@ -18,7 +18,7 @@ One behaviour per cycle, in the order the task's criteria give.
 
 ## Completion goes through `bench task done`
 
-A task is done when its test command passes under anneal, not when the code looks finished:
+A task is done when its test command passes under Bench, not when the code looks finished:
 
 ```sh
 bench task done T3 -- cargo test -p notes list_is_sorted

@@ -28,7 +28,7 @@ Take the first rung that would have stopped the mistake.
 |---|---|---|
 | 1 Architecture | Make the mistake impossible: remove the path, split the module | the code itself; a test pins it |
 | 2 Types | Make it unrepresentable: a newtype, an enum, a typestate | the compiler; a test pins it |
-| 3 Lint | A lint whose message names the fix | `anneal <command> ...`, or a hook that runs it |
+| 3 Lint | A lint whose message names the fix | `bench <command> ...`, or a hook that runs it |
 | 4 Test | A test that fails on the mistake | `test <file>::<fn>` |
 | 5 Docs | Prose, last and never alone | rung 3 or 4 beside it |
 
@@ -37,8 +37,8 @@ Take the first rung that would have stopped the mistake.
 1. **Apply the bar.** Ask: would a future engineer, with no memory of today, still repeat this? If not, fix the instance and stop. It's working if you can say why it would recur.
 2. **Climb the ladder.** Fix at the first rung that would have caught it. It's working if the fix makes the original mistake fail a check, not a reader.
 3. **Emit the enforcer.** Write the test, lint or hook. A new hook gets its `hooks/hooks.json` entry and metadata row together; `.anneal/config.json` (`check_fast`) is the human's file, so hand them the exact JSON. It's working if the enforcer fails on the mistake and passes on the fix.
-4. **Record the rule.** Add one item under `## Rules` in the rule document (`docs/rules.md` unless the repository keeps another): the rule, then `Enforcer:` and, in backticks, `hook <id>`, `anneal <command> ...` or `test <file>::<fn>`. It's working if a stranger can find the check from the line.
-5. **Lint the rules.** Run `bench lint rules docs/rules.md` (for hooks not anneal's, `--hooks <file>` listing every id). It's working if it exits 0.
+4. **Record the rule.** Add one item under `## Rules` in the rule document (`docs/rules.md` unless the repository keeps another): the rule, then `Enforcer:` and, in backticks, `hook <id>`, `bench <command> ...` or `test <file>::<fn>`. It's working if a stranger can find the check from the line.
+5. **Lint the rules.** Run `bench lint rules docs/rules.md` (for hooks not Bench's, `--hooks <file>` listing every id). It's working if it exits 0.
 6. **Report.** Name the rung, the enforcer and the rule's line. It's working if the human can run the enforcer unaided.
 
 ## Rationalizations

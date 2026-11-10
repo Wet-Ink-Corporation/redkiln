@@ -90,6 +90,24 @@ fn the_three_kinds_parse() {
 }
 
 #[test]
+fn a_command_under_the_old_binary_name_is_an_unknown_kind_named_by_the_binary() {
+    let parsed = enforcer::parse("anneal plan check");
+
+    assert_eq!(parsed, Err(Unresolved::UnknownKind));
+    assert_eq!(
+        Unresolved::UnknownKind.to_string(),
+        "it starts with none of `bench`, `hook` or `test`"
+    );
+}
+
+#[test]
+fn the_fix_names_commands_by_this_binary() {
+    let command = format!("`{} <command> ...`", bench_contract::cli::BINARY);
+
+    assert!(super::FIX.contains(&command), "{}", super::FIX);
+}
+
+#[test]
 fn an_unknown_kind_or_a_malformed_one_does_not_parse() {
     assert_eq!(
         enforcer::parse("clippy::unwrap_used"),
@@ -297,7 +315,7 @@ fn a_test_path_that_is_a_directory_is_no_test_file() -> TestResult {
 #[test]
 fn each_unknown_enforcer_is_its_own_finding_on_the_rule_line() -> TestResult {
     let root = tempfile::tempdir()?;
-    let text = "# R\n\n## Rules\n\n- Do X.\n  Enforcer: `hook nope` Enforcer: `anneal nope`\n";
+    let text = "# R\n\n## Rules\n\n- Do X.\n  Enforcer: `hook nope` Enforcer: `bench nope`\n";
 
     let findings = check(root.path(), text);
 
@@ -306,7 +324,7 @@ fn each_unknown_enforcer_is_its_own_finding_on_the_rule_line() -> TestResult {
         keys,
         [
             "lint/enforcer:rules.md:5:hook nope",
-            "lint/enforcer:rules.md:5:anneal nope"
+            "lint/enforcer:rules.md:5:bench nope"
         ]
     );
     Ok(())

@@ -1,6 +1,6 @@
 # anneal
 
-anneal turns SDLC gates into enforced checks. Skills say how to work, the `anneal` CLI and its
+anneal turns SDLC gates into enforced checks. Skills say how to work, the `bench` CLI and its
 hooks check that it was done, and the ledger records what happened.
 
 ## Entry skills
@@ -19,8 +19,8 @@ Load the matching skill before your first tool call:
 
 The human runs these; do not start them unasked:
 
-- `/anneal:orchestrate`: run a plan's tasks across subagents.
-- `/anneal:handoff`: write a brief for the next session.
-- `/anneal:correct`: record a correction as a standing order.
-- `/anneal:write-skill`: author a skill that lints clean.
-- `/anneal:calibrate`: calibrate a Clef decision point.
+- `/rk-bench:orchestrate`: run a plan's tasks across subagents.
+- `/rk-bench:handoff`: write a brief for the next session.
+- `/rk-bench:correct`: record a correction as a standing order.
+- `/rk-bench:write-skill`: author a skill that lints clean.
+- `/rk-bench:calibrate`: calibrate a Clef decision point.

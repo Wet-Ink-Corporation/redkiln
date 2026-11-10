@@ -291,6 +291,25 @@ fn another_skill_labels_its_phase_and_no_skill_labels_the_no_skill_phase() -> Te
 }
 
 #[test]
+fn a_skill_invoked_under_the_rk_bench_install_id_labels_its_phase() -> TestResult {
+    for (invoked, expected) in [("rk-bench:build", "build"), ("rk-bench:plan", "plan")] {
+        let world = World::configured()?;
+        let endpoint = Endpoint::answering(build_choice(0.9), 0.5);
+        world.append_transcript(&[earlier()])?;
+        route(&world, "build T3", &endpoint)?;
+        world.append_transcript(&[skill_call(invoked)])?;
+
+        route(&world, "next", &endpoint)?;
+
+        let rows = world.rows()?;
+        let labels = of_kind(&rows, "label");
+        assert_eq!(labels.len(), 1, "{invoked}: {rows:?}");
+        assert_eq!(labels[0]["outcome"], json!(expected), "{invoked}");
+    }
+    Ok(())
+}
+
+#[test]
 fn a_transcript_rewritten_before_the_next_prompt_leaves_the_decision_unlabelled() -> TestResult {
     let world = World::configured()?;
     let endpoint = Endpoint::answering(build_choice(0.9), 0.5);

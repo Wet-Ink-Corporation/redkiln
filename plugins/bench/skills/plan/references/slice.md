@@ -21,7 +21,7 @@ A slice that cannot end green alone is two slices, or half of one. Merge or re-c
 
 `Blocked by:` lists only the tasks whose output this task needs: a type it uses, a table it
 reads, a command it calls. Sharing a file is not a block; sequencing by habit is not a block.
-Fewer edges mean more tasks a team (or `/anneal:orchestrate`) can run at once.
+Fewer edges mean more tasks a team (or `/rk-bench:orchestrate`) can run at once.
 
 - Every blocker must be another task of the plan; `bench lint plan` reports one that is not,
   a task blocked by itself, and a cycle.

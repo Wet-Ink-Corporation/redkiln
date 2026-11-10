@@ -26,7 +26,8 @@
 //! TRUNCATE); happenstance keeps its own counter in `store_meta`. A new ledger is stamped in
 //! the transaction that copies its schema. A ledger an older happenstance wrote (anneal's, on
 //! 0.3.2: happenstance schema 1) is migrated in place on open through `open_on`, which keeps the
-//! journal mode and the stamp; one a newer happenstance wrote is refused unchanged.
+//! journal mode and the stamp, when it holds its sixteen-byte identity; one without it, or one
+//! a newer happenstance wrote, is refused unchanged.
 //!
 //! # Concurrency
 //!

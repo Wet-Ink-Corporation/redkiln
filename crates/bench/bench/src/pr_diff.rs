@@ -52,7 +52,7 @@ const DIFF_OPTIONS: [&str; 11] = [
 #[derive(Debug, thiserror::Error)]
 pub enum PrError {
     /// The working directory is not in a git worktree.
-    #[error("anneal {command} needs a git worktree")]
+    #[error("bench {command} needs a git worktree")]
     NotAWorktree {
         /// The command, as typed.
         command: &'static str,

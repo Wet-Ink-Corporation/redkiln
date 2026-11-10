@@ -48,6 +48,7 @@ mod perf;
 mod plan;
 mod playbook;
 mod plugin_commands;
+mod plugin_name;
 #[cfg(test)]
 mod pr_repo;
 mod preconditions;

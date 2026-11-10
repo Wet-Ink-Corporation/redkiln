@@ -40,25 +40,20 @@ const ENTRY_TRIGGERS: [(&str, &str); 7] = [
     ),
 ];
 
-/// The user-invoked skills, as typed, and what each does.
+/// The user-invoked skills, by directory name, and what each does. Each is typed as
+/// `/<plugin>:<skill>` (`/rk-bench:handoff`), the plugin being [`bench_contract::plugin::NAME`].
 const USER_COMMANDS: [(&str, &str); 5] = [
-    (
-        "/anneal:orchestrate",
-        "run a plan's tasks across subagents.",
-    ),
-    ("/anneal:handoff", "write a brief for the next session."),
-    (
-        "/anneal:correct",
-        "record a correction as a standing order.",
-    ),
-    ("/anneal:write-skill", "author a skill that lints clean."),
-    ("/anneal:calibrate", "calibrate a Clef decision point."),
+    ("orchestrate", "run a plan's tasks across subagents."),
+    ("handoff", "write a brief for the next session."),
+    ("correct", "record a correction as a standing order."),
+    ("write-skill", "author a skill that lints clean."),
+    ("calibrate", "calibrate a Clef decision point."),
 ];
 
 const PREAMBLE: &str = "\
 # anneal
 
-anneal turns SDLC gates into enforced checks. Skills say how to work, the `anneal` CLI and its
+anneal turns SDLC gates into enforced checks. Skills say how to work, the `bench` CLI and its
 hooks check that it was done, and the ledger records what happened.
 
 ## Entry skills
@@ -74,9 +69,6 @@ The human runs these; do not start them unasked:
 
 ";
 
-/// The prefix of a user command naming the skill it runs.
-const COMMAND_PREFIX: &str = "/anneal:";
-
 /// The bootstrap index with every skill, as committed as `docs/bootstrap-index.md` and
 /// injected when the plugin's skills cannot be listed.
 #[must_use]
@@ -89,8 +81,16 @@ pub(crate) fn index() -> String {
 /// model to load it.
 #[must_use]
 pub(crate) fn index_with(present: impl Fn(&str) -> bool) -> String {
-    let skills = Bullets(&ENTRY_TRIGGERS, &present);
-    let commands = Bullets(&USER_COMMANDS, &|command| present(skill_of(command)));
+    let skills = Bullets {
+        pairs: &ENTRY_TRIGGERS,
+        present: &present,
+        form: Form::Skill,
+    };
+    let commands = Bullets {
+        pairs: &USER_COMMANDS,
+        present: &present,
+        form: Form::Command,
+    };
     format!("{PREAMBLE}{skills}{COMMANDS_HEADING}{commands}")
 }
 
@@ -98,22 +98,34 @@ pub(crate) fn index_with(present: impl Fn(&str) -> bool) -> String {
 pub(crate) fn skill_names() -> impl Iterator<Item = &'static str> {
     ENTRY_TRIGGERS
         .iter()
+        .chain(USER_COMMANDS.iter())
         .map(|(name, _)| *name)
-        .chain(USER_COMMANDS.iter().map(|(command, _)| skill_of(command)))
 }
 
-/// The skill a user command runs: `/anneal:handoff` runs `handoff`.
-fn skill_of(command: &str) -> &str {
-    command.strip_prefix(COMMAND_PREFIX).unwrap_or(command)
+/// How a bullet writes a skill's directory name.
+#[derive(Debug, Clone, Copy)]
+enum Form {
+    /// The name itself, `grill`.
+    Skill,
+    /// The slash command that runs it, as typed: `/rk-bench:handoff`.
+    Command,
 }
 
-/// One ``- `name`: text`` line per pair whose name the filter keeps.
-struct Bullets<'a>(&'a [(&'a str, &'a str)], &'a dyn Fn(&str) -> bool);
+/// One ``- `name`: text`` line per pair whose skill `present` keeps, the name in its `form`.
+struct Bullets<'a> {
+    pairs: &'a [(&'a str, &'a str)],
+    present: &'a dyn Fn(&str) -> bool,
+    form: Form,
+}
 
 impl Display for Bullets<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for (name, text) in self.0.iter().filter(|(name, _)| (self.1)(name)) {
-            writeln!(f, "- `{name}`: {text}")?;
+        let plugin = bench_contract::plugin::NAME;
+        for (name, text) in self.pairs.iter().filter(|(name, _)| (self.present)(name)) {
+            match self.form {
+                Form::Skill => writeln!(f, "- `{name}`: {text}")?,
+                Form::Command => writeln!(f, "- `/{plugin}:{name}`: {text}")?,
+            }
         }
         Ok(())
     }
@@ -161,11 +173,11 @@ mod tests {
             .map(|(_, rest)| rest)
             .expect("a User commands section");
         for command in [
-            "/anneal:orchestrate",
-            "/anneal:handoff",
-            "/anneal:correct",
-            "/anneal:write-skill",
-            "/anneal:calibrate",
+            "/rk-bench:orchestrate",
+            "/rk-bench:handoff",
+            "/rk-bench:correct",
+            "/rk-bench:write-skill",
+            "/rk-bench:calibrate",
         ] {
             assert!(
                 commands.contains(&format!("- `{command}`: ")),
@@ -183,8 +195,8 @@ mod tests {
             (
                 listed.contains(&"grill".to_owned()),
                 listed.len(),
-                text.contains("/anneal:handoff"),
-                text.contains("- `/anneal:correct`: "),
+                text.contains("/rk-bench:handoff"),
+                text.contains("- `/rk-bench:correct`: "),
             ),
             (false, ENTRY_SKILLS.len() - 1, false, true),
             "{text}"

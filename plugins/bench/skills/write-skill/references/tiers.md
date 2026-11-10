@@ -1,6 +1,6 @@
 # The four tiers a skill passes before merge
 
-`evals/README.md` in the anneal repository holds each tier's schema, statistics and exit codes.
+`evals/bench/README.md` in the redkiln repository holds each tier's schema, statistics and exit codes.
 
 | Tier | Command | Bar | Applies to |
 |---|---|---|---|

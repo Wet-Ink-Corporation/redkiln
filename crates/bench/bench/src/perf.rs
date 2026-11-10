@@ -118,7 +118,7 @@ pub enum PerfError {
     },
     /// The baseline file is from another format version.
     #[error(
-        "perf: baseline {path} is sample file version {found}, this anneal reads \
+        "perf: baseline {path} is sample file version {found}, this bench reads \
          {SAMPLE_FILE_VERSION}",
         path = path.display()
     )]

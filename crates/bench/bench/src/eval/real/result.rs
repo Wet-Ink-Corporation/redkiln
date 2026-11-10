@@ -130,7 +130,7 @@ pub(crate) fn ran_out_of_turns(error: &str) -> bool {
 #[derive(Debug, thiserror::Error)]
 pub enum ResultError {
     /// The result is in a schema version this does not read.
-    #[error("the result is schema version {version}; this anneal reads version 1")]
+    #[error("the result is schema version {version}; this bench reads version 1")]
     Schema {
         /// The version found.
         version: u32,

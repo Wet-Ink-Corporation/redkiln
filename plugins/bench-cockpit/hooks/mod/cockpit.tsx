@@ -2,8 +2,8 @@
 // It is a separate plugin because the desktop app's chats turn off a whole plugin that ships a
 // mod, skills included, so the mod must never sit in the plugin that carries anneal's skills.
 //
-// Hooks enforce, the mod shows and collects. Every gate stays a settings hook in the `anneal`
-// plugin's `hooks.json` calling the `anneal` CLI; this module holds no logic of its own. It
+// Hooks enforce, the mod shows and collects. Every gate stays a settings hook in the `rk-bench`
+// plugin's `hooks.json` calling the `bench` CLI; this module holds no logic of its own. It
 // renders what `bench status --json` prints (through this plugin's own copy of the launcher),
 // keeps the last reading in `$.state`, and writes nothing to the ledger. anneal works fully
 // without it (`rk-bench-cockpit` not installed, `--safe-mode`, `disableAllHooks` or a host without

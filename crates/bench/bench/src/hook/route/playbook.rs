@@ -22,8 +22,10 @@ const BUILT_IN: &str = Name::Route.content();
 /// The format version read.
 const VERSION: u32 = 1;
 
-/// The prefix a plugin skill's name carries in Claude Code's `Skill` tool input.
-const PLUGIN_PREFIX: &str = "anneal:";
+/// The prefix a skill's name carried in Claude Code's `Skill` tool input under anneal 0.x's
+/// install id, still read so a session that has the old plugin installed is labelled (Move 2
+/// review round 1: a 0.x fallback, like the guard's).
+const ANNEAL_PREFIX: &str = "anneal:";
 
 /// The phases and sizes D3 asks about.
 #[derive(Debug, Clone, Deserialize)]
@@ -122,10 +124,12 @@ impl Playbook {
         self.phases.iter().find(|phase| phase.phase == name)
     }
 
-    /// The phase whose entry skill is `skill`, written bare (`build`) or as the plugin's
-    /// (`anneal:build`).
+    /// The phase whose entry skill is `skill`, written bare (`build`), as the plugin's
+    /// (`rk-bench:build`) or as anneal 0.x's (`anneal:build`).
     pub(crate) fn phase_of_skill(&self, skill: &str) -> Option<&Phase> {
-        let bare = skill.strip_prefix(PLUGIN_PREFIX).unwrap_or(skill);
+        let bare = bench_contract::plugin::skill_of(skill)
+            .or_else(|| skill.strip_prefix(ANNEAL_PREFIX))
+            .unwrap_or(skill);
         self.phases
             .iter()
             .find(|phase| phase.entry_skill.as_deref() == Some(bare))
@@ -245,6 +249,18 @@ mod tests {
         assert_eq!(phase_of("anneal:grill"), Some("define"));
         assert_eq!(phase_of("temper:rust-craft"), None);
         assert_eq!(phase_of("other:build"), None);
+    }
+
+    #[test]
+    fn the_phase_of_a_skill_is_found_under_the_rk_bench_install_id() {
+        let playbook = Playbook::built_in().expect("route.json parses");
+
+        let phase_of = |skill| playbook.phase_of_skill(skill).map(Phase::name);
+
+        assert_eq!(phase_of("rk-bench:grill"), Some("define"));
+        assert_eq!(phase_of("rk-bench:build"), Some("build"));
+        assert_eq!(phase_of("rk-bench:"), None);
+        assert_eq!(phase_of("rk-benchgrill"), None);
     }
 
     #[test]
