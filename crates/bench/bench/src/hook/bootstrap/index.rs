@@ -212,7 +212,8 @@ mod tests {
         if std::env::var_os("ANNEAL_BLESS").is_some() {
             std::fs::write(&path, &expected).expect("write docs/bench/bootstrap-index.md");
         }
-        let committed = std::fs::read_to_string(&path).expect("docs/bench/bootstrap-index.md exists");
+        let committed =
+            std::fs::read_to_string(&path).expect("docs/bench/bootstrap-index.md exists");
         assert!(
             committed == expected,
             "{DOC_PATH} drifted from the index; regenerate it with \
