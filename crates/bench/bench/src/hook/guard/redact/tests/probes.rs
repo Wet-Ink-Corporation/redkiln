@@ -8,12 +8,12 @@ use super::super::redact;
 
 /// Asserts that no secret of any probe is in its skeleton.
 fn assert_hidden(probes: &[(&str, &[&str])]) {
-    for &(command, secrets) in probes {
+    for (probe, &(command, secrets)) in probes.iter().enumerate() {
         let redacted = redact(command);
-        for secret in secrets {
+        for (i, secret) in secrets.iter().enumerate() {
             assert!(
                 !redacted.contains(secret),
-                "{secret:?} of {command:?} in {redacted:?}"
+                "probe {probe}'s secret {i} is in its skeleton"
             );
         }
     }

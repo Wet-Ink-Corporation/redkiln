@@ -363,10 +363,10 @@ mod tests {
 
     #[test]
     fn an_account_that_is_not_alphanumeric_is_refused() {
-        for account in ["abc/def", "a b", "x?y"] {
+        for (i, account) in ["abc/def", "a b", "x?y"].into_iter().enumerate() {
             assert!(
                 matches!(config(&[(ACCOUNT_VAR, account)]), Err(ConfigError::Account)),
-                "{account:?} is refused"
+                "account {i} is refused"
             );
         }
     }

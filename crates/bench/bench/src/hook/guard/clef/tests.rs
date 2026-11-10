@@ -472,9 +472,12 @@ fn the_row_and_the_state_hold_the_trimmed_command_without_secrets() {
     );
     let log = fs::read_to_string(world.home().join("decisions").join("decisions.jsonl"))
         .expect("the log");
-    for secret in ["hunter2", "ghp_x", "tok-123", "pw-456", SECRET] {
-        assert!(!log.contains(secret), "{secret} in the log");
-        assert!(!state.contains(secret), "{secret} sent to Clef");
+    for (i, secret) in ["hunter2", "ghp_x", "tok-123", "pw-456", SECRET]
+        .into_iter()
+        .enumerate()
+    {
+        assert!(!log.contains(secret), "secret {i} in the log");
+        assert!(!state.contains(secret), "secret {i} sent to Clef");
     }
 }
 
