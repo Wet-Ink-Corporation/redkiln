@@ -35,7 +35,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, weighin-contract, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
 | `crates/bench/bench-contract` | contract (bench) | The `bench` command list (`cli`) | none |
 | `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI | bench-ledger, bench-contract, clap, ureq, sha2, serde, serde_json, thiserror |
-| `crates/bench/bench-ledger` | plugin (bench) | anneal's ledger as its own TRUNCATE store on happenstance `=0.6.0` until step 3 moves it onto Core | happenstance, tokio, time, tempfile, serde, serde_json, thiserror |
+| `crates/bench/bench-ledger` | plugin (bench) | anneal's ledger, its own store on happenstance `=0.6.0` until step 3 | happenstance, tokio, time, tempfile, serde, serde_json, thiserror |
 | `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
