@@ -252,8 +252,8 @@ fn cowork_sha(plugin: &str, binary: &str, builds: &Builds) -> Result<String, Rel
         source,
     };
     let mut hasher = Sha256::new();
-    let copied = io::copy(
-        &mut File::open(path).map_err(io_error)?.take(MAX_BUILD + 1),
+    let copied = hash_reader(
+        File::open(path).map_err(io_error)?.take(MAX_BUILD + 1),
         &mut hasher,
     )
     .map_err(io_error)?;
@@ -269,6 +269,26 @@ fn cowork_sha(plugin: &str, binary: &str, builds: &Builds) -> Result<String, Rel
         .flat_map(|byte| [byte >> 4, byte & 0x0f])
         .filter_map(|nibble| char::from_digit(u32::from(nibble), 16))
         .collect())
+}
+
+/// Feeds everything `reader` yields into `hasher` and returns the byte count. sha2 0.11
+/// no longer implements `io::Write`, so `io::copy` cannot hash.
+fn hash_reader(mut reader: impl Read, hasher: &mut Sha256) -> io::Result<u64> {
+    let mut buffer = [0_u8; 8 * 1024];
+    let mut total = 0_u64;
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => return Ok(total),
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        let chunk = buffer
+            .get(..read)
+            .ok_or_else(|| io::Error::other("a read reported more bytes than its buffer"))?;
+        hasher.update(chunk);
+        total = total.saturating_add(u64::try_from(read).map_err(io::Error::other)?);
+    }
 }
 
 fn stamp_file(script: &Path, version: &str, sha: Option<&str>) -> Result<(), ReleaseError> {

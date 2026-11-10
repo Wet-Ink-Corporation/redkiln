@@ -156,7 +156,13 @@ mod tests {
         let mut input = b"redkiln.id/knowledge.decision/1".to_vec();
         input.extend_from_slice(&9u64.to_be_bytes());
         input.extend_from_slice(b"wi-abcdef");
-        let expected = format!("{:x}", Sha256::digest(&input));
+        let expected = Sha256::digest(&input)
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                fmt::Write::write_fmt(&mut hex, format_args!("{byte:02x}"))
+                    .expect("writing to a String cannot fail");
+                hex
+            });
 
         let id = AtomId::hashed(Kind::Decision, "wi-abcdef", HashLen::Sixteen);
 
