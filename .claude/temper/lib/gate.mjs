@@ -9,10 +9,10 @@ import path from 'node:path';
 import {
   run, readText, writeAtomic, fingerprint, gateProgressPath, pidAlive, rustChanges, changedFiles, showAt, crateOf, relTo, globMatch, norm,
 } from './project.mjs';
-import { scanSource, newHits, classifyPath, formatHit, isBuildScript } from './scan.mjs';
+import { scanSource, newHits, classifyPath, formatHit, isBuildScript, NEW_CODE_ONLY } from './scan.mjs';
 import { parseToml } from './toml.mjs';
 import { memberProblems, membersFromToml, ownLintsMember, splitProblems } from './manifest.mjs';
-import { collectFindings, mergeCollections, isComplete, writeCachedFindings } from './findings.mjs';
+import { collectFindings, mergeCollections, isComplete, writeCachedFindings, ruleMap } from './findings.mjs';
 import { readBaseline, baselineExists, ratchet, renderRatchet, debtLine, changedLines, renamedSince } from './baseline.mjs';
 
 const has = (cmd, args) => run(cmd, args, { timeoutMs: 20000 }).code === 0;
@@ -98,6 +98,7 @@ export function summarizeFmt(out, { check = false } = {}) {
 /** Scan changed .rs files against their base-revision content: new hard hits fail the gate. */
 export function scanChanged(proj, base) {
   const out = { hard: [], ask: [], soft: [] };
+  const comparable = Boolean(proj.gitRoot && base);
   const files = rustChanges(proj, base).filter((f) => f.endsWith('.rs'));
   // A moved or renamed file (staged or not) is compared with its content at the old path.
   const renames = files.length ? renamedSince(proj, base) : new Map();
@@ -112,17 +113,37 @@ export function scanChanged(proj, base) {
     const before = showAt(proj, base, renames.get(norm(rel)) ?? rel) ?? '';
     const exempt = (h) => (proj.config.scanner.exempt ?? []).some((e) => e.rule === h.id && (e.paths ?? []).some((p) => globMatch(p, rel)));
     const fresh = newHits(scanSource(before, { kind, build }).hits, scanSource(after, { kind, build }).hits).filter((h) => !exempt(h));
-    for (const h of fresh) out[h.severity]?.push({ ...h, file: rel });
+    for (const h of fresh) {
+      // Without git or a base, nothing tells new code from old: a new-code-only rule (decisions.md 3.2) only advises.
+      const sev = !comparable && NEW_CODE_ONLY.has(h.key) && h.severity === 'hard' ? 'soft' : h.severity;
+      out[sev]?.push({ ...h, severity: sev, file: rel });
+    }
   }
   return out;
 }
 
+const ADVISORY_MAX = 12;
+
 /**
- * Member manifests against their base-revision text (MOD-09, ARC-01, PERF-09).
+ * Advisories (soft scan hits) under MUST rules, as `ID file:line message`, at
+ * most ADVISORY_MAX and a count of the rest. Several MUST rules have only an
+ * advisory scan behind them (ASY-04, ASY-07, ARC-09, ARC-11, ...), so the gate
+ * lists the ones a change adds for the reviewer to judge; they never fail it.
+ */
+export function mustAdvisories(soft, map = ruleMap()) {
+  const must = soft.filter((h) => map.rules[h.id]?.level === 'MUST').map((h) => `${h.id} ${h.file}:${h.line} ${h.msg}`);
+  if (must.length <= ADVISORY_MAX) return must;
+  return [...must.slice(0, ADVISORY_MAX), `... and ${must.length - ADVISORY_MAX} more (temper scan lists them all)`];
+}
+
+/**
+ * Member manifests against their base-revision text (MOD-09, ARC-01, PERF-09,
+ * TST-09), and each member's charter (ARC-08).
  * Only problems a manifest did not have at the base fail (the ratchet), so a
  * legacy member does not turn the gate red; a new, untracked or changed member
  * (or a changed root manifest) is checked in full. Without a base, every
- * problem counts.
+ * problem counts, except the checks added in 1.x (mocking crates, charters),
+ * which then only advise.
  * @returns {{ ok: boolean, summary: string }}
  */
 export function checkManifestPaths(proj, base, rootPath, manifestPaths) {
@@ -133,6 +154,16 @@ export function checkManifestPaths(proj, base, rootPath, manifestPaths) {
   const rootBase = rootBaseText === null ? null : parseToml(rootBaseText);
   const fresh = [];
   const legacy = [];
+  // A manifest at its base path, or at the path it was moved from (a crate moved or renamed with its directory).
+  let renames = null;
+  const atBase = (rel) => {
+    const text = showAt(proj, base, rel);
+    if (text !== null) return { rel, text };
+    renames ??= renamedSince(proj, base);
+    const old = renames.get(norm(rel));
+    const was = old ? showAt(proj, base, old) : null;
+    return was === null ? null : { rel: old, text: was };
+  };
   for (const mp of manifestPaths) {
     const rel = relTo(proj.root, mp);
     const now = parseToml(readText(mp));
@@ -143,11 +174,18 @@ export function checkManifestPaths(proj, base, rootPath, manifestPaths) {
     let before = [];
     if (changed && !changed.has(rel) && !changed.has(rootRel)) before = after; // untouched since the base
     else if (changed && rootBase) {
-      const baseText = showAt(proj, base, rel);
-      const was = baseText === null ? null : parseToml(baseText);
+      const prior = atBase(rel);
+      const was = prior ? parseToml(prior.text) : null;
       if (was) before = memberProblems(was, { path: rootPath, manifest: rootBase, self }, opts);
     }
     const split = splitProblems(before, after);
+    // A check added in 1.x (`newOnly`) has nothing to compare with when there is no base: advise only.
+    if (!changed) {
+      split.legacy.push(...split.fresh.filter((p) => p.newOnly));
+      split.fresh = split.fresh.filter((p) => !p.newOnly);
+    }
+    const c = charterProblem(proj, base, mp, changed && atBase);
+    if (c) split[c.fresh ? 'fresh' : 'legacy'].push(c);
     for (const p of split.fresh) fresh.push(`${p.id} ${rel}: ${p.msg}.\n    fix: ${p.fix}`);
     for (const p of split.legacy) legacy.push(`${p.id} ${rel}`);
   }
@@ -156,7 +194,26 @@ export function checkManifestPaths(proj, base, rootPath, manifestPaths) {
     ok: fresh.length === 0,
     summary: fresh.length
       ? fresh.join('\n') + (old ? `\n(${old})` : '')
-      : `${manifestPaths.length} member manifest(s): no new lint-inheritance or profile problems${old ? `; ${old}` : ''}`,
+      : `${manifestPaths.length} member manifest(s): no new lint-inheritance, profile, mocking-crate or charter problems${old ? `; ${old}` : ''}`,
+  };
+}
+
+/**
+ * ARC-08: a member without `AGENTS.md` beside its manifest. It fails only when
+ * the crate is new since the base, or its charter existed at the base; a crate
+ * that already lacked one (also after a move), or any crate when there is no
+ * base (`atBase` null), is advisory.
+ * @returns {{ id: string, msg: string, fix: string, fresh: boolean } | null}
+ */
+function charterProblem(proj, base, manifestPath, atBase) {
+  const dir = path.dirname(path.resolve(manifestPath));
+  if (fs.existsSync(path.join(dir, 'AGENTS.md'))) return null;
+  const was = atBase ? atBase(relTo(proj.root, manifestPath)) : null;
+  const legacy = !atBase || (was !== null && showAt(proj, base, path.posix.join(path.posix.dirname(was.rel), 'AGENTS.md')) === null);
+  return {
+    id: 'ARC-08', fresh: !legacy,
+    msg: 'the crate has no charter (`AGENTS.md` beside its Cargo.toml)',
+    fix: 'add `AGENTS.md` (purpose, layer, allowed dependencies, public surface, invariants, error types, test strategy, do-not list, decisions log: the template in architecture.md, ARC-08) and a `CLAUDE.md` containing `@AGENTS.md`. Filling in its layer and allowed dependencies is part of the crate-boundary decision (H-16, ARC-07).',
   };
 }
 
@@ -199,6 +256,8 @@ export function runGate(proj, opts = {}) {
   const logs = path.join(proj.stateDir, 'logs');
   fs.mkdirSync(logs, { recursive: true });
   const env = { CARGO_TERM_COLOR: 'never' };
+  // The gate's start, for the progress file's elapsed time: the toolchain probe and fmt count too.
+  const began = Date.now();
 
   // 0. Is the toolchain usable here at all? An unusable toolchain is an
   // environment problem, not a red gate: report it instead of blocking.
@@ -235,8 +294,9 @@ export function runGate(proj, opts = {}) {
 
   // While it runs, the gate keeps a progress file for this fingerprint (gate-progress-<fp>.json)
   // so readers such as `status --json` can show the step it is on; it goes when the gate ends.
-  // It starts here, after formatting, because the fingerprint is known only then.
-  const prog = progress(proj, fp, steps);
+  // It is written from here, after formatting, because the fingerprint is known only then; its
+  // start is the gate's own, so the elapsed time covers the toolchain probe and fmt too.
+  const prog = progress(proj, fp, steps, began);
   try {
     // 3. escape-hatch scan of changed files (cheap; catches code written around the edit hooks)
     if (cfg.gate.scan) {
@@ -248,6 +308,8 @@ export function runGate(proj, opts = {}) {
         name: 'scan', ok, ms: Date.now() - t,
         summary: ok ? `${s.soft.length} advisory, ${s.ask.length} exception request(s)` : s.hard.slice(0, 12).map((h) => formatHit(h, h.file)).join('\n'),
         exceptions: s.ask.map((h) => `${h.file}:${h.line} ${h.exception ?? h.id}`),
+        // Without git or a base every hit looks new, so only the count is given.
+        advisories: proj.gitRoot && opts.base ? mustAdvisories(s.soft) : [],
       });
       if (!ok) return finish(proj, fp, steps, true, cachePath);
     }
@@ -262,7 +324,9 @@ export function runGate(proj, opts = {}) {
     }
 
     // 5. cargo steps, fail fast. With a baseline, clippy and rustdoc ratchet
-    // against it; a gate.steps override in temper.json always wins.
+    // against it; a gate.steps override in temper.json always wins. Choosing the
+    // default steps probes for nextest: that runs between steps, under none of them.
+    prog.between();
     const ratcheting = !cfg.gate.steps && baselineExists(proj.root);
     const rs = { collection: null, baseline: null, changed: undefined };
     for (const step of cfg.gate.steps ?? (ratcheting ? ratchetSteps(cfg) : defaultSteps(cfg))) {
@@ -315,7 +379,7 @@ function ratchetStep(proj, step, rs, { base, prefix, fp }) {
   const all = ratchet(rs.collection, rs.baseline, { proj, changed: rs.changed, base, checkRaised: Boolean(step.final) });
   const raised = all.raised.length
     ? [`BASELINE RAISED since ${(all.base ?? '').slice(0, 12)}: ${all.raised.length} count(s) higher in .claude/temper-baseline.json (accepted debt grew; a human decision, H-12):`,
-      ...all.raised.slice(0, 30).map((x) => `  ${x.crate} ${x.lint}: ${x.from} -> ${x.to}`)]
+      ...all.raised.slice(0, 30).map((x) => `  ${x.target ? `[${x.target}] ` : ''}${x.crate} ${x.lint}: ${x.from} -> ${x.to}`)]
     : [];
   const notes = [rs.first, ...res.notes, res.mode === 'totals' ? 'no base revision: only the totals were compared' : null]
     .filter((n) => n && !rs.notes.has(n));
@@ -337,12 +401,13 @@ const STALE_MARGIN_SEC = 300;
 
 /**
  * The progress file of a gate running for `fp`: { fp, pid, startedAt, steps: [{ name, ok, ms }],
- * current: { name, startedAt } | null }. Each write replaces it whole (writeAtomic), from the
+ * current: { name, startedAt } | null }. `startedAt` is the gate's start (`began`, ms), before its
+ * toolchain probe and fmt. Each write replaces it whole (writeAtomic), from the
  * gate's own `steps` list; any failure to write is ignored, since progress is only a view.
  */
-function progress(proj, fp, steps) {
+function progress(proj, fp, steps, began) {
   const file = gateProgressPath(proj, fp);
-  const startedAt = new Date().toISOString();
+  const startedAt = new Date(began).toISOString();
   let current = null;
   const write = () => {
     try {
@@ -352,6 +417,8 @@ function progress(proj, fp, steps) {
   write();
   return {
     start(name) { current = { name, startedAt: new Date().toISOString() }; write(); },
+    // The last step is done and the next not started: the steps done, with no step current.
+    between() { current = null; write(); },
     // Another gate on the same fingerprint (a second worktree at the same tree, `gate --no-cache`
     // beside Stop) may have written the file since: leave it to that gate.
     done() {
@@ -412,11 +479,13 @@ export function renderGate(res) {
   const fails = res.steps.filter((s) => !s.ok).map((s) => `--- ${s.name} ---\n${s.summary}${s.log ? `\n(full log: ${s.log})` : ''}`).join('\n');
   const passes = res.steps.filter((s) => s.ok && (s.name.includes('test') || s.ratchet)).map((s) => `${s.name}: ${s.summary}`).join('\n');
   const exc = res.steps.flatMap((s) => s.exceptions ?? []);
+  const adv = res.steps.flatMap((s) => s.advisories ?? []);
   const debt = res.steps.filter((s) => s.debt).at(-1)?.debt;
   return [
     `temper gate: ${res.ok ? 'GREEN' : 'RED'} (fingerprint ${res.fp ?? 'n/a'}${res.cached ? ', cached' : ''})`,
     head, fails, passes,
     exc.length ? `lint exceptions in the diff (need human approval, H-05): ${exc.join('; ')}` : '',
+    adv.length ? `advisories this change adds under MUST rules (each is fixed or justified, or the reviewer reports it): ${adv.join('; ')}` : '',
     res.ok && debt ? `ratchet against the baseline: ${debt}` : '',
   ].filter(Boolean).join('\n');
 }

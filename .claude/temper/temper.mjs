@@ -26,9 +26,9 @@ import { discover, baseRev, rustChanges, fingerprint, relTo, crateOf, readText, 
 import { runGate, renderGate, cachedGate, gateProgress, scanChanged } from './lib/gate.mjs';
 import { scanSource, classifyPath, formatHit, isBuildScript } from './lib/scan.mjs';
 import { verdictFor } from './lib/verdict.mjs';
-import { collectFindings, cachedFindings, isComplete } from './lib/findings.mjs';
+import { collectFindings, cachedFindings, isComplete, toolchainOf } from './lib/findings.mjs';
 import {
-  BASELINE_PATH, readBaseline, writeBaseline, baselineFrom, tighten, ratchet, renderRatchet, diffTotals, crateAliases,
+  BASELINE_PATH, readBaseline, writeBaseline, recordTarget, forTarget, missingTarget, tighten, ratchet, renderRatchet, diffTotals, crateAliases,
 } from './lib/baseline.mjs';
 import { earlyNodeCheck } from './lib/requirements.mjs';
 
@@ -255,11 +255,13 @@ function statusJson(sid) {
 }
 
 const BASELINE_USAGE = `usage: temper baseline                 status: totals now vs the baseline, and whether it is tight
-       temper baseline --init          record the current findings (refuses if the file exists)
-       temper baseline --update        rewrite from the current state (may raise counts; a human decision, H-12)
+       temper baseline --init          record the current findings (refuses if the file exists, unless
+                                       this host has no counts in it yet: then it adds this host's)
+       temper baseline --update        rewrite this host's counts from the current state (may raise
+                                       counts; a human decision, H-12); other hosts' are kept
        temper baseline --tighten [--any-host]
-                                       lower counts to the current values (never raises); refuses
-                                       on another host than the baseline's unless --any-host
+                                       lower this host's counts to the current values (never raises);
+                                       refuses on a host with no counts of its own unless --any-host
        temper baseline --check [--base REF] [--findings-out FILE] [--json]
                                        ratchet: exit 0 pass, 1 fail, 2 usage error; without a
                                        baseline every finding fails (zero findings required)
@@ -267,6 +269,7 @@ options: --no-cache (collect afresh instead of reusing the gate's findings for t
          --locked   pass --locked to cargo (CI: fail on a stale Cargo.lock, PROC-13)
 --findings-out writes the collection and the ratchet result; the path must be under target/ or .temper/.
 --init and --update refuse inside Claude Code (CLAUDECODE=1) unless TEMPER_ALLOW_RAISE=1 is set by the human.
+Counts are per host triple (rustc -vV): the first recording's host is \`host\`, another's goes under \`targets\`.
 `;
 
 /** Parse `baseline` arguments; null on a usage error. */
@@ -323,8 +326,10 @@ function baseline(args) {
   try { current = readBaseline(proj.root); } catch (e) { process.stderr.write(`temper baseline: ${e.message}\n`); return 2; }
   const where = BASELINE_PATH;
 
-  if (o.mode === 'init' && current) {
-    process.stderr.write(`temper baseline --init: ${where} already exists. Use --tighten to lower it; --update rewrites it (a human decision).\n`);
+  // --init on a host whose counts the baseline lacks adds them (#141): findings under cfg(...) differ by platform
+  const adding = o.mode === 'init' && current?.host ? missingTarget(current, toolchainOf(proj).host) : null;
+  if (o.mode === 'init' && current && !adding) {
+    process.stderr.write(`temper baseline --init: ${where} already exists${current.host ? ` with counts for this host` : ''}. Use --tighten to lower it; --update rewrites it (a human decision).\n`);
     return 2;
   }
   if (o.mode === 'tighten' && !current) {
@@ -378,12 +383,18 @@ function baseline(args) {
 
   if (o.mode === 'init' || o.mode === 'update') {
     if (collection.errors.length) { process.stderr.write(cannotRecord(o.mode, collection)); return 1; }
-    process.stderr.write(hostWarning(o.mode, current?.host, collection.host));
-    const next = baselineFrom(collection, { created: current?.created });
+    if (o.mode === 'init' && current && !missingTarget(current, collection.host)) {
+      process.stderr.write(`temper baseline --init: ${where} already exists with counts for ${collection.host ?? 'this host'}. Use --tighten to lower them; --update rewrites them (a human decision).\n`);
+      return 2;
+    }
+    const next = recordTarget(current, collection);
     writeBaseline(proj.root, next);
-    const total = Object.values(next.totals).reduce((n, l) => n + Object.values(l).reduce((a, b) => a + b, 0), 0);
-    const lines = [`temper baseline --${o.mode}: wrote ${where}: ${total} finding(s) in ${Object.keys(next.totals).length} crate(s) (toolchain ${next.toolchain ?? 'unknown'}, host ${next.host ?? 'unknown'}).`];
-    if (current) for (const d of diffTotals(current, next)) lines.push(`  ${d.crate} ${d.lint}: ${d.from} -> ${d.to}`);
+    const mine = forTarget(next, collection.host);
+    const total = Object.values(mine.totals).reduce((n, l) => n + Object.values(l).reduce((a, b) => a + b, 0), 0);
+    const section = mine !== next;
+    const lines = [`temper baseline --${o.mode}: wrote ${where}: ${total} finding(s) in ${Object.keys(mine.totals).length} crate(s) (toolchain ${mine.toolchain ?? 'unknown'}, host ${mine.host ?? 'unknown'})${section ? `, as this host's own counts; the counts for ${next.host} are unchanged` : ''}.`];
+    // a new section is shown against the counts this host was compared with until now
+    if (current) for (const d of diffTotals(forTarget(current, collection.host), mine)) lines.push(`  ${d.crate} ${d.lint}: ${d.from} -> ${d.to}`);
     lines.push('Commit it with the change that needs it. The gate and CI now fail only on new findings and count increases.');
     process.stdout.write(`${lines.join('\n')}\n`);
     return 0;
@@ -391,13 +402,14 @@ function baseline(args) {
 
   if (o.mode === 'tighten') {
     if (collection.errors.length) { process.stderr.write(cannotRecord('tighten', collection, 'and a crate that does not compile reports no lints, so nothing was lowered')); return 1; }
-    if (current.host && collection.host && current.host !== collection.host && !o.anyHost) {
-      process.stderr.write(`temper baseline --tighten: refused: the baseline was recorded on ${current.host} and this is ${collection.host}. Code under cfg(target_os/unix/windows) lints differently, so counts lowered here can fail CI on lines nobody touched. Tighten on the platform CI uses, or pass --any-host if this workspace has no platform-specific code.\n`);
+    const missing = missingTarget(current, collection.host);
+    if (missing && !o.anyHost) {
+      process.stderr.write(`temper baseline --tighten: refused: ${where} has counts for ${missing.recorded} and none for ${missing.host}. Code under cfg(target_os/unix/windows) lints differently, so lowering ${missing.recorded}'s counts here can fail CI on lines nobody touched. Tighten on ${missing.recorded}, record this host's own counts with \`temper baseline --init\` (a human decision), or pass --any-host if this workspace has no platform-specific code.\n`);
       return 2;
     }
-    process.stderr.write(hostWarning('tighten', current.host, collection.host));
+    if (missing) process.stderr.write(hostWarning('tighten', current.host, collection.host));
     const next = tighten(current, collection, { proj });
-    const changes = diffTotals(current, next);
+    const changes = diffTotals(forTarget(current, collection.host), forTarget(next, collection.host));
     if (!changes.length) { process.stdout.write(`temper baseline --tighten: ${where} is already tight.\n`); return 0; }
     writeBaseline(proj.root, next);
     process.stdout.write(`temper baseline --tighten: lowered ${changes.length} count(s) in ${where}:\n${changes.map((d) => `  ${d.crate} ${d.lint}: ${d.from} -> ${d.to}`).join('\n')}\n`);
@@ -412,15 +424,18 @@ function baseline(args) {
   }
   const res = ratchet(collection, current, { proj, base: null });
   const alias = crateAliases(current, collection.crates);
+  const mine = forTarget(current, collection.host);
   const per = {};
-  for (const [c, lints] of Object.entries(current.totals)) for (const n of Object.values(lints)) { per[c] ??= { b: 0, n: 0 }; per[c].b += n; }
+  for (const [c, lints] of Object.entries(mine.totals)) for (const n of Object.values(lints)) { per[c] ??= { b: 0, n: 0 }; per[c].b += n; }
   for (const f of collection.findings.filter((x) => !x.exception)) { const c = alias.get(f.crate) ?? f.crate ?? '(none)'; per[c] ??= { b: 0, n: 0 }; per[c].n += 1; }
   const width = Math.max(5, ...Object.keys(per).map((c) => c.length));
   const rows = Object.keys(per).sort().map((c) => `  ${c.padEnd(width)}  ${String(per[c].b).padStart(8)}  ${String(per[c].n).padStart(6)}`);
   let tight = 'tight: yes';
-  if (res.fixed.length) tight = res.ok ? `tight: no; ${res.fixed_count} fixed since the baseline: run temper baseline --tighten` : `tight: no; ${res.fixed_count} fixed since the baseline (tighten once the counts above are fixed)`;
+  if (res.fixed.length && res.missing_target) tight = `tight: n/a; no counts for ${collection.host} (record them with temper baseline --init)`;
+  else if (res.fixed.length) tight = res.ok ? `tight: no; ${res.fixed_count} fixed since the baseline: run temper baseline --tighten` : `tight: no; ${res.fixed_count} fixed since the baseline (tighten once the counts above are fixed)`;
   process.stdout.write([
-    `temper baseline: ${where} (created ${current.created ?? '?'}, updated ${current.updated ?? '?'}, toolchain ${current.toolchain ?? '?'}, host ${current.host ?? '?'})`,
+    `temper baseline: ${where} (created ${mine.created ?? '?'}, updated ${mine.updated ?? '?'}, toolchain ${mine.toolchain ?? '?'}, host ${mine.host ?? '?'})`,
+    ...(Object.keys(current.targets ?? {}).length ? [`  counts for: ${[current.host, ...Object.keys(current.targets)].filter(Boolean).join(', ')}`] : []),
     `  ${'crate'.padEnd(width)}  baseline     now`,
     ...rows,
     `  ${'total'.padEnd(width)}  ${String(res.baseline_total).padStart(8)}  ${String(res.legacy_total).padStart(6)}`,
@@ -557,7 +572,7 @@ function strictLints(root, tpl) {
 
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor((sorted.length * p) / 100))];
 const secs = (ms) => `${(ms / 1000).toFixed(1)} s`;
-const STOP_OUTCOMES = new Set(['stop-green', 'stop-blocked', 'stop-allowed-red', 'stop-allowed-unreviewed', 'gate-unavailable']);
+const { STOP_OUTCOMES } = H;
 
 function stats(args) {
   const json = args.includes('--json');
@@ -597,14 +612,24 @@ function stats(args) {
   if (Object.keys(s.rules).length) out.push(`escape hatches blocked by rule:\n${Object.entries(s.rules).map(([k, v]) => `  ${k.padEnd(8)} ${v}`).join('\n')}`);
   const g = s.gate;
   if (g.runs || g.cached || g.cutShort) {
-    out.push(`gate at Stop: ${g.runs} run(s), ${g.cached} cached${g.runs ? `; p50 ${secs(g.p50Ms)}, p90 ${secs(g.p90Ms)}, max ${secs(g.maxMs)}` : ''}${g.cutShort ? `; ${g.cutShort} cut short (hook timeout?)` : ''}`);
+    const why = Object.entries(g.lost).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ');
+    out.push(`gate at Stop: ${g.runs} run(s), ${g.cached} cached${g.runs ? `; p50 ${secs(g.p50Ms)}, p90 ${secs(g.p90Ms)}, max ${secs(g.maxMs)}` : ''}${g.cutShort ? `; ${g.cutShort} cut short (${why || 'hook timeout?'})` : ''}`);
   }
+  if (Object.keys(g.lostSteps).length) out.push(`gates cut short, by the step they were on:\n${Object.entries(g.lostSteps).map(([k, v]) => `  ${k.padEnd(26)} ${v}`).join('\n')}`);
+  if (Object.keys(g.stepP50Ms).length) out.push(`gate step times at Stop (p50):\n${Object.entries(g.stepP50Ms).map(([k, v]) => `  ${k.padEnd(26)} ${secs(v)}`).join('\n')}`);
   const rv = s.review;
   if (rv.sessions) {
     out.push(`review loop: ${rv.sessions} session(s) with verdicts; rounds per session p50 ${rv.roundsP50}, max ${rv.roundsMax}; approved on the first verdict in ${rv.firstApproved}`);
+    out.push(changesLine(rv.changes));
   }
   process.stdout.write(`${out.join('\n')}\n`);
   return 0;
+}
+
+/** The review-rounds-per-change line of `temper stats`; the lens's Stats tab prints the same. */
+function changesLine(c) {
+  const done = c.approved ? `p50 ${c.roundsP50}, max ${c.roundsMax} (${c.approved} approved, ${c.firstRound} on the first round)` : 'none approved';
+  return `review rounds per change: ${done}; ${c.neverApproved} never approved`;
 }
 
 /**
@@ -634,15 +659,50 @@ function statsOf(rows) {
     }
     killed += pending.size;
   }
+  // Why gates were cut short, from the gate-lost rows the next hook logs (#137), and the step
+  // they were on; and each step's p50 over the fresh runs that record step times.
+  const lostRows = rows.filter((r) => r.event === 'gate-lost');
+  const lost = { timeout: 0, interrupted: 0, unknown: 0 };
+  for (const r of lostRows) { const k = Object.hasOwn(lost, r.reason) ? r.reason : 'unknown'; lost[k] += 1; }
+  const lostSteps = {};
+  // With no step current: no progress file means fmt or before; one with no step done, after fmt;
+  // else between steps (the nextest probe runs after manifests), named by the last step done.
+  const lostAt = (r) => {
+    if (r.step) return r.step;
+    if (r.progress === false) return 'fmt or before';
+    const last = Object.keys(r.steps ?? {}).at(-1);
+    return last ? `after ${last}` : 'after fmt, before any step';
+  };
+  for (const r of lostRows) { const k = lostAt(r); lostSteps[k] = (lostSteps[k] ?? 0) + 1; }
+  const stepMs = {};
+  for (const r of timed) for (const [k, v] of Object.entries(r.steps ?? {})) if (typeof v === 'number') (stepMs[k] ??= []).push(v);
+  const stepP50Ms = Object.fromEntries(Object.entries(stepMs).map(([k, v]) => [k, pct(v.sort((a, b) => a - b), 50)]).sort((a, b) => b[1] - a[1]));
   // Review loop: verdicts per session, and how many sessions were approved on the first verdict.
   // A verdict delivered by SubagentHandback is recorded again at SubagentStop; that second row is
-  // the same review, so it is not another round.
+  // the same review, so it is not another round. A SubagentStop row that carries the reviewer's
+  // agent_id echoes the earliest hand-back row of that agent and tree not yet matched, wherever it
+  // is, so parallel reviewers (hand-back A, hand-back B, stop A, stop B) count once each. Older
+  // rows, without agent_id, fall back to dropping a SubagentStop row that repeats the hand-back
+  // row just before it.
   const handbackEcho = (r, prev) => r.via === 'subagent-stop' && prev?.via === 'handback'
     && prev.agent === r.agent && prev.fp === r.fp && prev.verdict === r.verdict;
+  const once = (v) => {
+    const unmatched = new Map();
+    return v.filter((r, k) => {
+      if (!r.agent_id) return !handbackEcho(r, v[k - 1]);
+      const key = `${r.agent_id}\0${r.fp}`;
+      if (r.via === 'handback') { unmatched.set(key, (unmatched.get(key) ?? 0) + 1); return true; }
+      if (r.via !== 'subagent-stop' || !unmatched.get(key)) return true;
+      unmatched.set(key, unmatched.get(key) - 1);
+      return false;
+    });
+  };
   const rounds = [...bySession.values()]
-    .map((list) => list.filter((r) => r.event === 'verdict').filter((r, k, v) => !handbackEcho(r, v[k - 1])))
+    .map((list) => once(list.filter((r) => r.event === 'verdict')))
     .filter((v) => v.length);
   const n = rounds.map((v) => v.length).sort((a, b) => a - b);
+  const changes = rounds.flatMap(changesOf);
+  const toApproval = changes.filter((c) => c.approved).map((c) => c.rounds).sort((a, b) => a - b);
   const byCount = (o) => Object.fromEntries(Object.entries(o).sort((a, b) => b[1] - a[1]));
   return {
     sessions: bySession.size,
@@ -656,13 +716,45 @@ function statsOf(rows) {
       // The last 30 fresh runs' times, oldest first, for a sparkline. `--branch` reads file after
       // file, so sort by time rather than trust the row order.
       recentMs: [...timed].sort((a, b) => String(a.t).localeCompare(String(b.t))).slice(-30).map((r) => r.ms),
+      lost, lostSteps: byCount(lostSteps), stepP50Ms,
     },
     review: {
       sessions: rounds.length,
       roundsP50: n.length ? pct(n, 50) : null, roundsMax: n.at(-1) ?? null,
       firstApproved: rounds.filter((v) => v[0].verdict === 'approved').length,
+      changes: {
+        count: changes.length, approved: toApproval.length, neverApproved: changes.length - toApproval.length,
+        firstRound: toApproval.filter((k) => k === 1).length,
+        roundsP50: toApproval.length ? pct(toApproval, 50) : null, roundsMax: toApproval.at(-1) ?? null,
+      },
     },
   };
+}
+
+/**
+ * One session's review rounds, split into changes. A change is the run of rounds up to and
+ * including the first approval of a current tree; the next verdict starts another change. A stale
+ * approval (recorded for a tree that changed before it landed) does not close one, and an
+ * approval, stale or not, of the tree just approved, or a verdict kept beside that approval
+ * (`kept: 'approved'`), is that tree reviewed again, not a new change. The rounds left open when
+ * the telemetry ends are a change never approved, which includes a session still under way.
+ */
+function changesOf(verdicts) {
+  const out = [];
+  let open = 0;
+  let approvedFp = null;
+  for (const v of verdicts) {
+    // Any re-approval of the tree just approved, stale or not, or a verdict kept beside that
+    // approval (#136), is the same change.
+    const again = v.verdict === 'approved' || v.kept === 'approved';
+    if (again && typeof v.fp === 'string' && v.fp === approvedFp) continue;
+    const approves = v.verdict === 'approved' && v.stale !== true;
+    open += 1;
+    approvedFp = null;
+    if (approves) { out.push({ rounds: open, approved: true }); open = 0; approvedFp = v.fp ?? null; }
+  }
+  if (open) out.push({ rounds: open, approved: false });
+  return out;
 }
 
 function telemetryCmd(args) {

@@ -391,19 +391,17 @@ export function pidAlive(pid) {
 }
 
 /**
- * Remove gate progress files left behind by a gate that is gone: its process has ended (a hook
- * killed by its timeout), or the file is over a day old (its pid since reused). A gate in another
- * PID namespace sharing this .git (a dev container) reads as gone too.
+ * Remove gate progress files over a day old. A younger one whose process has ended (a hook killed
+ * by its timeout) is kept: the next hook of its session reads it for the gate-lost row and then
+ * removes it, and this runs at any session's startup, maybe first. Readers already treat a file
+ * whose pid is gone as stale.
  */
 function pruneGateProgress(proj) {
   let names;
   try { names = fs.readdirSync(proj.stateDir); } catch { return; }
   for (const n of names.filter((x) => /^gate-progress-[0-9a-f]+\.json$/.test(x))) {
     const p = path.join(proj.stateDir, n);
-    try {
-      const pid = JSON.parse(fs.readFileSync(p, 'utf8')).pid;
-      if (!pidAlive(pid) || fs.statSync(p).mtimeMs < Date.now() - 86400000) fs.rmSync(p, { force: true });
-    } catch { try { fs.rmSync(p, { force: true }); } catch { /* ignore */ } }
+    try { if (fs.statSync(p).mtimeMs < Date.now() - 86400000) fs.rmSync(p, { force: true }); } catch { /* gone */ }
   }
 }
 
@@ -426,12 +424,156 @@ export function telemetry(proj, input, event, detail = {}) {
   } catch { /* best effort */ }
 }
 
+// A name that looks like it holds a secret: of a `--flag`, a header, a query parameter or an
+// assignment. Every run of name characters is bounded, so no pattern rescans a long word from
+// each of its positions (an unbounded `[\w-]*` made a long hyphenated line quadratic).
+const SECRET_WORD = String.raw`(?:token|secret|passw(?:or)?d|passphrase|api[-_]?key|private[-_]?key|access[-_]?key|credential|cookie|auth(?![a-z]))`;
+const SECRET_NAME = String.raw`[\w-]{0,64}${SECRET_WORD}[\w-]{0,64}`;
+// A name that ends in a short secret word after an underscore, or is one: OPENAI_KEY, DB_PASS, MYSQL_PWD.
+const SECRET_SUFFIX = String.raw`(?:\w{0,64}_)?(?:key|pass|passwd|pwd|pw)`;
+const SECRET_VALUE = String.raw`(?:"[^"]*"|'[^']*'|\S+)`;
+const QUOTE = String.raw`\\?["']`;
+const REDACTIONS = [
+  // scheme://user:password@host, up to the last @ before the host (a password may hold an @).
+  [/\b([a-z][\w+.-]{0,31}:\/\/)[^\s/'"]+@/gi, '$1***@'],
+  // Authorization: Bearer x, X-Api-Key: x, Cookie: a=b (also curl's -HAuthorization:), up to the closing quote or the end of the line.
+  [new RegExp(String.raw`(?:\b|(?<=-H))((?:proxy-)?authorization|${SECRET_NAME})(\s*:\s*)[^'"\n]+`, 'gi'), '$1$2***'],
+  // "token": "x" in JSON (or a Python dict), its quotes escaped or not; and "pin": 1234.
+  [new RegExp(String.raw`(${QUOTE}${SECRET_NAME}${QUOTE}\s*:\s*)(${QUOTE})(?:(?!\2)[^\n])*\2`, 'gi'), '$1$2***$2'],
+  [new RegExp(String.raw`(${QUOTE}${SECRET_NAME}${QUOTE}\s*:\s*)(?![\s"'\\])[^\s,}]+`, 'gi'), '$1***'],
+  // ?api_key=x&token=y&X-Amz-Signature=z in a URL
+  [new RegExp(String.raw`([?&](?:[\w.-]{0,64}(?:${SECRET_WORD}|signature)[\w.-]{0,64}|(?:[\w.-]{0,64}[_.-])?(?:key|pass|passwd|pwd|pw)|sig|code|session(?:id)?)=)[^&\s'"#]*`, 'gi'), '$1***'],
+  // --token x, --password=x, --pass x, --key=x
+  [new RegExp(String.raw`(^|\s)(--?(?:${SECRET_NAME}|(?:[\w-]{0,64}[-_])?(?:key|pass|passwd|pwd|pw)))(=|\s+)${SECRET_VALUE}`, 'gi'), '$1$2$3***'],
+  // GH_TOKEN=x, export API_KEY='x', DB_PASS=x (a bare value ends where the shell ends a word); a name
+  // may also start inside a word: curl -d 'password=x', --from-literal=password=x, --set db.rootPassword=x,
+  // -var="api_token=x". PowerShell's $env:GH_TOKEN = "x".
+  [new RegExp(String.raw`(^|[\s;&|("'=.:-])(\w{0,64}${SECRET_WORD}\w{0,64}|${SECRET_SUFFIX})=(?!\*\*\*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)`, 'gi'), '$1$2=***'],
+  [new RegExp(String.raw`(\$env:(?:\w{0,64}${SECRET_WORD}\w{0,64}|${SECRET_SUFFIX}))(\s*=\s*)(?!\*\*\*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)`, 'gi'), '$1$2***'],
+  // curl -u user:password, --user=user:password, -uuser:password
+  [/(\s(?:-u|--user)(?:=|\s*))(?:"[^"\s]*:[^"]*"|'[^'\s]*:[^']*'|[^\s'"]*:\S*)/g, '$1***'],
+  // aws configure set aws_secret_access_key x, npm config set //host/:_authToken x, git config github.token x
+  [new RegExp(String.raw`(\bconfig(?:ure)?(?:\s+-[\w-]{1,32})*\s+(?:set\s+)?[^\s=]{0,128}${SECRET_WORD}[^\s=]{0,128})(=|\s+)${SECRET_VALUE}`, 'gi'), '$1$2***'],
+  // _authToken=x and _password=x, as in .npmrc
+  [/(_auth(?:Token)?|_password)(\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|\S+)/gi, '$1$2***'],
+  // A short -p password: mysql -pX, mysql -p X, sshpass -p X, docker login -p X (not mysql -P, a port)
+  [/(\b(?:mysql\w{0,16}|mariadb\w{0,16}|sshpass|(?:docker|podman|nerdctl|helm\s+registry)\s+login)\b[^;&|\n]{0,256}?\s-p)(\s*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/g, '$1$2***'],
+  // curl -b x (a cookie; -b elsewhere is often a branch), redis-cli -a x, az login -p x
+  [/(\bcurl\b[^;&|\n]{0,256}?\s-b)(\s*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/g, '$1$2***'],
+  [/(\bredis-cli\b[^;&|\n]{0,256}?\s-a)(\s*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/g, '$1$2***'],
+  [/(\baz\s+login\b[^;&|\n]{0,256}?\s-p)(\s*)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/g, '$1$2***'],
+  // cargo login x (everything after it, since a flag's value and the token look alike)
+  [/(\bcargo\s+login)\s+[^;&|\n]*[^\s;&|]/g, '$1 ***'],
+  // openssl -pass pass:x, -passin pass:x
+  [/(\s-pass(?:in|out)?\s+pass:)(?:"[^"]*"|'[^']*'|[^\s;&|]+)/g, '$1***'],
+  // gh secret set NAME -b x, --body=x
+  [/(\bgh\s+secret\s+set\b[^;&|\n]{0,256}?\s(?:-b|--body)(?:=|\s*))(?:"[^"]*"|'[^']*'|[^\s;&|]+)/g, '$1***'],
+  // A private key, from its BEGIN line to its END line or the end of the text.
+  [/-----BEGIN[A-Z ]{0,32}PRIVATE KEY-----.*?(?:-----END[A-Z ]{0,32}PRIVATE KEY-----|$)/g, '***'],
+  // Webhook URLs, whose path is the secret.
+  [/\b(hooks\.slack\.com\/services\/|discord(?:app)?\.com\/api\/webhooks\/)[\w/-]+/gi, '$1***'],
+  // Well-known token shapes, wherever they appear.
+  [/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|glpat-[\w-]{20,}|sk-[\w-]{20,}|[sr]k_(?:live|test)_[A-Za-z0-9]{10,}|npm_[A-Za-z0-9]{20,}|AIza[\w-]{30,}|xox[abprs]-[\w-]{10,}|(?:AKIA|ASIA)[0-9A-Z]{16}|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]+|hf_[A-Za-z0-9]{30,}|pypi-AgEI[\w-]{20,}|glsa_\w{20,}|dop_v1_[a-f0-9]{20,}|SG\.[\w-]{16,}\.[\w-]{16,}|shpat_[a-fA-F0-9]{20,})\b/g, '***'],
+];
+
+// How much of a command is redacted at most. Redaction runs only on this much, so a hook's time
+// does not grow with the command (a timed-out PreToolUse hook lets the command run).
+const REDACT_CAP = 2048;
+
+/**
+ * `line` with the contents of every quoted string replaced by `…`: '…', "…", $'…' and, outside
+ * quotes, \"…\". What a denied write puts in a file is usually quoted (echo 'let api_key = "x";'
+ * >> src/main.rs), and so is many a secret, so no quoted text reaches the telemetry. An
+ * unterminated quote drops the rest of the line; `cut` says so. So does a command substitution
+ * ($( or `) or a parameter expansion (${) inside "…", and a bare quote inside \"…\", since any
+ * of them can hide where the string ends.
+ */
+function dropQuoted(line) {
+  let out = '';
+  let plain = 0;
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i];
+    let open = null;
+    if (c === '\\') {
+      if (line[i + 1] !== '"') { i += 2; continue; }
+      open = '\\"';
+    } else if (c === '$' && line[i + 1] === "'") open = "$'";
+    else if (c === "'" || c === '"') open = c;
+    if (!open) { i += 1; continue; }
+    out += line.slice(plain, i);
+    const from = i + open.length;
+    const close = open === "$'" ? "'" : open;
+    let end;
+    if (open === "'") end = line.indexOf(close, from);
+    else if (open === '\\"') {
+      // \"…\": a bare quote before the closing \" may open a string that holds it, so it cuts.
+      end = from;
+      while (end < line.length && !(line[end] === '\\' && line[end + 1] === '"')) {
+        if (line[end] === '"' || line[end] === "'") { end = line.length; break; }
+        end += line[end] === '\\' ? 2 : 1;
+      }
+      if (end >= line.length) end = -1;
+    } else {
+      // "…" and $'…': a backslash escapes the next character. In "…", $( and ` start a command
+      // substitution and ${ a parameter expansion, whose own quotes would end the scan early, so
+      // they cut.
+      end = from;
+      while (end < line.length && line[end] !== close) {
+        if (open === '"' && (line[end] === '`' || (line[end] === '$' && (line[end + 1] === '(' || line[end + 1] === '{')))) { end = line.length; break; }
+        end += line[end] === '\\' ? 2 : 1;
+      }
+      if (end >= line.length) end = -1;
+    }
+    if (end < 0) return { s: `${out}${open}`, cut: true };
+    out += `${open}${end > from ? '…' : ''}${close}`;
+    i = end + close.length;
+    plain = i;
+  }
+  return { s: out + line.slice(plain), cut: false };
+}
+
+/**
+ * A shell command as a telemetry row keeps it: its first line, up to any heredoc or here-string
+ * (`<<`), whose body is often a file or a token; with the contents of every quoted string
+ * dropped (dropQuoted); likely secrets in the rest replaced by *** (URL userinfo, Authorization,
+ * cookie and other secret-named headers, the values of secret-named flags, query parameters,
+ * config keys and assignments, -u user:password, short -p passwords, private keys, webhook URLs,
+ * well-known token shapes); then clipped to `max` characters (code points). An ellipsis marks a
+ * command cut short. Redaction runs before the clip, so a secret the clip would cut is still
+ * removed; a first line longer than REDACT_CAP is cut back to its last whole word first, so no
+ * partial secret survives that cut.
+ */
+export function redactCommand(cmd, max = 200) {
+  const all = String(cmd ?? '');
+  const eol = all.search(/[\r\n]/);
+  // Quotes are dropped from at most 16 × REDACT_CAP: one the slice cuts open drops the rest.
+  const first = (eol < 0 ? all : all.slice(0, eol)).slice(0, 16 * REDACT_CAP);
+  let { s, cut } = dropQuoted(first);
+  cut ||= first.length < all.length;
+  const here = s.indexOf('<<');
+  if (here >= 0 && here + 2 < s.length) { s = s.slice(0, here + 2); cut = true; }
+  if (s.length > REDACT_CAP) { s = s.slice(0, REDACT_CAP).replace(/\S*$/, ''); cut = true; }
+  for (const [re, to] of REDACTIONS) s = s.replace(re, to);
+  const cps = Array.from(s);
+  if (cps.length > max) { s = cps.slice(0, max).join(''); cut = true; }
+  return cut ? `${s}…` : s;
+}
+
 const parseRows = (text) => String(text ?? '').split('\n')
   .filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
 
 /** The telemetry rows that remain, oldest file first; lines that do not parse are skipped. */
 export function readTelemetry(proj) {
   return [TELEMETRY_OLD, TELEMETRY].flatMap((f) => parseRows(readText(path.join(proj.stateDir, f))));
+}
+
+/** The telemetry rows of session `sid`, oldest first; lines that do not name it are not parsed. */
+export function sessionTelemetry(proj, sid) {
+  if (!sid) return [];
+  const id = JSON.stringify(String(sid));
+  return [TELEMETRY_OLD, TELEMETRY].flatMap((f) => parseRows(String(readText(path.join(proj.stateDir, f)) ?? '')
+    .split('\n').filter((l) => l.includes(id)).join('\n'))).filter((r) => r.sid === sid);
 }
 
 const TELEMETRY_TIP = 'refs/temper/telemetry-tip';
@@ -522,8 +664,14 @@ const EXCLUDE = ['.temper', 'target'];
  * so it is part of the fingerprint, but it is not a Rust change on its own.
  */
 export const BASELINE_FILE = '.claude/temper-baseline.json';
-const FINGERPRINT_PATHSPECS = [...RELEVANT_PATHSPECS, `:(literal)${BASELINE_FILE}`];
-const inFingerprint = (rel) => RUST_RELEVANT.test(rel) || rel === BASELINE_FILE;
+/**
+ * Crate charters (`AGENTS.md`): the gate's manifests step checks that each
+ * member has one (ARC-08), so they count like the baseline: in the
+ * fingerprint, but not a Rust change on their own.
+ */
+const CHARTER = /(^|\/)AGENTS\.md$/;
+const FINGERPRINT_PATHSPECS = [...RELEVANT_PATHSPECS, `:(literal)${BASELINE_FILE}`, ':(glob)**/AGENTS.md'];
+const inFingerprint = (rel) => RUST_RELEVANT.test(rel) || rel === BASELINE_FILE || CHARTER.test(rel);
 
 /**
  * temper's config at the project root (the git top-level in a repository) counts
@@ -583,7 +731,7 @@ export function rustChanges(proj, base) {
   return changedGateConfig(proj, base) === null ? files : [...files, TEMPER_CONFIG_FILE];
 }
 
-function walkRust(root) {
+function walkRust(root, keep = (rel) => RUST_RELEVANT.test(rel)) {
   const out = [];
   const walk = (d) => {
     let es = [];
@@ -592,7 +740,7 @@ function walkRust(root) {
       if (e.name === 'target' || e.name === '.git' || e.name === 'node_modules' || e.name === '.temper') continue;
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (RUST_RELEVANT.test(norm(p))) out.push(p);
+      else if (keep(norm(p))) out.push(p);
     }
   };
   walk(root);
@@ -620,7 +768,7 @@ export function fingerprint(proj, base) {
     }
   } else {
     const baseline = path.join(proj.root, ...BASELINE_FILE.split('/'));
-    const files = walkRust(proj.root).concat(fs.existsSync(baseline) ? [baseline] : []);
+    const files = walkRust(proj.root, (rel) => RUST_RELEVANT.test(rel) || CHARTER.test(rel)).concat(fs.existsSync(baseline) ? [baseline] : []);
     for (const f of files.sort()) {
       h.update(`\n${relTo(proj.root, f)}\n`);
       try { h.update(fs.readFileSync(f)); } catch { /* vanished */ }

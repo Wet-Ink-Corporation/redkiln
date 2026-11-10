@@ -7,6 +7,11 @@
 // change touched: CRF-08), or when a (crate, lint) count exceeds the baseline
 // (non-local effects). Everything else is legacy debt and passes. Without a
 // baseline the ratchet is strict: every finding is new.
+//
+// Findings depend on the host's cfgs, so the counts belong to the host they were
+// recorded on (`host`). Another host's counts live in their own section under
+// `targets`, keyed by host triple; a host with none is compared with `totals`
+// and told how to record its own. `totals` stays where 1.4 reads it.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,9 +32,13 @@ const counted = (collection) => (collection.findings ?? []).filter((f) => !f.exc
 export function parseBaseline(text) {
   let b;
   try { b = JSON.parse(text); } catch (e) { throw new Error(`${BASELINE_PATH} is not valid JSON (${e.message})`); }
-  if (b?.temper_baseline !== 1 || typeof b.totals !== 'object' || b.totals === null) {
+  const table = (t) => typeof t === 'object' && t !== null && !Array.isArray(t);
+  if (b?.temper_baseline !== 1 || !table(b.totals)) {
     throw new Error(`${BASELINE_PATH} is not a temper baseline (expected "temper_baseline": 1 and a "totals" table)`);
   }
+  const sections = b.targets ?? {};
+  const bad = !table(sections) || Object.values(sections).some((t) => !table(t) || !table(t.totals));
+  if (bad) throw new Error(`${BASELINE_PATH} is not a temper baseline ("targets" must map each host to a section with a "totals" table)`);
   const { files: _files, ...rest } = b;
   return { ...rest, crates: b.crates ?? {} };
 }
@@ -52,12 +61,32 @@ function tidyTable(table) {
 }
 
 const HEADER = ['temper_baseline', 'created', 'updated', 'commit', 'toolchain', 'host'];
+const SECTION = ['created', 'updated', 'commit', 'toolchain'];
 
-/** The baseline in its committed shape: header fields in a fixed order, then sorted tables, so diffs stay small. */
+/** The per-host sections, sorted, each with a fixed header order and a tidy table; undefined when there are none. */
+function tidyTargets(targets) {
+  const hosts = Object.keys(targets ?? {}).sort();
+  if (!hosts.length) return undefined;
+  return Object.fromEntries(hosts.map((h) => {
+    const out = {};
+    for (const k of SECTION) if (targets[h][k] !== undefined) out[k] = targets[h][k];
+    out.totals = tidyTable(targets[h].totals);
+    return [h, out];
+  }));
+}
+
+/**
+ * The baseline in its committed shape: header fields in a fixed order, then
+ * sorted tables, so diffs stay small. `targets` sits where 1.4's tidy puts an
+ * unknown key, so a rewrite by either version leaves it in place.
+ */
 function tidy(b) {
   const out = {};
   for (const k of HEADER) if (b[k] !== undefined) out[k] = b[k];
-  for (const k of Object.keys(b).filter((x) => !HEADER.includes(x) && !['crates', 'totals', 'files'].includes(x)).sort()) out[k] = b[k];
+  for (const k of Object.keys(b).filter((x) => !HEADER.includes(x) && !['crates', 'totals', 'files'].includes(x)).sort()) {
+    const v = k === 'targets' ? tidyTargets(b[k]) : b[k];
+    if (v !== undefined) out[k] = v;
+  }
   out.crates = Object.fromEntries(Object.keys(b.crates ?? {}).sort().map((k) => [k, b.crates[k]]));
   out.totals = tidyTable(b.totals);
   return out;
@@ -96,6 +125,48 @@ export function baselineFrom(collection, { created } = {}) {
     crates: Object.fromEntries((collection.crates ?? []).map((c) => [c.name, c.dir])),
     totals: count(found, crateKey),
   });
+}
+
+/**
+ * The baseline as it applies on `host`: a host with its own section in
+ * `targets` gets that section's counts, dates, commit and toolchain; the
+ * recorded host, an unknown host, a host with no section, and every host of a
+ * baseline that records none get `totals`. Returns `baseline` itself then.
+ */
+export function forTarget(baseline, host) {
+  const own = baseline && host && host !== baseline.host ? baseline.targets?.[host] : null;
+  if (!own) return baseline;
+  const pick = (k) => own[k] ?? baseline[k] ?? null;
+  return { ...baseline, created: pick('created'), updated: pick('updated'), commit: pick('commit'), toolchain: pick('toolchain'), host, totals: own.totals ?? {} };
+}
+
+/** `{ host, recorded }` when the baseline records a host and `host` is another with no section of its own, else null. */
+export function missingTarget(baseline, host) {
+  return baseline?.host && host && host !== baseline.host && !baseline.targets?.[host] ? { host, recorded: baseline.host } : null;
+}
+
+/**
+ * The baseline after recording `collection` (`--init` or `--update`). On a host
+ * other than the recorded one, that host's section is added or replaced and
+ * every other count is kept; otherwise `totals` is rewritten (and a baseline
+ * without a host gains this one), keeping the sections.
+ */
+export function recordTarget(current, collection) {
+  const host = collection.host ?? null;
+  if (!current) return baselineFrom(collection);
+  if (!current.host || !host || host === current.host) {
+    const fresh = baselineFrom(collection, { created: current.created });
+    return current.targets ? tidy({ ...fresh, targets: current.targets }) : fresh;
+  }
+  // the crates table is shared: a section keys a renamed crate by its recorded name
+  const alias = crateAliases(current, collection.crates);
+  const found = counted(collection).filter((f) => !ALWAYS_NEW.has(f.lint));
+  const now = new Date().toISOString();
+  const section = {
+    created: current.targets?.[host]?.created ?? now, updated: now, commit: collection.commit ?? null, toolchain: collection.toolchain ?? null,
+    totals: count(found, (f) => alias.get(crateKey(f)) ?? crateKey(f)),
+  };
+  return tidy({ ...current, targets: { ...current.targets, [host]: section } });
 }
 
 const sum = (table) => Object.values(table ?? {}).reduce((n, lints) => n + Object.values(lints).reduce((a, b) => a + b, 0), 0);
@@ -155,15 +226,19 @@ export function tighten(baseline, collection, { proj } = {}) {
   const sources = collection.sources ?? ['clippy', 'rustdoc', 'scan'];
   const alias = crateAliases(baseline, collection.crates, () => renamesSinceBaseline(proj, baseline));
   const now = count(counted(collection), (f) => alias.get(crateKey(f)) ?? crateKey(f));
+  // the counts for this host: its own section, else `totals` (the CLI refuses a host with no section)
+  const view = forTarget(baseline, collection.host);
   const totals = {};
-  for (const [k, lints] of Object.entries(baseline.totals ?? {})) {
+  for (const [k, lints] of Object.entries(view.totals ?? {})) {
     for (const [lint, n] of Object.entries(lints)) {
       const v = Math.min(n, sources.includes(toolOf(lint)) ? (now[k]?.[lint] ?? 0) : n);
       if (v > 0) { totals[k] ??= {}; totals[k][lint] = v; }
     }
   }
-  const changed = JSON.stringify(tidyTable(totals)) !== JSON.stringify(tidyTable(baseline.totals));
-  return tidy({ ...baseline, totals, ...(changed ? { updated: new Date().toISOString() } : {}) });
+  const stamp = JSON.stringify(tidyTable(totals)) !== JSON.stringify(tidyTable(view.totals)) ? { updated: new Date().toISOString() } : {};
+  if (view === baseline) return tidy({ ...baseline, totals, ...stamp });
+  const host = collection.host;
+  return tidy({ ...baseline, targets: { ...baseline.targets, [host]: { ...baseline.targets[host], totals, ...stamp } } });
 }
 
 /** (crate, lint) pairs whose count differs between two baselines: [{ crate, lint, from, to }]. */
@@ -365,12 +440,33 @@ function raisedSince(proj, mb, baseline) {
   } else note = `the baseline is new since ${mb.slice(0, 12)}: recording legacy debt is a human decision (H-12)`;
   // a crate renamed between the two baselines keeps its counts
   const alias = crateAliases(before, Object.entries(baseline.crates ?? {}).map(([name, dir]) => ({ name, dir })));
-  const renamed = { totals: {} };
-  for (const [c, lints] of Object.entries(before.totals ?? {})) {
-    const now = [...alias].find(([, old]) => old === c)?.[0] ?? c;
-    renamed.totals[now] = lints;
+  // Each host's counts against what that host was held to before: its own
+  // section, else the recorded counts. Every host either baseline names counts,
+  // so a new section shows what it adds, and a section that was dropped, or a
+  // recorded host that changed (an older --update), shows what its host now
+  // gets. `null` stands for the hosts neither names, held to `totals`.
+  const named = [before.host, baseline.host, ...Object.keys(before.targets ?? {}), ...Object.keys(baseline.targets ?? {})].filter(Boolean);
+  const others = [...new Set(named)].filter((h) => h !== baseline.host).sort();
+  const hosts = [baseline.host ?? null, ...others, ...(baseline.host ? [null] : [])];
+  const raised = [];
+  const seen = new Set();
+  for (const h of hosts) {
+    const renamed = { totals: {} };
+    for (const [c, lints] of Object.entries(forTarget(before, h).totals ?? {})) {
+      const now = [...alias].find(([, old]) => old === c)?.[0] ?? c;
+      renamed.totals[now] = lints;
+    }
+    const label = h === (baseline.host ?? null) ? {} : { target: h ?? '(hosts with no section)' };
+    for (const d of diffTotals(renamed, forTarget(baseline, h))) {
+      if (d.to <= d.from) continue;
+      // the hosts-with-no-section row repeats a named host's row when the two were held to the same counts
+      const key = `${d.crate}\0${d.lint}\0${d.from}\0${d.to}`;
+      if (h === null && seen.has(key)) continue;
+      seen.add(key);
+      raised.push({ ...label, ...d });
+    }
   }
-  return { raised: diffTotals(renamed, baseline).filter((d) => d.to > d.from), note };
+  return { raised, note };
 }
 
 /**
@@ -399,7 +495,7 @@ export function ratchet(collection, baseline, { proj, base, changed, sources, ch
   if (!baseline) {
     return {
       ok: errors.length === 0 && found.length === 0, mode: 'strict', base: null, new_code: found, increases: [], fixed: [],
-      fixed_count: 0, legacy_total: 0, baseline_total: 0, raised: [], errors,
+      fixed_count: 0, legacy_total: 0, baseline_total: 0, raised: [], missing_target: null, errors,
       notes: ['no baseline: zero findings required'],
     };
   }
@@ -413,10 +509,13 @@ export function ratchet(collection, baseline, { proj, base, changed, sources, ch
     notes.push(`crate \`${old}\` is now \`${now}\` (${same ? 'same directory' : 'moved'}): its baseline counts carry over`);
   }
   const keyOf = (f) => alias.get(crateKey(f)) ?? crateKey(f);
+  // the counts that apply on this host (#141)
+  const view = forTarget(baseline, collection.host);
+  const missing = missingTarget(baseline, collection.host);
   const newCode = found.filter((f) => ALWAYS_NEW.has(f.lint) || (diff && touches(diff, f)));
   const now = count(found.filter((f) => !ALWAYS_NEW.has(f.lint)), keyOf);
   const was = {};
-  for (const [c, lints] of Object.entries(baseline.totals ?? {})) {
+  for (const [c, lints] of Object.entries(view.totals ?? {})) {
     for (const [l, n] of Object.entries(lints)) if (srcs.includes(toolOf(l))) { was[c] ??= {}; was[c][l] = n; }
   }
   const increases = [];
@@ -429,11 +528,11 @@ export function ratchet(collection, baseline, { proj, base, changed, sources, ch
       else if (cur < b) fixed.push({ crate: c, lint: l, baseline: b, current: cur });
     }
   }
-  if (baseline.toolchain && collection.toolchain && baseline.toolchain !== collection.toolchain) {
-    notes.push(`the baseline was recorded on Rust ${baseline.toolchain} and this run used ${collection.toolchain}: lints new in this toolchain count as increases; recording them (temper baseline --update) is a human decision (H-12)`);
+  if (view.toolchain && collection.toolchain && view.toolchain !== collection.toolchain) {
+    notes.push(`the baseline was recorded on Rust ${view.toolchain} and this run used ${collection.toolchain}: lints new in this toolchain count as increases; recording them (temper baseline --update) is a human decision (H-12)`);
   }
-  if (baseline.host && collection.host && baseline.host !== collection.host) {
-    notes.push(`the baseline was recorded on ${baseline.host} and this run is on ${collection.host}: code under cfg(target_os/unix/windows) lints differently; record and tighten the baseline on the CI platform`);
+  if (missing) {
+    notes.push(`the baseline records counts for ${missing.recorded} and none for ${missing.host}: this run is compared with ${missing.recorded}'s counts, and code under cfg(target_os/unix/windows) lints differently`);
   }
   let raised = [];
   if (checkRaised && proj?.gitRoot && diff?.base) {
@@ -452,15 +551,19 @@ export function ratchet(collection, baseline, { proj, base, changed, sources, ch
     legacy_total: found.length - newCode.length,
     baseline_total: sum(was),
     raised,
+    missing_target: missing,
     errors,
     notes,
   };
 }
 
-/** One line of accepted debt. `--tighten` is suggested only when it can help: a passing ratchet with fixes. */
+/**
+ * One line of accepted debt. `--tighten` is suggested only when it can help: a
+ * passing ratchet with fixes, on a host whose counts the baseline records.
+ */
 export function debtLine(res) {
   if (res.mode === 'strict') return `no baseline: zero findings required (${res.new_code.length} found)`;
-  const fixed = res.fixed_count && res.ok ? `; ${res.fixed_count} fixed since the baseline: run temper baseline --tighten` : '';
+  const fixed = res.fixed_count && res.ok && !res.missing_target ? `; ${res.fixed_count} fixed since the baseline: run temper baseline --tighten` : '';
   return `legacy: ${res.legacy_total} finding(s) (baseline ${res.baseline_total})${fixed}`;
 }
 
@@ -489,10 +592,14 @@ export function renderRatchet(res, { max = 30 } = {}) {
     out.push(`${beyond.length} count(s) above the baseline on lines this change did not touch (a change can make unchanged code warn):`);
     for (const x of beyond.slice(0, max)) out.push(`  ${x.crate} ${x.lint}: baseline ${x.baseline}, now ${x.current}`);
     if (beyond.length > max) out.push(`  ... ${beyond.length - max} more`);
+    const m = res.missing_target;
+    if (m) {
+      out.push(`no baseline counts for ${m.host}: these are compared with ${m.recorded}'s. If the rise is code that compiles only here (cfg(windows), cfg(unix), cfg(target_os)), record this platform's counts: run \`temper baseline --init\` on this platform (a human decision, H-12) and commit ${BASELINE_PATH}. It adds a section for ${m.host} and leaves ${m.recorded}'s counts as they are.`);
+    }
   }
   if (res.raised?.length) {
     out.push(`BASELINE RAISED since ${res.base ? res.base.slice(0, 12) : 'the base'}: ${res.raised.length} count(s) higher in ${BASELINE_PATH} (accepted debt grew; a human decision, H-12):`);
-    for (const x of res.raised.slice(0, max)) out.push(`  ${x.crate} ${x.lint}: ${x.from} -> ${x.to}`);
+    for (const x of res.raised.slice(0, max)) out.push(`  ${x.target ? `[${x.target}] ` : ''}${x.crate} ${x.lint}: ${x.from} -> ${x.to}`);
     if (res.raised.length > max) out.push(`  ... ${res.raised.length - max} more`);
   }
   for (const n of res.notes ?? []) if (res.mode !== 'strict') out.push(`note: ${n}`);

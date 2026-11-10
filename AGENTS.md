@@ -6,7 +6,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 
 | Path | Holds | Arrives |
 |---|---|---|
-| `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/` | One workspace, toolchain 1.98.1, temper 1.4.0's lint and supply-chain policy | phase 0 |
+| `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/` | One workspace, toolchain 1.98.1, temper 1.6.0's lint and supply-chain policy | phase 0 |
 | `tools/xtask/` | `cargo xtask <task>`: repository tasks: `layers` and `plugins`, the structural tests below, and `ids`, the knowledge-base id check | phase 0 |
 | `tools/launcher/` | The shared plugin launcher (sh and `.cmd`) and its tests | phase 0 |
 | `tools/labels/`, `.github/labels.yml` | The suite label manifest (Backlog call A, wi-cef669), its check and an idempotent apply script | phase 0 |
@@ -92,7 +92,7 @@ Every import follows the migration plan's eight steps: one merge commit whose se
 
 CI is `.github/workflows/ci.yml` on GitHub-hosted runners: a `changes` job decides which jobs run from the paths a change touches (rust, Windows tests, launcher on three platforms, plugins, TypeScript, labels), and the `ok` job passes only when every job that ran passed. `ok` (source GitHub Actions; the PR list shows it as `ci / ok`) is the one check to require on `main`. The TypeScript job starts running once a `package.json` exists (the suite mod, wi-6e750e), and the plugins job once a plugin manifest does.
 
-Toolchain 1.98.1 (`rust-toolchain.toml`). MSRV 1.98.1 (`rust-version`), equal to the pin as in weigh-in and anneal, raised only as an H-16 decision (MOD-01). Profiles are temper's template (PERF-09). Until Redkiln Rust 2.0 dogfoods, the gate is temper 1.4.0 vendored once at `.claude/temper/` (migration call E).
+Toolchain 1.98.1 (`rust-toolchain.toml`). MSRV 1.98.1 (`rust-version`), equal to the pin as in weigh-in and anneal, raised only as an H-16 decision (MOD-01). Profiles are temper's template (PERF-09). Until Redkiln Rust 2.0 dogfoods, the gate is temper 1.6.0 vendored once at `.claude/temper/` (migration call E).
 
 ## Engineering standard (rust-craft)
 
