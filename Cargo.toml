@@ -45,7 +45,7 @@ happenstance-core = { version = "=0.6.0", features = ["serde"] }
 happenstance-sqlite = { version = "=0.6.0", features = ["sync"] }
 # `.redkiln/suite.toml` (ST-12): parse only, with serde; bounded nesting kept (no `unbounded`).
 # Approved 2026-11-02 (docs/decisions.md).
-toml = { version = "0.9.12", default-features = false, features = ["std", "parse", "serde"] }
+toml = { version = "1.1", default-features = false, features = ["std", "parse", "serde"] }
 
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
 # 1.2.0's requirements; tokio, sha2, clap and time are M1-B.
@@ -55,7 +55,7 @@ weighin-contract = { path = "crates/weigh-in/weighin-contract" }
 # Knowledge's atom contract (Move 1 step 4): weighin-core renders atoms through it.
 knowledge-contract = { path = "crates/knowledge/knowledge-contract" }
 tokio = { version = "1", default-features = false, features = ["rt"] }
-sha2 = "0.10"
+sha2 = "0.11"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
