@@ -6,8 +6,8 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::time::Duration;
 
-use happenstance_sqlite::event_store::SqliteEventStore;
-use happenstance_sqlite::rusqlite::{self, Connection};
+use happenstance_sqlite::event_store::{SCHEMA_VERSION, SqliteEventStore};
+use happenstance_sqlite::rusqlite::{self, Connection, OptionalExtension};
 
 use super::OpenError;
 
@@ -16,7 +16,9 @@ pub(crate) const JOURNAL_MODE: &str = "truncate";
 
 /// The ledger schema this build reads and writes, kept in `PRAGMA user_version`.
 ///
-/// 1. happenstance 0.3.2's event store schema, under a TRUNCATE journal.
+/// 1. happenstance's event store schema, under a TRUNCATE journal. happenstance versions its
+///    own schema in `store_meta`: anneal wrote its schema 1 (happenstance 0.3.2), and this
+///    build migrates such a ledger to schema 2 (happenstance 0.6.0) on open, keeping this stamp.
 pub(crate) const LEDGER_SCHEMA: i64 = 1;
 
 /// How long a connection waits for another process's lock before reporting busy, per
@@ -59,7 +61,36 @@ pub(super) fn open(path: &Path, busy_timeout: Duration) -> Result<SqliteEventSto
         create_schema(&conn)?;
     }
     check_stamp(user_version(&conn)?)?;
-    SqliteEventStore::new(conn).map_err(OpenError::Store)
+    wrap(conn)
+}
+
+/// Hands the connection to happenstance, migrating a ledger an older happenstance wrote (0.3.2's
+/// schema 1) in place, as Core does (ST-08).
+fn wrap(conn: Connection) -> Result<SqliteEventStore, OpenError> {
+    if needs_migration(&conn)? {
+        SqliteEventStore::open_on(conn)
+    } else {
+        SqliteEventStore::new(conn)
+    }
+    .map_err(OpenError::Store)
+}
+
+/// The `store_meta` key of happenstance's own schema version, never `user_version`.
+const HAPPENSTANCE_SCHEMA_KEY: &str = "schema_version";
+
+/// Whether the file holds happenstance's schema at a version older than this build's, which
+/// only `open_on` migrates: one `BEGIN IMMEDIATE` that sets no pragma, so the TRUNCATE journal
+/// and `user_version` stay. Every other file goes to `new`, which only reads, and whose refusals
+/// (no version row, a newer version) stand.
+fn needs_migration(conn: &Connection) -> Result<bool, OpenError> {
+    let found: Option<i64> = conn
+        .query_row(
+            "SELECT CAST(v AS INTEGER) FROM store_meta WHERE k = ?1",
+            [HAPPENSTANCE_SCHEMA_KEY],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(found.is_some_and(|version| (1..i64::from(SCHEMA_VERSION)).contains(&version)))
 }
 
 /// The stamp a ledger must carry once its schema is in place. Another process may have stamped

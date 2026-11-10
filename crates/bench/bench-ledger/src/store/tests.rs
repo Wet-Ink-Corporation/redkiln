@@ -589,3 +589,5 @@ fn a_short_busy_timeout_gives_up_on_a_locked_ledger_quickly() {
     );
     holder.execute_batch("ROLLBACK").expect("releases the lock");
 }
+
+mod migrate;

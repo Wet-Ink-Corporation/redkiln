@@ -22,9 +22,11 @@
 //!
 //! # Schema version
 //!
-//! The ledger's schema version is `PRAGMA user_version` (1: happenstance 0.3.2's schema under
+//! The ledger's schema version is `PRAGMA user_version` (1: happenstance's schema under
 //! TRUNCATE); happenstance keeps its own counter in `store_meta`. A new ledger is stamped in
-//! the transaction that copies its schema.
+//! the transaction that copies its schema. A ledger an older happenstance wrote (anneal's, on
+//! 0.3.2: happenstance schema 1) is migrated in place on open through `open_on`, which keeps the
+//! journal mode and the stamp; one a newer happenstance wrote is refused unchanged.
 //!
 //! # Concurrency
 //!
@@ -214,7 +216,7 @@ impl Condition {
 
     fn to_append_condition(&self) -> Result<AppendCondition, InvalidQuery> {
         let after = self.after.and_then(SequencePosition::new);
-        Ok(AppendCondition::new(self.filter.to_query()?).after_opt(after))
+        Ok(AppendCondition::new(self.filter.to_query()?).after_every_guard_opt(after))
     }
 }
 
