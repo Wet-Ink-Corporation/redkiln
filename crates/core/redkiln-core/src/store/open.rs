@@ -6,11 +6,12 @@ use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use happenstance_sqlite::event_store::{SCHEMA_VERSION, SqliteEventStore};
-use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags, OptionalExtension};
+use happenstance_sqlite::event_store::SqliteEventStore;
+use happenstance_sqlite::rusqlite::{self, Connection, ErrorCode, OpenFlags};
 
 use super::aside::{set_aside, set_journal_aside, sibling};
 use super::header::{self, Found, Header};
+use super::meta::{STORE_ID_KEY, check_happenstance};
 use super::schema::{StampOutOfRange, StoreSchema};
 use super::{OpenError, Step};
 
@@ -23,9 +24,6 @@ pub const STORE_SCHEMA: i64 = 1000;
 /// Core's own key-value table, part of schema 1.0. It holds the store's canonical path (ID-01).
 const CORE_META: &str =
     "CREATE TABLE core_meta (k TEXT PRIMARY KEY, v BLOB NOT NULL) WITHOUT ROWID";
-
-/// The `store_meta` key of happenstance's own schema version (ST-08), never `user_version`.
-const HAPPENSTANCE_SCHEMA_KEY: &str = "schema_version";
 
 /// The `core_meta` key holding the path the store was created or last re-minted at.
 const PATH_KEY: &str = "path";
@@ -85,18 +83,129 @@ pub(super) fn open_store(
     busy: Duration,
     mode: Mode,
 ) -> Result<(SqliteEventStore, StoreSchema), OpenError> {
+    open_with(path, busy, mode, Lock::WhenNeeded)
+}
+
+/// When an open takes the open lock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Lock {
+    /// Only when the open may create, convert, migrate, re-mint or set a file aside: a stamped
+    /// store in a rollback journal at its recorded path, with no `-wal` beside it, opens without
+    /// it, so a busy opener elsewhere never holds it up (R-SQLITE).
+    WhenNeeded,
+    /// On every open, so that an open in progress makes this one busy: the telemetry
+    /// connection's identity check, which never waits and drops its event instead.
+    Always,
+}
+
+/// [`open_store`], taking the open lock as `lock` says.
+///
+/// Every wait in the open shares one deadline, `busy` from now: the open lock, the switch to
+/// TRUNCATE and each statement's busy wait, so the open waits at most `busy` in all (R-SQLITE).
+/// The connection handed to happenstance then keeps `busy` as its busy timeout for later writes.
+pub(super) fn open_with(
+    path: &Path,
+    busy: Duration,
+    mode: Mode,
+    lock: Lock,
+) -> Result<(SqliteEventStore, StoreSchema), OpenError> {
+    let deadline = Deadline::after(busy);
     if mode == Mode::Create
         && let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty())
     {
         std::fs::create_dir_all(dir).map_err(OpenError::CreateDir)?;
     }
     // Refused first, so that no lock file is created beside a file this build will not open.
-    refuse_found(&header::read(path)?, mode)?;
-    let lock = take_lock(path, busy)?;
-    let store = open_locked(path, busy, mode)?;
+    let found = header::read(path)?;
+    refuse_found(&found, mode)?;
+    if lock == Lock::WhenNeeded
+        && settled(&found, path)
+        && let Some(opened) = open_unlocked(path, busy, deadline)?
+    {
+        return Ok(opened);
+    }
+    let lock = take_lock(path, deadline)?;
+    let store = open_locked(path, busy, deadline, mode)?;
     // Closing the lock file releases its lock, and then lets Core spawn again.
     drop(lock);
     Ok(store)
+}
+
+/// One deadline shared by every wait of an open.
+#[derive(Debug, Clone, Copy)]
+struct Deadline {
+    /// When the open's budget runs out; `None` when the budget is past what an `Instant` holds,
+    /// so it never runs out.
+    at: Option<Instant>,
+    /// The whole budget, for a deadline that never runs out.
+    budget: Duration,
+}
+
+impl Deadline {
+    fn after(budget: Duration) -> Self {
+        Self {
+            at: Instant::now().checked_add(budget),
+            budget,
+        }
+    }
+
+    /// What is left of the budget; zero once it has run out.
+    fn remaining(self) -> Duration {
+        self.at.map_or(self.budget, |at| {
+            at.saturating_duration_since(Instant::now())
+        })
+    }
+
+    fn passed(self) -> bool {
+        self.remaining().is_zero()
+    }
+
+    /// Gives `conn`'s next statements what is left of the budget as their busy wait.
+    fn bound(self, conn: &Connection) -> Result<(), OpenError> {
+        conn.busy_timeout(self.remaining())
+            .map_err(at(Step::Configure))
+    }
+}
+
+/// Whether the header and the files beside `path` show a settled store: stamped, in a rollback
+/// journal, with no `-wal` to set aside. Nothing then needs the open lock unless the store turns
+/// out to need a migration or a re-mint ([`open_unlocked`]). A `-wal` that cannot be looked
+/// for counts as there.
+fn settled(found: &Found, path: &Path) -> bool {
+    matches!(found, Found::Sqlite(header) if header.user_version != 0 && !header.wal)
+        && matches!(sibling(path, "-wal").try_exists(), Ok(false))
+}
+
+/// Opens a settled store ([`settled`]) without the open lock, writing nothing: `None` when it
+/// needs what only the lock may do (a migration, a re-mint at another path, a `-wal` that
+/// appeared, contents that are not a store), and the caller takes the lock and opens again.
+/// The refusals come first, so a refused store gets no lock file.
+fn open_unlocked(
+    path: &Path,
+    busy: Duration,
+    deadline: Deadline,
+) -> Result<Option<(SqliteEventStore, StoreSchema)>, OpenError> {
+    let conn = connect(path, deadline)?;
+    // Switched to WAL since the header was read: converting it back is the locked open's work.
+    if journal_mode(&conn)?.eq_ignore_ascii_case("wal") {
+        return Ok(None);
+    }
+    // A settled store is in a rollback journal, so this sets the connection's mode only.
+    use_truncate(&conn, deadline)?;
+    deadline.bound(&conn)?;
+    if inspect(&conn)? != Contents::Store {
+        return Ok(None);
+    }
+    let schema = schema_of(user_version(&conn)?)?;
+    let migrate = check_happenstance(&conn)?;
+    let recorded = recorded_path(&conn)?;
+    if migrate
+        || recorded.as_deref() != Some(canonical_bytes(path)?.as_slice())
+        || !matches!(sibling(path, "-wal").try_exists(), Ok(false))
+    {
+        return Ok(None);
+    }
+    hand_over(conn, busy).map(|store| Some((store, schema)))
 }
 
 /// The refusals the header decides, before anything is created beside the file: a file that is
@@ -114,15 +223,17 @@ fn refuse_found(found: &Found, mode: Mode) -> Result<(), OpenError> {
 }
 
 /// The open lock, held until dropped. [`open`] holds it through [`open_locked`], SQLite's own busy
-/// waits included, so Core spawns nothing for up to a few times `busy`; no Core path spawns while
-/// it holds a SQLite lock, so that wait ends. Its fields drop in order: the file first, which releases
-/// the lock, then the guard that kept Core from spawning while it was held.
+/// waits included: up to what is left of the open's budget, plus happenstance's re-read of the
+/// identity at hand-over, which waits under the full `busy` timeout handed over ([`hand_over`]).
+/// Core spawns nothing for that long; no Core path spawns while it holds a SQLite lock, so that
+/// wait ends. Its fields drop in order: the file first, which releases the lock, then the guard
+/// that kept Core from spawning while it was held.
 struct Locked {
     _file: File,
     _no_forks: std::sync::RwLockWriteGuard<'static, ()>,
 }
 
-/// Takes the open lock, waiting at most `busy` for another opener to finish. A file system
+/// Takes the open lock, waiting until `deadline` at most for another opener to finish. A file system
 /// without whole-file locks opens unlocked, as SQLite alone would: the lock only keeps
 /// concurrent first creations from setting each other's journals aside.
 ///
@@ -130,8 +241,7 @@ struct Locked {
 /// it: no child Core spawns can share the lock file's description, so none holds the lock after
 /// this process lets it go. Between attempts, Core spawns as usual. A caller's own spawns on
 /// other threads are not covered (`FORKS` in `crate::git` says why).
-fn take_lock(path: &Path, busy: Duration) -> Result<Option<Locked>, OpenError> {
-    let deadline = Instant::now().checked_add(busy);
+fn take_lock(path: &Path, deadline: Deadline) -> Result<Option<Locked>, OpenError> {
     loop {
         let no_forks = crate::git::no_forks();
         let file = OpenOptions::new()
@@ -148,7 +258,7 @@ fn take_lock(path: &Path, busy: Duration) -> Result<Option<Locked>, OpenError> {
                     _no_forks: no_forks,
                 }));
             }
-            Err(TryLockError::WouldBlock) if deadline.is_some_and(|d| Instant::now() < d) => {
+            Err(TryLockError::WouldBlock) if !deadline.passed() => {
                 // The file closes first, so no later child can share it.
                 drop(file);
                 drop(no_forks);
@@ -168,6 +278,7 @@ fn take_lock(path: &Path, busy: Duration) -> Result<Option<Locked>, OpenError> {
 fn open_locked(
     path: &Path,
     busy: Duration,
+    deadline: Deadline,
     mode: Mode,
 ) -> Result<(SqliteEventStore, StoreSchema), OpenError> {
     let found = header::read(path)?;
@@ -193,58 +304,50 @@ fn open_locked(
             set_journal_aside(path)?;
         }
     }
-    let conn = connect(path, busy)?;
+    let conn = connect(path, deadline)?;
     // Before any write, so not even the schema's commit deletes a journal. On a file the header
     // let through this writes nothing to it: a rollback journal mode is the connection's, and
     // only a stamped store in WAL (converted here) changes its header.
-    use_truncate(&conn, busy)?;
+    use_truncate(&conn, deadline)?;
+    deadline.bound(&conn)?;
     match (inspect(&conn)?, mode) {
-        (Contents::Empty, Mode::Create) => create_schema(&conn, path)?,
+        (Contents::Empty, Mode::Create) => create_schema(&conn, path, deadline)?,
         (Contents::Empty, Mode::Existing) => return Err(OpenError::NoStore),
         (Contents::Store, _) => {}
         (Contents::Foreign, _) => return Err(OpenError::NotAStore),
     }
+    deadline.bound(&conn)?;
     let schema = schema_of(user_version(&conn)?)?;
+    // Refused before anything is written: a newer happenstance, or no usable identity (#75).
+    let migrate = check_happenstance(&conn)?;
     // TRUNCATE is in force, so no connection is using a WAL now; one left beside the store is
     // stale (its frames were checkpointed when the mode switched) and is never replayed.
     set_aside(path, "-wal")?;
-    keep_identity_at(&conn, path)?;
-    let store = wrap(conn)?;
+    keep_identity_at(&conn, path, deadline)?;
+    if migrate {
+        migrate_happenstance(path, deadline)?;
+    }
+    let store = hand_over(conn, busy)?;
     Ok((store, schema))
 }
 
-/// Hands the connection to happenstance, migrating a store an older happenstance wrote (ST-08).
-fn wrap(conn: Connection) -> Result<SqliteEventStore, OpenError> {
-    if needs_migration(&conn).map_err(at(Step::Inspect))? {
-        SqliteEventStore::open_on(conn)
-    } else {
-        SqliteEventStore::new(conn)
-    }
-    .map_err(OpenError::Store)
+/// Hands the connection to happenstance with `busy` as its busy timeout, which later writes
+/// wait. happenstance re-reads the identity Core has just checked, under that timeout: it keeps
+/// the connection, so Core cannot give those two reads the open's deadline too.
+fn hand_over(conn: Connection, busy: Duration) -> Result<SqliteEventStore, OpenError> {
+    conn.busy_timeout(busy).map_err(at(Step::Configure))?;
+    SqliteEventStore::new(conn).map_err(OpenError::Store)
 }
 
-/// Whether the file holds happenstance's schema at a version older than this build's (ST-08),
-/// which only `open_on` migrates: one write transaction (`BEGIN IMMEDIATE`), keeping the journal
-/// mode and `user_version`. Every other file goes to `new`, which only reads, and whose refusals
-/// (no schema, no version row, a newer version) stand: `open_on` would give a file with no
-/// schema happenstance's tables.
-pub(crate) fn needs_migration(conn: &Connection) -> rusqlite::Result<bool> {
-    let has_meta: bool = conn.query_row(
-        "SELECT count(*) > 0 FROM main.sqlite_master WHERE type = 'table' AND name = 'store_meta'",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_meta {
-        return Ok(false);
-    }
-    let found: Option<i64> = conn
-        .query_row(
-            "SELECT CAST(v AS INTEGER) FROM store_meta WHERE k = ?1",
-            [HAPPENSTANCE_SCHEMA_KEY],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(found.is_some_and(|version| (1..i64::from(SCHEMA_VERSION)).contains(&version)))
+/// Migrates a store an older happenstance wrote (ST-08) through `open_on`, on a connection of
+/// its own under the open's deadline, so that the connection handed over keeps the full busy
+/// timeout. One write transaction (`BEGIN IMMEDIATE`), keeping TRUNCATE and `user_version`.
+fn migrate_happenstance(path: &Path, deadline: Deadline) -> Result<(), OpenError> {
+    let conn = connect(path, deadline)?;
+    use_truncate(&conn, deadline)?;
+    deadline.bound(&conn)?;
+    drop(SqliteEventStore::open_on(conn).map_err(OpenError::Store)?);
+    Ok(())
 }
 
 /// ST-07's refusals, decided from the header alone so that no connection touches the file: a
@@ -308,15 +411,15 @@ pub(super) fn raw_connection(path: &Path) -> Result<Option<Connection>, OpenErro
         | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = Connection::open_with_flags(path, flags).map_err(at(Step::Connect))?;
     configure(&conn, Duration::ZERO)?;
-    use_truncate(&conn, Duration::ZERO)?;
+    use_truncate(&conn, Deadline::after(Duration::ZERO))?;
     Ok(Some(conn))
 }
 
 /// A connection that has written nothing: the busy timeout, durability and foreign keys are
 /// per connection and never touch the file.
-fn connect(path: &Path, busy: Duration) -> Result<Connection, OpenError> {
+fn connect(path: &Path, deadline: Deadline) -> Result<Connection, OpenError> {
     let conn = Connection::open(path).map_err(at(Step::Connect))?;
-    configure(&conn, busy)?;
+    configure(&conn, deadline.remaining())?;
     Ok(conn)
 }
 
@@ -346,13 +449,13 @@ fn inspect(conn: &Connection) -> Result<Contents, OpenError> {
 
 /// Switches the connection to TRUNCATE. A store in WAL converts here; the conversion needs every
 /// other connection gone, and SQLite reports that as busy without calling the busy handler, so
-/// it is retried until `busy` has passed.
-fn use_truncate(conn: &Connection, busy: Duration) -> Result<(), OpenError> {
-    let deadline = Instant::now().checked_add(busy);
+/// it is retried until `deadline`, each try waiting at most what is left of it.
+fn use_truncate(conn: &Connection, deadline: Deadline) -> Result<(), OpenError> {
     let sql = format!("PRAGMA journal_mode = {JOURNAL_MODE}");
     loop {
+        deadline.bound(conn)?;
         let result = conn.query_row(&sql, [], |row| row.get::<_, String>(0));
-        let retry = deadline.is_some_and(|d| Instant::now() < d);
+        let retry = !deadline.passed();
         match result {
             Ok(mode) if mode.eq_ignore_ascii_case(JOURNAL_MODE) => return Ok(()),
             Ok(_) if retry => {}
@@ -366,6 +469,12 @@ fn use_truncate(conn: &Connection, busy: Duration) -> Result<(), OpenError> {
     }
 }
 
+/// The file's journal mode as the connection finds it, changing nothing.
+fn journal_mode(conn: &Connection) -> Result<String, OpenError> {
+    conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .map_err(at(Step::JournalMode))
+}
+
 pub(crate) fn user_version(conn: &Connection) -> Result<i64, OpenError> {
     conn.query_row("PRAGMA user_version", [], |row| row.get(0))
         .map_err(at(Step::ReadStamp))
@@ -373,7 +482,7 @@ pub(crate) fn user_version(conn: &Connection) -> Result<i64, OpenError> {
 
 /// Gives an empty file happenstance's schema, Core's table and the stamp, in one
 /// `BEGIN IMMEDIATE`, without letting happenstance open it: its open switches a file to WAL.
-fn create_schema(conn: &Connection, path: &Path) -> Result<(), OpenError> {
+fn create_schema(conn: &Connection, path: &Path, deadline: Deadline) -> Result<(), OpenError> {
     let canonical = canonical_bytes(path)?;
     let tmp = tempfile::tempdir().map_err(OpenError::TempDir)?;
     let template = tmp.path().join("template.sqlite3");
@@ -383,7 +492,7 @@ fn create_schema(conn: &Connection, path: &Path) -> Result<(), OpenError> {
     };
     conn.execute("ATTACH DATABASE ?1 AS tpl", [name])
         .map_err(at(Step::AttachTemplate))?;
-    let copied = copy_schema(conn, &canonical);
+    let copied = copy_schema(conn, &canonical, deadline);
     let detached = conn.execute_batch("DETACH DATABASE tpl");
     match (copied, detached) {
         (Ok(()), Ok(())) => tmp.close().map_err(OpenError::TempDir),
@@ -396,7 +505,8 @@ fn create_schema(conn: &Connection, path: &Path) -> Result<(), OpenError> {
     }
 }
 
-fn copy_schema(conn: &Connection, canonical: &[u8]) -> Result<(), OpenError> {
+fn copy_schema(conn: &Connection, canonical: &[u8], deadline: Deadline) -> Result<(), OpenError> {
+    deadline.bound(conn)?;
     conn.execute_batch("BEGIN IMMEDIATE")
         .map_err(at(Step::Begin))?;
     let body = (|| {
@@ -452,21 +562,24 @@ fn template_objects(conn: &Connection) -> rusqlite::Result<Vec<(String, String, 
 /// several processes opening a copy at once exactly one re-mints and the rest read its identity.
 /// The re-mint is happenstance's own statement on its documented `store_meta` row
 /// (`remint_identity_on` opens a transaction of its own, so it cannot run inside this one).
-fn keep_identity_at(conn: &Connection, path: &Path) -> Result<(), OpenError> {
+fn keep_identity_at(conn: &Connection, path: &Path, deadline: Deadline) -> Result<(), OpenError> {
     let canonical = canonical_bytes(path)?;
     if recorded_path(conn)?.as_deref() == Some(canonical.as_slice()) {
         return Ok(());
     }
+    deadline.bound(conn)?;
     conn.execute_batch("BEGIN IMMEDIATE")
         .map_err(at(Step::Begin))?;
     let body = (|| {
         if recorded_path(conn)?.as_deref() == Some(canonical.as_slice()) {
             return Ok(());
         }
+        // Again inside the transaction, so a store it would refuse is never re-minted.
+        check_happenstance(conn)?;
         let reminted = conn
             .execute(
-                "UPDATE store_meta SET v = randomblob(16) WHERE k = 'store_id'",
-                [],
+                "UPDATE store_meta SET v = randomblob(16) WHERE k = ?1",
+                [STORE_ID_KEY],
             )
             .map_err(at(Step::Identity))?;
         if reminted != 1 {
@@ -541,7 +654,7 @@ mod tests {
     fn a_held_open_lock_keeps_core_from_spawning_until_it_is_let_go() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("store.db");
-        let locked = take_lock(&path, Duration::ZERO)
+        let locked = take_lock(&path, Deadline::after(Duration::ZERO))
             .expect("locks")
             .expect("whole-file locks");
         assert!(!crate::git::forks_free(), "no spawn while the lock is held");
@@ -560,7 +673,7 @@ mod tests {
             let waiter = std::thread::Builder::new()
                 .name("waiting-opener".into())
                 .spawn_scoped(s, || {
-                    take_lock(&path, Duration::from_secs(30)).map(|l| l.is_some())
+                    take_lock(&path, Deadline::after(Duration::from_secs(30))).map(|l| l.is_some())
                 })
                 .expect("the thread starts");
             // Blocks until LockBusy if the waiter held the guard across its wait.
@@ -710,6 +823,161 @@ mod tests {
         drop(conn);
         let (_, reopened) = open_store(&path, Duration::ZERO, Mode::Existing).expect("opened");
         assert_eq!(reopened.to_string(), "1.3", "the file's own minor");
+    }
+
+    fn busy_timeout_ms(conn: &Connection) -> i64 {
+        conn.query_row("PRAGMA busy_timeout", [], |r| r.get(0))
+            .expect("the busy timeout")
+    }
+
+    #[test]
+    fn a_deadline_gives_each_statement_only_what_is_left_of_the_budget() {
+        let conn = Connection::open_in_memory().expect("memory database");
+        Deadline::after(Duration::from_secs(10))
+            .bound(&conn)
+            .expect("bound");
+        let left = busy_timeout_ms(&conn);
+        assert!((1..=10_000).contains(&left), "{left}");
+        Deadline::after(Duration::ZERO).bound(&conn).expect("bound");
+        assert_eq!(
+            busy_timeout_ms(&conn),
+            0,
+            "a spent budget waits for nothing"
+        );
+    }
+
+    #[test]
+    fn the_connection_handed_over_keeps_the_whole_busy_timeout() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("a").join("events.sqlite3");
+        let budget = Duration::from_secs(3);
+        let created = open(&path, budget, Mode::Create).expect("created");
+        assert_eq!(
+            created.settings().expect("settings").busy_timeout_ms(),
+            3000
+        );
+        drop(created);
+        let copy = dir.path().join("events.sqlite3");
+        std::fs::copy(&path, &copy).expect("copy");
+        let reminted = open(&copy, budget, Mode::Create).expect("re-minted");
+        assert_eq!(
+            reminted.settings().expect("settings").busy_timeout_ms(),
+            3000,
+            "through the locked path too"
+        );
+    }
+
+    #[test]
+    fn a_fresh_connection_finds_a_file_in_wal_without_switching_it() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        let writer = Connection::open(&path).expect("open");
+        writer
+            .execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x);")
+            .expect("a database in WAL");
+        let conn = Connection::open(&path).expect("open");
+        assert_eq!(journal_mode(&conn).expect("read"), "wal");
+        assert_eq!(journal_mode(&writer).expect("read"), "wal", "still in WAL");
+    }
+
+    /// A store created at `dir/a/events.sqlite3` and closed, and a copy of it at
+    /// `dir/events.sqlite3`, which an open must re-mint.
+    fn store_and_copy(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let path = dir.join("a").join("events.sqlite3");
+        drop(open(&path, Duration::ZERO, Mode::Create).expect("created"));
+        let copy = dir.join("events.sqlite3");
+        std::fs::copy(&path, &copy).expect("copy");
+        (path, copy)
+    }
+
+    fn is_busy(err: &OpenError) -> bool {
+        matches!(
+            err,
+            OpenError::Sqlite {
+                source: rusqlite::Error::SqliteFailure(f, _),
+                ..
+            } if matches!(f.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+        )
+    }
+
+    #[test]
+    fn a_spent_deadline_leaves_the_lock_wait_and_the_re_mint_nothing_to_wait() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (_, copy) = store_and_copy(dir.path());
+        // A connection whose statements could wait long, as the open's first statements may.
+        let conn = connect(&copy, Deadline::after(Duration::from_secs(10))).expect("connected");
+        use_truncate(&conn, Deadline::after(Duration::from_secs(10))).expect("truncate");
+        let spent = Deadline::after(Duration::ZERO);
+
+        let other_opener = hold_lock(&copy);
+        let lock = take_lock(&copy, spent).map(|held| held.is_some());
+        assert!(matches!(lock, Err(OpenError::LockBusy)), "{lock:?}");
+        drop(other_opener);
+
+        let writer = Connection::open(&copy).expect("open");
+        writer
+            .execute_batch("PRAGMA journal_mode = truncate; BEGIN IMMEDIATE;")
+            .expect("another process holds the write lock");
+        let err = keep_identity_at(&conn, &copy, spent).expect_err("the write lock is held");
+        assert!(
+            is_busy(&err)
+                && matches!(
+                    err,
+                    OpenError::Sqlite {
+                        step: Step::Begin,
+                        ..
+                    }
+                ),
+            "{err:?}"
+        );
+        assert_eq!(
+            busy_timeout_ms(&conn),
+            0,
+            "the re-mint waits only what is left of the open's budget"
+        );
+        writer.execute_batch("ROLLBACK").expect("let go");
+    }
+
+    #[test]
+    fn a_spent_deadline_leaves_the_switch_to_truncate_nothing_to_wait() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        let other = Connection::open(&path).expect("open");
+        other
+            .execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x);")
+            .expect("a database in WAL, another connection open on it");
+        let conn = connect(&path, Deadline::after(Duration::from_secs(10))).expect("connected");
+        let err = use_truncate(&conn, Deadline::after(Duration::ZERO))
+            .expect_err("another connection keeps the file in WAL");
+        assert!(
+            is_busy(&err) || matches!(&err, OpenError::JournalMode { found } if found == "wal"),
+            "{err:?}"
+        );
+        assert_eq!(busy_timeout_ms(&conn), 0, "no busy wait left to give");
+        drop(other);
+    }
+
+    #[test]
+    fn an_unlocked_open_leaves_a_store_switched_to_wal_to_the_locked_open() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        drop(open(&path, Duration::ZERO, Mode::Create).expect("created"));
+        let other = Connection::open(&path).expect("open");
+        let mode: String = other
+            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
+            .expect("switched");
+        assert_eq!(mode, "wal");
+        drop(other);
+        let in_wal = || matches!(header::read(&path), Ok(Found::Sqlite(h)) if h.wal);
+        assert!(in_wal(), "the header shows WAL");
+        let opened = open_unlocked(
+            &path,
+            Duration::ZERO,
+            Deadline::after(Duration::from_secs(10)),
+        )
+        .expect("no failure");
+        assert!(opened.is_none(), "converting it is the locked open's work");
+        assert!(in_wal(), "the unlocked open wrote nothing");
     }
 
     #[test]

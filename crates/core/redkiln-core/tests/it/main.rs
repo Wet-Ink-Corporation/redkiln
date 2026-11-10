@@ -17,6 +17,8 @@ mod legacy;
 #[cfg(test)]
 mod migrate;
 #[cfg(test)]
+mod open_lock;
+#[cfg(test)]
 mod store;
 #[cfg(test)]
 mod support;

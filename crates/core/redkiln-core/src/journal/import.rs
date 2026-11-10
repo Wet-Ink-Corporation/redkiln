@@ -474,4 +474,80 @@ mod tests {
         assert_eq!((report.imported, report.malformed), (1, 1));
         assert_eq!(report.problems.first().map(|p| p.line), Some(2));
     }
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct Raised {
+        item: String,
+    }
+
+    impl Payload for Raised {
+        const TYPE: &'static str = "weighin.item_raised";
+        const VERSION: u32 = 1;
+        const CLASS: Class = Class::Durable;
+    }
+
+    fn author() -> Author {
+        Author {
+            actor: crate::envelope::Actor::Agent,
+            trust: crate::trust::Trust::asserted(),
+            writer: crate::envelope::Writer::new("weighin", "2.0.0").expect("valid"),
+        }
+    }
+
+    fn ts() -> Timestamp {
+        Timestamp::parse("2026-11-10T10:00:00Z").expect("valid")
+    }
+
+    /// A store at `path`, giving way on `clock` rather than sleeping (TST-10).
+    fn store_on(path: &Path, clock: &std::sync::Arc<crate::store::FakeClock>) -> Store {
+        Store::open(path, crate::store::Wait::Command)
+            .expect("opens")
+            .giving_way_on(std::sync::Arc::clone(clock))
+    }
+
+    /// A journal of `count` lines, exported from a store of its own in `dir`.
+    fn journal_of(dir: &Path, count: usize) -> Vec<u8> {
+        let clock = std::sync::Arc::new(crate::store::FakeClock::default());
+        let source = store_on(&dir.join("source.sqlite3"), &clock);
+        let events: Vec<NewEvent> = (0..count)
+            .map(|n| {
+                let item = format!("wi-{n:06}");
+                Envelope::new(ts(), author(), Raised { item })
+                    .to_event([])
+                    .expect("an event")
+            })
+            .collect();
+        for chunk in events.chunks(150) {
+            source.append(chunk.to_vec(), None).expect("appended");
+        }
+        let limit = std::num::NonZeroUsize::new(count).expect("non-zero");
+        source
+            .read(&crate::store::Filter::all(), 0, limit)
+            .expect("read")
+            .iter()
+            .map(|stored| super::super::encode_line(stored).expect("a line"))
+            .collect::<Vec<_>>()
+            .concat()
+    }
+
+    // A batch stays within happenstance's limit, checked at compile time.
+    const _: () =
+        assert!(BATCH <= happenstance_sqlite::event_store::SqliteEventStore::MAX_EVENTS_PER_BATCH);
+
+    #[test]
+    fn an_import_gives_way_between_its_batches() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let journal = journal_of(dir.path(), 300);
+        let clock = std::sync::Arc::new(crate::store::FakeClock::default());
+        let target = store_on(&dir.path().join("events.sqlite3"), &clock);
+        let recording = Recording {
+            source: ImportSource::Path("journal.jsonl".to_owned()),
+            ts: ts(),
+            author: author(),
+        };
+        let report = import(&target, io::Cursor::new(journal), recording).expect("imported");
+        assert_eq!((report.read, report.imported), (300, 300));
+        // Batches of 128, 128 and 44, then the record: a pause before each write after the first.
+        assert_eq!(clock.slept(), [crate::store::PAUSE; 3]);
+    }
 }

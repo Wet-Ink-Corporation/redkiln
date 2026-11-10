@@ -173,7 +173,15 @@ fn telemetry_handle<'a>(
     if slot.is_some() {
         return Ok(slot.as_ref());
     }
-    match open::open(main, Duration::ZERO, open::Mode::Existing) {
+    // Under the open lock even where a durable open needs none: an open in progress (creating,
+    // converting or re-minting the store) makes this check busy, and the event is dropped.
+    let checked = open::open_with(
+        main,
+        Duration::ZERO,
+        open::Mode::Existing,
+        open::Lock::Always,
+    );
+    match checked.map(|(handle, _schema)| handle) {
         Ok(handle) if handle.store_id() == opened => {}
         Ok(handle) => {
             return Err(StoreError::IdentityChanged {
