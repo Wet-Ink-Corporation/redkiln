@@ -23,7 +23,7 @@ A standalone package with its own `[workspace]`: never a member of the suite's w
 | hooks only | 8, no pause | 0 | 0 |
 | paced | 4, every 100 ms | 2, batch 5 every 50 ms | 2, every 20 ms |
 
-256 is happenstance 0.4.5's `MAX_EVENTS_PER_BATCH`, so an import already writes in chunks.
+256 is happenstance's (0.4.5 and 0.6.0) `MAX_EVENTS_PER_BATCH`, so an import already writes in chunks.
 
 After each scenario it checks, as correctness: every writer reported every operation; positions run 1..N; every append a writer reported is stored exactly once and nothing else is; each claimed subject has one claim, and the store holds exactly the claims reported won; afterwards an empty `-journal`, no `-wal` or `-shm`, a rollback header; a watcher polling every millisecond never saw the `-journal` disappear or a `-wal`/`-shm` appear; `PRAGMA integrity_check` is `ok`. A write refused on a busy lock past its timeout (happenstance's `AppendError::Busy`, `OpenError::LockBusy`, SQLite's busy or locked code while opening) is a load finding, reported as `busy:` with its latency, not a failed run; any other failure, a writer that exits non-zero, or one that prints too few reports fails the run.
 

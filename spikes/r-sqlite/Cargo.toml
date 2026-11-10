@@ -16,8 +16,8 @@ license = "MIT OR Apache-2.0"
 redkiln-core = { path = "../../crates/core/redkiln-core" }
 # Core's own pins: happenstance-core to tell a busy refusal (AppendError::Busy) from any other
 # failure, happenstance-sqlite for the read-only integrity check through its rusqlite re-export.
-happenstance-core = { version = "=0.4.5", default-features = false }
-happenstance-sqlite = { version = "=0.4.5", default-features = false, features = ["sync"] }
+happenstance-core = { version = "=0.6.0", default-features = false }
+happenstance-sqlite = { version = "=0.6.0", default-features = false, features = ["sync"] }
 anyhow = "1.0.98"
 serde = { version = "1.0.219", default-features = false, features = ["std", "derive"] }
 
