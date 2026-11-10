@@ -15,7 +15,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
 import { run, readText, relTo, norm, headRev, globMatch, writeAtomic, findUp } from './project.mjs';
-import { scanSource, classifyPath, isBuildScript } from './scan.mjs';
+import { scanSource, classifyPath, isBuildScript, NEW_CODE_ONLY } from './scan.mjs';
 import { maskRust, matchPair, splitTop } from './lexer.mjs';
 import { parseToml } from './toml.mjs';
 import { inheritsLints } from './manifest.mjs';
@@ -342,6 +342,7 @@ function inMember(rel, krate, { memberDirs, exclude, hasManifest }) {
 
 /**
  * Scanner findings (hard and ask hits) in the .rs files of workspace members.
+ * Rules marked `newCodeOnly` in scan.mjs are left out: no baseline counts them.
  * Ask hits (approved `#[expect]` exceptions) carry `exception`. `only` limits
  * the rules (the forbid-override check alone when the scan source is off).
  * `roots` (crate name -> target root files, from targetRoots) drives the
@@ -376,6 +377,7 @@ export function scanFindings(proj, crates, { cfg = proj.config, map = ruleMap(),
     const kind = classifyPath(crateRel, hasLib);
     for (const h of scanSource(src, { kind, build: isBuildScript(crateRel), forbid: forbidsFor(krate, rel) }).hits) {
       if (h.severity !== 'hard' && h.severity !== 'ask') continue;
+      if (NEW_CODE_ONLY.has(h.key)) continue; // checked at Write/Edit and by the gate's changed-file scan only
       if (only && !only.includes(h.key)) continue;
       if (exempt.some((e) => e.rule === h.id && (e.paths ?? []).some((p) => globMatch(p, rel)))) continue;
       const rules = map.scan[h.key] ?? [h.id];
@@ -390,7 +392,7 @@ export function scanFindings(proj, crates, { cfg = proj.config, map = ruleMap(),
 }
 
 /** The toolchain release and host triple (`rustc -vV`), honouring rust-toolchain.toml. */
-function toolchainOf(proj) {
+export function toolchainOf(proj) {
   const r = run('rustc', ['-vV'], { cwd: proj.root, timeoutMs: 60000 });
   return { toolchain: /^release:\s*(\S+)/m.exec(r.stdout)?.[1] ?? null, host: /^host:\s*(\S+)/m.exec(r.stdout)?.[1] ?? null };
 }

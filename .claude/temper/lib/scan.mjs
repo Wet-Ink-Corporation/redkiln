@@ -18,6 +18,8 @@ const DOC_BAD = /\.\s*(?:unwrap\s*\(\s*\)|unwrap_err\s*\(\s*\)|expect\s*\(\s*"|e
 // Fence tokens rustdoc compiles as Rust; any other token (text, toml, sh, ..) is not Rust.
 const RUST_FENCE_TOKEN = /^(?:rust|no_run|should_panic|test_harness|standalone_crate|edition\d{4}|E\d{4})$/;
 const NOT_COMPILED_TOKEN = /^(?:ignore(?:-.*)?|compile_fail|text)$/;
+// testBranches reports its own severity: the `#[cfg(test)]` it finds is itself a test region.
+const TEST_BRANCH_CTX = { prod: 'hard', bin: 'hard', example: 'hard', test: null };
 
 /** Is a doc-comment fence with this info string compiled as a Rust doctest? */
 export function isRustFence(info) {
@@ -36,6 +38,8 @@ export const isBuildScript = (relToCrate) => relToCrate.replace(/\\/g, '/') === 
  * A rule has either `re` (optionally filtered by `keep(env, match)`) or `find(env)`,
  * which returns `{ offset, msg?, fix?, severity?, exception? }` entries.
  * A `severity` from `find` overrides the context table.
+ * `newCodeOnly` keeps a rule out of the whole-workspace findings (scanFindings),
+ * so it fails only code that is new or changed (decisions.md 3.2).
  */
 export const RULES = [
   {
@@ -270,6 +274,13 @@ export const RULES = [
     lints: [],
   },
   {
+    key: 'spin-lock', id: 'ASY-17', find: spinLocks,
+    ctx: { prod: 'soft', bin: 'soft', example: 'soft', test: null },
+    msg: 'spin loop or atomic swap/compare-exchange in a loop',
+    fix: 'Do not build a lock, once-cell, semaphore or channel from atomics: use `Mutex`, `OnceLock`, `Condvar` or a bounded channel (ASY-17, ASY-16). For a computed atomic update, use `update`/`try_update` or a `fetch_*` method (MOD-07).',
+    lints: [],
+  },
+  {
     key: 'seqcst', id: 'ASY-13', re: /\bSeqCst\b/g,
     // A comment on the same or previous line that names the order is the justification the rule asks for.
     keep: (env, m) => {
@@ -331,6 +342,34 @@ export const RULES = [
     ctx: { prod: 'soft', bin: null, example: null, test: 'soft' },
     msg: 'environment read inside library code',
     fix: 'Read configuration once at the composition root into a validated config type and pass it down (ARC-11).',
+    lints: [],
+  },
+  {
+    key: 'ambient-now', id: 'OUT-04',
+    re: /\b(?:SystemTime|Utc|Local|Timestamp|Zoned)\s*::\s*now\s*\(|\bOffsetDateTime\s*::\s*now_(?:utc|local)\s*\(|\bUuid\s*::\s*new_v[47]\s*\(/g,
+    // The clock or id adapter that implements the injected port is where the ambient read belongs.
+    keep: (env, m) => !inRegions(env.traitImpls, m.index),
+    ctx: { prod: 'soft', bin: null, example: null, test: null },
+    msg: 'wall clock or random id read inside library code',
+    fix: 'Inject time and ids: take a `Clock`/id-source port (or the value) from the caller, so the same input gives the same output (OUT-04). The adapter that implements the port may read them.',
+    lints: [],
+  },
+  {
+    key: 'serde-hashmap', id: 'OUT-04', find: serializedHashMaps,
+    ctx: { prod: 'soft', bin: 'soft', example: null, test: null },
+    msg: '`HashMap`/`HashSet` field in a `Serialize` type',
+    fix: 'Use `BTreeMap`/`BTreeSet` (or a sorted `Vec`) so the output order is stable, or sort on the way out with `serialize_with` (OUT-04).',
+    lints: [],
+  },
+  {
+    // Hard for new code at Write/Edit and in the gate's changed-file scan, which
+    // compare with the code before (newHits). `newCodeOnly`: the whole-workspace
+    // collection (CI's `baseline --check`, `temper report`) skips it, since a
+    // baseline recorded before the rule existed holds no count for it.
+    key: 'test-branch', id: 'TST-09', find: testBranches, newCodeOnly: true,
+    ctx: TEST_BRANCH_CTX,
+    msg: 'test-only branch in production code (`cfg!(test)` or `#[cfg(test)]` inside a function body)',
+    fix: 'The shipped code must be the tested code: take the behaviour that differs as a port trait (or a parameter) and pass a hand-written fake from the test (TST-09, ARC-03).',
     lints: [],
   },
   {
@@ -490,6 +529,9 @@ export const RULES = [
   },
 ];
 
+/** Keys of rules that apply to new or changed code only (`newCodeOnly`). */
+export const NEW_CODE_ONLY = new Set(RULES.filter((r) => r.newCodeOnly).map((r) => r.key));
+
 const PUB_SIG_BAD = [
   [/\bResult\s*<[^;{]*,\s*String\s*>/, 'Result<_, String>'],
   [/\bBox\s*<\s*dyn\s+(?:std\s*::\s*error\s*::\s*|core\s*::\s*error\s*::\s*)?Error\b/, 'Box<dyn Error>'],
@@ -571,6 +613,98 @@ function commentedCode(env) {
     if ((startsLikeCode || endsLikeCode) && !/[.!?…]\s*$/.test(body)) out.push({ offset: c.start });
   }
   return out;
+}
+
+/** The first `{` (body) or `;` (no body) at bracket depth 0 from `from`: the brace offset, or -1. */
+function bodyBrace(code, from) {
+  let depth = 0;
+  for (let k = from; k < code.length; k++) {
+    const ch = code[k];
+    if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth--;
+    else if (ch === '{' && depth <= 0) return k;
+    else if (ch === ';' && depth <= 0) return -1;
+  }
+  return -1;
+}
+
+/** Function bodies as [fn keyword, open brace, close brace]. */
+function fnBodies(code) {
+  const out = [];
+  const re = /\bfn\s+(?:r#)?[A-Za-z_]\w*/g;
+  let m;
+  while ((m = re.exec(code))) {
+    const open = bodyBrace(code, re.lastIndex);
+    if (open !== -1) out.push([m.index, open, matchBrace(code, open)]);
+  }
+  return out;
+}
+
+/**
+ * `cfg!(..test..)` and `#[cfg(..test..)]` inside the body of a production
+ * function (TST-09). A function inside a test region (a `#[cfg(test)]` module
+ * or impl, a `#[test]`) is test code.
+ */
+function testBranches(env) {
+  const sev = TEST_BRANCH_CTX[env.kind];
+  const { code } = env;
+  if (!sev || !/\bcfg\b/.test(code)) return [];
+  const bodies = fnBodies(code).filter(([kw]) => !inRegions(env.regions, kw));
+  if (!bodies.length) return [];
+  const out = [];
+  const re = /\bcfg\s*!\s*\(|#\s*\[\s*cfg\s*\(/g;
+  let m;
+  while ((m = re.exec(code))) {
+    const open = m.index + m[0].length - 1;
+    if (!/\btest\b/.test(code.slice(open + 1, matchPair(code, open, '(', ')')))) continue;
+    if (bodies.some(([, a, b]) => m.index > a && m.index < b)) out.push({ offset: m.index, severity: sev });
+  }
+  return out;
+}
+
+/** `HashMap`/`HashSet` fields of a type that derives `Serialize` (also through `cfg_attr`), unless skipped or serialized `with` a function. */
+function serializedHashMaps(env) {
+  const { code } = env;
+  const out = [];
+  const attr = /#\s*\[[^\]]*\bderive\s*\([^\]]*\bSerialize\b[^\]]*\]/g;
+  let m;
+  while ((m = attr.exec(code))) {
+    const item = /^(?:\s*#\s*\[[^\]]*\])*\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:struct|enum)\s+[A-Za-z_]\w*\s*/.exec(code.slice(attr.lastIndex));
+    if (!item) continue;
+    let k = attr.lastIndex + item[0].length;
+    if (code[k] === '<') k = matchAngle(code, k) + 1;
+    while (k < code.length && code[k] !== '{' && code[k] !== '(' && code[k] !== ';') k++;
+    if (code[k] !== '{' && code[k] !== '(') continue;
+    const close = code[k] === '{' ? matchBrace(code, k) : matchPair(code, k, '(', ')');
+    let at = k + 1;
+    for (const field of splitTop(code.slice(k + 1, close))) {
+      const h = /\bHash(?:Map|Set)\s*</.exec(field);
+      if (h && !/\bskip(?:_serializing)?\b|\b(?:serialize_)?with\s*=/.test(field.slice(0, h.index))) out.push({ offset: at + h.index });
+      at += field.length + 1;
+    }
+  }
+  return out;
+}
+
+/** `spin_loop()`, and an atomic `swap(true, ..)` or `compare_exchange*` inside a loop (condition included): one hit per line. */
+function spinLocks(env) {
+  const { code, idx } = env;
+  const loops = [];
+  const kw = /\b(?:loop|while|for)\b/g;
+  let m;
+  while ((m = kw.exec(code))) {
+    const open = bodyBrace(code, kw.lastIndex);
+    // `impl Trait for T {` and `for<'a>` are not loops: a `for` loop has `in`.
+    if (open === -1 || (m[0] === 'for' && !/\bin\b/.test(code.slice(kw.lastIndex, open)))) continue;
+    loops.push([m.index, matchBrace(code, open)]);
+  }
+  const hits = [];
+  const re = /\bspin_loop\s*\(|\.\s*(?:swap\s*\(\s*true\b|compare_exchange(?:_weak)?\s*\()/g;
+  while ((m = re.exec(code))) {
+    if (m[0].startsWith('spin') || inRegions(loops, m.index)) hits.push(m.index);
+  }
+  const seen = new Set();
+  return hits.filter((o) => { const l = idx.lineOf(o); if (seen.has(l)) return false; seen.add(l); return true; }).map((offset) => ({ offset }));
 }
 
 /** `if let Err(_) = <scrutinee> {}` with an empty body (the body brace is the first `{` at depth 0). */

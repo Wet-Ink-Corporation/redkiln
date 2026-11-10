@@ -594,6 +594,9 @@
     "allow-attr": [
       "H-05"
     ],
+    "ambient-now": [
+      "OUT-04"
+    ],
     "as-cast": [
       "H-11"
     ],
@@ -723,6 +726,9 @@
     "seqcst": [
       "ASY-13"
     ],
+    "serde-hashmap": [
+      "OUT-04"
+    ],
     "shared-mut": [
       "OWN-11"
     ],
@@ -732,8 +738,14 @@
     "sleep": [
       "TST-10"
     ],
+    "spin-lock": [
+      "ASY-17"
+    ],
     "struct-bounds": [
       "API-21"
+    ],
+    "test-branch": [
+      "TST-09"
     ],
     "thread-spawn": [
       "ASY-15"

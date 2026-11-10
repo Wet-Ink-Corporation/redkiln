@@ -57,10 +57,14 @@ export function ownLintsMember(config, projectRoot, manifestPath) {
 
 /**
  * Structural problems with a package manifest inside a workspace:
- * missing lint inheritance (MOD-09/ARC-01) and member profiles (PERF-09).
+ * missing lint inheritance (MOD-09/ARC-01), member profiles (PERF-09) and
+ * mocking crates in the normal dependencies (TST-09).
  * A member listed in `manifests.ownLints` may carry its own full `[lints]` table instead.
+ * `key` tells problems of one rule apart for the ratchet (splitProblems). `newOnly`
+ * marks a check added in 1.x: without a base revision to compare with, the gate
+ * reports it as advisory rather than failing a manifest nobody changed.
  * @param {{ ownLints?: boolean }} [opts]
- * @returns {{ id: string, msg: string, fix: string }[]}
+ * @returns {{ id: string, key: string, msg: string, fix: string, newOnly?: boolean }[]}
  */
 export function memberProblems(manifest, root, opts = {}) {
   const out = [];
@@ -69,7 +73,7 @@ export function memberProblems(manifest, root, opts = {}) {
     const ownTable = manifest.lints !== null && typeof manifest.lints === 'object' && Object.keys(manifest.lints).length > 0;
     if (!(opts.ownLints && ownTable)) {
       out.push({
-        id: 'MOD-09',
+        id: 'MOD-09', key: 'MOD-09',
         msg: opts.ownLints
           ? 'the package is listed in manifests.ownLints but has no `[lints]` table, so clippy would accept unwrap, panic!, as casts and #[allow] in it'
           : 'the package does not inherit the workspace lints, so clippy would accept unwrap, panic!, as casts and #[allow] in it',
@@ -81,18 +85,77 @@ export function memberProblems(manifest, root, opts = {}) {
   }
   if (!root.self && hasProfile(manifest)) {
     out.push({
-      id: 'PERF-09',
+      id: 'PERF-09', key: 'PERF-09',
       msg: 'a `[profile]` table in a member manifest is ignored by Cargo',
       fix: 'move the profile setting to the workspace root manifest, as an H-16 decision recorded in the root AGENTS.md (PERF-09).',
     });
   }
+  if (manifest.package) {
+    for (const name of mockingDependencies(manifest)) {
+      out.push({
+        id: 'TST-09', key: `TST-09:${name}`, newOnly: true,
+        msg: `the mocking crate \`${name}\` is a normal dependency, so it is compiled into production code`,
+        fix: 'declare it under `[dev-dependencies]` and use it only at external seams (HTTP, cloud SDKs); fake your own ports by hand (TST-09). An optional dependency behind a `test-util` feature that `default` does not enable is also fine.',
+      });
+    }
+  }
   return out;
+}
+
+/**
+ * Mocking and HTTP-stub crates (TST-09: hand-written fakes for ports, mocks
+ * only at external seams and only in tests). Not exhaustive: the crates the
+ * standard names, plus the common ones.
+ */
+export const MOCKING_CRATES = ['faux', 'httpmock', 'mockall', 'mockall_double', 'mockito', 'mry', 'unimock', 'wiremock'];
+
+/**
+ * What the default features enable: feature names and optional dependency keys,
+ * following `default` through the features it names (`dep:x`, `x` and `x/f`
+ * enable `x`; a weak `x?/f` does not).
+ */
+function enabledByDefault(m) {
+  const features = m?.features && typeof m.features === 'object' ? m.features : {};
+  const on = new Set();
+  const todo = ['default'];
+  while (todo.length) {
+    const f = todo.pop();
+    if (on.has(f)) continue;
+    on.add(f);
+    for (const item of Array.isArray(features[f]) ? features[f] : []) {
+      const s = String(item);
+      if (/^[^/]+\?\//.test(s)) continue;
+      todo.push(s.replace(/^dep:/, '').replace(/\/.*$/, ''));
+    }
+  }
+  return on;
+}
+
+/**
+ * Mocking crates among the `[dependencies]` (also per target), by crate name
+ * (`package = ".."` wins). An optional one counts only when the default features turn it on.
+ */
+function mockingDependencies(m) {
+  const out = new Set();
+  let defaults = null;
+  const visit = (deps) => {
+    if (!deps || typeof deps !== 'object') return;
+    for (const [key, spec] of Object.entries(deps)) {
+      if (spec?.optional === true && !(defaults ??= enabledByDefault(m)).has(key)) continue;
+      const name = typeof spec?.package === 'string' ? spec.package : key;
+      if (MOCKING_CRATES.includes(name)) out.add(name);
+    }
+  };
+  visit(m?.dependencies);
+  for (const t of Object.values(m?.target ?? {})) visit(t?.dependencies);
+  return [...out].sort();
 }
 
 /** Problems in `after` that `before` did not have, and the ones it already had (the ratchet). */
 export function splitProblems(before, after) {
-  const had = new Set(before.map((p) => p.id));
-  return { fresh: after.filter((p) => !had.has(p.id)), legacy: after.filter((p) => had.has(p.id)) };
+  const keyOf = (p) => p.key ?? p.id;
+  const had = new Set(before.map(keyOf));
+  return { fresh: after.filter((p) => !had.has(keyOf(p))), legacy: after.filter((p) => had.has(keyOf(p))) };
 }
 
 const TARGET_KEYS = ['test', 'doctest', 'harness', 'bench', 'required-features'];

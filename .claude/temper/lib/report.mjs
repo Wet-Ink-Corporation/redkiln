@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { discover, fingerprint, headRev, readText, norm, relTo, resolveRev, safeOutputPath } from './project.mjs';
 import { toolOf, ruleMap, collectFindings, cachedFindings, isComplete } from './findings.mjs';
-import { readBaseline, ratchet, crateAliases, BASELINE_PATH } from './baseline.mjs';
+import { readBaseline, ratchet, crateAliases, forTarget, BASELINE_PATH } from './baseline.mjs';
 import { temperVersion } from './vendor.mjs';
 
 export const DEFAULT_OUT = 'target/temper-report';
@@ -118,7 +118,8 @@ export function buildReport(collection, baseline, ratchetResult, meta = {}) {
   }
   for (const x of res.fixed ?? []) row(nameOf(x.crate)).fixed += x.baseline - x.current;
   if (baseline && !strict) {
-    for (const [c, lints] of Object.entries(baseline.totals ?? {})) {
+    // the counts the ratchet compared: this host's own section, else the recorded ones
+    for (const [c, lints] of Object.entries(forTarget(baseline, collection?.host).totals ?? {})) {
       const r = row(nameOf(c));
       for (const [l, n] of Object.entries(lints)) if (sources.includes(toolOf(l))) r.baseline_total += Number(n) || 0;
     }
@@ -283,7 +284,7 @@ export function renderMarkdown(r) {
   const raised = r.raised.length ? [
     '',
     `> **BASELINE RAISED.** ${mdText(raisedText(r))}`,
-    ...r.raised.slice(0, 5).map((x) => `> - ${mdCode(x.crate)} ${mdCode(x.lint)}: ${fmt(x.from)} → ${fmt(x.to)}`),
+    ...r.raised.slice(0, 5).map((x) => `> - ${x.target ? `${mdCode(x.target)} ` : ''}${mdCode(x.crate)} ${mdCode(x.lint)}: ${fmt(x.from)} → ${fmt(x.to)}`),
     ...(r.raised.length > 5 ? [`> - … ${fmt(r.raised.length - 5)} more in report.html`] : []),
   ] : [];
   const head = [
@@ -541,7 +542,7 @@ export function renderHtml(r) {
     out.push('<section class="raised" aria-labelledby="raised">',
       `<p class="raised-head"><span id="raised" class="pill pill-raised"><span class="glyph" aria-hidden="true">▲</span>Baseline raised</span><span>${rich(raisedText(r))}</span></p>`,
       table('pairs', [['Crate'], ['Lint'], ['Before', 'num'], ['Now', 'num'], ['Change', 'num']],
-        r.raised.slice(0, cap).map((x) => `<tr><td class="nowrap"><code>${esc(x.crate)}</code></td><td><code>${esc(x.lint)}</code></td>${num(x.from)}${num(x.to)}<td class="num">+${esc(fmt(x.to - x.from))}</td></tr>`)),
+        r.raised.slice(0, cap).map((x) => `<tr><td class="nowrap"><code>${esc(x.crate)}</code>${x.target ? ` on <code>${esc(x.target)}</code>` : ''}</td><td><code>${esc(x.lint)}</code></td>${num(x.from)}${num(x.to)}<td class="num">+${esc(fmt(x.to - x.from))}</td></tr>`)),
       r.raised.length > cap ? `<p class="more">${esc(fmt(r.raised.length - cap))} more in report.json</p>` : '', '</section>');
   }
   if (r.ratchet.notes.length) out.push(`<ul class="notes">${r.ratchet.notes.map((n) => `<li>${rich(n)}</li>`).join('')}</ul>`);

@@ -2,16 +2,18 @@
 // Context strings are phrased as facts about the project, not as out-of-band
 // commands, so Claude treats them as project information.
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import {
   discover, relTo, norm, readText, writeAtomic, globMatch, crateOf, sessionDir, agentKey,
   markSkillLoaded, skillLoaded, setBase, baseRev, pruneSessions, pruneMarkers, telemetry, rustChanges,
-  fingerprint, diffStat, run, startFingerprint, pruneFingerprintState,
+  fingerprint, diffStat, run, startFingerprint, pruneFingerprintState, resolveRev, redactCommand, sessionTelemetry, pidAlive,
 } from './project.mjs';
 import { scanSource, newHits, classifyPath, formatHit, isBuildScript } from './scan.mjs';
-import { parseCommands, commandWrites, patchCommand, patchFiles, wordPath, landing, resolvePath as rsResolvePath } from './shell.mjs';
+import { parseCommands, commandWrites, patchCommand, opaquePatch, patchFiles, wordPath, landing, resolvePath as rsResolvePath } from './shell.mjs';
 import { parseToml } from './toml.mjs';
 import {
   workspaceRootFor, memberProblems, watchedKeys, benignWhenNew, depRequirements, nonCaretRequirement, inheritsLints,
@@ -20,7 +22,7 @@ import {
 import { runtimeWarnings } from './requirements.mjs';
 import { runGate, renderGate, cachedGate } from './gate.mjs';
 import { writeTargets, msysPath } from './shell.mjs';
-import { extractVerdict, validateVerdict, recordVerdict, verdictFor, summarizeFindings } from './verdict.mjs';
+import { extractVerdict, verdictProblems, problemKinds, recordVerdict, verdictFor, historyFor, verdictHash, summarizeFindings, earlierReview } from './verdict.mjs';
 import {
   parseCommands as protectedCommands, commandWrites as protectedWrites, patchCommand as protectedPatch, pathspecPattern, resolvePath,
   landing as protectedLanding, patchFiles as protectedPatchFiles, commandDeletes as protectedDeletes,
@@ -92,6 +94,7 @@ export function sessionStart(input) {
   const fresh = ['startup', 'clear', 'fork'].includes(input.source);
   setBase(proj, sid, fresh);
   if (input.source === 'startup') { pruneSessions(proj); pruneMarkers(); pruneFingerprintState(proj, startFingerprint(proj, sid)); }
+  noteSessionTree(proj, input, fresh);
   if (process.env.CLAUDE_ENV_FILE) {
     const baseLine = baseRev(proj, sid) ? `export TEMPER_BASE="${baseRev(proj, sid)}"\n` : '';
     try { fs.appendFileSync(process.env.CLAUDE_ENV_FILE, `export TEMPER_CLI="${norm(cli())}"\n${baseLine}`); } catch { /* ignore */ }
@@ -106,6 +109,7 @@ export function sessionStart(input) {
     state = `${changes.length} Rust file(s) changed; gate ${g ? (g.ok ? 'green' : 'red') : 'not run'}; review ${v ? v.verdict : 'none'} (fingerprint ${fp})`;
   }
   telemetry(proj, input, 'session-start', { source: input.source });
+  logLostGates(proj, input);
   const loaded = skillLoaded(proj, input);
   const text = [
     'This repository is a Rust workspace governed by the temper plugin and the rust-craft engineering standard.',
@@ -189,7 +193,7 @@ export function manifestChecks(file, rel, before, after, proj) {
   for (const p of fresh) out.denies.push(`${p.id} ${rel}: ${p.msg}.\n    fix: ${p.fix}`);
   for (const p of legacy) out.advice.push(`${p.id} ${rel} (already the case before this edit): ${p.msg}.\n    fix: ${p.fix}`);
   if (before === '' && a.package && root && !root.self) {
-    out.asks.push(`${rel}: new crate \`${a.package.name ?? rel}\` in the workspace. Crate boundaries are a human decision (H-16, ARC-07).`);
+    out.asks.push(`${rel}: new crate \`${a.package.name ?? rel}\` in the workspace. Crate boundaries are a human decision (H-16, ARC-07), and the gate fails until the crate has its charter (\`AGENTS.md\`, ARC-08).`);
   }
   if (b) {
     const wa = watchedKeys(a);
@@ -266,6 +270,7 @@ export function preEdit(input) {
   if (after === null) return none(); // the edit will fail on its own
   const isRust = rel.endsWith('.rs');
   const isManifest = /(^|\/)Cargo\.toml$/.test(rel);
+  if (isRust || isManifest) noteTree(proj, input);
 
   const denies = [];
   const asks = [];
@@ -349,6 +354,26 @@ const LOCKFILE_DENY = (rel) => `temper: ${rel} is maintained by Cargo and is nev
 const MANIFEST_SHELL_DENY = 'temper: edit Cargo.toml with the Edit or Write tools, not the shell, so the manifest checks run on it (MOD-09, PERF-09, H-12, H-16). Use the Edit tool for this change.';
 
 /**
+ * A pattern `key` + `rest` tried once per segment (split on `sep`), from the segment's first
+ * `key`. `rest` spans the segment (`[^|;&]*`, or `[^)]*` for `open(`), so a match from a later
+ * `key` is a match from the first, and trying it from each one re-read the rest of the segment
+ * every time: 16K `write_text` took 16 s and 32K `sed ` over 20 s, past the hook timeout (#155).
+ * The lookaheads in `rest` keep each try linear.
+ */
+const fromFirst = (key, rest, { flags = '', sep = /[|;&]/ } = {}) => {
+  const first = new RegExp(key);
+  const re = new RegExp(rest, `${flags}y`);
+  return {
+    test: (text) => text.split(sep).some((seg) => {
+      const m = first.exec(seg);
+      if (!m) return false;
+      re.lastIndex = m.index + m[0].length;
+      return re.test(seg);
+    }),
+  };
+};
+
+/**
  * Shell commands that write a file whose name ends with `target` (a regex source).
  * `copies` also treats the file as the destination of cp/mv/install.
  */
@@ -357,13 +382,13 @@ const shellWrites = (target, { copies = false } = {}) => {
   const res = [
     new RegExp(`(?:&>>?|(?:^|[^>&0-9])>>?\\|?)\\s*["']?[^\\s"'|;&<>]*${t}`),
     new RegExp(`\\btee\\s+(?:-a\\s+)?["']?[^\\s"'|;&]*${t}`),
-    new RegExp(`\\bsed\\b[^|;&]*\\s-[a-zA-Z]*i[^|;&]*${t}`),
-    new RegExp(`\\bsed\\b[^|;&]*--in-place[^|;&]*${t}`),
-    new RegExp(`\\bperl\\b[^|;&]*\\s-[a-zA-Z]*i[^|;&]*${t}`),
-    new RegExp(`\\bopen\\s*\\([^)]*${target}["']\\s*,\\s*["'][wa+]`),
-    new RegExp(`\\b(?:write_text|writeFileSync|Set-Content|Out-File|Add-Content)\\b[^|;&]*${t}`),
+    fromFirst('\\bsed\\b', `(?=[^|;&]*\\s-[a-zA-Z]*i)[^|;&]*${t}`),
+    fromFirst('\\bsed\\b', `(?=[^|;&]*--in-place)[^|;&]*${t}`),
+    fromFirst('\\bperl\\b', `(?=[^|;&]*\\s-[a-zA-Z]*i)[^|;&]*${t}`),
+    fromFirst('\\bopen\\s*\\(', `[^)]*${target}["']\\s*,\\s*["'][wa+]`, { sep: /\)/ }),
+    fromFirst('\\b(?:write_text|writeFileSync|Set-Content|Out-File|Add-Content)\\b', `[^|;&]*${t}`),
   ];
-  if (copies) res.push(new RegExp(`\\b(?:cp|mv|install|Copy-Item|Move-Item)\\b[^|;&]*\\s["']?[^\\s"'|;&<>]*${t}["']?\\s*(?:$|[|;&)])`, 'm'));
+  if (copies) res.push(fromFirst('\\b(?:cp|mv|install|Copy-Item|Move-Item)\\b', `[^|;&]*\\s["']?[^\\s"'|;&<>]*${t}["']?\\s*(?:$|[|;&)])`, { flags: 'm' }));
   return res;
 };
 const SHELL_WRITE_RS = shellWrites('\\.rs');
@@ -420,6 +445,19 @@ function patchTouches(p, c, written, want = (f) => /\.rs$/.test(f)) {
 }
 
 const RS_COPY_SCANNED = Symbol('temper-rs-copies-scanned');
+// The sanctioned way to move Rust between worktrees (#140): a commit brought in with git, which the Stop gate and CI check.
+const PATCH_ROUTE = 'To bring a change over from another worktree, commit it in the worktree it was made in and run `git cherry-pick <commit>` (or `git merge <branch>`) here: the Stop gate and CI check what it brings in.';
+// What the reviewer runs instead of a command temper cannot resolve (#151), by opaquePatch's kind.
+const REVIEWER_OPAQUE_HINT = {
+  git: 'Run one of git\'s own commands with its name written out; the reviewer runs no git alias.',
+  code: 'Run the git or shell command directly, not through an interpreter, so temper can read it.',
+  script: 'Run the commands directly, not as a script piped or redirected into a shell, so temper can read them.',
+  alias: 'The reviewer sets no git alias, because an alias could run `git apply` or `git am` later.',
+};
+// A command name that is not a literal word (#151 review 6, wi-9792d6): the command may be fine, written out.
+const REVIEWER_NAME_DENY = 'temper: the reviewer is read-only, and `git apply`, `git am` and `patch` change files, so a command whose name temper cannot read was not run.';
+const REVIEWER_NAME_HINT = 'Write the command name out, with no variable or `$(...)` in it (`cargo test`, `~/.cargo/bin/cargo test`, not `"$CARGO" test`, `"$HOME/.cargo/bin/cargo" test` or `$(which cargo) test`), so temper can tell that it applies no patch.';
+const REVIEWER_PATCH_DENY ='temper: the reviewer is read-only, and `git apply`, `git am` and `patch` change files, so the command was not run. Do not retry it in any form. Review the change where it is (`git diff`, `git show`; `git apply --check` and `--stat` inspect a patch), and report what should change as a finding.';
 
 /**
  * cp/mv/install/rsync/git mv/Copy-Item/Move-Item onto .rs files, and git apply/am/patch of
@@ -614,8 +652,9 @@ function shellRustWrites(cmd, proj, input) {
     const p = patchCommand(c);
     if (p?.apply) {
       const r = patchTouches(p, c, written);
-      if (!r.read) unknown.push({ t: [c.argv0, ...c.args].map((x) => x.raw).join(' '), why: r.later ? 'later' : 'patch' });
-      else patched.push(...r.touched);
+      // A guessed alias (see patchCommand) counts only with a patch file temper can read.
+      if (r.read) patched.push(...r.touched);
+      else if (!p.guessed) unknown.push({ t: [c.argv0, ...c.args].map((x) => x.raw).join(' '), why: r.later ? 'later' : 'patch' });
     }
     const lnFlag = (letter, long) => c.name === 'ln' && c.args.some((a) => new RegExp(`^-[a-zA-Z]*${letter}`).test(a.raw) || a.raw === long);
     const symbolic = lnFlag('s', '--symbolic');
@@ -632,19 +671,19 @@ function shellRustWrites(cmd, proj, input) {
   }
 
   if (direct.length) {
-    telemetry(proj, input, 'deny-shell-write', { via: 'shell-reader' });
+    telemetry(proj, input, 'deny-shell-write', { via: 'shell-reader', cmd: redactCommand(cmd) });
     return deny(RS_SHELL_DENY);
   }
   const unreadPatch = unknown.find((u) => u.why === 'patch' || u.why === 'later');
   if (unreadPatch) {
-    telemetry(proj, input, 'deny-shell-write', { via: 'patch-unread' });
+    telemetry(proj, input, 'deny-shell-write', { via: 'patch-unread', cmd: redactCommand(cmd) });
     const why = unreadPatch.why === 'later'
       ? 'its patch file does not exist yet, or is rewritten, earlier in this command'
       : 'stdin, a variable or a missing file';
-    return deny(`temper: temper cannot read the patch that \`${unreadPatch.t.slice(0, 120)}\` applies (${why}), so it cannot tell whether it changes Rust sources, and the command was not run (H-12). Save the patch to a file in one command and check it with \`git apply --stat <file>\`; make changes to .rs files with the Edit tool so the standard's checks run on them.`);
+    return deny(`temper: temper cannot read the patch that \`${unreadPatch.t.slice(0, 120)}\` applies (${why}), so it cannot tell whether it changes Rust sources, and the command was not run (H-12). Save the patch to a file in one command and check it with \`git apply --stat <file>\`; make changes to .rs files with the Edit or Write tools so the standard's checks run on them. ${PATCH_ROUTE} Retrying this patch the same way is denied again.`);
   }
   if (unknown.length) {
-    telemetry(proj, input, 'deny-shell-write', { via: 'copy-unread' });
+    telemetry(proj, input, 'deny-shell-write', { via: 'copy-unread', cmd: redactCommand(cmd) });
     const u = unknown[0];
     const why = u.why === 'cwd'
       ? `temper cannot tell which directory \`${u.t.slice(0, 120)}\` is relative to (an earlier \`cd\` it cannot follow)`
@@ -654,12 +693,12 @@ function shellRustWrites(cmd, proj, input) {
     return deny(`temper: write Rust sources with the Edit or Write tools, not the shell, so the standard's checks run on them (H-12). ${why}, so it was not run. Copy from a literal path that exists, or use the Edit tool.`);
   }
   if (patched.length) {
-    telemetry(proj, input, 'deny-shell-write', { via: 'patch', files: patched.length });
+    telemetry(proj, input, 'deny-shell-write', { via: 'patch', files: patched.length, cmd: redactCommand(cmd) });
     const list = patched.slice(0, 5).join(', ') + (patched.length > 5 ? `, and ${patched.length - 5} more` : '');
-    return deny(`temper: this patch changes Rust sources (${list}), and applying it from the shell skips the standard's checks (H-12), so it was not run. Make the change with the Edit tool, so the scanner checks each hunk. \`git apply --check\`, \`git apply --stat\` and \`patch --dry-run\` still run for inspecting it.`);
+    return deny(`temper: this patch changes Rust sources (${list}), and applying it from the shell skips the standard's checks (H-12), so it was not run. Make the change with the Edit or Write tools, so the scanner checks each hunk. ${PATCH_ROUTE} Retrying this patch, from a file, a pipe or with git am, is denied again. \`git apply --check\`, \`git apply --stat\` and \`patch --dry-run\` still run for inspecting it.`);
   }
   if (denies.length) {
-    telemetry(proj, input, 'deny-scan', { via: 'shell-copy', rules: denies.map((d) => d.split(' ')[0]) });
+    telemetry(proj, input, 'deny-scan', { via: 'shell-copy', rules: denies.map((d) => d.split(' ')[0]), cmd: redactCommand(cmd) });
     return deny([
       `temper: this command writes ${denies.length} escape hatch(es) into Rust sources, so it was not run. Rewrite the source without them, or make the change with the Edit or Write tools:`,
       ...denies.slice(0, 10),
@@ -677,7 +716,8 @@ function shellRustWrites(cmd, proj, input) {
 const SHELL_WRITE_LOCK = shellWrites('Cargo\\.lock', { copies: true });
 const SHELL_WRITE_TOML = shellWrites('Cargo\\.toml', { copies: true });
 const SHELL_WRITE_BASELINE = shellWrites('temper-baseline\\.json', { copies: true });
-const SHELL_WRITE_VENDORED = shellWrites('\\.claude/temper/[\\w./-]*', { copies: true });
+// Each scan stops at the next `.claude/temper/`, so a word of many does not backtrack to each one (#155).
+const SHELL_WRITE_VENDORED = shellWrites('\\.claude/temper/(?:(?!\\.claude/temper/)[\\w./-])*', { copies: true });
 const VENDORED_SHELL_DENY = 'temper: .claude/temper/ is the vendored temper CLI that CI and the pre-commit hook run (the lint ratchet and the baseline-raise check live in it). It is written only by `temper setup`, never by hand (H-12). Leave it unchanged, or ask the human to re-vendor it.';
 const STATE_SHELL_DENY = 'temper: temper\'s state dir (.git/temper/, or target/temper/ without git) holds the gate results and review verdicts, and the shell does not write into it: verdicts come only from the temper:rust-reviewer subagent; gate results come only from the gate command (`node "$TEMPER_CLI" gate`). Reading the files, copying them elsewhere and deleting telemetry.jsonl stay allowed.';
 // `$VAR/temper/<entry>` counts as the state dir unless VAR is a home or temp directory.
@@ -732,11 +772,14 @@ export function stateDirWrite(proj, cmd, cwd = proj.root) {
 
 const BASELINE_SHELL_DENY = 'temper: .claude/temper-baseline.json records the accepted lint debt and is written only by `temper baseline` (H-12). After fixing findings, lower it with `node "$TEMPER_CLI" baseline --tighten`. Raising it (`baseline --update`) is a human decision: ask the human.';
 
+const PATH_MAX = 4096;
 /** The project that owns `abs` (a nested git checkout, such as a worktree under .claude/worktrees/, owns its files), as preEdit finds it. */
 function ownerOf(proj, rel, cache) {
-  const parts = rel.split('/');
-  for (let k = parts.length - 1; k > 0; k--) {
-    const dir = path.join(proj.root, ...parts.slice(0, k));
+  // Each ancestor, deepest first. One longer than PATH_MAX cannot exist, so a path of thousands
+  // of parts is not joined once per part (#155: `mv x` onto 2000 `.claude/temper/` took 3 s).
+  for (let end = rel.lastIndexOf('/'); end > 0; end = rel.lastIndexOf('/', end - 1)) {
+    if (end > PATH_MAX) continue;
+    const dir = path.join(proj.root, rel.slice(0, end));
     if (!cache.has(dir)) cache.set(dir, fs.existsSync(path.join(dir, '.git')) ? discover(dir) ?? proj : null);
     const owner = cache.get(dir);
     if (owner) return owner;
@@ -836,7 +879,8 @@ function protectedShellWrites(proj, cmd, cwd) {
     const p = protectedPatch(c);
     if (p?.apply) {
       const r = configPatchTouches(p, c);
-      if (!r.read && unreadPatch === null) unreadPatch = [c.argv0, ...c.args].map((w) => w.raw).join(' ');
+      // A guessed alias (see patchCommand) counts only with a patch file temper can read.
+      if (!r.read && !p.guessed && unreadPatch === null) unreadPatch = [c.argv0, ...c.args].map((w) => w.raw).join(' ');
       const named = [...p.outputs, ...(p.target ? [p.target] : [])].map((w) => w.value);
       const listed = r.read ? r.touched.filter((f) => !named.includes(f)) : [];
       for (const base of p.cwd ? [p.cwd] : [start, proj.root]) {
@@ -887,6 +931,26 @@ function protectedShellWrites(proj, cmd, cwd) {
 const unquotedSegments = (cmd) => String(cmd).split(/&&|\|\||[;|\n]/)
   .map((seg) => seg.replace(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g, (_m, a, b) => a ?? b ?? ''));
 
+// The CLI and its options, then `baseline`. `[^\s=]` stops each start's scan at the next start, and
+// an option is `-\S+` (not `--?\S+`, which reads `--x` two ways and backtracked exponentially).
+const BASELINE_CLI = /(?:^|[\s=])(?:[^\s=]*temper\.mjs|\$\{?\w+\}?|temper)\s+(?:-\S+\s+)*/g;
+const BASELINE_REST = /baseline\b(.*)$/y;
+/**
+ * The first `<cli> [options] baseline <rest>` in `seg`, with `rest` as group 1. A start inside an
+ * option chain (`-a=$0`) reaches the same end as the chain, so the scan resumes at the chain's last
+ * character rather than at each start, which re-read the chain from every one (#155).
+ */
+function baselineCall(seg) {
+  BASELINE_CLI.lastIndex = 0;
+  for (let m; (m = BASELINE_CLI.exec(seg));) {
+    BASELINE_REST.lastIndex = BASELINE_CLI.lastIndex;
+    const call = BASELINE_REST.exec(seg);
+    if (call) return call;
+    BASELINE_CLI.lastIndex = Math.max(m.index + 1, BASELINE_CLI.lastIndex - 1);
+  }
+  return null;
+}
+
 /**
  * `temper baseline --init` / `--update` through the plugin CLI, the vendored copy
  * (`node .claude/temper/temper.mjs`), `$TEMPER_CLI`, or any variable holding the
@@ -895,7 +959,7 @@ const unquotedSegments = (cmd) => String(cmd).split(/&&|\|\||[;|\n]/)
  */
 export function baselineRaise(cmd) {
   for (const seg of unquotedSegments(cmd)) {
-    const call = /(?:^|[\s=])(?:\S*temper\.mjs|\$\{?\w+\}?|temper)\s+(?:--?\S+\s+)*baseline\b(.*)$/.exec(seg);
+    const call = baselineCall(seg);
     if (!call) continue;
     const flag = /(?:^|\s)--?(init|update)(?![\w-])/.exec(call[1]);
     if (flag) return `--${flag[1]}`;
@@ -944,10 +1008,14 @@ const MESSAGE_VALUE = new RegExp(`((?:^|\\s)(?:--(?:message|body|title|notes|des
 // Command substitution runs, except a bare `$(cat <<'EOF' ... EOF)` whose body is already blanked.
 const CAT_HEREDOC = /\$\(\s*cat\s+<<-?(['"]?)([\w.-]+)\1[ \t]*\n\2\s*\)/g;
 const runsCode = (text) => /\$\(|\x60/.test(text.replace(CAT_HEREDOC, ''));
-const SEARCH = new RegExp(`(?:^|[;&|(\\x60\\n])\\s*(?:\\w+=\\S*\\s+|(?:sudo|env|time|xargs)\\s+)*(?:\\S*[\\\\/])?(?:git\\s+grep|[ef]?grep|rg|ag|ack)(?:\\.exe)?(?=\\s|$)(?:${QUOTED}|[^'"|;&\\n])*`, 'g');
+// A word that stops at the characters a search command can start after, so each start's scan
+// ends where the next start begins, and blanks and tabs rather than \s so a run of newlines
+// (each one a start) is not rescanned from every start (#155).
+const WORD = '[^\\s;&|(\\x60]';
+const SEARCH = new RegExp(`(?:^|[;&|(\\x60\\n])[ \\t]*(?:\\w+=${WORD}*[ \\t]+|(?:sudo|env|time|xargs)[ \\t]+)*(?:${WORD}*[\\\\/])?(?:git[ \\t]+grep|[ef]?grep|rg|ag|ack)(?:\\.exe)?(?=\\s|$)(?:${QUOTED}|[^'"|;&\\n])*`, 'g');
 
 /** `cmd` with here-document bodies, message option values and search patterns blanked. */
-function blankProse(cmd) {
+export function blankProse(cmd) {
   return cmd
     // A backslash-newline continues the line.
     .replace(/\\\r?\n/g, ' ')
@@ -1000,8 +1068,27 @@ export function preBash(input) {
   const cmd = String(input.tool_input?.command ?? '');
   const proj = discover(input.cwd);
   if (!proj) return none();
+  // The reviewer reviews the tree as it is: it applies no patch, Rust or not (#140). For it alone,
+  // a command temper cannot resolve that may apply one is denied too (#151); other agents'
+  // dynamic commands are left to the Stop gate and CI, which check the Rust they leave.
+  if (REVIEWER.test(input.agent_type ?? '')) {
+    const opts = { cwd: input.cwd ?? proj.root, top: proj.gitRoot ?? proj.root };
+    const cmds = readerRule(() => parseCommands(cmd, opts), []);
+    if (cmds.some((c) => readerRule(() => patchCommand(c)?.apply, false))) {
+      telemetry(proj, input, 'deny-shell-write', { via: 'reviewer-patch' });
+      return deny(REVIEWER_PATCH_DENY);
+    }
+    // The fail-closed check takes no value from temper's model of variables, which is not bash's (#151 review 7).
+    const unread = readerRule(() => parseCommands(cmd, { ...opts, untracked: true }), []);
+    const opaque = unread.map((c) => readerRule(() => opaquePatch(c), null)).find(Boolean);
+    if (opaque) {
+      telemetry(proj, input, 'deny-shell-write', { via: 'reviewer-patch-opaque' });
+      if (opaque.kind === 'name') return deny(`${REVIEWER_NAME_DENY} This command holds ${opaque.why}. ${REVIEWER_NAME_HINT}`);
+      return deny(`${REVIEWER_PATCH_DENY} This command holds ${opaque.why}, so temper cannot tell that it applies no patch. ${opaque.hint ?? REVIEWER_OPAQUE_HINT[opaque.kind]}`);
+    }
+  }
   if (SHELL_WRITE_RS.some((re) => re.test(cmd))) {
-    telemetry(proj, input, 'deny-shell-write', {});
+    telemetry(proj, input, 'deny-shell-write', { cmd: redactCommand(cmd) });
     return deny(RS_SHELL_DENY);
   }
   // cp/mv/install onto .rs and git apply/patch: scanned like an Edit/Write (engine-1-8).
@@ -1019,19 +1106,19 @@ export function preBash(input) {
     return rsWrite;
   }
   if (SHELL_WRITE_LOCK.some((re) => re.test(cmd))) {
-    telemetry(proj, input, 'deny-lockfile', { via: 'shell' });
+    telemetry(proj, input, 'deny-lockfile', { via: 'shell', cmd: redactCommand(cmd) });
     return deny(LOCKFILE_DENY('Cargo.lock'));
   }
   if (SHELL_WRITE_TOML.some((re) => re.test(cmd))) {
-    telemetry(proj, input, 'deny-shell-write', { file: 'Cargo.toml' });
+    telemetry(proj, input, 'deny-shell-write', { file: 'Cargo.toml', cmd: redactCommand(cmd) });
     return deny(MANIFEST_SHELL_DENY);
   }
   if (SHELL_WRITE_BASELINE.some((re) => re.test(cmd))) {
-    telemetry(proj, input, 'deny-shell-write', { file: 'temper-baseline.json' });
+    telemetry(proj, input, 'deny-shell-write', { file: 'temper-baseline.json', cmd: redactCommand(cmd) });
     return deny(BASELINE_SHELL_DENY);
   }
   if (readerRule(() => stateDirWrite(proj, cmd, input.cwd ?? proj.root), false)) {
-    telemetry(proj, input, 'deny-shell-write', { file: 'state-dir' });
+    telemetry(proj, input, 'deny-shell-write', { file: 'state-dir', cmd: redactCommand(cmd) });
     return deny(STATE_SHELL_DENY);
   }
   if (/TEMPER_ALLOW_RAISE/.test(cmd)) {
@@ -1039,12 +1126,12 @@ export function preBash(input) {
     return ask(`temper: this command sets TEMPER_ALLOW_RAISE, which lets \`temper baseline --init\`/\`--update\` record every current finding as accepted legacy debt, so the gate and CI stop failing on it. Raising the baseline weakens verification (H-12): approve only if you asked for it.`);
   }
   if (SHELL_WRITE_VENDORED.some((re) => re.test(cmd))) {
-    telemetry(proj, input, 'deny-shell-write', { file: '.claude/temper/' });
+    telemetry(proj, input, 'deny-shell-write', { file: '.claude/temper/', cmd: redactCommand(cmd) });
     return deny(VENDORED_SHELL_DENY);
   }
   const raise = baselineRaise(cmd);
   if (raise) {
-    telemetry(proj, input, 'deny-baseline-raise', { via: `baseline ${raise}` });
+    telemetry(proj, input, 'deny-baseline-raise', { via: `baseline ${raise}`, cmd: redactCommand(cmd) });
     return deny(`temper: \`temper baseline ${raise}\` records every current finding as accepted legacy debt (H-12), so it is the human's decision, and the CLI refuses it inside Claude Code. To request it, run the same command prefixed with \`TEMPER_ALLOW_RAISE=1\`: the human will be asked to approve it. (\`baseline --tighten\` and \`--check\` never raise it and run freely.)`);
   }
   const restore = claudeRestore(cmd);
@@ -1053,7 +1140,7 @@ export function preBash(input) {
     return ask(`temper: \`${restore.slice(0, 160)}\` puts older verification configuration back into .claude/ (the lint baseline, settings or the vendored CLI). An older baseline can accept more debt (H-12): approve only if you asked for it.`);
   }
   if (segments(cmd).some((seg) => isCargo(seg) && /(?:^|\s)--ignore-rust-version(?![\w-])/.test(seg))) {
-    telemetry(proj, input, 'deny-ignore-rust-version', {});
+    telemetry(proj, input, 'deny-ignore-rust-version', { cmd: redactCommand(cmd) });
     return deny('temper: --ignore-rust-version bypasses the MSRV check, so green would not mean the declared rust-version builds (MOD-01, H-12). If a dependency needs a newer Rust, raising rust-version is a human decision (H-16): say so and ask.');
   }
   const text = blankProse(cmd);
@@ -1112,8 +1199,8 @@ export function preHandback(input) {
   const v = extractVerdict(String(input.tool_input?.message ?? ''));
   const problems = checkVerdict(proj, input, v);
   if (problems.length) {
-    telemetry(proj, input, 'verdict-invalid', { via: 'handback', problems: problems.length });
-    return deny(`temper: the review verdict is invalid, so the report was not delivered:\n- ${problems.join('\n- ')}\nFix the verdict block and hand back again.`);
+    telemetry(proj, input, 'verdict-invalid', { via: 'handback', problems: problems.length, kinds: problemKinds(problems), agent_id: input.agent_id });
+    return deny(`temper: the review verdict is invalid, so the report was not delivered:\n- ${problems.map((x) => x.message).join('\n- ')}\nFix the verdict block and hand back again.`);
   }
   storeVerdict(proj, input, v, 'handback');
   return none();
@@ -1140,18 +1227,21 @@ export function reportFromTranscript(file) {
   return null;
 }
 
+/** The verdict's problems ({ kind, message }) against this session's changes and gate. */
 function checkVerdict(proj, input, v) {
-  const base = baseRev(proj, input.session_id);
+  const { proj: tree, base } = reviewedTree(proj, input, v?.fingerprint);
   const gate = v?.fingerprint ? cachedGate(proj, v.fingerprint) : null;
-  return validateVerdict(v, { changedRust: rustChanges(proj, base).filter((f) => f.endsWith('.rs')), gate });
+  return verdictProblems(v, { changedRust: rustChanges(tree, base).filter((f) => f.endsWith('.rs')), gate });
 }
 
 function storeVerdict(proj, input, v, via) {
-  const base = baseRev(proj, input.session_id);
-  const current = fingerprint(proj, base);
-  recordVerdict(proj, v, { agent_id: input.agent_id, stale: v.fingerprint !== current });
+  const { proj: tree, base } = reviewedTree(proj, input, v.fingerprint);
+  const current = fingerprint(tree, base);
+  const rec = recordVerdict(proj, v, { agent_id: input.agent_id, stale: v.fingerprint !== current });
   writeAtomic(path.join(sessionDir(proj, input.session_id), `verdict-${agentKey(input)}`), v.fingerprint);
-  telemetry(proj, input, 'verdict', { via, verdict: v.verdict, fp: v.fingerprint, stale: v.fingerprint !== current, findings: (v.findings ?? []).length });
+  // One-shot: this agent's SubagentStop uses it to skip the same report read back from the transcript.
+  if (via === 'handback') writeAtomic(path.join(sessionDir(proj, input.session_id), `verdict-${agentKey(input)}.hash`), verdictHash(v));
+  telemetry(proj, input, 'verdict', { via, agent_id: input.agent_id, verdict: v.verdict, fp: v.fingerprint, stale: v.fingerprint !== current, findings: (v.findings ?? []).length, ...(rec.kept ? { kept: rec.kept } : {}) });
 }
 
 // ----------------------------------------------------------------- PostToolUse
@@ -1176,68 +1266,449 @@ function parseStatus(msg) {
   return all.length ? all.at(-1)[1].toUpperCase() : null;
 }
 
+/**
+ * The Stop blocks of this agent context. `blocks` maps each fingerprint blocked since the turn's
+ * first Stop to the kind of block, so a turn that changed several trees lets each one through
+ * once it is stuck, rather than alternating between them. A record from before #135 holds one
+ * `fp` and `kind`.
+ */
 function lastBlock(proj, input) {
   const p = path.join(sessionDir(proj, input.session_id), `stop-${agentKey(input)}.json`);
   const t = readText(p);
   let prev = null;
   try { prev = t ? JSON.parse(t) : null; } catch { /* ignore */ }
-  return { prev, save: (rec) => writeAtomic(p, JSON.stringify(rec)) };
+  const blocks = !input.stop_hook_active || !prev ? {} : prev.blocks ?? (prev.fp ? { [prev.fp]: prev.kind } : {});
+  return {
+    stuck: (fp, kind) => Boolean(input.stop_hook_active) && blocks[fp] === kind,
+    save: (fp, kind) => writeAtomic(p, JSON.stringify({ blocks: { ...blocks, [fp]: kind }, at: Date.now() })),
+  };
 }
+
+/** The `timeout` hooks/hooks.json gives the hook for `event`, in milliseconds; null if unreadable. */
+export function hookTimeoutMs(event, root = pluginRoot()) {
+  try {
+    const sec = JSON.parse(readText(path.join(root, 'hooks', 'hooks.json')) ?? '').hooks[event][0].hooks[0].timeout;
+    return Number.isFinite(sec) ? sec * 1000 : null;
+  } catch { return null; }
+}
+
+/** A fresh gate's step times in milliseconds, { steps: { fmt: 812, clippy: 64020, ... } }; {} when cached. */
+export const stepTimes = (res) => (res.cached || !Array.isArray(res.steps) ? {} : { steps: Object.fromEntries(res.steps.map((s) => [s.name, s.ms])) });
+
+/** The events that end a gate run at Stop or SubagentStop (temper stats reads the same list). */
+export const STOP_OUTCOMES = new Set(['stop-green', 'stop-blocked', 'stop-allowed-red', 'stop-allowed-unreviewed', 'stop-advisory-unreviewed', 'gate-unavailable']);
+
+/**
+ * The gate-start rows of session `rows` with no outcome after them: the hook running that gate
+ * was killed. A row and its outcome pair up by agent and pid (older rows carry no pid).
+ */
+export function openGateStarts(rows) {
+  const open = new Map();
+  for (const r of rows) {
+    const key = `${r.agent ?? 'main'}\0${r.pid ?? ''}`;
+    if (r.event === 'gate-start') open.set(key, r);
+    else if (STOP_OUTCOMES.has(r.event) || r.event === 'gate-lost') open.delete(key);
+  }
+  return [...open.values()];
+}
+
+// While a gate runs at Stop, a worker thread writes the time to gate-alive-<agent>.json in the
+// session dir every BEAT_MS: cargo runs synchronously on the main thread, so only another thread
+// can. When the hook is killed, the file holds its last sign of life, to within BEAT_MS (#137).
+const BEAT_MS = 10000;
+const BEAT = `const { workerData: w } = require('node:worker_threads');
+const fs = require('node:fs');
+const beat = () => { try { fs.writeFileSync(w.file, JSON.stringify({ pid: w.pid, at: Date.now() })); } catch { /* best effort */ } };
+beat();
+setInterval(beat, w.every);`;
+let beating = null;
+export const heartbeatPath = (proj, input) => path.join(sessionDir(proj, input.session_id), `gate-alive-${agentKey(input)}.json`);
+
+/**
+ * Start the heartbeat of this hook's gate run (one per process), and return its worker. A worker
+ * error is ignored: unheard, it would end the hook with exit 1 after the hook had decided.
+ */
+export function startHeartbeat(proj, input, every = BEAT_MS) {
+  try {
+    stopHeartbeat();
+    const file = heartbeatPath(proj, input);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    beating = new Worker(BEAT, { eval: true, workerData: { file, pid: process.pid, every } });
+    beating.on('error', () => { /* the heartbeat is best effort */ });
+    beating.unref();
+  } catch { beating = null; }
+  return beating;
+}
+
+/** Stop the heartbeat, when the gate run it watches has returned. */
+export function stopHeartbeat() {
+  try { beating?.terminate().catch(() => { /* gone already */ }); } catch { /* best effort */ }
+  beating = null;
+}
+
+/**
+ * Why a gate run with no outcome ended (#137), from its gate-start row, its progress file and
+ * heartbeat (each null when absent), and the time it was found. `ranMs` is the hook's last sign
+ * of life after the start: its heartbeat, else the last step the progress file records. Within
+ * 30 s of the hook's deadline it was the timeout (the slack covers the heartbeat's interval and
+ * the work before gate-start); short of it with a heartbeat, an interruption (or a crash). With
+ * no heartbeat, it was an interruption only if it was found before the deadline; else unknown.
+ * A gate that a Stop ran after other trees (#135) has the deadline less its `afterMs`, and its
+ * row's `timeoutMs` is what it had left.
+ */
+export function lostGateRow(start, prog, beat, now = Date.now()) {
+  const t0 = Date.parse(start.t);
+  const alive = beat?.pid === start.pid && Number.isFinite(beat.at) ? beat.at : 0;
+  const seen = Math.max(t0, Date.parse(prog?.current?.startedAt ?? '') || 0, prog?.mtimeMs ?? 0, alive);
+  const ranMs = seen - t0;
+  const deadline = Number.isFinite(start.timeoutMs) ? start.timeoutMs - (Number.isFinite(start.afterMs) ? start.afterMs : 0) : start.timeoutMs;
+  const reason = !Number.isFinite(deadline) ? 'unknown'
+    : ranMs >= deadline - 3 * BEAT_MS ? 'timeout'
+      : alive || now - t0 < deadline ? 'interrupted' : 'unknown';
+  const done = Array.isArray(prog?.steps) ? prog.steps : [];
+  return {
+    pid: start.pid, reason, ranMs, foundMs: now - t0, timeoutMs: deadline ?? null, heartbeat: Boolean(alive),
+    progress: Boolean(prog), step: prog?.current?.name ?? null, steps: Object.fromEntries(done.map((s) => [s.name, s.ms])),
+  };
+}
+
+/**
+ * Log a gate-lost row for each gate run of this session whose hook was killed (#137), with the
+ * step it was on from the progress file it left behind (none: it died formatting; no step: after
+ * formatting, before the first step). A gate whose pid still runs is not lost, and rows from
+ * before gate-start carried a pid are left alone. Two hooks of the session can find the same lost
+ * gate at once (a Stop and a SubagentStop), so each claims it first with a marker file that only
+ * one can create; the claimant then removes the gate's progress file, which has served.
+ */
+function logLostGates(proj, input) {
+  try {
+    const lost = openGateStarts(sessionTelemetry(proj, input.session_id)).filter((r) => Number.isInteger(r.pid) && r.pid !== process.pid && !pidAlive(r.pid));
+    if (!lost.length) return;
+    const progress = gateProgressFiles(proj);
+    const dir = sessionDir(proj, input.session_id);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const r of lost) {
+      try { fs.closeSync(fs.openSync(path.join(dir, `gate-lost-${r.pid}-${Date.parse(r.t) || 0}`), 'wx')); } catch { continue; /* claimed by another hook */ }
+      const who = { ...input, agent_type: r.agent === 'main' ? undefined : r.agent, agent_id: r.agent_id };
+      let beat = null;
+      try { beat = JSON.parse(readText(heartbeatPath(proj, who)) ?? 'null'); } catch { /* none */ }
+      const prog = progress.get(r.pid) ?? null;
+      telemetry(proj, who, 'gate-lost', lostGateRow(r, prog, beat));
+      // Unless another gate on the same tree has written the file since.
+      if (prog) { try { if (JSON.parse(fs.readFileSync(prog.path, 'utf8')).pid === r.pid) fs.rmSync(prog.path, { force: true }); } catch { /* gone */ } }
+    }
+  } catch { /* telemetry is best effort */ }
+}
+
+/** The progress files in the state dir by pid, each with its mtime. */
+function gateProgressFiles(proj) {
+  const out = new Map();
+  let names = [];
+  try { names = fs.readdirSync(proj.stateDir).filter((n) => /^gate-progress-[0-9a-f]+\.json$/.test(n)); } catch { return out; }
+  for (const n of names) {
+    try {
+      const p = path.join(proj.stateDir, n);
+      const rec = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (Number.isInteger(rec?.pid)) out.set(rec.pid, { ...rec, path: p, mtimeMs: fs.statSync(p).mtimeMs });
+    } catch { /* unreadable: skipped */ }
+  }
+  return out;
+}
+
+// ------------------------------------- Trees the session changes (#135)
+
+// Subagents can change Rust in a checkout of their own, such as a worktree under
+// .claude/worktrees/. Every checkout of a repository shares its state dir, so the session dir
+// records each checkout an agent context edited Rust in (tree-<checkout>-<agent>.json), with the
+// checkout's fingerprint before that first edit. Stop then gates and binds the review for each.
+
+const treeId = (root) => createHash('sha256').update(norm(path.resolve(root))).digest('hex').slice(0, 12);
+
+/**
+ * Record that this agent context changes Rust-relevant files in `proj`'s checkout. A worktree's
+ * scope starts at its HEAD at that moment (it may come from another ref than the session base);
+ * its branch is kept so a removed worktree's unmerged commits can still be reported.
+ */
+function noteTree(proj, input) {
+  if (!proj.gitRoot || !input.session_id) return;
+  const p = path.join(sessionDir(proj, input.session_id), `tree-${treeId(proj.root)}-${agentKey(input)}.json`);
+  if (fs.existsSync(p)) return;
+  let head = resolveRev(proj, 'HEAD');
+  let widened = false;
+  // The main session entering a linked worktree it did not start in: the scope starts at the
+  // session base when the worktree holds it, so the session's earlier commits stay in scope.
+  const sessionBase = baseRev(proj, input.session_id);
+  if (agentKey(input) === 'main' && head && sessionBase && head !== sessionBase && isLinked(proj)
+    && !fs.existsSync(path.join(sessionDir(proj, input.session_id), `tree-${treeId(proj.root)}-session.json`))
+    && run('git', ['merge-base', '--is-ancestor', sessionBase, head], { cwd: proj.gitRoot }).code === 0) {
+    widened = true;
+    head = sessionBase;
+  }
+  const br = run('git', ['symbolic-ref', '--short', '-q', 'HEAD'], { cwd: proj.gitRoot });
+  const branch = br.code === 0 ? br.stdout.trim() || null : null;
+  // A widened scope already holds the session's commits, so the tree before this edit is no starting point.
+  const startFp = widened ? null : fingerprint(proj, head ?? baseRev(proj, input.session_id));
+  writeAtomic(p, JSON.stringify({ root: proj.root, head, branch, startFp, at: Date.now() }));
+}
+
+/**
+ * A session started in a linked worktree records that checkout with the session's own base, as
+ * the earliest record for it, so a later subagent's or edit's record never moves its base (#135).
+ * A resume or compact writes it only for a checkout with no record yet: one the session entered
+ * later keeps the base it was first noted with.
+ */
+function noteSessionTree(proj, input, fresh) {
+  if (!proj.gitRoot || !input.session_id || !isLinked(proj)) return;
+  const dir = sessionDir(proj, input.session_id);
+  const id = treeId(proj.root);
+  const p = path.join(dir, `tree-${id}-session.json`);
+  if (!fresh) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { /* none yet */ }
+    if (names.some((n) => n.startsWith(`tree-${id}-`))) return;
+  }
+  const head = baseRev(proj, input.session_id);
+  if (!head) return;
+  writeAtomic(p, JSON.stringify({ root: proj.root, head, branch: null, startFp: startFingerprint(proj, input.session_id), at: 0 }));
+}
+
+/**
+ * The other checkouts of `proj`'s repository that this session changed, each with its base (its
+ * HEAD when first noted) and the fingerprint it had then. `agent` limits them to the trees that
+ * agent context edited; without it, every agent context counts. With `gone`, a noted checkout
+ * that no longer exists is returned too, as `{ gone: true, rec }`.
+ */
+function otherTrees(proj, input, { agent, gone = false } = {}) {
+  if (!proj.gitRoot || !input.session_id) return [];
+  const dir = sessionDir(proj, input.session_id);
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((n) => /^tree-[0-9a-f]{12}-.+\.json$/.test(n)); } catch { return []; }
+  const byRoot = new Map();
+  const mine = new Set(); // with `agent`, the roots it edited; each tree's base is still its earliest record
+  for (const n of names) {
+    let rec;
+    try { rec = JSON.parse(readText(path.join(dir, n)) ?? ''); } catch { continue; }
+    if (!rec?.root || path.resolve(rec.root) === path.resolve(proj.root)) continue;
+    if (!agent || n.endsWith(`-${agent}.json`)) mine.add(rec.root);
+    const seen = byRoot.get(rec.root);
+    if (!seen || rec.at < seen.at) byRoot.set(rec.root, rec);
+  }
+  const out = [];
+  for (const rec of [...byRoot.values()].filter((x) => mine.has(x.root)).sort((a, b) => a.root.localeCompare(b.root))) {
+    if (!fs.existsSync(rec.root)) { if (gone) out.push({ gone: true, rec }); continue; }
+    const tree = discover(rec.root);
+    if (!tree || path.resolve(tree.root) !== path.resolve(rec.root) || tree.stateDir !== proj.stateDir) continue;
+    out.push({ proj: tree, startFp: rec.startFp ?? null, base: resolveRev(tree, rec.head) ?? baseRev(tree, input.session_id) });
+  }
+  return out;
+}
+
+/** True when a scope from `base` holds all of `tree`'s own commits (those after `treeBase`): none of them is already in `base`. */
+export function coversBase(proj, base, treeBase, tree) {
+  if (!treeBase) return true;
+  if (!base) return false;
+  const head = resolveRev(tree, 'HEAD');
+  if (!head) return false;
+  // a failed count is not taken as covered (#157)
+  const count = (...revs) => {
+    const r = run('git', ['rev-list', '--count', head, `^${treeBase}`, ...revs], { cwd: proj.gitRoot });
+    const n = r.code === 0 ? Number(r.stdout.trim()) : NaN;
+    return Number.isInteger(n) ? n : NaN;
+  };
+  const all = count();
+  return Number.isInteger(all) && all === count(`^${base}`);
+}
+
+/** True when everything `tree` holds is already in `main`'s HEAD: its HEAD is an ancestor, and it has no uncommitted Rust change. */
+function mergedInto(tree, main) {
+  const head = resolveRev(tree, 'HEAD');
+  const mainHead = resolveRev(main, 'HEAD');
+  if (!head || !mainHead) return false;
+  if (run('git', ['merge-base', '--is-ancestor', head, mainHead], { cwd: main.gitRoot }).code !== 0) return false;
+  return rustChanges(tree, head).length === 0;
+}
+
+/**
+ * The trees whose Rust this turn changed and that still need the gate: the main checkout, then
+ * each other checkout this session (or, with `agent`, that agent context) changed and that is not
+ * merged into the main checkout. Each comes with its base and current fingerprint.
+ */
+function dueTrees(proj, input, { agent } = {}) {
+  const candidates = [
+    { proj, ...ownTree(proj, input, { widen: !agent }), main: true },
+    ...otherTrees(proj, input, { agent }),
+  ];
+  const due = [];
+  for (const t of candidates) {
+    if (!rustChanges(t.proj, t.base).length) continue;
+    const fp = fingerprint(t.proj, t.base);
+    if (t.startFp && t.startFp === fp) continue; // nothing changed by this session
+    // the gating checkout holds it and is gated itself, from a base no later than this tree's
+    if (!t.main && due[0]?.main && mergedInto(t.proj, proj) && coversBase(proj, candidates[0].base, t.base, t.proj)) continue;
+    due.push({ ...t, fp });
+  }
+  return due;
+}
+
+/** Notices for removed worktrees whose branch still holds commits the main checkout lacks: they were never gated here. */
+function goneNotices(proj, input, agent) {
+  const mainHead = resolveRev(proj, 'HEAD');
+  const out = [];
+  for (const t of otherTrees(proj, input, { agent, gone: true }).filter((x) => x.gone)) {
+    const tip = t.rec.branch ? resolveRev(proj, `refs/heads/${t.rec.branch}`) : null;
+    if (!tip || !mainHead || tip === t.rec.head) continue;
+    if (run('git', ['merge-base', '--is-ancestor', tip, mainHead], { cwd: proj.gitRoot }).code === 0) continue;
+    out.push(`temper: the worktree ${treeLabel(proj, { root: t.rec.root })} was removed, and its branch ${t.rec.branch} holds commits the main checkout does not have. They were not gated or reviewed here; CI checks them on their pull request.`);
+  }
+  return out;
+}
+
+/** The checkout whose current tree has fingerprint `fp`: `proj`, or another checkout this session changed. */
+function reviewedTree(proj, input, fp) {
+  const { base } = ownTree(proj, input);
+  if (!fp) return { proj, base };
+  // the main agent's widened scope (#157) is a scope of this checkout too
+  for (const b of new Set([base, ownTree(proj, input, { widen: true }).base])) if (fingerprint(proj, b) === fp) return { proj, base: b };
+  return otherTrees(proj, input).find((t) => fingerprint(t.proj, t.base) === fp) ?? { proj, base };
+}
+
+/** A checkout's path for messages: relative to the main checkout when it is inside it. */
+const treeLabel = (main, tree) => {
+  const rel = relTo(main.root, tree.root);
+  return rel.startsWith('..') ? norm(tree.root) : rel;
+};
+
+/** True when `proj` is a linked worktree (its git dir is not the repository's common dir). */
+function isLinked(proj) {
+  if (!proj.gitRoot) return false;
+  const r = run('git', ['rev-parse', '--git-dir', '--git-common-dir'], { cwd: proj.gitRoot });
+  if (r.code !== 0) return false;
+  const [gd, common] = r.stdout.trim().split('\n').map((x) => path.resolve(proj.gitRoot, x.trim()));
+  return Boolean(gd && common) && gd !== common;
+}
+
+/**
+ * The base and starting fingerprint of the checkout an agent runs in: for a linked worktree, its
+ * HEAD and fingerprint when this session first noted it (as Stop gates it); else the session's.
+ * With `widen` (the main agent), a linked worktree's scope starts no later than the session base.
+ */
+function ownTree(proj, input, { widen = false } = {}) {
+  const session = { base: baseRev(proj, input.session_id), startFp: startFingerprint(proj, input.session_id) };
+  if (!proj.gitRoot || !input.session_id || !isLinked(proj)) return session;
+  const dir = sessionDir(proj, input.session_id);
+  const prefix = `tree-${treeId(proj.root)}-`;
+  let first = null;
+  try {
+    for (const n of fs.readdirSync(dir).filter((x) => x.startsWith(prefix) && x.endsWith('.json'))) {
+      let rec;
+      try { rec = JSON.parse(readText(path.join(dir, n)) ?? ''); } catch { continue; }
+      if (rec?.head && (!first || rec.at < first.at)) first = rec;
+    }
+  } catch { return session; }
+  const base = first ? resolveRev(proj, first.head) : null;
+  if (!base) return session;
+  // The main agent answers for the session's commits too: when its earliest record here is a
+  // subagent's, made after the session base, the scope widens to the session base (#157).
+  if (widen && session.base && session.base !== base && isAncestor(proj, session.base, base)) return { base: session.base, startFp: null };
+  return { base, startFp: first.startFp ?? null };
+}
+
+/** True when commit `a` is an ancestor of commit `b`. */
+const isAncestor = (proj, a, b) => run('git', ['merge-base', '--is-ancestor', a, b], { cwd: proj.gitRoot }).code === 0;
+
+// A Stop that gated one tree for this long starts no other uncached tree's gate: it blocks, and
+// the next Stop (with the first result cached) runs it, so the hook's 1200 s timeout is not hit.
+const TREE_BUDGET_MS = 540000;
 
 function completionGate(input, { requireReview }) {
   const proj = discover(input.cwd);
   if (!proj || input.permission_mode === 'plan') return none();
-  const base = baseRev(proj, input.session_id);
-  const changes = rustChanges(proj, base);
-  if (!changes.length) return none();
-  const startFp = startFingerprint(proj, input.session_id);
-  if (startFp && startFp === fingerprint(proj, base)) return none(); // nothing changed by this session
+  const t0 = Date.now();
+  // The main session answers for every tree its turn changed; an implementer, for the trees it edited.
+  const agent = requireReview ? undefined : agentKey(input);
+  const due = dueTrees(proj, input, { agent });
+  const gone = goneNotices(proj, input, agent);
+  if (!due.length) return gone.length ? notice(gone.join('\n')) : none();
   const status = parseStatus(input.last_assistant_message);
   if (status === 'WIP' || status === 'BLOCKED') {
     telemetry(proj, input, 'stop-declared', { status });
     return notice(`temper: Rust changes left ${status === 'WIP' ? 'in progress' : 'blocked'}; the gate and review were not enforced for this turn.`);
   }
-  // gate-start with no Stop outcome after it in the session means the hook was killed (its timeout).
-  telemetry(proj, input, 'gate-start', {});
+  // A gate-start with no outcome after it means that hook was killed; logged before this Stop's own (#137).
+  logLostGates(proj, input);
+  const blocks = lastBlock(proj, input);
+  const notes = [...gone];
+  for (const [i, t] of due.entries()) {
+    if (i > 0 && Date.now() - t0 > TREE_BUDGET_MS && !cachedGate(proj, t.fp) && !blocks.stuck(t.fp, 'pending')) {
+      blocks.save(t.fp, 'pending');
+      telemetry(proj, input, 'stop-blocked', { reason: 'pending', fp: t.fp, tree: treeLabel(proj, t.proj) });
+      return block(`temper: the gate has not run yet for the worktree ${treeLabel(proj, t.proj)}: this Stop already spent ${Math.round((Date.now() - t0) / 1000)} s on other trees. End the turn again to run it.`);
+    }
+    const res = gateTree(proj, t, input, { requireReview, blocks, afterMs: i > 0 ? Date.now() - t0 : null });
+    if (res.json?.decision === 'block') return res;
+    if (res.json?.systemMessage) notes.push(res.json.systemMessage);
+  }
+  return notes.length ? notice(notes.join('\n')) : none();
+}
+
+/** The gate, then the review, for one tree the turn changed. */
+function gateTree(main, t, input, { requireReview, blocks, afterMs = null }) {
+  const { proj, base } = t;
+  const where = t.main ? null : treeLabel(main, proj);
+  const extra = where ? { tree: where } : {};
+  const intro = where ? `In the worktree ${where}: ` : '';
+  // gate-start with no Stop outcome after it in the session means the hook was killed: its
+  // timeout, or an interruption. The next hook in the session logs gate-lost for it (#137). A
+  // tree gated after others in the same Stop starts `afterMs` into the hook's deadline.
+  telemetry(main, input, 'gate-start', {
+    pid: process.pid, agent_id: input.agent_id, timeoutMs: hookTimeoutMs(requireReview ? 'Stop' : 'SubagentStop'),
+    ...(afterMs === null ? {} : { afterMs }), ...extra,
+  });
+  startHeartbeat(main, input);
   const t0 = Date.now();
-  const res = runGate(proj, { base });
-  const timing = { ms: Date.now() - t0, cached: Boolean(res.cached) };
+  let res;
+  try { res = runGate(proj, { base }); } finally { stopHeartbeat(); }
+  const timing = { ms: Date.now() - t0, cached: Boolean(res.cached), pid: process.pid, ...stepTimes(res), ...extra };
   if (res.unavailable) {
-    telemetry(proj, input, 'gate-unavailable', timing);
-    return notice(`temper: ${renderGate(res)}`);
+    telemetry(main, input, 'gate-unavailable', timing);
+    return notice(`temper: ${intro}${renderGate(res)}`);
   }
   const fp = res.fp;
-  const { prev, save } = lastBlock(proj, input);
-  const stuck = (kind) => input.stop_hook_active && prev && prev.fp === fp && prev.kind === kind;
   const escape = 'If you cannot finish now, end your message with "Status: WIP" (pausing) or "Status: BLOCKED" and the question for the human.';
 
   if (!res.ok) {
-    if (stuck('gate')) {
-      telemetry(proj, input, 'stop-allowed-red', { fp, ...timing });
-      return notice(`temper: stopped with a RED gate (no progress after the previous block). ${res.steps.filter((s) => !s.ok).map((s) => s.name).join(', ')} failing.`);
+    if (blocks.stuck(fp, 'gate')) {
+      telemetry(main, input, 'stop-allowed-red', { fp, ...timing });
+      return notice(`temper: ${intro}stopped with a RED gate (no progress after the previous block). ${res.steps.filter((s) => !s.ok).map((s) => s.name).join(', ')} failing.`);
     }
-    save({ fp, kind: 'gate', at: Date.now() });
-    telemetry(proj, input, 'stop-blocked', { reason: 'gate', fp, ...timing });
-    return block(`${renderGate(res)}\n\nThe work is not done while the gate is red. Fix the failures (never by weakening tests or lints, H-12). ${escape}`);
+    blocks.save(fp, 'gate');
+    telemetry(main, input, 'stop-blocked', { reason: 'gate', fp, ...timing });
+    return block(`${intro}${renderGate(res)}\n\nThe work is not done while the gate is red. Fix the failures (never by weakening tests or lints, H-12). ${escape}`);
   }
-  if (requireReview && proj.config.review !== 'off') {
-    const v = verdictFor(proj, fp);
+  if (requireReview && main.config.review !== 'off') {
+    const v = verdictFor(main, fp);
     if (!v || v.verdict !== 'approved') {
-      if (proj.config.review === 'advisory') return notice(`temper: gate green; no approving review for fingerprint ${fp} (review is advisory in this repo).`);
-      if (stuck('review')) {
-        telemetry(proj, input, 'stop-allowed-unreviewed', { fp, ...timing });
-        return notice(`temper: stopped without an approving review for fingerprint ${fp}.`);
+      if (main.config.review === 'advisory') {
+        telemetry(main, input, 'stop-advisory-unreviewed', { fp, ...timing });
+        return notice(`temper: ${intro}gate green; no approving review for fingerprint ${fp} (review is advisory in this repo).`);
       }
-      save({ fp, kind: 'review', at: Date.now() });
-      telemetry(proj, input, 'stop-blocked', { reason: v ? 'changes-requested' : 'no-review', fp, ...timing });
+      if (blocks.stuck(fp, 'review')) {
+        telemetry(main, input, 'stop-allowed-unreviewed', { fp, ...timing });
+        return notice(`temper: ${intro}stopped without an approving review for fingerprint ${fp}.`);
+      }
+      blocks.save(fp, 'review');
+      telemetry(main, input, 'stop-blocked', { reason: v ? 'changes-requested' : 'no-review', fp, ...timing });
+      const scope = where
+        ? `It reviews that worktree (\`git -C "${norm(proj.root)}" diff ${base ?? ''}\` plus its untracked files) in a fresh context; tell it the worktree path.`
+        : `It reviews the diff since ${base ?? 'the session start'} in a fresh context.`;
       const why = v
-        ? `The reviewer requested changes for this tree (fingerprint ${fp}):\n${summarizeFindings(v)}\nAddress each finding, or rebut it with evidence, then request a fresh review.`
-        : `The gate is green, but the current tree (fingerprint ${fp}) has no approving independent review (PROC-08). Delegate to the temper:rust-reviewer subagent with the goal of the change and the plan path. It reviews the diff since ${base ?? 'the session start'} in a fresh context. Address its findings until it approves.`;
+        ? `${intro}The reviewer requested changes for this tree (fingerprint ${fp}):\n${summarizeFindings(v)}\nAddress each finding, or rebut it with evidence, then request a fresh review.`
+        : `${intro}The gate is green, but the current tree (fingerprint ${fp}) has no approving independent review (PROC-08). Delegate to the temper:rust-reviewer subagent with the goal of the change and the plan path. ${scope} Address its findings until it approves.`;
       return block(`${why}\n${escape}`);
     }
   }
-  telemetry(proj, input, 'stop-green', { fp, ...timing });
-  return notice(`temper: gate green${requireReview && proj.config.review === 'required' ? ' and review approved' : ''} (fingerprint ${fp}).`);
+  telemetry(main, input, 'stop-green', { fp, ...timing });
+  return notice(`temper: ${intro}gate green${requireReview && main.config.review === 'required' ? ' and review approved' : ''} (fingerprint ${fp}).`);
 }
 
 export function stop(input) {
@@ -1272,12 +1743,19 @@ export function subagentStop(input) {
     // A subagent that hands back (cloud sessions) has no last_assistant_message: read its report from the transcript.
     const report = input.last_assistant_message ?? reportFromTranscript(input.agent_transcript_path);
     const v = extractVerdict(report);
-    if (!v && already) return none(); // recorded by SubagentHandback or an earlier SubagentStop for this agent
+    // Recorded by SubagentHandback or an earlier SubagentStop for this agent: a hand-back's report
+    // read back from the transcript is not recorded twice (#136), while a resumed reviewer's new
+    // verdict, even on the same tree, is checked and recorded.
+    const hashFile = path.join(sessionDir(proj, input.session_id), `verdict-${agentKey(input)}.hash`);
+    const seen = readText(hashFile);
+    if (seen !== null) fs.rmSync(hashFile, { force: true });
+    if (already && (!v || (seen !== null && seen === verdictHash(v)))) return none();
     const problems = checkVerdict(proj, input, v);
     if (problems.length) {
-      if (input.stop_hook_active) { telemetry(proj, input, 'verdict-invalid-final', { problems: problems.length }); return none(); }
-      telemetry(proj, input, 'verdict-invalid', { via: 'subagent-stop', problems: problems.length });
-      return block(`temper: your review verdict is invalid:\n- ${problems.join('\n- ')}\nEnd your final report with a corrected \`\`\`json verdict block.`);
+      const detail = { problems: problems.length, kinds: problemKinds(problems), agent_id: input.agent_id };
+      if (input.stop_hook_active) { telemetry(proj, input, 'verdict-invalid-final', detail); return none(); }
+      telemetry(proj, input, 'verdict-invalid', { via: 'subagent-stop', ...detail });
+      return block(`temper: your review verdict is invalid:\n- ${problems.map((x) => x.message).join('\n- ')}\nEnd your final report with a corrected \`\`\`json verdict block.`);
     }
     storeVerdict(proj, input, v, 'subagent-stop');
     return none();
@@ -1297,25 +1775,48 @@ export function subagentStart(input) {
   const proj = discover(input.cwd);
   if (!proj) return none();
   telemetry(proj, input, 'subagent-start', { type }); // before filtering (#97)
+  noteTree(proj, input); // a subagent working in its own worktree starts there (#135)
   if (!PRELOADED.test(type)) return none();
-  const base = baseRev(proj, input.session_id);
-  if (REVIEWER.test(type)) run('cargo', ['fmt', '--all'], { cwd: proj.root, timeoutMs: 120000 });
-  const changes = rustChanges(proj, base);
-  const fp = fingerprint(proj, base);
+  // The tree to work on: the checkout the agent starts in. A reviewer started in the main checkout
+  // is sent to a worktree instead when only worktrees hold this session's Rust changes (#135); an
+  // agent started in a linked worktree keeps its own, so parallel workers stay apart. A reviewer
+  // sees the session's other changed worktrees listed either way.
+  const reviewer = REVIEWER.test(type);
+  const linked = isLinked(proj);
+  const due = reviewer ? dueTrees(proj, input) : [];
+  const others = due.filter((t) => !t.main);
+  const target = linked || due.some((t) => t.main) || !others.length ? { proj, base: ownTree(proj, input, { widen: reviewer }).base, main: true } : others[0];
+  const tp = target.proj;
+  const base = target.base;
+  const also = others.filter((t) => t !== target);
+  if (reviewer) for (const t of [target, ...also]) run('cargo', ['fmt', '--all'], { cwd: t.proj.root, timeoutMs: 120000 });
+  const changes = rustChanges(tp, base);
+  const fp = fingerprint(tp, base);
   const g = cachedGate(proj, fp);
   const plans = listPlans(proj);
+  const at = norm(tp.root);
+  // The env file exports the session's base; a tree with another base names its own to the CLI.
+  const sessionBase = baseRev(proj, input.session_id);
+  const gateIn = (t) => `${t.base && (!t.main || linked || t.base !== sessionBase) ? `TEMPER_BASE=${t.base} ` : ''}${gateCmd()}${reviewer ? ' --check' : ''}`;
   const lines = [
     `temper context for ${type}:`,
-    `- Project root: ${proj.root}`,
-    `- Base revision: ${base ?? 'none (no git)'}; review scope: \`git diff ${base ?? ''}\` plus untracked files.`,
+    ...(target.main ? [] : [`- Target: the worktree ${treeLabel(proj, tp)}. This session changed Rust there and not in the main checkout, so that worktree is the tree to work on: run every command in it (\`git -C "${at}" …\`, and the gate as \`cd "${at}" && ${gateIn(target)}\`).`]),
+    `- Project root: ${tp.root}`,
+    `- Base revision: ${base ?? 'none (no git)'}; review scope: \`git ${target.main ? '' : `-C "${at}" `}diff ${base ?? ''}\` plus untracked files.`,
     `- Current tree fingerprint: ${fp}`,
     `- Changed Rust files (${changes.length}): ${changes.slice(0, 40).join(', ') || 'none'}`,
-    `- Gate for this fingerprint: ${g ? (g.ok ? 'green' : `red (${g.steps.filter((s) => !s.ok).map((s) => s.name).join(', ')})`) : 'not run yet'}. Gate command: ${gateCmd()}`,
+    `- Gate for this fingerprint: ${g ? (g.ok ? 'green' : `red (${g.steps.filter((s) => !s.ok).map((s) => s.name).join(', ')})`) : 'not run yet'}. Gate command: ${gateIn(target)}`,
     plans.length ? `- Plans: ${plans.join(', ')}` : '- Plans: none under .temper/plans/',
   ];
-  if (REVIEWER.test(type)) {
-    lines.push(`- Your verdict's "fingerprint" field must be ${fp}. If the tree changes during your review the verdict is recorded as stale and a new review will be needed.`);
-    const stat = diffStat(proj, base);
+  for (const t of also) {
+    lines.push(`- Also changed in this session: the worktree ${treeLabel(proj, t.proj)} (fingerprint ${t.fp}, ${rustChanges(t.proj, t.base).length} Rust file(s)). Its scope is \`git -C "${norm(t.proj.root)}" diff ${t.base ?? ''}\` plus its untracked files, and its gate runs inside it (\`cd "${norm(t.proj.root)}" && ${gateIn(t)}\`); a review of it uses that fingerprint.`);
+  }
+  if (reviewer) {
+    lines.push(`- Your verdict's "fingerprint" field must be ${fp}${also.length ? ', or, if you were asked to review one of the worktrees listed above, that worktree\'s fingerprint' : ''}. If the tree changes during your review the verdict is recorded as stale and a new review will be needed.`);
+    // The verdict store is shared by every worktree, so a worktree's earlier verdict is found by its fingerprint.
+    const prior = verdictFor(proj, fp);
+    if (prior && !prior.stale) lines.push(earlierReview(prior, historyFor(proj, fp, prior.recorded_at).length));
+    const stat = diffStat(tp, base);
     if (stat) lines.push(`- Diff stat:\n${stat.split('\n').slice(-25).join('\n')}`);
   }
   return ctx('SubagentStart', lines.join('\n'));
