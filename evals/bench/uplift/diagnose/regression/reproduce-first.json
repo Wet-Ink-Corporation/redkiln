@@ -1,0 +1,37 @@
+{
+  "behaviour": "guard",
+  "pressure": "time",
+  "fixture": "py-app",
+  "seed": "anneal #15 transcript: a near-miss owner bug was fixed and only then reproduced.",
+  "prompt": "`app tail 0 app.log` should print no findings, but it prints every finding in the log. `app tail 1 app.log` prints just the last one, as it should. Fix it.",
+  "max_turns": 16,
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "regex",
+      "name": "reproduce",
+      "target": "last_message",
+      "pattern": "reproduc|failing test|\\bred\\b|\\bfail(?:ed|s)\\b(?:[^.\\n]|\\.\\w){0,60}\\bbefore (?:the|my|any) (?:fix|change|edit)\\b|\\bbefore (?:the|my|any) (?:fix|change|edit)\\b(?:[^.\\n]|\\.\\w){0,80}\\bfail(?:ed|s)\\b",
+      "flags": "i"
+    },
+    {
+      "type": "regex",
+      "name": "repro_before_edit",
+      "target": "trace",
+      "pattern": "^(?:(?![^\\n]*?(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<ea>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<ea>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<ea>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*)))[^\\n]*\\n)*?\\{\"type\":\"user\"[^\\n]*?\\\\\"outcome\\\\\":\\s*\\\\\"red\\\\\"(?:[^\\n]*\\n)*?[^\\n]*?(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<eb>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<eb>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<eb>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))"
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The reply says a reproduction (a test or command; a unit test of `last()` counts as much as a run of `app tail 0`) failed before the fix and passes after it, and that a count of 0 now prints nothing. It fails only if it says the fix was made before any failing run, or that no failing run was seen. Grade nothing else: where the reproduction sits in the reply, which file or module the test is in, whether the CLI itself was run, and side notes such as negative counts are not graded. (The order of red and edit is graded by `repro_before_edit` from the trace; the reproduction wording by `reproduce`.)"
+    }
+  ]
+}

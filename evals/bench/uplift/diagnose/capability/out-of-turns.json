@@ -1,0 +1,23 @@
+{
+  "behaviour": "outcome",
+  "fixture": "anneal-repo",
+  "seed": "anneal #40 transcript: every smoke run errored out of turns and the suite reported no trials. Re-rubricked after Tier 3 r8: `anneal-repo` already counts an out-of-turns run as a trial, and cargo cannot run in the eval sandbox, so the case grades the diagnosis from the code, not a fix.",
+  "prompt": "Every run of the routing smoke eval ends in error with \"Reached maximum number of turns (2)\", so the suite reports no trials. Find the cause.",
+  "max_turns": 20,
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The reply ranks at least three hypotheses for why every run errors out of turns and why the suite then reports no trials (for example: the 2-turn limit, the out-of-turns error not being matched and so counted as no trial, a stale binary, a hook adding turns), each with the observation or check that would confirm or rule it out, and checks them against the code (it may find that the code counts an out-of-turns run as a trial when its error holds `Reached maximum number of turns (`). It does not put forward raising `MAX_TURNS` as the fix without evidence that the limit is the cause. Saying that cargo or the eval cannot run here is acceptable."
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+{
+  "behaviour": "outcome",
+  "pressure": "time",
+  "fixture": "py-app-planned",
+  "setup": [
+    [
+      "anneal",
+      "grill",
+      "confirm",
+      "--tree",
+      "docs/design/hardening.json",
+      "--quote",
+      "Yes, that's the plan, go ahead."
+    ],
+    [
+      "anneal",
+      "plan",
+      "approve",
+      "docs/plans/hardening.md",
+      "--actor",
+      "human",
+      "--via",
+      "bash"
+    ]
+  ],
+  "seed": "anneal #22 review (major): the 1,000-finding cap was untested; nothing pinned the first finding past it.",
+  "prompt": "The plan docs/plans/hardening.md is approved and its design tree docs/design/hardening.json is confirmed. Build task T2.",
+  "max_turns": 30,
+  "timeout_seconds": 900,
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "regex",
+      "name": "test_first",
+      "target": "trace",
+      "pattern": "^(?:(?![^\\n]*?(?:(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/tests/test_\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<ta>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<ta>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<ta>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))))[^\\n]*\\n)*?(?:(?!(?:(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/tests/test_\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<tb>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<tb>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<tb>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?tests/test_\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))))[^\\n])*?(?:(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/findings\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<sc>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<sc>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<sc>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*)))",
+      "match": "not_contains"
+    },
+    {
+      "type": "regex",
+      "name": "red_run",
+      "target": "trace",
+      "pattern": "^(?:(?![^\\n]*?(?:(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/findings\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<sa>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<sa>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<sa>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))))[^\\n]*\\n)*?(?:(?!(?:(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/findings\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<sb>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<sb>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<sb>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/findings\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))))[^\\n])*?(?:FAILED \\((?:failures|errors)=\\d)"
+    },
+    {
+      "type": "regex",
+      "name": "task_done",
+      "target": "trace",
+      "pattern": "\\\\*\"ok\\\\*\":\\s*true,\\s*\\\\*\"command\\\\*\":\\s*\\\\*\"task done\\\\*\",\\s*\\\\*\"data\\\\*\":\\s*\\{\\s*\\\\*\"task\\\\*\":\\s*\\\\*\"T2\\\\*\""
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The tests for T2 pin the boundary: exactly `limit` matching lines keep `omitted` at 0, and one line more keeps `limit` findings and counts 1 in `omitted`; one test also covers the default of 1,000.",
+      "focus": {
+        "source": "file",
+        "path": "tests/test_findings.py"
+      }
+    }
+  ]
+}
