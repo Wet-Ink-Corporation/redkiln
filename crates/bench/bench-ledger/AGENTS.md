@@ -1,7 +1,7 @@
 # Crate charter: `bench-ledger`
 
 ## Purpose
-Bench's event ledger (anneal's `anneal-ledger`, renamed at the Move 2 door): the versioned registry of event types, their envelope, and happenstance's SQLite event store (`=0.6.0`, the workspace's pin; option A of the 2026-11-10 card, pending the owner) under a TRUNCATE journal, still its own store. It dissolves into `redkiln-core` plus `bench.*` types in step 3 of `docs/plan/move-2-bench.md`.
+Bench's event ledger (anneal's `anneal-ledger`, renamed at the Move 2 door): the versioned registry of event types, their envelope, and happenstance's SQLite event store (`=0.6.0`, the workspace's pin; option A of the 2026-11-10 card, decided by Ryan) under a TRUNCATE journal, still its own store. It dissolves into `redkiln-core` plus `bench.*` types in step 3 of `docs/plan/move-2-bench.md`.
 
 The full charter as imported (public surface, invariants, errors, decisions) is [`docs/bench/crates/bench-ledger.md`](../../../docs/bench/crates/bench-ledger.md), moved there whole so this chain fits the 24 KiB charter budget. Its rules still hold.
 
