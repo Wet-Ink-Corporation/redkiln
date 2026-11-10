@@ -1,3 +1,4 @@
+use crate::harness::claude_code::AUTO_COMPACT_WINDOW_VAR;
 use std::ffi::OsString;
 use std::path::Path;
 
@@ -49,7 +50,7 @@ fn write(input: &str, home: Option<&Path>, window: Option<&str>) -> Outcome {
     .expect("the snapshot command");
     let lookup = |var: &str| match var {
         "ANNEAL_HOME" => home.map(OsString::from),
-        "CLAUDE_CODE_AUTO_COMPACT_WINDOW" => window.map(OsString::from),
+        AUTO_COMPACT_WINDOW_VAR => window.map(OsString::from),
         _ => None,
     };
     let env = WriterEnv {

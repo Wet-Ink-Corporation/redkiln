@@ -2,6 +2,7 @@
 //! cannot be read: its exact wording, pinned so the shared reader (`decide::modes`, #158)
 //! words it as the section's own reader did.
 
+use crate::harness::claude_code::MODE_VAR;
 use serde_json::{Value, json};
 
 use super::Fixture;
@@ -21,19 +22,17 @@ fn clef_finding(fixture: &Fixture) -> Setup<Value> {
 #[test]
 fn a_clef_mode_that_does_not_parse_is_named_in_the_clef_finding() -> Setup<()> {
     let mut fixture = Fixture::new()?;
-    fixture
-        .vars
-        .insert("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "sometimes".into());
+    fixture.vars.insert(MODE_VAR, "sometimes".into());
 
     let finding = clef_finding(&fixture)?;
 
     assert_eq!(finding["key"], json!("status/unreadable:clef"));
     assert_eq!(
         finding["message"],
-        json!(
-            "clef could not be read: CLAUDE_PLUGIN_OPTION_CLEF_MODE \"sometimes\" is not \
+        json!(format!(
+            "clef could not be read: {MODE_VAR} \"sometimes\" is not \
              `<off|shadow|enforce>[,<D1..D7>=<off|shadow|enforce>]...`"
-        )
+        ))
     );
     Ok(())
 }

@@ -4,6 +4,7 @@
 
 use super::forms::{forms, still_runs};
 use super::{ALLOW, assert_table, rule_for};
+use crate::harness::claude_code::PLUGIN_ROOT_VAR;
 use crate::hook::guard::Rule;
 
 const HUMAN_ONLY: Option<Rule> = Some(Rule::HumanOnly);
@@ -71,7 +72,7 @@ fn a_human_verdict_or_label_is_denied_however_the_shell_forms_it() {
         format!("{SET} \"$flag\" human"),
         format!("who=human; {SET} --actor $who"),
         format!("/opt/plugin/libexec/{SET} --actor human"),
-        "\"${CLAUDE_PLUGIN_ROOT}/libexec/bench\" verdict set --pr 7 --actor human".to_owned(),
+        format!("\"${{{PLUGIN_ROOT_VAR}}}/libexec/bench\" verdict set --pr 7 --actor human"),
         "\"$ANNEAL\" verdict set --pr 7 --actor human".to_owned(),
         format!("bash -c '{SET} --actor human'"),
         format!("sh -c \"{SET} --actor human\""),

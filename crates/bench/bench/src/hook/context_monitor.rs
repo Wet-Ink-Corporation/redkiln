@@ -20,14 +20,12 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
-
 use crate::context::sessions::{SessionFile, SessionsError};
 use crate::context::usage::{self, Level, Window};
 use crate::context::{self, Fired, Fresher, Saved};
 use crate::error_chain::reason;
+use crate::harness::claude_code::{MonitorInput, StopOutput};
 use crate::hook::HookEnv;
-use crate::hook::stop_output::StopOutput;
 use crate::paths;
 
 /// The most stdin read. A batch's input carries its tool calls' results; only two fields are
@@ -35,17 +33,11 @@ use crate::paths;
 const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The fields of the `PostToolBatch` (or `PostToolUse`) input the hook uses.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    hook_event_name: Option<String>,
-}
+type Input = MonitorInput;
 
 /// The event the output answers: the input's, `PostToolUse` or `PostToolBatch`.
 fn event_of(input: Option<&Input>) -> &'static str {
-    match input.and_then(|input| input.hook_event_name.as_deref()) {
+    match input.and_then(|input| input.event.as_deref()) {
         Some("PostToolUse") => "PostToolUse",
         _ => "PostToolBatch",
     }

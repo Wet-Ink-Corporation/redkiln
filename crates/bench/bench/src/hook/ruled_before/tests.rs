@@ -1,6 +1,8 @@
 //! `bench hook ruled-before` with a fake Clef: a ruling is surfaced only in enforce mode
 //! above the threshold, and the options are the rulings plus `none`.
 
+use crate::harness::claude_code::MODE_VAR;
+use crate::harness::claude_code::keys::SYSTEM_MESSAGE;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -240,7 +242,7 @@ fn an_invalid_ruling_is_one_error_line_and_nothing_is_asked() -> TestResult {
     let output = ruled_before(&world, root.path(), "switch to GPL", &endpoint)?;
 
     assert_eq!(context(&output), None);
-    let message = output["systemMessage"].as_str().unwrap_or_default();
+    let message = output[SYSTEM_MESSAGE].as_str().unwrap_or_default();
     assert!(message.starts_with("ERROR ruled-before: "), "{output}");
     assert!(message.contains("bad.md"), "names the file: {message}");
     assert!(endpoint.bodies().is_empty(), "nothing asked");
@@ -282,7 +284,7 @@ fn in_enforce_a_ruling_whose_row_cannot_be_logged_is_not_surfaced_and_is_one_err
     )?;
 
     assert_eq!(context(&output), None, "{output}");
-    let message = output["systemMessage"].as_str().unwrap_or_default();
+    let message = output[SYSTEM_MESSAGE].as_str().unwrap_or_default();
     assert!(
         message.starts_with("ERROR ruled-before: the decision was not logged"),
         "{output}"
@@ -305,7 +307,7 @@ fn with_too_little_of_the_budget_left_neither_git_nor_clef_is_started() -> TestR
     )?;
 
     assert_eq!(context(&output), None, "{output}");
-    let message = output["systemMessage"].as_str().unwrap_or_default();
+    let message = output[SYSTEM_MESSAGE].as_str().unwrap_or_default();
     assert!(
         message.starts_with("ERROR ruled-before: Clef was not asked"),
         "{output}"
@@ -345,7 +347,7 @@ fn enforcing_with_weigh_in(root: &Path) -> TestResult<World> {
     fs::write(&bin, "")?;
     let bin = bin.to_str().ok_or("a UTF-8 temporary path")?.to_owned();
     let mut vars = crate::hook::clef_fake::CONFIGURED.to_vec();
-    vars.push(("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "enforce"));
+    vars.push((MODE_VAR, "enforce"));
     vars.push(("WEIGHIN_BIN", &bin));
     let world = World::new(&vars)?;
     let log = crate::decide::log::DecisionLog::in_home(world.home());
@@ -446,7 +448,7 @@ fn when_weigh_in_fails_the_atoms_are_still_offered_and_the_failure_is_one_note()
         "{output}"
     );
     assert_eq!(
-        output["systemMessage"],
+        output[SYSTEM_MESSAGE],
         json!(
             "ERROR ruled-before: weigh-in's decided items were not read: weighin exited with \
              2: weighin: no ledger"

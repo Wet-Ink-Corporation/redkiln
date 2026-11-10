@@ -1,3 +1,6 @@
+use crate::harness::claude_code::keys::{
+    ADDITIONAL_CONTEXT, HOOK_EVENT_NAME, HOOK_EVENT_NAME_OUT, HOOK_SPECIFIC_OUTPUT, SYSTEM_MESSAGE,
+};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -54,7 +57,9 @@ impl Home {
 
     /// Runs the monitor for a `PostToolBatch` of session `s1`: its output, or `None` when silent.
     fn batch(&self) -> Option<Value> {
-        self.monitor(r#"{"session_id":"s1","hook_event_name":"PostToolBatch","tool_calls":[]}"#)
+        self.monitor(&format!(
+            r#"{{"session_id":"s1","{HOOK_EVENT_NAME}":"PostToolBatch","tool_calls":[]}}"#
+        ))
     }
 
     fn monitor(&self, input: &str) -> Option<Value> {
@@ -83,7 +88,7 @@ fn decision(output: Option<&Value>) -> Option<&str> {
 /// The `additionalContext` of `output`.
 fn context_of(output: Option<&Value>) -> Option<&str> {
     output?
-        .pointer("/hookSpecificOutput/additionalContext")?
+        .pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{ADDITIONAL_CONTEXT}"))?
         .as_str()
 }
 
@@ -103,7 +108,9 @@ fn another_session_s_reading_is_not_this_one_s() {
     let home = Home::new();
     home.report(Some(190_000.0));
 
-    let output = home.monitor(r#"{"session_id":"s2","hook_event_name":"PostToolBatch"}"#);
+    let output = home.monitor(&format!(
+        r#"{{"session_id":"s2","{HOOK_EVENT_NAME}":"PostToolBatch"}}"#
+    ));
 
     assert_eq!(output, None, "s2 has no reading: silent");
 }
@@ -195,12 +202,16 @@ fn a_post_tool_use_input_is_answered_as_post_tool_use() {
     let home = Home::new();
     home.report(Some(120_000.0));
 
-    let output = home.monitor(r#"{"session_id":"s1","hook_event_name":"PostToolUse"}"#);
+    let output = home.monitor(&format!(
+        r#"{{"session_id":"s1","{HOOK_EVENT_NAME}":"PostToolUse"}}"#
+    ));
 
     assert_eq!(
         output
             .as_ref()
-            .and_then(|output| output.pointer("/hookSpecificOutput/hookEventName"))
+            .and_then(
+                |output| output.pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{HOOK_EVENT_NAME_OUT}"))
+            )
             .and_then(Value::as_str),
         Some("PostToolUse"),
         "the event it was given: {output:?}"
@@ -219,7 +230,7 @@ fn a_state_file_that_cannot_be_written_fails_open_without_a_block() {
     assert_eq!(decision(output.as_ref()), None, "fails open: no block");
     let message = output
         .as_ref()
-        .and_then(|output| output.get("systemMessage"))
+        .and_then(|output| output.get(SYSTEM_MESSAGE))
         .and_then(Value::as_str)
         .expect("a system message");
     assert!(
@@ -238,7 +249,7 @@ fn an_unreadable_input_is_one_error_line_and_never_a_block() {
     assert_eq!(decision(output.as_ref()), None, "fails open");
     let message = output
         .as_ref()
-        .and_then(|output| output.get("systemMessage"))
+        .and_then(|output| output.get(SYSTEM_MESSAGE))
         .and_then(Value::as_str)
         .expect("a system message");
     assert!(
@@ -321,7 +332,7 @@ fn an_unstamped_status_line_snapshot_is_older_than_a_mod_one() {
 
 /// The `systemMessage` of `output`.
 fn system_message(output: Option<&Value>) -> Option<&str> {
-    output?.get("systemMessage")?.as_str()
+    output?.get(SYSTEM_MESSAGE)?.as_str()
 }
 
 #[test]

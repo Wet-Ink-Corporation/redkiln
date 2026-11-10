@@ -1,5 +1,8 @@
 //! D1 through the guard's own entry point, with a fake Workers AI endpoint and fixed clocks.
 
+use crate::harness::claude_code::keys::{
+    HOOK_EVENT_NAME, HOOK_EVENT_NAME_OUT, HOOK_SPECIFIC_OUTPUT, PERMISSION_DECISION, TOOL_INPUT,
+};
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -184,9 +187,9 @@ impl World {
     ) -> String {
         let stdin = json!({
             "session_id": "s-d1",
-            "hook_event_name": "PreToolUse",
+            HOOK_EVENT_NAME: "PreToolUse",
             "tool_name": tool,
-            "tool_input": {"command": command},
+            TOOL_INPUT: {"command": command},
         })
         .to_string();
         let env = HookEnv {
@@ -256,20 +259,20 @@ fn permission(stdout: &str) -> (String, String) {
     let output: Value = serde_json::from_str(stdout).expect("one JSON object");
     let field = |name: &str| {
         output
-            .pointer(&format!("/hookSpecificOutput/{name}"))
+            .pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{name}"))
             .and_then(Value::as_str)
             .expect("the field")
             .to_owned()
     };
     let (decision, reason) = (
-        field("permissionDecision"),
+        field(PERMISSION_DECISION),
         field("permissionDecisionReason"),
     );
     assert_eq!(
         output,
-        json!({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": decision,
+        json!({HOOK_SPECIFIC_OUTPUT: {
+            HOOK_EVENT_NAME_OUT: "PreToolUse",
+            PERMISSION_DECISION: decision,
             "permissionDecisionReason": reason,
         }}),
         "a PreToolUse decision and nothing else"

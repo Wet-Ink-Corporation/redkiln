@@ -28,10 +28,9 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Serialize;
-
 use crate::error_chain::reason;
 use crate::existing_ledger::open_existing;
+use crate::harness::claude_code;
 use crate::hook::guard::{BUSY_TIMEOUT, GIT_TIMEOUT};
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::mode;
@@ -328,27 +327,8 @@ fn lint_target(file: &str) -> Option<&'static str> {
     })
 }
 
-/// `{"decision": "block", "reason": ..., "hookSpecificOutput": {...}}`, without the parts that
-/// are empty.
-#[derive(Debug, Serialize)]
-struct Output<'a> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    decision: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<&'a str>,
-    #[serde(rename = "hookSpecificOutput", skip_serializing_if = "Option::is_none")]
-    specific: Option<Specific>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Specific {
-    hook_event_name: &'static str,
-    additional_context: String,
-}
-
 /// Writes the report: nothing when it is empty.
-fn write_report<W: Write>(mut out: W, report: &Report) -> io::Result<()> {
+fn write_report<W: Write>(out: W, report: &Report) -> io::Result<()> {
     if report.block.is_none() && report.notes.is_empty() {
         return Ok(());
     }
@@ -356,17 +336,9 @@ fn write_report<W: Write>(mut out: W, report: &Report) -> io::Result<()> {
         .block
         .as_deref()
         .map(|line| line.replace(['\r', '\n'], " "));
-    let specific = (!report.notes.is_empty()).then(|| Specific {
-        hook_event_name: "PostToolBatch",
-        additional_context: format!("anneal fast-check:\n- {}", report.notes.join("\n- ")),
-    });
-    let output = Output {
-        decision: reason.as_ref().map(|_| "block"),
-        reason: reason.as_deref(),
-        specific,
-    };
-    serde_json::to_writer(&mut out, &output)?;
-    writeln!(out)
+    let context = (!report.notes.is_empty())
+        .then(|| format!("anneal fast-check:\n- {}", report.notes.join("\n- ")));
+    claude_code::write_batch(out, reason.as_deref(), context)
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! `bench decide` through `cli`'s argument parsing and envelope, with a fake endpoint.
 
+use crate::harness::claude_code::{ACCOUNT_VAR, MODE_VAR, TOKEN_VAR};
 use std::ffi::OsString;
 use std::time::{Duration, SystemTimeError};
 
@@ -85,10 +86,7 @@ fn decide(
     (code, envelope, log)
 }
 
-const CONFIGURED: [(&str, &str); 2] = [
-    ("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123"),
-    ("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", SECRET),
-];
+const CONFIGURED: [(&str, &str); 2] = [(ACCOUNT_VAR, "acct0123"), (TOKEN_VAR, SECRET)];
 
 const D1: [&str; 6] = [
     "--point",
@@ -191,12 +189,8 @@ fn clef_off_exits_3_and_logs_nothing() {
 #[test]
 fn the_off_envelope_reports_the_configured_mode_beside_the_reason() {
     let endpoint = Endpoint(Ok(json!({"probabilities": {"yes": 0.95}})));
-    let mode_off = [
-        CONFIGURED[0],
-        CONFIGURED[1],
-        ("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "enforce,D1=off"),
-    ];
-    let no_account = [("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "enforce")];
+    let mode_off = [CONFIGURED[0], CONFIGURED[1], (MODE_VAR, "enforce,D1=off")];
+    let no_account = [(MODE_VAR, "enforce")];
 
     for (vars, reason, configured) in [
         (&mode_off[..], "mode_off", "off"),
@@ -219,18 +213,9 @@ fn a_malformed_mode_token_or_account_exits_5_with_the_fallback_and_the_reason() 
     let endpoint = Endpoint(Ok(json!({"probabilities": {"yes": 0.95}})));
     let bad_token = "bad token\u{7}value";
     let cases = [
-        (
-            ("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "loud"),
-            "CLAUDE_PLUGIN_OPTION_CLEF_MODE",
-        ),
-        (
-            ("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", bad_token),
-            "CLAUDE_PLUGIN_OPTION_CF_API_TOKEN",
-        ),
-        (
-            ("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct/../x"),
-            "CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID",
-        ),
+        ((MODE_VAR, "loud"), MODE_VAR),
+        ((TOKEN_VAR, bad_token), TOKEN_VAR),
+        ((ACCOUNT_VAR, "acct/../x"), ACCOUNT_VAR),
     ];
     for (bad, var) in cases {
         let vars: Vec<(&str, &str)> = CONFIGURED
@@ -259,11 +244,7 @@ fn a_usage_error_still_wins_over_a_malformed_configuration() {
     let endpoint = Endpoint(Ok(json!({})));
     let words = ["--point", "D1", "--question", "choice", "--state", "{}"];
 
-    let (code, _, _) = decide(
-        &words,
-        &[("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "loud")],
-        &endpoint,
-    );
+    let (code, _, _) = decide(&words, &[(MODE_VAR, "loud")], &endpoint);
 
     assert_eq!(code.map_err(|error| error.code().value()), Err(2));
 }

@@ -18,12 +18,11 @@ use std::time::Duration;
 
 use bench_ledger::event::SubagentStatus;
 use bench_ledger::{EventEnvelope, LedgerEvent, LedgerTag, TagKey, Timestamp};
-use serde::Deserialize;
 
 use crate::error_chain::reason;
 use crate::existing_ledger;
+use crate::harness::claude_code::{StopOutput, SubagentStopInput};
 use crate::hook::guard::BUSY_TIMEOUT;
-use crate::hook::stop_output::StopOutput;
 use crate::hook::transcript::{self, Usage};
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::mode::scope;
@@ -42,21 +41,7 @@ const MAX_TRANSCRIPT_BYTES: u64 = 32 * 1024 * 1024;
 const UNKNOWN_AGENT: &str = "unknown";
 
 /// The fields of Claude Code's `SubagentStop` input the hook uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    cwd: Option<PathBuf>,
-    #[serde(default)]
-    agent_id: Option<String>,
-    #[serde(default)]
-    agent_type: Option<String>,
-    #[serde(default)]
-    agent_transcript_path: Option<PathBuf>,
-    #[serde(default)]
-    last_assistant_message: Option<String>,
-}
+type Input = SubagentStopInput;
 
 /// Why the hook input could not be used.
 #[derive(Debug, thiserror::Error)]
@@ -141,7 +126,7 @@ fn record(
         }) => (duration_ms, tokens, last_text),
         None => (None, None, None),
     };
-    let message = input.last_assistant_message.or(transcript_text);
+    let message = input.last_message.or(transcript_text);
     let parsed = block::parse(message.as_deref().unwrap_or_default());
     let event = LedgerEvent::SubagentStatus(SubagentStatus {
         agent: agent(input.agent_type),

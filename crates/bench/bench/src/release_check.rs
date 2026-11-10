@@ -3,6 +3,7 @@
 //! Clef and one anneal home, and `bench calibrate` reads all four points' rows back. The
 //! binary's own run, where every call is unreachable, is `tests/it/release_check.rs`.
 
+use crate::harness::claude_code::keys::{HOOK_EVENT_NAME, TOOL_INPUT};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
@@ -85,8 +86,8 @@ fn project() -> TestResult<tempfile::TempDir> {
 /// The guard on a Bash call the denylist leaves to Clef.
 fn ask_d1(world: &World) -> TestResult {
     let stdin = json!({
-        "session_id": "s1", "hook_event_name": "PreToolUse",
-        "tool_name": "Bash", "tool_input": {"command": "ls -la"},
+        "session_id": "s1", HOOK_EVENT_NAME: "PreToolUse",
+        "tool_name": "Bash", TOOL_INPUT: {"command": "ls -la"},
     })
     .to_string();
     let env = HookEnv {

@@ -27,7 +27,6 @@ pub(crate) mod route;
 pub(crate) mod ruled_before;
 pub(crate) mod standing_orders;
 pub(crate) mod status;
-mod stop_output;
 mod transcript;
 
 use std::error::Error;
@@ -37,10 +36,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, Subcommand};
-use serde::Serialize;
 
 use crate::decide::clock::SystemClock;
 use crate::decide::transport::http::UreqTransport;
+use crate::harness::claude_code::{self, PermissionDecision};
 
 /// How long the hooks that ask Clef within a 5 s `hooks.json` timeout (the guard, route and
 /// ruled-before) plan to take, measured from their start on the monotonic clock; the other
@@ -248,29 +247,13 @@ pub(crate) fn read_stdin<R: Read>(stdin: R, max: u64) -> Result<Vec<u8>, StdinEr
     }
 }
 
-/// `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", ...}}`
-/// (or `"ask"`).
-#[derive(Debug, Serialize)]
-struct DenyOutput<'a> {
-    #[serde(rename = "hookSpecificOutput")]
-    specific: PreToolUseOutput<'a>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PreToolUseOutput<'a> {
-    hook_event_name: &'static str,
-    permission_decision: PermissionDecision,
-    permission_decision_reason: &'a str,
-}
-
 /// Writes Claude Code's `PreToolUse` deny decision, with `line` (an `ERROR <reason>` line) as
 /// its reason, any line break folded into a space, then a newline.
 ///
 /// # Errors
 /// Returns the I/O error when `out` cannot be written.
 pub(crate) fn write_deny<W: Write>(out: W, line: &str) -> io::Result<()> {
-    write_permission(out, PermissionDecision::Deny, line)
+    claude_code::write_permission(out, PermissionDecision::Deny, line)
 }
 
 /// Writes Claude Code's `PreToolUse` ask decision (the human confirms the call), with `line` as
@@ -279,35 +262,7 @@ pub(crate) fn write_deny<W: Write>(out: W, line: &str) -> io::Result<()> {
 /// # Errors
 /// Returns the I/O error when `out` cannot be written.
 pub(crate) fn write_ask<W: Write>(out: W, line: &str) -> io::Result<()> {
-    write_permission(out, PermissionDecision::Ask, line)
-}
-
-/// The `permissionDecision` of a `PreToolUse` output the hooks write.
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "lowercase")]
-enum PermissionDecision {
-    /// Block the call.
-    Deny,
-    /// Have the human confirm the call.
-    Ask,
-}
-
-/// Writes a `PreToolUse` permission `decision` with `line`, folded to one line, as its reason.
-fn write_permission<W: Write>(
-    mut out: W,
-    decision: PermissionDecision,
-    line: &str,
-) -> io::Result<()> {
-    let line = line.replace(['\r', '\n'], " ");
-    let output = DenyOutput {
-        specific: PreToolUseOutput {
-            hook_event_name: "PreToolUse",
-            permission_decision: decision,
-            permission_decision_reason: &line,
-        },
-    };
-    serde_json::to_writer(&mut out, &output)?;
-    writeln!(out)
+    claude_code::write_permission(out, PermissionDecision::Ask, line)
 }
 
 pub use crate::error_chain::reason;

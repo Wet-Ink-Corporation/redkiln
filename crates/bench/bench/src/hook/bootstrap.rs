@@ -20,10 +20,10 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::decide::clock::SystemClock;
-use crate::harness::PLUGIN_ROOT_VAR;
+use crate::harness::claude_code::{self, PLUGIN_ROOT_VAR};
 use crate::hook::{HookEnv, reason};
 use crate::paths;
 use state::Sessions;
@@ -62,27 +62,13 @@ enum InputError {
     Json(#[source] serde_json::Error),
 }
 
-/// `{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "..."}}`.
-#[derive(Debug, Serialize)]
-struct Output<'a> {
-    #[serde(rename = "hookSpecificOutput")]
-    specific: SessionStartOutput<'a>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SessionStartOutput<'a> {
-    hook_event_name: &'static str,
-    additional_context: &'a str,
-}
-
 /// Runs the bootstrap: reads the input from `env.stdin`, resolves the ledger from the input's
 /// `cwd` (or `env.current_dir` when it names none) and `env.lookup`, and writes the
 /// `SessionStart` output to `out`. Pass `&mut out` to keep the writer.
 ///
 /// # Errors
 /// Only the I/O error from writing `out`; every other failure is a note in the output.
-pub(crate) fn run<R, D, L, W>(env: HookEnv<R, D, L>, mut out: W) -> io::Result<()>
+pub(crate) fn run<R, D, L, W>(env: HookEnv<R, D, L>, out: W) -> io::Result<()>
 where
     R: Read,
     D: FnOnce() -> io::Result<PathBuf>,
@@ -90,14 +76,7 @@ where
     W: Write,
 {
     let context = context(read_input(env.stdin), env.current_dir, env.lookup);
-    let output = Output {
-        specific: SessionStartOutput {
-            hook_event_name: "SessionStart",
-            additional_context: &context,
-        },
-    };
-    serde_json::to_writer(&mut out, &output)?;
-    writeln!(out)
+    claude_code::write_session_start(out, &context)
 }
 
 /// Reads and parses at most [`MAX_INPUT_BYTES`] of `stdin`.

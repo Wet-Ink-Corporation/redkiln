@@ -11,34 +11,18 @@
 //! clock, so Clef is asked only while its whole timeout still fits.
 
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
 use std::time::Duration;
-
-use serde::{Deserialize, Serialize};
 
 use crate::decide::client;
 use crate::decide::clock::Clock;
+use crate::harness::claude_code::{self, PromptInput};
 use crate::hook::{HOOK_BUDGET, StdinError, read_stdin};
 
 /// Most bytes of hook input read; a prompt rides in it (H-13).
 pub(crate) const MAX_INPUT_BYTES: u64 = 4 * 1024 * 1024;
 
 /// The fields of Claude Code's `UserPromptSubmit` input the hooks use; the rest are ignored.
-#[derive(Debug, Default, Deserialize)]
-pub(crate) struct Input {
-    /// The session's id.
-    #[serde(default)]
-    pub(crate) session_id: Option<String>,
-    /// The session's transcript.
-    #[serde(default)]
-    pub(crate) transcript_path: Option<PathBuf>,
-    /// The session's working directory.
-    #[serde(default)]
-    pub(crate) cwd: Option<PathBuf>,
-    /// The prompt as submitted.
-    #[serde(default)]
-    pub(crate) prompt: Option<String>,
-}
+pub(crate) type Input = PromptInput;
 
 /// Why the hook input could not be used.
 #[derive(Debug, thiserror::Error)]
@@ -116,43 +100,20 @@ pub(crate) struct Output {
     pub(crate) error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct OutputJson<'a> {
-    #[serde(rename = "systemMessage", skip_serializing_if = "Option::is_none")]
-    system_message: Option<&'a str>,
-    #[serde(rename = "hookSpecificOutput", skip_serializing_if = "Option::is_none")]
-    specific: Option<SpecificJson<'a>>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SpecificJson<'a> {
-    hook_event_name: &'static str,
-    additional_context: &'a str,
-}
-
 impl Output {
     /// Writes the output as one JSON object and a newline, line breaks folded into spaces, or
     /// nothing when there is nothing to say. Pass `&mut out` to keep the writer.
     ///
     /// # Errors
     /// The I/O error when `out` cannot be written.
-    pub(crate) fn write<W: Write>(&self, mut out: W) -> io::Result<()> {
+    pub(crate) fn write<W: Write>(&self, out: W) -> io::Result<()> {
         if self.context.is_none() && self.error.is_none() {
             return Ok(());
         }
         let one_line = |text: &str| text.replace(['\r', '\n'], " ");
         let context = self.context.as_deref().map(one_line);
         let error = self.error.as_deref().map(one_line);
-        let json = OutputJson {
-            system_message: error.as_deref(),
-            specific: context.as_deref().map(|line| SpecificJson {
-                hook_event_name: "UserPromptSubmit",
-                additional_context: line,
-            }),
-        };
-        serde_json::to_writer(&mut out, &json)?;
-        writeln!(out)
+        claude_code::write_prompt(out, error.as_deref(), context.as_deref())
     }
 }
 

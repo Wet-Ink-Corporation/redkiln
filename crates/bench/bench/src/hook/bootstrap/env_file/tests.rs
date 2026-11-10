@@ -1,3 +1,4 @@
+use crate::harness::claude_code::{ENV_FILE_VAR, PLUGIN_ROOT_VAR};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,8 +11,8 @@ fn lookup_of<'a>(
     root: Option<&'a str>,
 ) -> impl Fn(&str) -> Option<OsString> + 'a {
     move |var: &str| match var {
-        "CLAUDE_ENV_FILE" => env_file.map(OsString::from),
-        "CLAUDE_PLUGIN_ROOT" => root.map(OsString::from),
+        ENV_FILE_VAR => env_file.map(OsString::from),
+        PLUGIN_ROOT_VAR => root.map(OsString::from),
         _ => None,
     }
 }
@@ -85,8 +86,8 @@ fn a_plugin_root_that_is_not_utf_8_is_refused_with_a_note() {
     let (_dir, file) = scratch();
     let root = OsString::from_vec(b"/p\xff".to_vec());
     let lookup = |var: &str| match var {
-        "CLAUDE_ENV_FILE" => Some(OsString::from(file.as_os_str())),
-        "CLAUDE_PLUGIN_ROOT" => Some(root.clone()),
+        ENV_FILE_VAR => Some(OsString::from(file.as_os_str())),
+        PLUGIN_ROOT_VAR => Some(root.clone()),
         _ => None,
     };
 
@@ -209,10 +210,10 @@ fn an_env_file_that_cannot_be_opened_is_a_note() {
 
     let note = note.expect("a note");
     assert!(
-        note.starts_with(
+        note.starts_with(&format!(
             "anneal did not put its libexec on PATH for Bash, so run it as the plugin's \
-             libexec/bench: opening CLAUDE_ENV_FILE: "
-        ),
+             libexec/bench: opening {ENV_FILE_VAR}: "
+        )),
         "{note}"
     );
 }

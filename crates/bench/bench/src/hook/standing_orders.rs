@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use crate::error_chain::reason;
-use crate::hook::stop_output::StopOutput;
+use crate::harness::claude_code::StopOutput;
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::paths::{self, PathError};
 

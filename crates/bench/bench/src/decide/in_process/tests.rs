@@ -1,3 +1,4 @@
+use crate::harness::claude_code::{ACCOUNT_VAR, MODE_VAR, TOKEN_VAR};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::Path;
@@ -44,10 +45,7 @@ fn lookup(home: &Path, vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsStrin
     move |name| map.get(name).cloned()
 }
 
-const CONFIGURED: [(&str, &str); 2] = [
-    ("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123"),
-    ("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN"),
-];
+const CONFIGURED: [(&str, &str); 2] = [(ACCOUNT_VAR, "acct0123"), (TOKEN_VAR, "s3cr3t-T0KEN")];
 
 #[test]
 fn without_an_account_clef_is_off_and_the_home_is_untouched() {
@@ -67,7 +65,7 @@ fn without_an_account_clef_is_off_and_the_home_is_untouched() {
 fn a_point_whose_mode_is_off_is_off_and_the_others_on() {
     let home = tempfile::tempdir().expect("tempdir");
     let mut vars = CONFIGURED.to_vec();
-    vars.push(("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "shadow,D6=off"));
+    vars.push((MODE_VAR, "shadow,D6=off"));
 
     let d6 = status(Point::D6, lookup(home.path(), &vars));
     let d3 = status(Point::D3, lookup(home.path(), &vars));
@@ -80,7 +78,7 @@ fn a_point_whose_mode_is_off_is_off_and_the_others_on() {
 fn a_malformed_mode_is_misconfigured() {
     let home = tempfile::tempdir().expect("tempdir");
     let mut vars = CONFIGURED.to_vec();
-    vars.push(("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "loud"));
+    vars.push((MODE_VAR, "loud"));
 
     let status = status(Point::D3, lookup(home.path(), &vars));
 

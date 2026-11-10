@@ -1,3 +1,4 @@
+use crate::harness::claude_code::keys::TOOL_INPUT;
 use std::collections::BTreeSet;
 use std::io;
 use std::path::PathBuf;
@@ -563,8 +564,10 @@ fn every_check_has_its_own_id() {
 #[test]
 fn other_tools_and_commands_without_a_merge_are_silent() {
     for stdin in [
-        r#"{"tool_name": "Edit", "tool_input": {"file_path": "x"}}"#,
-        r#"{"tool_name": "Bash", "cwd": "/", "tool_input": {"command": "gh pr view 7"}}"#,
+        format!(r#"{{"tool_name": "Edit", "{TOOL_INPUT}": {{"file_path": "x"}}}}"#),
+        format!(
+            r#"{{"tool_name": "Bash", "cwd": "/", "{TOOL_INPUT}": {{"command": "gh pr view 7"}}}}"#
+        ),
     ] {
         assert_eq!(gate(stdin.as_bytes()), "", "{stdin}");
     }

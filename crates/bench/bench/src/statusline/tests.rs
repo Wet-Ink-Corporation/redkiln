@@ -1,3 +1,4 @@
+use crate::harness::claude_code::AUTO_COMPACT_WINDOW_VAR;
 use std::ffi::OsString;
 use std::path::Path;
 
@@ -13,7 +14,7 @@ use crate::hook::clef_fake::Fixed;
 fn status_line(input: &str, home: &Path, window: Option<&str>) -> (u8, String, String) {
     let lookup = |var: &str| match var {
         "ANNEAL_HOME" => Some(OsString::from(home)),
-        "CLAUDE_CODE_AUTO_COMPACT_WINDOW" => window.map(OsString::from),
+        AUTO_COMPACT_WINDOW_VAR => window.map(OsString::from),
         _ => None,
     };
     let (mut out, mut err) = (Vec::new(), Vec::new());

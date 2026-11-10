@@ -12,7 +12,7 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 
 use crate::error_chain::reason;
-use crate::harness::{ENV_FILE_VAR, PLUGIN_ROOT_VAR};
+use crate::harness::claude_code::{ENV_FILE_VAR, PLUGIN_ROOT_VAR};
 
 /// How much of the env file is read to find an earlier copy of the line; past it the line is
 /// appended without the check (H-13).

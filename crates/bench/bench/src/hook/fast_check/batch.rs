@@ -9,6 +9,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::harness::claude_code::BatchCall;
+
 /// The tools that edit files, and the `tool_input` key naming the file.
 const EDIT_TOOLS: [(&str, &str); 4] = [
     ("Edit", "file_path"),
@@ -29,16 +31,7 @@ pub(crate) struct Input {
     pub(crate) cwd: Option<PathBuf>,
     /// The batch; absent in an input that does not list it.
     #[serde(default)]
-    tool_calls: Option<Vec<ToolCall>>,
-}
-
-/// One call of the batch. `tool_input` stays raw: its shape depends on the tool.
-#[derive(Debug, Deserialize)]
-struct ToolCall {
-    #[serde(default)]
-    tool_name: String,
-    #[serde(default)]
-    tool_input: Value,
+    tool_calls: Option<Vec<BatchCall>>,
 }
 
 /// What the batch asks of the hook.
@@ -72,7 +65,7 @@ impl Input {
                 continue;
             };
             edits = true;
-            let Some(path) = call.tool_input.get(key).and_then(Value::as_str) else {
+            let Some(path) = call.input.get(key).and_then(Value::as_str) else {
                 continue;
             };
             if files.iter().any(|file| file == path) {

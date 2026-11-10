@@ -27,6 +27,7 @@ use serde::Deserialize;
 use crate::decide::clock::{Clock, SystemClock};
 use crate::decide::transport::Transport;
 use crate::decide::transport::http::UreqTransport;
+use crate::harness::claude_code::ToolUse;
 use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, reason, write_ask, write_deny};
 use crate::paths::{self, PathError};
 /// What [`run_with`] reaches Clef and time through, so its callers can name it.
@@ -161,18 +162,9 @@ impl Fallback {
     }
 }
 
-/// The fields of Claude Code's `PreToolUse` input the guard uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    session_id: Option<String>,
-    /// Where the ledger is resolved; the process's working directory when absent.
-    #[serde(default)]
-    cwd: Option<PathBuf>,
-    tool_name: String,
-    #[serde(default, rename = "tool_input")]
-    tool: ToolInput,
-}
+/// The fields of Claude Code's `PreToolUse` input the guard uses; the rest are ignored. Its
+/// `cwd` is where the ledger is resolved; the process's working directory when absent.
+type Input = ToolUse<ToolInput>;
 
 /// The Bash tool's input; other tools' fields are ignored.
 #[derive(Debug, Default, Deserialize)]

@@ -93,7 +93,7 @@ fn the_scan_skips_comments_and_inline_test_modules_but_reads_code_after_them() {
 
 #[test]
 fn the_scan_finds_every_name_in_the_harness_module_itself() {
-    let found = claude_lines(include_str!("../harness.rs"));
+    let found = claude_lines(include_str!("../claude_code.rs"));
 
     assert_eq!(
         found.len(),
@@ -175,5 +175,173 @@ fn the_plugin_option_variables_are_their_user_config_keys_upper_cased() {
     assert_eq!(
         derived,
         [super::ACCOUNT_VAR, super::TOKEN_VAR, super::MODE_VAR]
+    );
+}
+
+/// What `write` puts in a fresh buffer, as text.
+fn written(write: impl FnOnce(&mut Vec<u8>) -> std::io::Result<()>) -> String {
+    let mut out = Vec::new();
+    write(&mut out).expect("a Vec accepts every write");
+    String::from_utf8(out).expect("UTF-8")
+}
+
+#[test]
+fn a_permission_decision_is_one_pre_tool_use_line_with_its_reason_folded() {
+    let deny =
+        written(|out| super::write_permission(out, super::PermissionDecision::Deny, "a\r\nb"));
+    let ask = written(|out| super::write_permission(out, super::PermissionDecision::Ask, "c"));
+
+    assert_eq!(
+        [deny.as_str(), ask.as_str()],
+        [
+            "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\
+             \"deny\",\"permissionDecisionReason\":\"a  b\"}}\n",
+            "{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\
+             \"ask\",\"permissionDecisionReason\":\"c\"}}\n",
+        ]
+    );
+}
+
+#[test]
+fn a_session_start_output_carries_the_context_for_the_model() {
+    let output = written(|out| super::write_session_start(out, "ctx"));
+
+    assert_eq!(
+        output,
+        "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\
+         \"ctx\"}}\n"
+    );
+}
+
+#[test]
+fn a_batch_output_leaves_out_the_parts_it_does_not_have() {
+    let both = written(|out| super::write_batch(out, Some("why"), Some("ctx".to_owned())));
+    let block = written(|out| super::write_batch(out, Some("why"), None));
+    let context = written(|out| super::write_batch(out, None, Some("ctx".to_owned())));
+
+    assert_eq!(
+        [both.as_str(), block.as_str(), context.as_str()],
+        [
+            "{\"decision\":\"block\",\"reason\":\"why\",\"hookSpecificOutput\":{\"hookEventName\":\
+             \"PostToolBatch\",\"additionalContext\":\"ctx\"}}\n",
+            "{\"decision\":\"block\",\"reason\":\"why\"}\n",
+            "{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolBatch\",\"additionalContext\":\
+             \"ctx\"}}\n",
+        ]
+    );
+}
+
+#[test]
+fn a_prompt_output_shows_the_error_and_carries_the_context() {
+    let both = written(|out| super::write_prompt(out, Some("ERROR e"), Some("ctx")));
+    let error = written(|out| super::write_prompt(out, Some("ERROR e"), None));
+
+    assert_eq!(
+        [both.as_str(), error.as_str()],
+        [
+            "{\"systemMessage\":\"ERROR e\",\"hookSpecificOutput\":{\"hookEventName\":\
+             \"UserPromptSubmit\",\"additionalContext\":\"ctx\"}}\n",
+            "{\"systemMessage\":\"ERROR e\"}\n",
+        ]
+    );
+}
+
+#[test]
+fn a_stop_payload_is_read_from_claude_codes_field_names() {
+    let payload = "{\"session_id\":\"s\",\"transcript_path\":\"/t.jsonl\",\"cwd\":\"/w\",\
+                   \"stop_hook_active\":true,\"last_assistant_message\":\"done\"}";
+
+    let input: super::StopInput = serde_json::from_str(payload).expect("a Stop payload");
+
+    assert_eq!(
+        (
+            input.session_id.as_deref(),
+            input.transcript.as_deref(),
+            input.cwd.as_deref(),
+            input.after_block,
+            input.last_message.as_deref(),
+        ),
+        (
+            Some("s"),
+            Some(Path::new("/t.jsonl")),
+            Some(Path::new("/w")),
+            true,
+            Some("done"),
+        )
+    );
+}
+
+#[test]
+fn the_test_keys_are_the_names_the_payload_types_read() {
+    use super::keys::{
+        HOOK_EVENT_NAME, LAST_ASSISTANT_MESSAGE, STOP_HOOK_ACTIVE, TOOL_INPUT, TOOL_RESPONSE,
+        TRANSCRIPT_PATH,
+    };
+    let stop = serde_json::json!({
+        TRANSCRIPT_PATH: "/t",
+        STOP_HOOK_ACTIVE: true,
+        LAST_ASSISTANT_MESSAGE: "m",
+    });
+    let call = serde_json::json!({
+        HOOK_EVENT_NAME: "PostToolUse",
+        "tool_name": "Read",
+        TOOL_INPUT: {"a": 1},
+        TOOL_RESPONSE: {"b": 2},
+    });
+
+    let stop: super::StopInput = serde_json::from_value(stop).expect("a Stop payload");
+    let scan: super::ScanInput = serde_json::from_value(call).expect("a PostToolUse payload");
+
+    assert_eq!(
+        (
+            stop.transcript.as_deref(),
+            stop.after_block,
+            stop.last_message.as_deref()
+        ),
+        (Some(Path::new("/t")), true, Some("m"))
+    );
+    assert_eq!(
+        (
+            scan.event.as_deref(),
+            scan.call.name.as_str(),
+            &scan.call.input,
+            &scan.call.response
+        ),
+        (
+            Some("PostToolUse"),
+            "Read",
+            &serde_json::json!({"a": 1}),
+            &serde_json::json!({"b": 2})
+        )
+    );
+}
+
+#[test]
+fn the_test_keys_are_the_names_the_writers_write() {
+    use super::keys::{
+        ADDITIONAL_CONTEXT, HOOK_EVENT_NAME_OUT, HOOK_SPECIFIC_OUTPUT, PERMISSION_DECISION,
+        SYSTEM_MESSAGE,
+    };
+    let prompt = written(|out| super::write_prompt(out, Some("e"), Some("c")));
+    let permission =
+        written(|out| super::write_permission(out, super::PermissionDecision::Deny, "r"));
+    let prompt: serde_json::Value = serde_json::from_str(&prompt).expect("JSON");
+    let permission: serde_json::Value = serde_json::from_str(&permission).expect("JSON");
+
+    let found = (
+        prompt.get(SYSTEM_MESSAGE),
+        prompt.pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{HOOK_EVENT_NAME_OUT}")),
+        prompt.pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{ADDITIONAL_CONTEXT}")),
+        permission.pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{PERMISSION_DECISION}")),
+    );
+
+    assert_eq!(
+        found,
+        (
+            Some(&serde_json::json!("e")),
+            Some(&serde_json::json!("UserPromptSubmit")),
+            Some(&serde_json::json!("c")),
+            Some(&serde_json::json!("deny")),
+        )
     );
 }

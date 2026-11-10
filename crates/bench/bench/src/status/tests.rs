@@ -2,6 +2,7 @@
 //! anneal home at `$ANNEAL_HOME`, each in its own temporary directory. The JSON tests compare
 //! the whole document (a snapshot); only `HEAD`'s commit id is read from the repository.
 
+use crate::harness::claude_code::{ACCOUNT_VAR, MODE_VAR};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -192,12 +193,8 @@ fn mid_build(fixture: &mut Fixture) -> Setup<String> {
     });
     append(&store, verdict, None, "2026-10-19T10:00:04Z")?;
     home_state(&fixture.home())?;
-    fixture
-        .vars
-        .insert("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct123".into());
-    fixture
-        .vars
-        .insert("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "shadow,D1=enforce".into());
+    fixture.vars.insert(ACCOUNT_VAR, "acct123".into());
+    fixture.vars.insert(MODE_VAR, "shadow,D1=enforce".into());
     Ok(head)
 }
 

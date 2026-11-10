@@ -3,6 +3,7 @@ use std::time::Duration;
 use super::batch::{Batch, Input, porcelain};
 use super::checks::grant;
 use super::config::{ConfigError, check_fast, read};
+use crate::harness::claude_code::keys::{HOOK_EVENT_NAME, TOOL_INPUT, TOOL_RESPONSE};
 
 fn input(json: &str) -> Input {
     serde_json::from_str(json).expect("the fixture is PostToolBatch-shaped JSON")
@@ -10,8 +11,8 @@ fn input(json: &str) -> Input {
 
 fn edit(tool: &str, key: &str, path: &str) -> String {
     format!(
-        "{{\"tool_name\": \"{tool}\", \"tool_input\": {{\"{key}\": \"{path}\"}}, \
-         \"tool_use_id\": \"t\", \"tool_response\": {{}}}}"
+        "{{\"tool_name\": \"{tool}\", \"{TOOL_INPUT}\": {{\"{key}\": \"{path}\"}}, \
+         \"tool_use_id\": \"t\", \"{TOOL_RESPONSE}\": {{}}}}"
     )
 }
 
@@ -21,7 +22,7 @@ fn ten_parallel_edits_are_one_batch_of_their_distinct_files_in_order() {
         .map(|n| edit("Edit", "file_path", &format!("src/f{}.rs", n % 7)))
         .collect();
     let json = format!(
-        "{{\"hook_event_name\": \"PostToolBatch\", \"cwd\": \"/w\", \"tool_calls\": [{}]}}",
+        "{{\"{HOOK_EVENT_NAME}\": \"PostToolBatch\", \"cwd\": \"/w\", \"tool_calls\": [{}]}}",
         calls.join(", ")
     );
 
@@ -40,6 +41,7 @@ fn ten_parallel_edits_are_one_batch_of_their_distinct_files_in_order() {
 
 #[test]
 fn every_file_editing_tool_counts_and_other_tools_do_not() {
+    let not_an_object = format!("{{\"tool_name\": \"Edit\", \"{TOOL_INPUT}\": \"not an object\"}}");
     let json = format!(
         "{{\"tool_calls\": [{}, {}, {}, {}, {}, {}]}}",
         edit("Write", "file_path", "a.md"),
@@ -47,7 +49,7 @@ fn every_file_editing_tool_counts_and_other_tools_do_not() {
         edit("NotebookEdit", "notebook_path", "c.ipynb"),
         edit("Read", "file_path", "d.rs"),
         edit("Bash", "command", "touch e.rs"),
-        "{\"tool_name\": \"Edit\", \"tool_input\": \"not an object\"}",
+        not_an_object,
     );
 
     assert_eq!(

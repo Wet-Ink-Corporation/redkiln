@@ -34,13 +34,12 @@ use std::time::Duration;
 
 use bench_ledger::event::StopBlocked;
 use bench_ledger::{EventEnvelope, LedgerEvent, Timestamp};
-use serde::Deserialize;
 
 use crate::decide::clock::Clock;
 use crate::decide::transport::Transport;
 use crate::error_chain::reason;
+use crate::harness::claude_code::{StopInput, StopOutput};
 use crate::hook::prompt::Budget;
-use crate::hook::stop_output::StopOutput;
 use crate::hook::transcript::{self, Activity};
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::paths;
@@ -73,19 +72,7 @@ const REPORT_AGAIN: &str = "then give your complete report again in your next re
                             step";
 
 /// The fields of Claude Code's `Stop` input the hook uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    transcript_path: Option<PathBuf>,
-    #[serde(default)]
-    cwd: Option<PathBuf>,
-    #[serde(default)]
-    stop_hook_active: bool,
-    #[serde(default)]
-    last_assistant_message: Option<String>,
-}
+type Input = StopInput;
 
 /// Why the hook input could not be used.
 #[derive(Debug, thiserror::Error)]
@@ -134,7 +121,7 @@ where
         Err(error) => return failed("the hook input cannot be read", &error).write(out),
     };
     // The stop already follows a block: let it end, as the platform asks.
-    if input.stop_hook_active {
+    if input.after_block {
         return Ok(());
     }
     let cwd = match input.cwd {
@@ -144,10 +131,10 @@ where
             Err(error) => return failed("the working directory cannot be read", &error).write(out),
         },
     };
-    let transcript = input.transcript_path.as_deref();
+    let transcript = input.transcript.as_deref();
     let mut notes = Vec::new();
     let reply = input
-        .last_assistant_message
+        .last_message
         .or_else(|| last_message(transcript, &mut notes));
     let mut found = check::run(&cwd, reply.as_deref(), &lookup);
     found.notes.append(&mut notes);

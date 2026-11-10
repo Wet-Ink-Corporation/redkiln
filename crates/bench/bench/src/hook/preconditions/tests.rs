@@ -2,6 +2,7 @@
 //! `ToolInput::paths`: the files a gated call names; the hook's time budget and the worktree
 //! cache.
 
+use crate::harness::claude_code::keys::TOOL_INPUT;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -43,7 +44,7 @@ fn with_no_time_left_an_edit_is_denied_as_unjudged_and_not_recorded()
     let input: Input = serde_json::from_value(json!({
         "cwd": dir.path(),
         "tool_name": "MultiEdit",
-        "tool_input": {"file_path": dir.path().join("a.rs"), "edits": []},
+        TOOL_INPUT: {"file_path": dir.path().join("a.rs"), "edits": []},
     }))?;
     let spent = Budget::within(Instant::now(), Duration::ZERO, GIT_TIMEOUT);
 
@@ -138,7 +139,7 @@ fn a_notebook_edit_names_its_notebook_first_and_needs_it() -> Result<(), serde_j
     );
     assert!(
         matches!(&missing, Err(denial) if denial.check == Check::BadInput
-            && denial.reason.ends_with("the NotebookEdit input has no tool_input.notebook_path")),
+            && denial.reason.ends_with(&format!("the NotebookEdit input has no {TOOL_INPUT}.notebook_path"))),
         "{missing:?}"
     );
     Ok(())

@@ -27,7 +27,7 @@ use crate::decide::clock::{Clock, SystemClock};
 use crate::error::CliError;
 use crate::error_chain::reason;
 use crate::exit_codes::{self, Code};
-use crate::harness::AUTO_COMPACT_WINDOW_VAR;
+use crate::harness::claude_code::AUTO_COMPACT_WINDOW_VAR;
 use crate::hook::{StdinError, read_stdin};
 use crate::paths::{self, PathError};
 

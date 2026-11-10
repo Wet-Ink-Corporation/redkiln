@@ -1,6 +1,7 @@
 //! `bench grill classify` with a fake Clef: shadow only logs, enforce writes `is_decision`,
 //! and nothing is asked for a question that is not an open node of a valid tree.
 
+use crate::harness::claude_code::MODE_VAR;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
@@ -18,7 +19,7 @@ use crate::grill::{GrillAction, run};
 use crate::hook::clef_fake::{CONFIGURED, Fixed, TestResult, World, block_the_log, reply};
 
 /// The variable that sets Clef's mode.
-const MODE: &str = "CLAUDE_PLUGIN_OPTION_CLEF_MODE";
+const MODE: &str = MODE_VAR;
 
 /// Answers every request with one fixed reply and keeps each request body.
 struct Endpoint {

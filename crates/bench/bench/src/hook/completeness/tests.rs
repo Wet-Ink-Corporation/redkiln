@@ -1,6 +1,10 @@
 //! The Stop hook with Clef D4: shadow never changes its output, and an enforcing D4 block is a
 //! hard gate under the same cap of two blocks in a row.
 
+use crate::harness::claude_code::keys::{
+    ADDITIONAL_CONTEXT, HOOK_EVENT_NAME, HOOK_SPECIFIC_OUTPUT, LAST_ASSISTANT_MESSAGE,
+    STOP_HOOK_ACTIVE,
+};
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
@@ -35,9 +39,9 @@ fn stop(world: &World, repo: &ScratchRepo, reply: &str, clef: &Answering) -> Tes
     let stdin = json!({
         "session_id": "s1",
         "cwd": repo.path(),
-        "hook_event_name": "Stop",
-        "stop_hook_active": false,
-        "last_assistant_message": reply,
+        HOOK_EVENT_NAME: "Stop",
+        STOP_HOOK_ACTIVE: false,
+        LAST_ASSISTANT_MESSAGE: reply,
     })
     .to_string()
     .into_bytes();
@@ -105,7 +109,7 @@ fn an_enforcing_d4_block_names_the_section_and_counts_toward_the_cap_of_two() ->
     );
     assert_eq!(third.get("decision"), None, "never a third: {third}");
     let context = third
-        .pointer("/hookSpecificOutput/additionalContext")
+        .pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{ADDITIONAL_CONTEXT}"))
         .and_then(Value::as_str)
         .unwrap_or_default();
     assert!(context.contains("already blocked twice"), "{context}");

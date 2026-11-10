@@ -31,7 +31,7 @@ use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use super::Denial;
-use crate::harness::PROJECT_DIR_VAR;
+use crate::harness::claude_code::PROJECT_DIR_VAR;
 use checker::{Checker, Entries, Scope};
 use feed::Feed;
 pub(crate) use gh::{PrMerge, Target, read_target};

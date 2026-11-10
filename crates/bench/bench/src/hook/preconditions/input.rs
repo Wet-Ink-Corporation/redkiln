@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use super::{Check, Denial};
+use crate::harness::claude_code::{TOOL_INPUT, ToolUse};
 
 /// Most distinct paths one call may name; a call naming more is denied as bad input.
 pub(super) const MAX_PATHS: usize = 16;
@@ -40,19 +41,10 @@ impl Tool {
     }
 }
 
-/// The fields of Claude Code's `PreToolUse` input the hook uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-pub(super) struct Input {
-    #[serde(default)]
-    pub(super) session_id: Option<String>,
-    /// Where the ledger and the worktree are found, and relative paths resolved; the process's
-    /// working directory when absent.
-    #[serde(default)]
-    pub(super) cwd: Option<PathBuf>,
-    pub(super) tool_name: String,
-    #[serde(default, rename = "tool_input")]
-    pub(super) tool: ToolInput,
-}
+/// The fields of Claude Code's `PreToolUse` input the hook uses; the rest are ignored. Its
+/// `cwd` is where the ledger and the worktree are found, and relative paths resolved; the
+/// process's working directory when absent.
+pub(super) type Input = ToolUse<ToolInput>;
 
 /// The gated tools' input: every field that names a file; other fields are ignored.
 #[derive(Debug, Default, Deserialize)]
@@ -89,7 +81,7 @@ impl ToolInput {
                 Check::BadInput,
                 format!(
                     "preconditions: the hook input cannot be read: the {tool_name} input has no \
-                     tool_input.{}",
+                     {TOOL_INPUT}.{}",
                     tool.path_field()
                 ),
             ));

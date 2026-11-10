@@ -1,3 +1,6 @@
+use crate::harness::claude_code::keys::{
+    HOOK_EVENT_NAME, HOOK_EVENT_NAME_OUT, HOOK_SPECIFIC_OUTPUT, PERMISSION_DECISION, TOOL_INPUT,
+};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,9 +32,9 @@ fn guard(stdin: &[u8], store: &Path) -> String {
 fn bash(command: &str) -> Vec<u8> {
     json!({
         "session_id": "s-guard",
-        "hook_event_name": "PreToolUse",
+        HOOK_EVENT_NAME: "PreToolUse",
         "tool_name": "Bash",
-        "tool_input": {"command": command, "description": "test"},
+        TOOL_INPUT: {"command": command, "description": "test"},
     })
     .to_string()
     .into_bytes()
@@ -41,15 +44,15 @@ fn bash(command: &str) -> Vec<u8> {
 fn denied(stdout: &str) -> String {
     let output: Value = serde_json::from_str(stdout).expect("one JSON object");
     let reason = output
-        .pointer("/hookSpecificOutput/permissionDecisionReason")
+        .pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/permissionDecisionReason"))
         .and_then(Value::as_str)
         .expect("a reason")
         .to_owned();
     assert_eq!(
         output,
-        json!({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
+        json!({HOOK_SPECIFIC_OUTPUT: {
+            HOOK_EVENT_NAME_OUT: "PreToolUse",
+            PERMISSION_DECISION: "deny",
             "permissionDecisionReason": reason,
         }}),
         "a PreToolUse deny decision and nothing else"
@@ -167,7 +170,7 @@ fn input_over_the_cap_is_denied() {
 #[test]
 fn a_bash_input_without_a_command_is_denied() {
     let dir = tempfile::tempdir().expect("a temporary directory");
-    let input = json!({"tool_name": "Bash", "tool_input": {}}).to_string();
+    let input = json!({"tool_name": "Bash", TOOL_INPUT: {}}).to_string();
 
     let stdout = guard(input.as_bytes(), &dir.path().join("ledger.sqlite3"));
 
@@ -194,7 +197,7 @@ fn an_unreadable_command_is_denied() {
 #[test]
 fn another_tool_is_not_judged() {
     let dir = tempfile::tempdir().expect("a temporary directory");
-    let input = json!({"tool_name": "Write", "tool_input": {"file_path": "clippy.toml"}});
+    let input = json!({"tool_name": "Write", TOOL_INPUT: {"file_path": "clippy.toml"}});
 
     let stdout = guard(
         input.to_string().as_bytes(),

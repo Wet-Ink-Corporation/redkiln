@@ -1,3 +1,4 @@
+use crate::harness::claude_code::keys::HOOK_EVENT_NAME;
 use std::error::Error;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -95,7 +96,7 @@ impl Repo {
         let input = serde_json::json!({
             "session_id": "s1",
             "cwd": cwd,
-            "hook_event_name": "PreCompact",
+            HOOK_EVENT_NAME: "PreCompact",
             "trigger": "manual",
             "custom_instructions": "keep the parser notes",
         })

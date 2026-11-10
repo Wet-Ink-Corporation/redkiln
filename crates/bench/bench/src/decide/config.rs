@@ -19,7 +19,7 @@ use serde::Serialize;
 use crate::decide::point::Point;
 use crate::decide::state::cut_chars;
 use crate::decide::transport::ApiToken;
-pub use crate::harness::{ACCOUNT_VAR, MODE_VAR, TOKEN_VAR};
+pub use crate::harness::claude_code::{ACCOUNT_VAR, MODE_VAR, TOKEN_VAR};
 
 /// Test-only override of the Workers AI accounts URL; loopback `http://` only, debug builds
 /// only.

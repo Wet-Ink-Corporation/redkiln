@@ -111,10 +111,7 @@ fn a_mode_that_cannot_be_read_is_null_with_the_reason_and_the_run_still_succeeds
 
     assert_eq!(modes(&envelope), [&Value::Null; 7]);
     let reason = envelope["data"]["mode_error"].as_str().expect("a reason");
-    assert!(
-        reason.contains("CLAUDE_PLUGIN_OPTION_CLEF_MODE"),
-        "{reason}"
-    );
+    assert!(reason.contains(decide::config::MODE_VAR), "{reason}");
     Ok(())
 }
 

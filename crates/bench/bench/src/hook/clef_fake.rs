@@ -2,6 +2,10 @@
 //! home (and a way to block its log), and readers for the decision log and a hook's output. Declared `#[cfg(test)]`; its helpers
 //! return `Result` so a failure names its cause (TST-14).
 
+use crate::harness::claude_code::keys::{
+    ADDITIONAL_CONTEXT, HOOK_EVENT_NAME, HOOK_SPECIFIC_OUTPUT, TRANSCRIPT_PATH,
+};
+use crate::harness::claude_code::{ACCOUNT_VAR, MODE_VAR, TOKEN_VAR};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;
@@ -69,10 +73,8 @@ pub(crate) fn block_the_log(home: &Path) -> TestResult {
 }
 
 /// An account and a token, so Clef is asked (in shadow, the default mode).
-pub(crate) const CONFIGURED: [(&str, &str); 2] = [
-    ("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123"),
-    ("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN"),
-];
+pub(crate) const CONFIGURED: [(&str, &str); 2] =
+    [(ACCOUNT_VAR, "acct0123"), (TOKEN_VAR, "s3cr3t-T0KEN")];
 
 /// Workers AI's envelope around Clef's answer `inner`.
 pub(crate) fn reply(inner: Result<Value, TransportError>) -> Result<Vec<u8>, TransportError> {
@@ -110,14 +112,14 @@ impl World {
     /// 50-answer shadow period.
     pub(crate) fn enforce_configured_in_shadow_period() -> TestResult<Self> {
         let mut vars = CONFIGURED.to_vec();
-        vars.push(("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "enforce"));
+        vars.push((MODE_VAR, "enforce"));
         Self::new(&vars)
     }
 
     /// Configured for enforce, with `point` past its shadow period.
     pub(crate) fn enforcing(point: Point) -> TestResult<Self> {
         let mut vars = CONFIGURED.to_vec();
-        vars.push(("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "enforce"));
+        vars.push((MODE_VAR, "enforce"));
         let world = Self::new(&vars)?;
         let log = DecisionLog::in_home(world.home());
         for _ in 0..50 {
@@ -152,9 +154,9 @@ impl World {
     pub(crate) fn input(&self, prompt: &str, cwd: &Path) -> Vec<u8> {
         json!({
             "session_id": "s1",
-            "transcript_path": self.transcript(),
+            TRANSCRIPT_PATH: self.transcript(),
             "cwd": cwd,
-            "hook_event_name": "UserPromptSubmit",
+            HOOK_EVENT_NAME: "UserPromptSubmit",
             "prompt": prompt,
         })
         .to_string()
@@ -201,6 +203,6 @@ pub(crate) fn parsed(out: &[u8]) -> TestResult<Value> {
 /// The output's `additionalContext`, if any.
 pub(crate) fn context(output: &Value) -> Option<&str> {
     output
-        .pointer("/hookSpecificOutput/additionalContext")
+        .pointer(&format!("/{HOOK_SPECIFIC_OUTPUT}/{ADDITIONAL_CONTEXT}"))
         .and_then(Value::as_str)
 }

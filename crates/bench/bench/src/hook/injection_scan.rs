@@ -18,11 +18,8 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
-use serde::Deserialize;
-use serde_json::Value;
-
 use crate::error_chain::reason;
-use crate::hook::stop_output::StopOutput;
+use crate::harness::claude_code::{ScanInput, StopOutput};
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use content::{Content, Tool};
 use detect::Hit;
@@ -60,28 +57,7 @@ const MAX_PLACE_BYTES: usize = 512;
 const DECLARED_EVENT: &str = "PostToolBatch";
 
 /// The fields of a `PostToolBatch` or `PostToolUse` input the hook uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    hook_event_name: Option<String>,
-    /// A `PostToolBatch` input's calls.
-    #[serde(default)]
-    tool_calls: Option<Vec<Call>>,
-    /// A `PostToolUse` input's one call, at the top level.
-    #[serde(flatten)]
-    call: Call,
-}
-
-/// One tool call. `tool_input` and `tool_response` stay raw: their shapes depend on the tool.
-#[derive(Debug, Default, Deserialize)]
-struct Call {
-    #[serde(default, rename = "tool_name")]
-    name: String,
-    #[serde(default, rename = "tool_input")]
-    input: Value,
-    #[serde(default, rename = "tool_response")]
-    response: Value,
-}
+type Input = ScanInput;
 
 /// Why the hook input could not be used.
 #[derive(Debug, thiserror::Error)]
@@ -158,7 +134,7 @@ fn note(input: &Input, caps: Caps) -> StopOutput {
 
 /// The event to answer as: the input's, else the one its shape implies.
 fn event(input: &Input) -> &'static str {
-    match input.hook_event_name.as_deref() {
+    match input.event.as_deref() {
         Some("PostToolUse") => "PostToolUse",
         Some("PostToolBatch") => "PostToolBatch",
         _ if input.tool_calls.is_some() => "PostToolBatch",

@@ -29,6 +29,7 @@ use serde::Deserialize;
 
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
+use crate::harness::claude_code::SubagentToolUse;
 use crate::hook::guard::{BUSY_TIMEOUT, GIT_TIMEOUT};
 use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
 use crate::lint::brief::{BriefFinding, Rule, check};
@@ -106,21 +107,7 @@ impl Denial {
 }
 
 /// The fields of Claude Code's `PreToolUse` input the hook uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    session_id: Option<String>,
-    #[serde(default)]
-    cwd: Option<PathBuf>,
-    tool_name: String,
-    #[serde(default, rename = "tool_input")]
-    tool: ToolInput,
-    /// Set when the call runs inside a subagent.
-    #[serde(default)]
-    agent_id: Option<String>,
-    #[serde(default)]
-    agent_type: Option<String>,
-}
+type Input = SubagentToolUse<ToolInput>;
 
 /// The Agent tool's input; other fields are ignored.
 #[derive(Debug, Default, Deserialize)]

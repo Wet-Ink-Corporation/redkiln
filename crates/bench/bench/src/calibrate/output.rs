@@ -20,7 +20,7 @@ use crate::decide::point::{Point, Question};
 use crate::envelope::Envelope;
 use crate::error_chain::reason;
 use crate::exit_codes::{self, Code};
-use crate::harness::{MODE_KEY, MODE_VAR};
+use crate::harness::claude_code::{MODE_KEY, MODE_VAR};
 
 /// The proposals file's `kind`.
 pub(crate) const PROPOSALS_KIND: &str = "anneal-threshold-proposals";

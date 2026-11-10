@@ -1,6 +1,8 @@
 //! `bench hook route` with a fake Clef: injection only in enforce mode above the threshold,
 //! silence otherwise, and the next prompt labelling the decision.
 
+use crate::harness::claude_code::MODE_VAR;
+use crate::harness::claude_code::keys::SYSTEM_MESSAGE;
 use std::path::PathBuf;
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
@@ -213,7 +215,7 @@ fn an_unreachable_clef_injects_nothing_and_logs_the_miss() -> TestResult {
 #[test]
 fn a_malformed_configuration_is_one_error_line_and_no_context() -> TestResult {
     let mut vars = crate::hook::clef_fake::CONFIGURED.to_vec();
-    vars.push(("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "loud"));
+    vars.push((MODE_VAR, "loud"));
     let world = World::new(&vars)?;
 
     let output = route(
@@ -223,7 +225,7 @@ fn a_malformed_configuration_is_one_error_line_and_no_context() -> TestResult {
     )?;
 
     assert_eq!(context(&output), None);
-    let message = output["systemMessage"].as_str().unwrap_or_default();
+    let message = output[SYSTEM_MESSAGE].as_str().unwrap_or_default();
     assert!(message.starts_with("ERROR route: "), "{output}");
     assert!(world.rows()?.is_empty(), "nothing asked, nothing logged");
     Ok(())
@@ -355,7 +357,7 @@ fn in_enforce_an_answer_that_cannot_be_logged_is_not_injected_and_is_one_error_l
     )?;
 
     assert_eq!(context(&output), None, "{output}");
-    let message = output["systemMessage"].as_str().unwrap_or_default();
+    let message = output[SYSTEM_MESSAGE].as_str().unwrap_or_default();
     assert!(message.starts_with("ERROR route: "), "{output}");
     assert!(
         message.contains("the phase decision was not logged"),
@@ -381,7 +383,7 @@ fn with_too_little_of_the_budget_left_clef_is_not_asked() -> TestResult {
     let output = route_at(&world, "build T3", &recorder, &Stepping::by_ms(3_000))?;
 
     assert_eq!(context(&output), None, "{output}");
-    let message = output["systemMessage"].as_str().unwrap_or_default();
+    let message = output[SYSTEM_MESSAGE].as_str().unwrap_or_default();
     assert!(
         message.starts_with("ERROR route: Clef was not asked"),
         "{output}"

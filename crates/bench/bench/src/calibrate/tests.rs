@@ -1,5 +1,6 @@
 //! `bench calibrate` through `cli`'s argument parsing, with an anneal home of its own.
 
+use crate::harness::claude_code::{ACCOUNT_VAR, MODE_VAR, TOKEN_VAR};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, Write};
@@ -255,7 +256,7 @@ fn an_eligible_point_gets_a_mode_step_and_nothing_is_applied() -> TestResult {
     assert!(
         apply.contains(&json!({
             "kind": "mode", "point": "D7", "user_config": "clef_mode",
-            "env": "CLAUDE_PLUGIN_OPTION_CLEF_MODE", "value": "D7=enforce",
+            "env": MODE_VAR, "value": "D7=enforce",
         })),
         "{apply:?}"
     );
@@ -378,8 +379,8 @@ fn decide_in(home: &Path, words: &[&str]) -> Result<Value, Box<dyn std::error::E
         lookup: |var: &str| -> Option<OsString> {
             match var {
                 "ANNEAL_HOME" => Some(home.as_os_str().to_owned()),
-                "CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID" => Some("acct0123".into()),
-                "CLAUDE_PLUGIN_OPTION_CF_API_TOKEN" => Some("token-value".into()),
+                ACCOUNT_VAR => Some("acct0123".into()),
+                TOKEN_VAR => Some("token-value".into()),
                 _ => None,
             }
         },

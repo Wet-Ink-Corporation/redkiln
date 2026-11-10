@@ -145,7 +145,7 @@ impl<T: Transport + Sync, C: Clock + Sync> Router<'_, T, C> {
         let session = input
             .session_id
             .as_deref()
-            .zip(input.transcript_path.as_deref())
+            .zip(input.transcript.as_deref())
             .map(|(id, transcript)| Session { id, transcript });
         if let Some(session) = session
             && let Err(error) = outcome::settle(self.clef, self.playbook, session, self.clock)

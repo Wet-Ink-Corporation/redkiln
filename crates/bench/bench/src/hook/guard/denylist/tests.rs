@@ -17,6 +17,7 @@ mod watch_exec;
 mod wrapper_options;
 mod wrapper_probes;
 
+use crate::harness::claude_code::PROJECT_DIR_VAR;
 use std::ffi::OsString;
 
 use super::{Context, Verdict, check};
@@ -33,7 +34,7 @@ const ALLOW: Option<Rule> = None;
 fn context() -> Context {
     Context::new(|var| match var {
         "TMPDIR" => Some(OsString::from("/var/tmp-claude")),
-        "CLAUDE_PROJECT_DIR" => Some(OsString::from("/work/proj")),
+        PROJECT_DIR_VAR => Some(OsString::from("/work/proj")),
         _ => None,
     })
 }
@@ -566,9 +567,11 @@ fn a_denial_names_the_target_and_why() {
 
     assert_eq!(
         denial.reason,
-        "rm -rf /etc: it is outside the temporary and scratch directories; only literal \
-         absolute paths under $TMPDIR, /tmp, /var/folders or $CLAUDE_PROJECT_DIR/.scratch may \
-         be force-deleted recursively",
+        format!(
+            "rm -rf /etc: it is outside the temporary and scratch directories; only literal \
+             absolute paths under $TMPDIR, /tmp, /var/folders or ${PROJECT_DIR_VAR}/.scratch may \
+             be force-deleted recursively"
+        ),
         "one line naming the target"
     );
 }

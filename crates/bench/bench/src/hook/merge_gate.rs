@@ -54,6 +54,7 @@ use serde::Deserialize;
 
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
+use crate::harness::claude_code::ToolUse;
 use crate::hook::guard::{
     BUSY_TIMEOUT, Context, GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge,
 };
@@ -174,19 +175,10 @@ fn unjudged(what: &str, error: &dyn Error) -> Denial {
     )
 }
 
-/// The fields of Claude Code's `PreToolUse` input the gate uses; the rest are ignored.
-#[derive(Debug, Deserialize)]
-struct Input {
-    #[serde(default)]
-    session_id: Option<String>,
-    /// Where the worktree and the ledger are found; the process's working directory when
-    /// absent.
-    #[serde(default)]
-    cwd: Option<PathBuf>,
-    tool_name: String,
-    #[serde(default, rename = "tool_input")]
-    tool: ToolInput,
-}
+/// The fields of Claude Code's `PreToolUse` input the gate uses; the rest are ignored. Its
+/// `cwd` is where the worktree and the ledger are found; the process's working directory when
+/// absent.
+type Input = ToolUse<ToolInput>;
 
 /// The Bash tool's input; other fields are ignored.
 #[derive(Debug, Default, Deserialize)]

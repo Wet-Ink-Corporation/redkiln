@@ -11,7 +11,7 @@ use std::path::Path;
 
 use super::wrappers::{is_long, may_be_option};
 use super::{Context, normalize, readings};
-use crate::harness::PROJECT_DIR_VAR;
+use crate::harness::claude_code::PROJECT_DIR_VAR;
 use crate::hook::guard::shell::{Shape, Word};
 use crate::hook::guard::{Denial, Rule};
 
