@@ -93,11 +93,18 @@ fn run_layers() -> Result<ExitCode, String> {
 }
 
 /// The command lists of the binaries plugins ship, from their contract crates.
-const CLIS: [plugins::Cli<'static>; 1] = [plugins::Cli {
-    binary: weighin_contract::cli::BINARY,
-    commands: weighin_contract::cli::COMMANDS,
-    value_options: weighin_contract::cli::VALUE_OPTIONS,
-}];
+const CLIS: [plugins::Cli<'static>; 2] = [
+    plugins::Cli {
+        binary: bench_contract::cli::BINARY,
+        commands: bench_contract::cli::COMMANDS,
+        value_options: bench_contract::cli::VALUE_OPTIONS,
+    },
+    plugins::Cli {
+        binary: weighin_contract::cli::BINARY,
+        commands: weighin_contract::cli::COMMANDS,
+        value_options: weighin_contract::cli::VALUE_OPTIONS,
+    },
+];
 
 /// Checks this repository's `plugins/` against the plugin rules and every subcommand its prompts
 /// name against the binaries' command lists, then its `crates/` against the rule that harness

@@ -1,0 +1,576 @@
+//! `bench eval uplift`: Tier 3, behaviour uplift (`evals/README.md`).
+//!
+//! Each entry skill has suites of cases under `evals/uplift/<skill>/{regression,capability}/`
+//! (`suites`, `case`), narrowed by `--skill` and `--case` (`select`). Every problem with them
+//! stops the run before anything is spent. The cases then run `--runs` times each (3 by
+//! default) through `claude plugin eval` (the `drive::Evaluator` port, adapted by `claude`),
+//! once against the whole plugin and once against the baseline: the plugin with the case's
+//! skill removed, or the `--baseline` plugin. Each skill is held to the bars (`tally`,
+//! `stats`): a pooled uplift whose 95% Newcombe lower bound is 0 or more, no guard case broken
+//! (a guard may slip one run, which puts it on watch, and two slips break it), and no
+//! regression suite regressed. `--no-baseline` runs the with arm alone to confirm a watched
+//! guard: no uplift is computed, and each guard holds at 9 in 10 of its runs.
+
+mod args;
+mod case;
+mod changed;
+mod claude;
+mod drive;
+mod fixture;
+mod gated;
+mod report;
+mod runs;
+mod sandbox;
+mod select;
+mod stats;
+mod suites;
+mod tally;
+#[cfg(all(test, unix))]
+mod test_git;
+
+use std::ffi::OsString;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+
+use args::default_work_dir;
+pub use args::{BaselineArm, GatedTools, Scaffolds, UpliftArgs};
+pub(crate) use args::{Mode, Settings};
+pub use gated::GatedCases;
+pub(crate) use report::report;
+
+use crate::eval::real::args::plugin_of;
+use crate::eval::real::claude::plugin_name;
+use crate::eval::real::{ChangedError, RouterError};
+use crate::exit_codes::Code;
+use crate::lint::skills::LintError;
+use crate::paths::PathError;
+use case::{Grader, Tool};
+use claude::{
+    BaselinePlugin, CHILD_TMP_BELOW_WORK_DIR, ClaudeEvaluator, LauncherTarget, Placement, Plugins,
+    Unkept,
+};
+use drive::{Ask, Baseline, Drove, Metered, drive, first_batch_error};
+use runs::Runs;
+use select::select;
+use suites::Suites;
+use tally::{Rule, Scoring};
+
+/// What a Tier 3 run found.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct UpliftOutcome {
+    /// True for `--check`: the suites were read and nothing ran.
+    pub(crate) check: bool,
+    /// The suites: the cases selected (by `--skill`, `--case` and `--changed-since`), every
+    /// problem, and the coverage of the skills selected.
+    pub(crate) suites: Suites,
+    /// Whether whole suites were selected or, with `--case`, one case.
+    pub(crate) scope: Scope,
+    /// The runs asked for per case in each arm (`--runs`; a round's for `--check`).
+    pub(crate) runs: Runs,
+    /// The words a watched guard's confirmation command carries over from this run
+    /// ([`UpliftArgs::confirm_words`]), owned as the outcome outlives the arguments' borrow.
+    pub(crate) confirm_prefix: Vec<String>,
+    /// How the batches went, or `None` when nothing ran.
+    pub(crate) drove: Option<Drove>,
+    /// True when `--changed-since` found no selected skill changed, so nothing ran.
+    pub(crate) skipped: bool,
+    /// The baseline, when a run was asked for.
+    pub(crate) baseline: Option<BaselineKind>,
+    /// Why the temporary workspace could not be removed, if it could not.
+    pub(crate) cleanup: Option<String>,
+    /// The cost cap in US dollars, when a run was asked for.
+    pub(crate) max_cost_usd: Option<f64>,
+    /// Where the plugin copies got the running binary, when a run made copies.
+    pub(crate) anneal: Option<PlacedAnneal>,
+    /// The work directory, when a run made its workspace there although a selected case
+    /// names Bash and the eval sandbox denies Bash every write under it.
+    pub(crate) read_only_sandbox: Option<String>,
+    /// Why Bash's sandbox cannot start in the run's cases that name Bash, when the `claude`
+    /// children's `TMPDIR` is too long for its sockets (also written to stderr before the run).
+    pub(crate) socket_path: Option<String>,
+    /// The batch results and run traces `--keep-results` could not keep, in batch order.
+    pub(crate) unkept: Vec<Unkept>,
+}
+
+impl UpliftOutcome {
+    /// The rule the run is scored by: a confirmation when it ran no baseline
+    /// (`--no-baseline`), else a round, at the runs asked for.
+    pub(crate) fn rule(&self) -> Rule {
+        Rule {
+            runs: self.runs,
+            scoring: if self.baseline == Some(BaselineKind::Skipped) {
+                Scoring::Confirmation
+            } else {
+                Scoring::Round
+            },
+        }
+    }
+
+    /// Whether a suite may graduate in this run: only in a round of whole suites, not in a
+    /// confirmation or under `--case`.
+    pub(crate) fn may_graduate(&self) -> bool {
+        self.scope == Scope::Suites && self.rule().scoring == Scoring::Round
+    }
+}
+
+/// What a run selected of its skills' suites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scope {
+    /// Whole suites (narrowed only by skill or change).
+    Suites,
+    /// One case (`--case`): no suite ran whole, so none can graduate.
+    OneCase,
+}
+
+impl Scope {
+    /// The scope `args` select.
+    const fn of(args: &UpliftArgs) -> Self {
+        if args.case.is_some() {
+            Self::OneCase
+        } else {
+            Self::Suites
+        }
+    }
+}
+
+/// Where a run's plugin copies got the running `anneal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlacedAnneal {
+    /// Under `libexec/<target>/`, the launcher's first choice on this host.
+    Target(&'static str),
+    /// Nowhere: the launcher knows no target for this host.
+    UnknownHost,
+}
+
+/// The baseline a run compares with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum BaselineKind {
+    /// Each skill's cases against the plugin with that skill removed.
+    SkillRemoved,
+    /// Every case against the `--baseline` plugin at this path.
+    Plugin(String),
+    /// None: the with arm alone ran (`--no-baseline`).
+    Skipped,
+}
+
+/// Why `eval uplift` could not run.
+#[derive(Debug, thiserror::Error)]
+pub enum UpliftError {
+    /// The skills directory could not be read.
+    #[error("reading skills")]
+    Skills(#[source] LintError),
+    /// The suites directory could not be read.
+    #[error("reading suites")]
+    Suites(#[source] LintError),
+    /// `--skill` named a skill with no suite directory.
+    #[error("--skill {name} names no skill with suites under the suites directory")]
+    UnknownSkill {
+        /// The name given.
+        name: String,
+    },
+    /// `--case` named no case under the suites directory (of the `--skill`s given, if any).
+    #[error("--case {case} names no case under the suites directory{}", for_skills(.skills))]
+    UnknownCase {
+        /// The case given.
+        case: String,
+        /// The `--skill`s given, which narrowed the cases searched; empty for none.
+        skills: Vec<String>,
+    },
+    /// The `--baseline` plugin's manifest could not be read.
+    #[error("reading the --baseline plugin")]
+    Baseline(#[source] RouterError),
+    /// The evaluator could not run its first batch.
+    #[error(transparent)]
+    Router(#[from] RouterError),
+    /// `--changed-since` could not compare.
+    #[error("--changed-since")]
+    Changed(#[source] ChangedError),
+    /// A run's selected cases name gated tools and `--allow-gated-tools` was not given.
+    #[error(
+        "gated tools (Write, Edit or Bash) are named by {0}; review them, then pass \
+         --allow-gated-tools to grant them"
+    )]
+    GatedTools(GatedCases),
+    /// A run's selected cases name fixtures and `--allow-scaffolds` was not given.
+    #[error(
+        "fixtures are named by {0}, whose scaffold scripts run outside the eval sandbox with \
+         your rights; review them, then pass --allow-scaffolds to run them"
+    )]
+    Scaffolds(GatedCases),
+    /// The default work directory needs the anneal home, and it is not usable.
+    #[error("finding the default work directory")]
+    Home(#[source] PathError),
+    /// A warning could not be written to stderr before the run.
+    #[error("writing a warning")]
+    Output(#[source] io::Error),
+}
+
+impl UpliftError {
+    /// The documented exit code: an unknown `--skill` is a usage error, as are a `--baseline`
+    /// whose manifest cannot be read (a bad argument, not a router failure), gated tools
+    /// without `--allow-gated-tools`, fixtures without `--allow-scaffolds` and a missing or
+    /// wrong-kind path ([`LintError::code`]); the evaluator's failures are
+    /// [`RouterError::code`]'s; an unusable anneal home is internal, as it is for every
+    /// command that needs one; a stderr that cannot be written is an output error.
+    #[must_use]
+    pub const fn code(&self) -> Code {
+        match self {
+            Self::Home(_) => crate::exit_codes::INTERNAL,
+            Self::Output(_) => crate::exit_codes::OUTPUT,
+            Self::Skills(error) | Self::Suites(error) => error.code(),
+            Self::UnknownSkill { .. }
+            | Self::UnknownCase { .. }
+            | Self::Baseline(_)
+            | Self::GatedTools(_)
+            | Self::Scaffolds(_) => crate::exit_codes::USAGE,
+            Self::Router(error) => error.code(),
+            Self::Changed(error) => error.code(),
+        }
+    }
+}
+
+/// How [`UpliftError::UnknownCase`] says the `--skill`s given narrowed the search, if any did.
+fn for_skills(skills: &[String]) -> &'static str {
+    if skills.is_empty() {
+        ""
+    } else {
+        " for the --skill given"
+    }
+}
+
+/// Reads the suites under `args.suites` for the skills under `args.skills` and, unless
+/// `mode` is [`Mode::Check`], runs them through `claude plugin eval`, in a workspace made in
+/// `--work-dir`, else in [`default_work_dir`] (`lookup` reads one variable for it).
+///
+/// # Errors
+/// [`UpliftError`] when a directory cannot be read, `--skill` names a skill with no suites,
+/// `--case` names no case, `--changed-since` cannot compare, a run's selected cases name gated
+/// tools without `--allow-gated-tools` or fixtures without `--allow-scaffolds`, the default
+/// work directory needs an anneal home that is relative, the work directory cannot be made
+/// absolute (or, for a case naming Bash, made), the running binary cannot be found, `err`
+/// cannot be written, or the evaluator cannot run its first batch.
+pub(crate) fn evaluate<E: Write>(
+    args: &UpliftArgs,
+    mode: &Mode<'_>,
+    lookup: impl Fn(&str) -> Option<OsString>,
+    err: &mut E,
+) -> Result<UpliftOutcome, UpliftError> {
+    let mut outcome = selected(args, mode)?;
+    let Mode::Run(settings) = mode else {
+        return Ok(outcome);
+    };
+    outcome.runs = settings.runs;
+    outcome.max_cost_usd = Some(settings.max_cost_usd);
+    outcome.baseline = Some(baseline_kind(settings));
+    if !outcome.suites.problems.is_empty() {
+        return Ok(outcome);
+    }
+    if let Some(base) = settings.changed_since {
+        let changed = changed::changed_skills(&args.skills, &args.suites, base)
+            .map_err(UpliftError::Changed)?;
+        outcome
+            .suites
+            .cases
+            .retain(|case| changed.contains(&case.skill));
+    }
+    // Nothing selected (no change since the base, or no case at all): nothing to run, so
+    // `claude` is never started on an empty eval directory.
+    if outcome.suites.cases.is_empty() {
+        outcome.skipped = true;
+        return Ok(outcome);
+    }
+    // The selection is final: refuse gated tools and scaffolds before anything is copied,
+    // spent or run.
+    if settings.gated_tools == GatedTools::Refuse
+        && let Some(cases) = gated::refusal(&outcome.suites.cases)
+    {
+        return Err(UpliftError::GatedTools(cases));
+    }
+    if settings.scaffolds == Scaffolds::Refuse
+        && let Some(cases) = gated::scaffold_refusal(&outcome.suites.cases)
+    {
+        return Err(UpliftError::Scaffolds(cases));
+    }
+    let work_dir = work_dir(settings.work_dir, lookup)?;
+    let work_dir = work_dir.as_path();
+    outcome.socket_path = warn_socket_path(&outcome.suites.cases, work_dir, err)?;
+    let finished = run(settings, &args.skills, &outcome.suites, work_dir)?;
+    outcome.drove = Some(finished.drove);
+    outcome.cleanup = finished.cleanup;
+    outcome.unkept = finished.unkept;
+    // The host's target is fixed at build time, so this is the one `run` placed under.
+    outcome.anneal = Some(
+        LauncherTarget::host().map_or(PlacedAnneal::UnknownHost, |target| {
+            PlacedAnneal::Target(target.triple())
+        }),
+    );
+    // Judged once the run made the directory, so a link in it resolves.
+    outcome.read_only_sandbox = read_only_sandbox(&outcome.suites.cases, work_dir);
+    Ok(outcome)
+}
+
+/// The outcome of reading the suites `args` select, before anything runs.
+///
+/// # Errors
+/// As [`select`].
+fn selected(args: &UpliftArgs, mode: &Mode<'_>) -> Result<UpliftOutcome, UpliftError> {
+    Ok(UpliftOutcome {
+        check: matches!(mode, Mode::Check),
+        suites: select(args)?,
+        scope: Scope::of(args),
+        runs: Runs::ROUND,
+        confirm_prefix: args.confirm_words(),
+        drove: None,
+        skipped: false,
+        baseline: None,
+        cleanup: None,
+        max_cost_usd: None,
+        anneal: None,
+        read_only_sandbox: None,
+        socket_path: None,
+        unkept: Vec::new(),
+    })
+}
+
+/// The baseline a run with `settings` compares with.
+fn baseline_kind(settings: &Settings<'_>) -> BaselineKind {
+    match (settings.baseline_arm, settings.baseline) {
+        (BaselineArm::Skip, _) => BaselineKind::Skipped,
+        (BaselineArm::Run, None) => BaselineKind::SkillRemoved,
+        (BaselineArm::Run, Some(dir)) => BaselineKind::Plugin(dir.display().to_string()),
+    }
+}
+
+/// The directory a run's workspace is made in: `given` (`--work-dir`), else
+/// [`default_work_dir`], made absolute against the current directory once here, because each
+/// batch's `claude` runs in the workspace and is handed paths inside it.
+fn work_dir(
+    given: Option<&Path>,
+    lookup: impl Fn(&str) -> Option<OsString>,
+) -> Result<PathBuf, UpliftError> {
+    let absolute = match given {
+        Some(dir) => std::path::absolute(dir),
+        None => std::path::absolute(default_work_dir(lookup).map_err(UpliftError::Home)?),
+    };
+    Ok(absolute.map_err(RouterError::Workspace)?)
+}
+
+/// Runs `suites`' cases in the with arm and, unless `--no-baseline`, the baseline's, in a
+/// workspace made in `work_dir`, each plugin copy holding the running binary under the
+/// launcher's target for this host when there is one; with the run, why the workspace could
+/// not be removed afterwards, if it could not, and the results `--keep-results` could not keep.
+fn run(
+    settings: &Settings<'_>,
+    skills: &Path,
+    suites: &Suites,
+    work_dir: &Path,
+) -> Result<Finished, UpliftError> {
+    let target = LauncherTarget::host();
+    let binary = target
+        .map(|_| std::env::current_exe())
+        .transpose()
+        .map_err(RouterError::Workspace)?;
+    let anneal = binary
+        .as_deref()
+        .zip(target)
+        .map(|(binary, target)| Placement { binary, target });
+    let plugin_dir = plugin_of(skills);
+    let plugin = plugin_name(plugin_dir)?;
+    let baseline_name = settings
+        .baseline
+        .map(plugin_name)
+        .transpose()
+        .map_err(UpliftError::Baseline)?;
+    let baseline = settings
+        .baseline
+        .zip(baseline_name.as_deref())
+        .map(|(dir, name)| BaselinePlugin { dir, name });
+    let kind = match (settings.baseline_arm, &baseline) {
+        (BaselineArm::Skip, _) => Baseline::Skipped,
+        (BaselineArm::Run, Some(_)) => Baseline::Plugin,
+        (BaselineArm::Run, None) => Baseline::SkillRemoved,
+    };
+    if let Some(dir) = settings.keep_results {
+        // Before anything is copied or spent, so a directory that cannot be made stops the run
+        // rather than a batch.
+        std::fs::create_dir_all(dir).map_err(RouterError::Workspace)?;
+    }
+    let mut evaluator = ClaudeEvaluator::new(
+        settings.options,
+        Plugins {
+            dir: plugin_dir,
+            skills_dir: settings.skills_dir,
+            name: &plugin,
+            baseline,
+            anneal,
+        },
+        work_dir,
+    )?
+    .keeping_results(settings.keep_results);
+    let mut metered = Metered::new(&mut evaluator);
+    let ask = Ask {
+        baseline: kind,
+        runs: settings.runs,
+        cap_usd: settings.max_cost_usd,
+    };
+    let drove = drive(&mut metered, &suites.cases, ask);
+    let reported_usd = metered.reported_usd();
+    let unkept = evaluator.take_unkept();
+    let (drove, cleanup) = settle(drove, evaluator.finish(), reported_usd)?;
+    Ok(Finished {
+        drove,
+        cleanup,
+        unkept,
+    })
+}
+
+/// How a run that drove its batches ended.
+struct Finished {
+    /// How the batches went.
+    drove: Drove,
+    /// Why the workspace could not be removed, if it could not.
+    cleanup: Option<String>,
+    /// The batch results `--keep-results` could not keep.
+    unkept: Vec<Unkept>,
+}
+
+/// The run's result from how it `drove` and how removing its workspace went (`finished`):
+/// the run with any removal failure as a reason, or the first batch's error
+/// ([`first_batch_error`], given what that batch reported spending) with any removal failure
+/// beside it.
+fn settle(
+    drove: Result<Drove, RouterError>,
+    finished: Result<(), RouterError>,
+    reported_usd: Option<f64>,
+) -> Result<(Drove, Option<String>), UpliftError> {
+    match (drove, finished) {
+        (Ok(drove), finished) => Ok((
+            drove,
+            finished
+                .err()
+                .map(|error| crate::error_chain::reason(&error)),
+        )),
+        (Err(error), Ok(())) => Err(UpliftError::Router(first_batch_error(error, reported_usd))),
+        (Err(error), Err(removing)) => {
+            let error = first_batch_error(error, reported_usd);
+            Err(UpliftError::Router(RouterError::Cleanup {
+                code: error.code(),
+                error: Box::new(error),
+                removing: Box::new(removing),
+            }))
+        }
+    }
+}
+
+/// The work directory as the `eval/uplift/read-only-sandbox` finding names it, when one of
+/// `cases` names Bash and the eval sandbox denies Bash every write under `work_dir`.
+fn read_only_sandbox(cases: &[suites::Case], work_dir: &Path) -> Option<String> {
+    (names_bash(cases) && sandbox::denies_bash_writes(work_dir))
+        .then(|| work_dir.display().to_string())
+}
+
+/// Whether one of `cases` names Bash.
+fn names_bash(cases: &[suites::Case]) -> bool {
+    cases
+        .iter()
+        .any(|case| case.body.allowed_tools.contains(&Tool::Bash))
+}
+
+/// [`socket_path`], also written to `err` as a `WARN` line, before anything is copied or
+/// spent, so the operator can stop a run whose Bash cases cannot work.
+///
+/// # Errors
+/// As [`socket_path`], and [`UpliftError::Output`] when `err` cannot be written.
+fn warn_socket_path<E: Write>(
+    cases: &[suites::Case],
+    work_dir: &Path,
+    err: &mut E,
+) -> Result<Option<String>, UpliftError> {
+    let warning = socket_path(cases, work_dir)?;
+    if let Some(warning) = &warning {
+        writeln!(err, "WARN eval: {warning}").map_err(UpliftError::Output)?;
+    }
+    Ok(warning)
+}
+
+/// Why Bash's sandbox cannot start in the runs, as the `eval/uplift/socket-path` finding and
+/// warning say it, when one of `cases` names Bash and the `claude` children's `TMPDIR` below
+/// `work_dir` (made here, then resolved as `claude` resolves it) is longer than
+/// [`sandbox::CHILD_TMPDIR_BUDGET`] on this host. Every workspace's name is as long, so the
+/// length is known before the workspace is made.
+///
+/// # Errors
+/// [`RouterError::Workspace`] when `work_dir` cannot be made.
+fn socket_path(cases: &[suites::Case], work_dir: &Path) -> Result<Option<String>, UpliftError> {
+    if !names_bash(cases) {
+        return Ok(None);
+    }
+    std::fs::create_dir_all(work_dir).map_err(RouterError::Workspace)?;
+    // A directory just made that cannot be resolved is measured as given, the best this
+    // check can do without it.
+    let resolved = std::fs::canonicalize(work_dir);
+    let dir = resolved.as_deref().unwrap_or(work_dir);
+    let len = dir
+        .as_os_str()
+        .len()
+        .saturating_add(CHILD_TMP_BELOW_WORK_DIR);
+    Ok(sandbox::socket_overrun(len).map(|over| {
+        format!(
+            "the claude children's TMPDIR, {}/ae-<hex>/t, is {len} bytes, \
+             {over} more than the {} that leave room below it for the sockets claude plugin \
+             eval's Bash sandbox binds (a Unix socket path holds at most {} bytes on Linux), \
+             so Bash fails in every run (\"Failed to create bridge sockets\"); run again with a \
+             --work-dir (or TMPDIR) of at most {} bytes once resolved",
+            dir.display(),
+            sandbox::CHILD_TMPDIR_BUDGET,
+            sandbox::SUN_PATH_MAX,
+            sandbox::CHILD_TMPDIR_BUDGET.saturating_sub(CHILD_TMP_BELOW_WORK_DIR),
+        )
+    }))
+}
+
+/// What one run of a case showed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Trial {
+    /// The run ended in an error other than running out of turns (a timeout, a crash): no
+    /// evidence either way, so not a trial.
+    Errored,
+    /// The run finished, or ran out of turns, and was graded: each grader's name and whether
+    /// it passed.
+    Graded(Vec<(String, bool)>),
+}
+
+impl Trial {
+    /// Whether the run passed its case, whose graders are `graders`: every one of them is
+    /// listed as passed (a grader the run leaves out failed), and there is one. `None` when
+    /// the run errored.
+    pub(crate) fn passed(&self, graders: &[Grader]) -> Option<bool> {
+        match self {
+            Self::Errored => None,
+            Self::Graded(_) => Some(
+                !graders.is_empty()
+                    && graders
+                        .iter()
+                        .all(|grader| self.grader(grader.name()) == Some(true)),
+            ),
+        }
+    }
+
+    /// Whether the run errored, so is no trial.
+    pub(crate) const fn errored(&self) -> bool {
+        matches!(self, Self::Errored)
+    }
+
+    /// Whether the grader named `name` passed, or `None` when the run errored. A grader the
+    /// run does not list did not pass.
+    pub(crate) fn grader(&self, name: &str) -> Option<bool> {
+        match self {
+            Self::Errored => None,
+            Self::Graded(graders) => Some(
+                graders
+                    .iter()
+                    .any(|(grader, passed)| grader == name && *passed),
+            ),
+        }
+    }
+}

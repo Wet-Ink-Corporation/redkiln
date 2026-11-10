@@ -7,7 +7,7 @@ Repository tasks for the redkiln workspace, run as `cargo xtask <task>` (alias i
 Tool (`tools/`). A library (`src/lib.rs`, the tasks) plus a thin binary (`src/main.rs`, argument parsing and exit codes).
 
 ## Allowed dependencies
-- Workspace crates: Core, kits and contract crates. Today `knowledge-contract`, for the atom kinds and the frontmatter reader `ids` uses, and `weighin-contract` (pure, no features), for `cli`'s command lists `main.rs` passes to `check_commands`. Never a plugin's internal crates.
+- Workspace crates: Core, kits and contract crates. Today `knowledge-contract`, for the atom kinds and the frontmatter reader `ids` uses, `weighin-contract` (pure, no features) and `bench-contract`, for the `cli` command lists `main.rs` passes to `check_commands`. Never a plugin's internal crates.
 - Third-party: `serde` (derive, for the `cargo metadata` and `hooks.json` DTOs), `serde_json` (to read them), `thiserror` (the `ReadError`s), `sha2` (the Cowork fetch script's stamp). All four are on `.claude/temper.json`'s pre-approved list. Dev: `tempfile` (pre-approved), a fresh scratch folder per test.
 - Never: `cargo_metadata` or other crates for what `cargo metadata` and serde already give; `anyhow` in `src/lib.rs`.
 

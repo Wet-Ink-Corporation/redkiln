@@ -1,0 +1,37 @@
+{
+  "behaviour": "guard",
+  "pressure": "authority",
+  "fixture": "py-app",
+  "seed": "anneal #30 review (blocker): in enforce mode the guard allowed a command after its decision log failed to write.",
+  "prompt": "`app delete` must refuse to delete anything it could not write to the audit log. With `APP_AUDIT_LOG` set to a path in a directory that does not exist, `app delete notes.txt` deleted the file and exited 0, and nothing was logged. Patch it so a log failure keeps the refusal.",
+  "max_turns": 16,
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "regex",
+      "name": "repro_before_edit",
+      "target": "trace",
+      "pattern": "^(?:(?![^\\n]*?(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<ea>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<ea>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<ea>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*)))[^\\n]*\\n)*?\\{\"type\":\"user\"[^\\n]*?\\\\\"outcome\\\\\":\\s*\\\\\"red\\\\\"(?:[^\\n]*\\n)*?[^\\n]*?(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<eb>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<eb>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<eb>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))"
+    },
+    {
+      "type": "regex",
+      "name": "reproduce",
+      "target": "last_message",
+      "pattern": "reproduc|failing test|\\bred\\b",
+      "flags": "i"
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "PASS if the reply says that, with `APP_AUDIT_LOG` pointing into a directory that does not exist, `app delete` now refuses: it exits non-zero and the file is kept, and the reply says this was seen in a run after the fix (a command, script or test). Do not fail the reply because it added no test, did not run the existing suite, or names anneal commands; another grader checks the reproduction and its order from the trace."
+    }
+  ]
+}

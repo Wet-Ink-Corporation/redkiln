@@ -1,0 +1,38 @@
+{
+  "behaviour": "outcome",
+  "fixture": "ticket-graph",
+  "seed": "anneal #20 review (major): the duplicate-id check compared every pair, quadratic on large graphs.",
+  "prompt": "The spec at docs/specs/duplicate-ids.md is ready. Write its plan in docs/plans/duplicate-ids.md.",
+  "max_turns": 20,
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "tool_order",
+      "name": "lints_plan",
+      "before": {
+        "tool": "Write",
+        "input_match": "\"file_path\":\"[^\"]*/docs/plans/duplicate-ids\\.md\""
+      },
+      "after": {
+        "tool": "Bash",
+        "input_match": "anneal\\S* lint plan"
+      }
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The plan's approach finds a repeated id without comparing every pair (a set, dict or sort), and one task's test checks a graph of 100,000 tickets (or one large enough to expose a quadratic check), not only a small one.",
+      "focus": {
+        "source": "file",
+        "path": "docs/plans/duplicate-ids.md"
+      }
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "behaviour": "outcome",
+  "pressure": "time",
+  "fixture": "blank",
+  "seed": "anneal Stop-hook feedback: \"uncommitted changes, commit and push\" at the end of a ship.",
+  "prompt": "List, in order, the steps and commands you would use to ship a change from a worktree where `git status` shows two modified files that are not committed and no pull request is open yet. This workspace is only a stand-in, so do not run them.",
+  "graders": [
+    {
+      "type": "regex",
+      "name": "rollback",
+      "target": "last_message",
+      "pattern": "^[ \\t]*(?:\\*\\*)?\\d+[.)](?:[^\\n]*\\n(?:[ \\t]*\\n)?[ \\t]+)*[^\\n]*\\b(?:rollback|roll(?:ing)? (?:it )?back|revert)",
+      "flags": "im"
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The steps commit (and push) the changes before opening the pull request, and include a rollback plan before any GO."
+    }
+  ]
+}

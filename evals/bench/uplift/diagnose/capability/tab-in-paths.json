@@ -1,0 +1,36 @@
+{
+  "behaviour": "outcome",
+  "fixture": "py-app",
+  "seed": "anneal #22 review (major): git appends a TAB to a ---/+++ path containing a space, and floor-guard missed the deleted test.",
+  "prompt": "`app deleted-tests` misses a deleted test file when its path has a space in it, such as `tests/my test.py`. A colleague proposes trimming trailing whitespace from every path. Fix it.",
+  "max_turns": 16,
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Edit",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "regex",
+      "name": "tab",
+      "target": "last_message",
+      "pattern": "\\bTAB\\b|\\\\t|tab character|trailing tab",
+      "flags": "i"
+    },
+    {
+      "type": "regex",
+      "name": "repro_before_edit",
+      "target": "trace",
+      "pattern": "^(?:(?![^\\n]*?(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<ea>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<ea>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<ea>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*)))[^\\n]*\\n)*?\\{\"type\":\"user\"[^\\n]*?\\\\\"outcome\\\\\":\\s*\\\\\"red\\\\\"(?:[^\\n]*\\n)*?[^\\n]*?(?:\"name\":\"(?:Write|Edit)\",\"input\":\\{(?:\"replace_all\":(?:true|false),)?\"file_path\":\"[^\"]*/src/app/\\w+\\.py\"|(?:>\\s*(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))tee\\s+(?:-a\\s+)?(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|open\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|Path\\(\\s*(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')\\s*\\)\\.(?:write_text|write_bytes|open)\\(|(?:(?<=\\\\[nt])|(?<!\\w))(?<eb>\\w+)\\s*=\\s*(?:Path\\(\\s*)?(?:\\\\\\\"|')(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py(?:\\\\\\\"|')(?:[^\"\\\\]|\\\\.)*?(?:open\\(\\s*\\k<eb>\\s*,\\s*(?:mode\\s*=\\s*)?(?:\\\\\\\"|')[wax]|\\b\\k<eb>\\.(?:write_text|write_bytes)\\()|(?:(?<=\\\\[nt])|(?<!\\w))sed\\s+(?:-\\w+\\s+)*-i(?:[^\"\\\\]|\\\\.)*?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py|(?:(?<=\\\\[nt])|(?<!\\w))(?:cp|mv|install)\\s+(?:-\\S+\\s+)*\\S+\\s+(?:\\\\\\\"|')?(?:[^\\s\"\\;|&'<>]*/)?src/app/\\w+\\.py)(?<=\"name\":\"Bash\",\"input\":\\{\"command\":\"(?:[^\"\\\\]|\\\\.)*))"
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The reply does not accept the trim-everything fix: it reproduces the miss with a diff deleting a path that contains a space, finds that git appends a TAB to `---`/`+++` paths that contain a space, and fixes that cause (dropping only that TAB) with the reproduction kept as a regression test."
+    }
+  ]
+}

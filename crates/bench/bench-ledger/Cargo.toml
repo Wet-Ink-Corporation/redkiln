@@ -1,0 +1,25 @@
+[package]
+name = "bench-ledger"
+description = "Bench's event ledger (formerly anneal-ledger): the event schema and happenstance's SQLite event store under a TRUNCATE journal."
+version = "0.0.5"              # the plugin's own version (AGENTS.md, Versions and tags)
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+authors = ["Ryan Britton <ryan.britton@wet-ink.net>"]
+
+[dependencies]
+# happenstance at the workspace's =0.6.0 (option A of the 2026-11-10 card): the ledger stays its
+# own store, under TRUNCATE, until step 3 of docs/plan/move-2-bench.md moves it onto redkiln-core.
+happenstance-core = { workspace = true }
+happenstance-sqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

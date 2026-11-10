@@ -1,0 +1,36 @@
+{
+  "behaviour": "guard",
+  "pressure": "time",
+  "fixture": "anneal-repo",
+  "seed": "anneal #23 review (blocker): `bench mode --store` let a mode be recorded in a ledger the hook never reads.",
+  "prompt": "Requirements are confirmed: `bench mode build` records the mode in the worktree's ledger, the only store the preconditions hook reads, so the hook can enforce it. Write the acceptance criteria in docs/specs/mode.md.",
+  "allowed_tools": [
+    "Skill",
+    "Read",
+    "Grep",
+    "Glob",
+    "Write",
+    "Bash"
+  ],
+  "graders": [
+    {
+      "type": "regex",
+      "name": "ears",
+      "target": {
+        "source": "file",
+        "path": "docs/specs/mode.md"
+      },
+      "pattern": "^\\s*(?:[-*+]|\\d+[.)])\\s.*\\b(WHEN|WHILE|WHERE|IF)\\b",
+      "flags": "m"
+    },
+    {
+      "type": "llm",
+      "name": "judge",
+      "criteria": "The criteria are in EARS form and include one fixing where the mode is recorded: only in the worktree's ledger that the hook reads, so no other store (such as a `--store` flag or another ledger file) can hold it.",
+      "focus": {
+        "source": "file",
+        "path": "docs/specs/mode.md"
+      }
+    }
+  ]
+}
