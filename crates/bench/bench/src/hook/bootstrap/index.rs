@@ -3,7 +3,7 @@
 //! It is what anneal is, the entry skills with their triggers, and the commands only the human
 //! runs, in 200 words or fewer (skill rule 4). The entry skills are the linter's
 //! `ENTRY_SKILLS`, in its order (a test holds them equal), so `lint skills` and the bootstrap
-//! agree on them. The same text is committed as `docs/bootstrap-index.md`, which
+//! agree on them. The same text is committed as `docs/bench/bootstrap-index.md`, which
 //! `bench lint skills --index` checks.
 
 use std::fmt::{self, Display, Formatter};
@@ -69,7 +69,7 @@ The human runs these; do not start them unasked:
 
 ";
 
-/// The bootstrap index with every skill, as committed as `docs/bootstrap-index.md` and
+/// The bootstrap index with every skill, as committed as `docs/bench/bootstrap-index.md` and
 /// injected when the plugin's skills cannot be listed.
 #[must_use]
 pub(crate) fn index() -> String {
@@ -210,9 +210,9 @@ mod tests {
             .join(DOC_PATH);
         let expected = index();
         if std::env::var_os("ANNEAL_BLESS").is_some() {
-            std::fs::write(&path, &expected).expect("write docs/bootstrap-index.md");
+            std::fs::write(&path, &expected).expect("write docs/bench/bootstrap-index.md");
         }
-        let committed = std::fs::read_to_string(&path).expect("docs/bootstrap-index.md exists");
+        let committed = std::fs::read_to_string(&path).expect("docs/bench/bootstrap-index.md exists");
         assert!(
             committed == expected,
             "{DOC_PATH} drifted from the index; regenerate it with \

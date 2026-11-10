@@ -22,7 +22,7 @@
       },
       "after": {
         "tool": "Bash",
-        "input_match": "anneal\\S* lint plan"
+        "input_match": "bench\\S* lint plan"
       }
     },
     {

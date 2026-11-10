@@ -18,14 +18,14 @@
       "type": "tool_used",
       "name": "lints_plan",
       "tool": "Bash",
-      "input_match": "anneal\\S* lint plan",
+      "input_match": "bench\\S* lint plan",
       "min": 1
     },
     {
       "type": "regex",
       "name": "plan_commands",
       "target": "last_message",
-      "pattern": "anneal (lint plan|plan approve)"
+      "pattern": "bench (lint plan|plan approve)"
     },
     {
       "type": "tool_used",
