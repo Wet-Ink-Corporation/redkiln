@@ -38,8 +38,9 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # `sync` feature. 0.4.5 brought the ingest port that keeps a caller's TRUNCATE connection
 # (docs/decisions.md, 2026-11-01); 0.6.0 brings rusqlite 0.41 (SQLite 3.54.1, RUSTSEC-2026-0459)
 # and happenstance schema 2, which Core migrates on open (ST-08, 2026-11-09). Only Core opens the
-# store; weighin writes through Core since #17 part 5a (2026-11-06) and depends on neither
-# happenstance crate.
+# suite's store; weighin writes through Core since #17 part 5a (2026-11-06) and depends on neither
+# happenstance crate. bench-ledger opens its own TRUNCATE ledger on these pins until step 3 of
+# docs/plan/move-2-bench.md (option A of the 2026-11-10 card, pending).
 redkiln-core = { path = "crates/core/redkiln-core" }
 happenstance-core = { version = "=0.6.0", features = ["serde"] }
 happenstance-sqlite = { version = "=0.6.0", features = ["sync"] }

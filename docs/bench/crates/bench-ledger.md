@@ -12,8 +12,8 @@ The domain modules do no I/O; `store` is the only module that touches the file s
 
 ## Allowed dependencies
 - Workspace crates: none.
-- Third-party: `happenstance-core` 0.3.2 (`std`, `serde`) and `happenstance-sqlite` 0.3.2
-  (`event-store`): the event store, pinned with weigh-in; `tokio` (`rt`): a current-thread
+- Third-party: `happenstance-core` and `happenstance-sqlite` at redkiln's `=0.6.0` (the root's
+  entries: `serde`; `sync`, which includes `event-store`): the event store; `tokio` (`rt`): a current-thread
   runtime drives happenstance's async API; `time` (`formatting`, `parsing`): RFC 3339 `ts`;
   `tempfile`: the schema template on the local temporary disk; `serde`, `serde_json`,
   `thiserror`.
@@ -73,7 +73,9 @@ directories. Run with `cargo test -p anneal-ledger`.
 - Do not open the ledger with `SqliteEventStore::open` (it switches to WAL).
 - Do not rename or remove an event type or payload field without a migration (H-16); add
   optional fields with `#[serde(default)]` and bump `REGISTRY_VERSION`.
-- Do not move happenstance off 0.3.2 without a schema migration step (H-16).
+- Do not move happenstance off `=0.6.0` without a schema migration step (H-16). A ledger an
+  older happenstance wrote (0.3.2: its schema 1) is migrated on open through `open_on`, which
+  keeps the TRUNCATE journal and `user_version`.
 
 ## Decisions
 | Date | Decision | Rule | Decided by |
@@ -83,6 +85,7 @@ directories. Run with `cargo test -p anneal-ledger`.
 | 2026-10-11 | Add tokio (`rt` only) to drive happenstance's async API from synchronous code | H-16 | story #11 (as weigh-in) |
 | 2026-10-11 | Add time (`formatting`, `parsing`) for RFC 3339 timestamps | H-16 | story #11 (as weigh-in) |
 | 2026-10-11 | tempfile as a normal dependency: the schema template is built on the local temporary disk (an in-memory database cannot be attached from another connection) | H-16 | `.claude/temper.json` pre-approved |
+| 2026-11-10 | happenstance 0.3.2 to redkiln's `=0.6.0` so the crate joins the one workspace (`links = "sqlite3"`); a happenstance schema 1 ledger is migrated in place on open (`open_on`, as Core's ST-08), a newer one refused unchanged; `user_version` stays 1; fixture `tests/fixtures/bench-ledger-hs032.sqlite3` | H-16 | option A of the 2026-11-10 card, pending the owner |
 | 2026-10-11 | No WAL-to-TRUNCATE conversion or orphan-WAL handling (weigh-in has them for its 0.1.x ledgers): anneal has no older ledgers; a WAL file is refused with `OpenError::JournalMode`, read before anything is changed | ARC | weigh-in wi-0940cf (refuse WAL); enforced in review round 1 (#54) |
 | 2026-10-11 | Only an empty database is given the ledger schema; a database with other tables is refused (`OpenError::NotALedger`), and the CLI reports it like any store that cannot be opened (exit 70) | ARC | review round 1 (#54) |
 | 2026-10-11 | `Store` stays synchronous (its own current-thread runtime); calls inside a tokio runtime context return `StoreError::InsideRuntime`; dropped inside one, its runtime is shut down with `shutdown_background` (it only `block_on`s, so nothing is lost) | H-03, ERR-13 | review rounds 1 and 2 (#54) |
