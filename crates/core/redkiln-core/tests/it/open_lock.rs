@@ -49,6 +49,32 @@ fn raw(path: &Path) -> Connection {
     conn
 }
 
+/// Records `path` as the store's own canonical path in `core_meta`, as an open there would have,
+/// so that no re-mint is due when it is opened where it is.
+fn record_own_path(path: &Path) {
+    let canonical = std::fs::canonicalize(path)
+        .expect("canonical")
+        .into_os_string()
+        .into_encoded_bytes();
+    raw(path)
+        .execute(
+            "INSERT OR REPLACE INTO core_meta (k, v) VALUES ('path', ?1)",
+            [canonical],
+        )
+        .expect("record the path");
+}
+
+/// happenstance's own schema version, its `store_meta` row.
+fn happenstance_schema(path: &Path) -> i64 {
+    raw(path)
+        .query_row(
+            "SELECT CAST(v AS INTEGER) FROM store_meta WHERE k = 'schema_version'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("the schema version row")
+}
+
 #[test]
 fn a_store_at_its_recorded_path_opens_while_the_open_lock_is_held() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -158,10 +184,43 @@ fn a_store_with_no_identity_row_is_refused_where_it_was_recorded_and_elsewhere()
 fn a_happenstance_schema_1_store_with_no_identity_row_is_refused_not_migrated() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = fixture("core-store-hs1.sqlite3", dir.path());
-    // Opened once where it is, so that its recorded path is this one and no re-mint is due.
-    let conn = raw(&path);
-    conn.execute("DELETE FROM store_meta WHERE k = 'store_id'", [])
+    // Its recorded path is this one, so no re-mint is due.
+    record_own_path(&path);
+    raw(&path)
+        .execute("DELETE FROM store_meta WHERE k = 'store_id'", [])
         .expect("drop the identity row");
-    drop(conn);
     assert_refused_with_no_identity(&path);
+}
+
+#[test]
+fn a_store_needing_a_happenstance_migration_at_its_recorded_path_waits_for_the_open_lock() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = fixture("core-store-hs1.sqlite3", dir.path());
+    record_own_path(&path);
+    let written_as = raw_store_id(&path);
+    let lock = hold_open_lock(&path);
+    match Store::open(&path, Wait::Hook) {
+        Err(StoreError::Open {
+            source: OpenError::LockBusy,
+            ..
+        }) => {}
+        other => panic!("expected the migration to wait for the lock, got {other:?}"),
+    }
+    assert_eq!(
+        happenstance_schema(&path),
+        1,
+        "nothing migrated without the lock"
+    );
+    drop(lock);
+    drop(Store::open(&path, Wait::Hook).expect("opens once the lock is free"));
+    assert_eq!(
+        happenstance_schema(&path),
+        i64::from(happenstance_sqlite::event_store::SCHEMA_VERSION),
+        "migrated under the lock"
+    );
+    assert_eq!(
+        raw_store_id(&path),
+        written_as,
+        "at its recorded path: no re-mint"
+    );
 }

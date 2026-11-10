@@ -10,7 +10,7 @@ use happenstance_sqlite::happenstance_sync::{
     IngestError, IngestGroup, ReplicatedEvent, SendIngestStore,
 };
 
-use super::{NewEvent, Store, StoreError};
+use super::{NewEvent, Store, StoreError, refuse_inside_runtime};
 
 /// An event to store under the identity another store gave it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +47,8 @@ impl Store {
     /// [`StoreError::InsideRuntime`]; [`StoreError::Ingest`] when happenstance refuses the batch
     /// (a store limit, a busy lock past the open's timeout, I/O). Nothing is written then.
     pub(crate) fn ingest(&self, events: &[Foreign]) -> Result<Ingest, StoreError> {
+        // Refused before the give-way, so a misuse inside a runtime never waits or owes a pause.
+        refuse_inside_runtime()?;
         let replicated: Vec<ReplicatedEvent> = events
             .iter()
             .map(|foreign| {

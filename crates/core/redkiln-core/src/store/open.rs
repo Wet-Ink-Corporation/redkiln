@@ -223,9 +223,11 @@ fn refuse_found(found: &Found, mode: Mode) -> Result<(), OpenError> {
 }
 
 /// The open lock, held until dropped. [`open`] holds it through [`open_locked`], SQLite's own busy
-/// waits included, so Core spawns nothing for up to `busy`; no Core path spawns while
-/// it holds a SQLite lock, so that wait ends. Its fields drop in order: the file first, which releases
-/// the lock, then the guard that kept Core from spawning while it was held.
+/// waits included: up to what is left of the open's budget, plus happenstance's re-read of the
+/// identity at hand-over, which waits under the full `busy` timeout handed over ([`hand_over`]).
+/// Core spawns nothing for that long; no Core path spawns while it holds a SQLite lock, so that
+/// wait ends. Its fields drop in order: the file first, which releases the lock, then the guard
+/// that kept Core from spawning while it was held.
 struct Locked {
     _file: File,
     _no_forks: std::sync::RwLockWriteGuard<'static, ()>,
@@ -876,6 +878,106 @@ mod tests {
         let conn = Connection::open(&path).expect("open");
         assert_eq!(journal_mode(&conn).expect("read"), "wal");
         assert_eq!(journal_mode(&writer).expect("read"), "wal", "still in WAL");
+    }
+
+    /// A store created at `dir/a/events.sqlite3` and closed, and a copy of it at
+    /// `dir/events.sqlite3`, which an open must re-mint.
+    fn store_and_copy(dir: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let path = dir.join("a").join("events.sqlite3");
+        drop(open(&path, Duration::ZERO, Mode::Create).expect("created"));
+        let copy = dir.join("events.sqlite3");
+        std::fs::copy(&path, &copy).expect("copy");
+        (path, copy)
+    }
+
+    fn is_busy(err: &OpenError) -> bool {
+        matches!(
+            err,
+            OpenError::Sqlite {
+                source: rusqlite::Error::SqliteFailure(f, _),
+                ..
+            } if matches!(f.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked)
+        )
+    }
+
+    #[test]
+    fn a_spent_deadline_leaves_the_lock_wait_and_the_re_mint_nothing_to_wait() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (_, copy) = store_and_copy(dir.path());
+        // A connection whose statements could wait long, as the open's first statements may.
+        let conn = connect(&copy, Deadline::after(Duration::from_secs(10))).expect("connected");
+        use_truncate(&conn, Deadline::after(Duration::from_secs(10))).expect("truncate");
+        let spent = Deadline::after(Duration::ZERO);
+
+        let other_opener = hold_lock(&copy);
+        let lock = take_lock(&copy, spent).map(|held| held.is_some());
+        assert!(matches!(lock, Err(OpenError::LockBusy)), "{lock:?}");
+        drop(other_opener);
+
+        let writer = Connection::open(&copy).expect("open");
+        writer
+            .execute_batch("PRAGMA journal_mode = truncate; BEGIN IMMEDIATE;")
+            .expect("another process holds the write lock");
+        let err = keep_identity_at(&conn, &copy, spent).expect_err("the write lock is held");
+        assert!(
+            is_busy(&err)
+                && matches!(
+                    err,
+                    OpenError::Sqlite {
+                        step: Step::Begin,
+                        ..
+                    }
+                ),
+            "{err:?}"
+        );
+        assert_eq!(
+            busy_timeout_ms(&conn),
+            0,
+            "the re-mint waits only what is left of the open's budget"
+        );
+        writer.execute_batch("ROLLBACK").expect("let go");
+    }
+
+    #[test]
+    fn a_spent_deadline_leaves_the_switch_to_truncate_nothing_to_wait() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        let other = Connection::open(&path).expect("open");
+        other
+            .execute_batch("PRAGMA journal_mode = WAL; CREATE TABLE t (x);")
+            .expect("a database in WAL, another connection open on it");
+        let conn = connect(&path, Deadline::after(Duration::from_secs(10))).expect("connected");
+        let err = use_truncate(&conn, Deadline::after(Duration::ZERO))
+            .expect_err("another connection keeps the file in WAL");
+        assert!(
+            is_busy(&err) || matches!(&err, OpenError::JournalMode { found } if found == "wal"),
+            "{err:?}"
+        );
+        assert_eq!(busy_timeout_ms(&conn), 0, "no busy wait left to give");
+        drop(other);
+    }
+
+    #[test]
+    fn an_unlocked_open_leaves_a_store_switched_to_wal_to_the_locked_open() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        drop(open(&path, Duration::ZERO, Mode::Create).expect("created"));
+        let other = Connection::open(&path).expect("open");
+        let mode: String = other
+            .query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))
+            .expect("switched");
+        assert_eq!(mode, "wal");
+        drop(other);
+        let in_wal = || matches!(header::read(&path), Ok(Found::Sqlite(h)) if h.wal);
+        assert!(in_wal(), "the header shows WAL");
+        let opened = open_unlocked(
+            &path,
+            Duration::ZERO,
+            Deadline::after(Duration::from_secs(10)),
+        )
+        .expect("no failure");
+        assert!(opened.is_none(), "converting it is the locked open's work");
+        assert!(in_wal(), "the unlocked open wrote nothing");
     }
 
     #[test]

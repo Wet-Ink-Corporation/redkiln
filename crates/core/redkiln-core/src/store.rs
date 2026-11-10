@@ -585,7 +585,7 @@ impl Store {
     /// The same store, giving way on `clock` (tests only, so that none sleeps: TST-10).
     #[cfg(test)]
     pub(crate) fn giving_way_on(mut self, clock: std::sync::Arc<FakeClock>) -> Self {
-        self.give_way = give_way::GiveWay::with_clock(give_way::Clock::Fake(clock));
+        self.give_way = give_way::GiveWay::with_clock(Box::new(clock));
         self
     }
 
@@ -629,6 +629,8 @@ impl Store {
         }
         let condition = condition.map(Condition::to_append_condition).transpose()?;
         let events: Vec<Event> = events.into_iter().map(NewEvent::into_event).collect();
+        // Refused before the give-way, so a misuse inside a runtime never waits or owes a pause.
+        refuse_inside_runtime()?;
         let appended = self.give_way.write(events.len(), || {
             self.runtime
                 .block_on(self.inner.append(&events, condition.as_ref()))

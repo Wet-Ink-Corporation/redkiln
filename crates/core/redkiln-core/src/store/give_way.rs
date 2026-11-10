@@ -16,37 +16,31 @@ pub(super) const LONG_HOLD: Duration = Duration::from_millis(5);
 /// How long after such a write the handle's next write waits to start (ST-09).
 pub(crate) const PAUSE: Duration = Duration::from_millis(25);
 
-/// Where the give-way reads the time and waits: the system's monotonic clock, or in tests a
-/// clock that only moves when told to, so no test sleeps (TST-10).
-pub(super) enum Clock {
-    /// `Instant::now` and `thread::sleep`.
-    System,
-    /// A test clock, shared with the test that reads what was slept.
-    #[cfg(test)]
-    Fake(std::sync::Arc<FakeClock>),
+/// Where the give-way reads the time and waits: [`SystemClock`], or in tests a clock that only
+/// moves when told to, so no test sleeps (TST-10).
+pub(super) trait Clock: Send + Sync {
+    /// The current instant.
+    fn now(&self) -> Instant;
+    /// Waits `pause`.
+    fn sleep(&self, pause: Duration);
 }
 
-impl Clock {
+/// The system's monotonic clock: `Instant::now` and `thread::sleep`.
+struct SystemClock;
+
+impl Clock for SystemClock {
     fn now(&self) -> Instant {
-        match self {
-            Self::System => Instant::now(),
-            #[cfg(test)]
-            Self::Fake(clock) => clock.now(),
-        }
+        Instant::now()
     }
 
     fn sleep(&self, pause: Duration) {
-        match self {
-            Self::System => std::thread::sleep(pause),
-            #[cfg(test)]
-            Self::Fake(clock) => clock.sleep(pause),
-        }
+        std::thread::sleep(pause);
     }
 }
 
 /// One handle's give-way: when its next write may start.
 pub(super) struct GiveWay {
-    clock: Clock,
+    clock: Box<dyn Clock>,
     /// The earliest start of the next write; `None` when it may start at once. A `Mutex`, not a
     /// `Cell`, so that `Store` stays `Sync`; it is held only to read or set the instant, never
     /// across a wait or a write.
@@ -55,12 +49,12 @@ pub(super) struct GiveWay {
 
 impl GiveWay {
     /// A give-way on the system clock, with no write behind it yet.
-    pub(super) const fn new() -> Self {
-        Self::with_clock(Clock::System)
+    pub(super) fn new() -> Self {
+        Self::with_clock(Box::new(SystemClock))
     }
 
     /// A give-way on `clock`, with no write behind it yet.
-    pub(super) const fn with_clock(clock: Clock) -> Self {
+    pub(super) fn with_clock(clock: Box<dyn Clock>) -> Self {
         Self {
             clock,
             next: Mutex::new(None),
@@ -116,20 +110,23 @@ impl Default for FakeClock {
 }
 
 #[cfg(test)]
-impl FakeClock {
+impl Clock for std::sync::Arc<FakeClock> {
     fn now(&self) -> Instant {
         *self.now.lock().expect("the clock")
-    }
-
-    /// Moves the clock on by `by`.
-    pub(crate) fn advance(&self, by: Duration) {
-        let mut now = self.now.lock().expect("the clock");
-        *now = now.checked_add(by).expect("a test instant");
     }
 
     fn sleep(&self, pause: Duration) {
         self.slept.lock().expect("the sleeps").push(pause);
         self.advance(pause);
+    }
+}
+
+#[cfg(test)]
+impl FakeClock {
+    /// Moves the clock on by `by`.
+    pub(crate) fn advance(&self, by: Duration) {
+        let mut now = self.now.lock().expect("the clock");
+        *now = now.checked_add(by).expect("a test instant");
     }
 
     /// Every sleep asked of the clock, in order.
@@ -148,7 +145,7 @@ mod tests {
 
     fn fake() -> (GiveWay, Arc<FakeClock>) {
         let clock = Arc::new(FakeClock::default());
-        (GiveWay::with_clock(Clock::Fake(Arc::clone(&clock))), clock)
+        (GiveWay::with_clock(Box::new(Arc::clone(&clock))), clock)
     }
 
     #[test]
@@ -239,5 +236,50 @@ mod tests {
             .expect("appended");
         store.append(vec![event()], None).expect("appended");
         assert_eq!(clock.slept(), [PAUSE]);
+    }
+
+    /// Runs `f` inside a tokio runtime context, where the store refuses to run.
+    fn inside_a_runtime<T>(f: impl FnOnce() -> T) -> T {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("a runtime");
+        let entered = runtime.enter();
+        let result = f();
+        drop(entered);
+        result
+    }
+
+    #[test]
+    fn an_append_refused_inside_a_runtime_neither_waits_nor_changes_the_pause() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (store, clock) = store_on_fake_clock(dir.path());
+        store
+            .append(vec![event(), event()], None)
+            .expect("appended");
+        let refused = inside_a_runtime(|| store.append(vec![event()], None));
+        assert!(
+            matches!(refused, Err(super::super::StoreError::InsideRuntime)),
+            "{refused:?}"
+        );
+        assert!(clock.slept().is_empty(), "{:?}", clock.slept());
+        store.append(vec![event()], None).expect("appended");
+        assert_eq!(clock.slept(), [PAUSE], "the pending pause is still owed");
+    }
+
+    #[test]
+    fn an_ingest_refused_inside_a_runtime_neither_waits_nor_changes_the_pause() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (store, clock) = store_on_fake_clock(dir.path());
+        store
+            .append(vec![event(), event()], None)
+            .expect("appended");
+        let refused = inside_a_runtime(|| store.ingest(&[]));
+        assert!(
+            matches!(refused, Err(super::super::StoreError::InsideRuntime)),
+            "{refused:?}"
+        );
+        assert!(clock.slept().is_empty(), "{:?}", clock.slept());
+        store.append(vec![event()], None).expect("appended");
+        assert_eq!(clock.slept(), [PAUSE], "the pending pause is still owed");
     }
 }
