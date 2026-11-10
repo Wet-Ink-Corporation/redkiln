@@ -92,7 +92,7 @@ Any other key is prefixed with its namespace and a dot (`weighin.channel`, `benc
 **EV-14.** Each type is one of two classes, declared with the type:
 
 - **Durable:** a fact a decision, gate or record depends on. Always written under the busy timeout, exported to journals (JR-04, JR-08), never pruned.
-- **Telemetry:** measurement of every tool call, hook timing, counters. Dropped when the lock is busy (ST-09), never exported or committed, leaves the machine only as aggregates, and kept for a retention window of 30 days by default. Whether Core prunes telemetry rows or keeps them in a disposable side file is Core's choice; readers see neither beyond the window.
+- **Telemetry:** measurement of every tool call, hook timing, counters. Dropped when the lock is busy (ST-09), never exported or committed, leaves the machine only as aggregates, and kept for a retention window of 30 days by default. Whether Core prunes telemetry rows or keeps them in a disposable side file is Core's choice; readers see neither beyond the window. Telemetry is a sample, never a complete record: under load the no-wait write drops most of it, and the busiest moments first (R-SQLITE dropped 74 to 77 % with eight hooks writing on Linux and Windows, `spikes/r-sqlite/FINDINGS.md`). A reader reports the drop count (ST-09) beside any figure it builds from telemetry.
 
 ## Order and time
 

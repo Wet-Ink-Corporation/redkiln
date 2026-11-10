@@ -10,7 +10,7 @@ use happenstance_sqlite::happenstance_sync::{
     IngestError, IngestGroup, ReplicatedEvent, SendIngestStore,
 };
 
-use super::{NewEvent, Store, StoreError};
+use super::{NewEvent, Store, StoreError, refuse_inside_runtime};
 
 /// An event to store under the identity another store gave it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,12 +40,15 @@ pub(crate) enum Ingest {
 
 impl Store {
     /// Stores `events` under their own identities, in one transaction; each already held is
-    /// skipped, inside the write.
+    /// skipped, inside the write. It gives way as an append does (ST-09), so an import's
+    /// batches, each at most happenstance's batch limit, have the pause between them.
     ///
     /// # Errors
     /// [`StoreError::InsideRuntime`]; [`StoreError::Ingest`] when happenstance refuses the batch
     /// (a store limit, a busy lock past the open's timeout, I/O). Nothing is written then.
     pub(crate) fn ingest(&self, events: &[Foreign]) -> Result<Ingest, StoreError> {
+        // Refused before the give-way, so a misuse inside a runtime never waits or owes a pause.
+        refuse_inside_runtime()?;
         let replicated: Vec<ReplicatedEvent> = events
             .iter()
             .map(|foreign| {
@@ -59,7 +62,10 @@ impl Store {
             })
             .collect();
         let groups = [IngestGroup::new(&replicated, &[])];
-        match self.runtime.block_on(self.inner.ingest(&groups))? {
+        let ingested = self.give_way.write(replicated.len(), || {
+            self.runtime.block_on(self.inner.ingest(&groups))
+        })?;
+        match ingested {
             Ok(done) => Ok(Ingest::Done {
                 appended: done.appended,
                 skipped: done.skipped,
