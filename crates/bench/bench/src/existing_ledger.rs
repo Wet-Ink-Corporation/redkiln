@@ -7,7 +7,7 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::paths::{self, PathError};
+use crate::paths::{self, PathError, StoreLocation};
 use crate::store::{Store, StoreError, Wait};
 
 /// Why the store could not be opened.
@@ -38,7 +38,22 @@ pub(crate) fn open_existing(
     git_timeout: Duration,
     wait: Wait,
 ) -> Result<Option<Store>, LedgerError> {
+    located(cwd, lookup, git_timeout, wait).map(|(_, store)| store)
+}
+
+/// [`open_existing`], with where the store was located: for `bench status`, which also reports
+/// the anneal ledgers found there that are not imported yet.
+///
+/// # Errors
+/// As [`open_existing`].
+pub(crate) fn located(
+    cwd: &Path,
+    lookup: impl Fn(&str) -> Option<OsString>,
+    git_timeout: Duration,
+    wait: Wait,
+) -> Result<(StoreLocation, Option<Store>), LedgerError> {
     let location =
         paths::ledger_store_within(None, lookup, cwd, git_timeout).map_err(LedgerError::Locate)?;
-    Store::open_existing(&location.path, wait).map_err(LedgerError::Open)
+    let store = Store::open_existing(&location.path, wait).map_err(LedgerError::Open)?;
+    Ok((location, store))
 }

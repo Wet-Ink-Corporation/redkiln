@@ -38,6 +38,7 @@ mod hook_standing_orders;
 mod hook_status;
 mod hooks_manifest;
 mod ledger;
+mod legacy_import;
 mod lint_plan;
 mod lint_rules;
 mod lint_skills;

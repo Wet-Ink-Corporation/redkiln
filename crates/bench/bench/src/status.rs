@@ -16,7 +16,9 @@
 //! is absent too, with one `status/unreadable:<section>` finding saying why, and the exit code
 //! is unchanged. `context` has two sources: when one cannot be read, the other's reading is
 //! still shown beside the finding. `--fields` limits the work to the sections named:
-//! `--fields phase,plan,gates` runs no git beyond finding the ledger and the worktree. Exit 0
+//! `--fields phase,plan,gates` runs no git beyond finding the ledger and the worktree. An anneal
+//! ledger not yet imported is one `ledger/old-ledger` finding; `status` never imports it
+//! (`legacy_import`: the cockpit polls it). Exit 0
 //! with a ledger; 2 without one, still with the document, and no ledger is created. See
 //! `docs/status.md`.
 
@@ -28,8 +30,9 @@ mod unreadable;
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use crate::legacy_import;
 use crate::store::{Store, Wait};
 use clap::{Args, ValueEnum};
 use serde::Serialize;
@@ -194,7 +197,7 @@ pub(crate) fn run<O: Write>(
     lookup: impl Fn(&str) -> Option<OsString>,
     out: &mut O,
 ) -> Result<Code, CliError> {
-    let store = existing_ledger::open_existing(cwd, &lookup, GIT_TIMEOUT, Wait::Hook)
+    let (location, store) = existing_ledger::located(cwd, &lookup, GIT_TIMEOUT, Wait::Hook)
         // A UI refreshes often and should not hang on a busy writer: Core's hook wait, 2 s (H-13).
         .map_err(|error| match error {
             LedgerError::CurrentDir(source) => CliError::CurrentDir(source),
@@ -208,6 +211,7 @@ pub(crate) fn run<O: Write>(
         },
         findings: Vec::new(),
     };
+    old_ledgers(store.as_ref(), &location.old_ledgers, &mut gathered);
     let code = if let Some(store) = &store {
         from_ledger(store, cwd, args, &mut gathered);
         exit_codes::OK
@@ -229,6 +233,32 @@ pub(crate) fn run<O: Write>(
         text::write(&gathered.document, &gathered.findings, out).map_err(CliError::Output)?;
         Ok(code)
     }
+}
+
+/// One `ledger/old-ledger` finding naming the anneal ledgers in `old` the store has not
+/// imported yet; `status` reports them and imports nothing (the cockpit polls it), so the next
+/// session start or recording command does.
+fn old_ledgers(store: Option<&Store>, old: &[PathBuf], gathered: &mut Gathered) {
+    let due = match legacy_import::due(store, old) {
+        Ok(due) => due,
+        Err(error) => {
+            gathered.unreadable("old-ledger", &reason(&error));
+            return;
+        }
+    };
+    if due.is_empty() {
+        return;
+    }
+    let paths: Vec<String> = due.iter().map(|path| path.display().to_string()).collect();
+    gathered.findings.push(Finding::new(
+        "ledger/old-ledger",
+        format!(
+            "the anneal ledger {} is not imported yet, and is left as it is. fix: start a \
+             session, or run a bench command that records, such as `bench mode build`, which \
+             imports it once",
+            paths.join(", ")
+        ),
+    ));
 }
 
 /// The sections read from the ledger, and the worktree-bound ones once its root is known.

@@ -25,6 +25,7 @@ use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::existing_ledger::{self, LedgerError};
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::paths::{self, GIT_TIMEOUT};
 
 /// The last round that runs; after it the ticket is parked.
@@ -224,7 +225,7 @@ fn run_start<O: Write>(
         });
     }
     let location = paths::ledger_store(None, lookup, cwd)?;
-    let store = Store::open(&location.path)?;
+    let store = legacy_import::open_for_command(&location)?;
     let outcome = start_tries(|| {
         let seen = count(&store, &ticket)?;
         start_once(&store, &ticket, seen, args.session.as_deref())

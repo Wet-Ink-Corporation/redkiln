@@ -28,7 +28,7 @@ const CONFIG_CAP: u64 = 64 * 1024;
 /// # Errors
 /// [`PathError`] when git cannot be run or answered with a failure other than "neither key is
 /// set" (its exit 1) or "not a repository".
-pub(super) fn owner(cwd: &Path, timeout: Duration) -> Result<Option<Owner>, PathError> {
+pub(crate) fn owner(cwd: &Path, timeout: Duration) -> Result<Option<Owner>, PathError> {
     let root = match paths::worktree_root_within(cwd, timeout) {
         Ok(root) => PathBuf::from(root),
         Err(PathError::NotARepository { .. }) => cwd.to_path_buf(),
@@ -55,8 +55,15 @@ pub(super) fn owner(cwd: &Path, timeout: Duration) -> Result<Option<Owner>, Path
 /// The Core record of `owner`'s approval of the plan whose bytes are `bytes`, at `locator`:
 /// repository scope, no gates, no expiry (D3).
 pub(super) fn approval(owner: &Owner, bytes: &[u8], locator: &str) -> ApprovalRecorded {
+    approval_of(owner, &Subject::sha256(bytes), locator)
+}
+
+/// The Core record of `owner`'s approval of the plan whose content is `subject`, at `locator`
+/// ([`approval`]'s shape): for an approval the one-time import finds, which kept the hash and
+/// not the bytes.
+pub(crate) fn approval_of(owner: &Owner, subject: &Subject, locator: &str) -> ApprovalRecorded {
     ApprovalRecorded {
-        subject: ApprovalSubject::new(PLAN_KIND, &Subject::sha256(bytes), locator),
+        subject: ApprovalSubject::new(PLAN_KIND, subject, locator),
         verdict: Verdict::Approved,
         scope: Some(Scope::Repository),
         gates: None,

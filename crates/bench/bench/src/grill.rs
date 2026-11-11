@@ -34,6 +34,7 @@ use crate::decide::transport::Transport;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::paths::{self, StoreSource};
 use classify::ClassifyArgs;
 use tree::{
@@ -278,7 +279,7 @@ fn confirm<O: Write>(
         });
     }
     let location = paths::ledger_store(args.store.as_deref(), lookup, cwd)?;
-    let position = Store::open(&location.path)?.append(&envelope)?;
+    let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
     let data = Confirmed {
         tree: &args.tree,
         store: &location.path,

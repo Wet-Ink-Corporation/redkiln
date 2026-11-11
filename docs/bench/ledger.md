@@ -32,11 +32,53 @@ Query results report the file in `data.store` and the step that chose it in `dat
 ## Old ledgers
 
 anneal's ledger, `<git-common-dir>/anneal/ledger.sqlite3` (outside git
-`<folder>/.anneal/ledger.sqlite3`), and the file `$ANNEAL_STORE` names are never opened: a
-command warns once on stderr (`bench: warning: the anneal ledger <path> is left as it is`)
-and SessionStart says so in its context. `--store` or `$REDKILN_STORE` naming one is refused
-with exit 70 and the hint that bench imports an anneal ledger rather than opening it; the file
-is left as it was. Step 3.5 imports them, once each.
+`<folder>/.anneal/ledger.sqlite3`), and the file `$ANNEAL_STORE` names are never opened in
+place. `--store` or `$REDKILN_STORE` naming one is refused with exit 70 and the hint that bench
+imports an anneal ledger rather than opening it; the file is left as it was. Under `--store`
+or `$REDKILN_STORE` no old ledger is looked for: an explicit store is a test or a deliberate
+setup, and importing the repository's ledger into it would copy a real ledger into a scratch
+store.
+
+### The one-time import (step 3.5, ST-15)
+
+Each old ledger is imported once, read only from Core's copy (`redkiln_core::legacy`; both
+happenstance schemas, WAL and rollback). Who imports it:
+
+- SessionStart, within a hook's budget: sources up to 8 MiB together (each ledger with its
+  `-wal`), no batch started 2 s after the hook began. A ledger over the budget waits for a
+  command, and SessionStart says so.
+- Every command that opens the store to record (`ledger append`, `mode`, `task done`,
+  `verdict set`, `round start`, `grill confirm`, `repro record`, `migrate`, `plan approve`,
+  `orchestrate park|rule`), with no deadline.
+- Never `bench status`, which reports a due ledger as a `ledger/old-ledger` finding and
+  imports nothing, nor any other hook or read. With nothing due no store is opened or created.
+  Only SessionStart, recording commands and `bench status` mention a due ledger: a read
+  (`ledger query|tail|journal`, `plan check`) beside one not yet imported shows the store as
+  it is, without the old events and without a warning.
+
+Each old event becomes `bench.<name>` (dropped and frozen types included) under its old
+identity (`<old store id>:<old position>`), trust `asserted` with the writer's level in
+`claimed`. One `core.import_completed` names the source (`{"legacy": {path, store_id}}`) and
+its counts; a source so recorded is never read again, and a second run appends nothing. An
+import that fails or stops records nothing and is retried; what it stored stays present.
+
+Fields Core cannot take whole (decision D8): an actor Core refuses (anneal took any text,
+such as `test`), a session it refuses or a payload no type reads skips the event, reported
+by record number; a worktree, branch or head it refuses is dropped and counted, the event
+kept; a `ts` it refuses (anneal dropped trailing zeros, `10:04:00.12Z`; a hand-written one may
+carry an offset) is normalised through its Unix milliseconds (`10:04:00.120Z`). anneal's
+worktree path becomes the ID-06 id this build computes for it, so an imported `mode_set` keys
+on the worktree it was set in.
+
+A `plan_approved` whose `by.actor` is `human` is also imported as `core.approval_recorded`
+(AP-05; repository scope, no gates, D3), decided by the suite owner as `bench plan approve`
+resolves it, under the identity `<first 16 bytes of sha256("bench-approval:" ‖ old store id)>:
+<old position>` (D4). With no owner, a model's or an unknown approver, or a hash that is no
+`sha256:` subject, only Bench's event is imported, and the report counts it.
+
+The report: a command writes one `bench: warning:` line per source on stderr, then its
+details (approvals recorded for bench only, dropped fields, the first 32 skipped records)
+indented beneath; SessionStart writes the same lines in its context.
 
 ## Storage rules
 

@@ -22,7 +22,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
 use bench_contract::event::ReproRed;
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -31,6 +31,7 @@ use crate::command::CommandName;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::mode::scope;
 use crate::paths::{self, GIT_TIMEOUT, PathError, StoreLocation, StoreSource};
 use crate::task::{self, DEFAULT_TIMEOUT_SECS, Ending, Run, TaskError};
@@ -263,7 +264,7 @@ fn finish<O: Write>(
         Outcome::Red => {
             envelope.ts = Timestamp::now()?;
             let location = locate()?;
-            let position = Store::open(&location.path)?.append(&envelope)?;
+            let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
             Some((location, position))
         }
         Outcome::Green | Outcome::TimedOut => None,

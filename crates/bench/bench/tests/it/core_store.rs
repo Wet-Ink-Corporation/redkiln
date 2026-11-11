@@ -205,9 +205,8 @@ fn reads_and_session_start_create_no_store_beside_an_old_ledger_or_nothing() -> 
         let tail = ledger(work, &["tail"])?;
         let journal = ledger(work, &["journal"])?;
         let status = anneal_in(work).args(["status", "--json"]).output()?;
-        let started = bootstrap(work, None)?;
 
-        for output in [&query, &tail, &journal, &started] {
+        for output in [&query, &tail, &journal] {
             assert_eq!(output.status.code(), Some(0), "{output:?}");
         }
         assert_eq!(status.status.code(), Some(2), "no store: {status:?}");
@@ -217,10 +216,19 @@ fn reads_and_session_start_create_no_store_beside_an_old_ledger_or_nothing() -> 
             work.display()
         );
     }
+    // SessionStart creates nothing where there is nothing to import; beside an old ledger it
+    // imports it (step 3.5, Ryan's call 2026-11-11).
+    let started = bootstrap(empty.path(), None)?;
+    assert_eq!(started.status.code(), Some(0), "{started:?}");
+    assert!(
+        !empty.path().join(".git/redkiln").exists(),
+        "SessionStart with nothing to import creates neither the store nor its directory"
+    );
     let said = context(&bootstrap(with_old.path(), None)?)?;
     assert!(
-        said.contains("bench: the anneal ledger") && said.contains("left as it is"),
-        "SessionStart says the old ledger is there: {said}"
+        said.contains("the anneal ledger")
+            && said.contains("is left as it is: its events are imported"),
+        "SessionStart says it imported the old ledger: {said}"
     );
     Ok(())
 }

@@ -26,6 +26,7 @@ use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::error_chain;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::paths::{self, StoreLocation, StoreSource};
 
 /// `bench ledger`.
@@ -163,7 +164,7 @@ fn append<O: Write>(
     let location = locate()?;
     // Core's own checks (the actor, a `wt-` worktree, the branch and head, EV-05) are the
     // schema's too: nothing is written.
-    let position = match Store::open(&location.path)?.append(&event) {
+    let position = match legacy_import::open_for_command(&location)?.append(&event) {
         Ok(position) => position,
         Err(refused) if refused.is_schema() => return schema_error(SUBCOMMAND, &refused, out),
         Err(other) => return Err(other.into()),

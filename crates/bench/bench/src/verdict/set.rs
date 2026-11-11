@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
 use bench_contract::event::VerdictSet;
 use serde::Serialize;
 
@@ -19,6 +19,7 @@ use crate::decide::label;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::paths::{self, GIT_TIMEOUT};
 use crate::pr_diff::{self, Budget, PrError};
 
@@ -123,7 +124,7 @@ fn record(
         });
     }
     let location = paths::ledger_store(None, lookup, cwd)?;
-    let position = Store::open(&location.path)?.append(&envelope)?;
+    let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
     Ok(Recorded {
         envelope,
         store: location.path,
