@@ -5,6 +5,7 @@
 use redkiln_core::store::{NewEvent, Store as CoreStore, Wait};
 use serde_json::{Value, json};
 
+use super::edges::json_in;
 use super::{Fixture, document};
 use crate::test_repo::Setup;
 
@@ -68,6 +69,104 @@ fn the_worktree_s_suite_config_gives_the_class_when_a_variable_chose_the_store()
         ),
         (&Value::from("env"), &Value::from("own")),
         "ST-13's class from suite.toml, though $REDKILN_STORE chose the store: {envelope}"
+    );
+    Ok(())
+}
+
+/// The `status/unreadable:repo_class` findings of `envelope`, each as `[severity, message]`.
+fn repo_class_findings(envelope: &Value) -> Vec<(&Value, &Value)> {
+    envelope["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["key"] == "status/unreadable:repo_class")
+        .map(|f| (&f["severity"], &f["message"]))
+        .collect()
+}
+
+#[test]
+fn a_class_outside_its_grammar_in_the_worktree_s_config_is_client_and_degrades_health() -> Setup<()>
+{
+    let fixture = Fixture::new()?;
+    fixture.store()?;
+    fixture
+        .repo
+        .write(".redkiln/suite.toml", "[suite]\nrepo_class = \"onw\"\n")?;
+
+    let (code, envelope) = fixture.json(&["--fields", "gates"])?;
+
+    assert_eq!(code, 0, "a report: {envelope}");
+    assert_eq!(
+        (&envelope["data"]["repo_class"], &envelope["data"]["health"]),
+        (&Value::from("client"), &Value::from("degraded")),
+        "ST-13's default, and the reader is told: {envelope}"
+    );
+    let findings = repo_class_findings(&envelope);
+    assert!(
+        matches!(
+            findings.as_slice(),
+            [(severity, message)] if *severity == "warning"
+                && message.as_str().is_some_and(|m| m.contains("`repo_class` has a value outside its grammar"))
+        ),
+        "Core's warning, as one finding: {envelope}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_config_locating_could_not_parse_is_client_and_degrades_health() -> Setup<()> {
+    let mut fixture = Fixture::new()?;
+    // No variable: locating reads the worktree's suite config itself (ST-01 step 4).
+    fixture.vars.remove("REDKILN_STORE");
+    fixture
+        .repo
+        .write(".redkiln/suite.toml", "[suite\nrepo_class = \"own\"\n")?;
+
+    let (code, envelope) = fixture.json(&["--fields", "gates"])?;
+
+    assert_eq!(code, 0, "a report: {envelope}");
+    assert_eq!(
+        (&envelope["data"]["repo_class"], &envelope["data"]["health"]),
+        (&Value::from("client"), &Value::from("degraded")),
+        "{envelope}"
+    );
+    let findings = repo_class_findings(&envelope);
+    assert!(
+        matches!(
+            findings.as_slice(),
+            [(severity, message)] if *severity == "warning"
+                && message.as_str().is_some_and(|m| m.contains("is not used"))
+        ),
+        "the location's suite notice, as one finding: {envelope}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git in a subprocess")]
+fn git_failing_while_finding_the_class_is_client_and_a_warning() -> Setup<()> {
+    let fixture = Fixture::new()?;
+    fixture.store()?;
+    let broken = tempfile::tempdir()?;
+    // A `.git` file git cannot parse: git fails, but not with "not a git repository".
+    std::fs::write(broken.path().join(".git"), "not a gitdir line\n")?;
+
+    let (code, envelope) = json_in(&fixture, broken.path(), &["--fields", "gates"])?;
+
+    assert_eq!(code, 0, "a report: {envelope}");
+    assert_eq!(
+        (&envelope["data"]["repo_class"], &envelope["data"]["health"]),
+        (&Value::from("client"), &Value::from("degraded")),
+        "{envelope}"
+    );
+    let findings = repo_class_findings(&envelope);
+    assert!(
+        matches!(
+            findings.as_slice(),
+            [(severity, message)] if *severity == "warning"
+                && message.as_str().is_some_and(|m| m.contains("invalid gitfile format"))
+        ),
+        "git's own words: {envelope}"
     );
     Ok(())
 }

@@ -19,8 +19,10 @@
 //! A section not asked for, or whose source does not exist, is `null`; one whose source exists
 //! but cannot be read is `null` too, with one `status/unreadable:<section>` warning saying
 //! why, and the exit code is unchanged. `context` has two sources: when one cannot be read, the other's reading is
-//! still shown beside the finding. `--fields` limits the work to the sections named:
-//! `--fields phase,plan,gates` runs no git beyond finding the ledger and the worktree. An anneal
+//! still shown beside the finding. `--fields` limits which sections are read, not the
+//! common keys: `unreadable` reads every Bench event in the ledger once on each run (its cost
+//! grows with the ledger; `docs/status.md`, Cost), and `repo_class` runs git once more to find
+//! the worktree's suite config when `--store` or a variable chose the store. An anneal
 //! ledger not yet imported is one `ledger/old-ledger` note; `status` never imports it
 //! (`legacy_import`: the cockpit polls it). A report
 //! (SPEC CLI-06): exit 0 whenever the document was written; without a ledger it carries one

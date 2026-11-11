@@ -538,14 +538,16 @@ impl Store {
     }
 
     /// How many stored Bench events of each type this build cannot use (EV-10), by stored
-    /// type: every Bench event read once, a page at a time. `bench status`'s `unreadable`.
+    /// type: every Bench event read once, a page at a time, and only decoded (the contract's
+    /// decode is the one fallible step of reading an event, so it alone tells an unusable
+    /// one). `bench status`'s `unreadable`.
     ///
     /// # Errors
     /// As [`Store::query`].
     pub(crate) fn unusable_by_type(&self) -> Result<BTreeMap<String, u64>, StoreError> {
         let mut by_type = BTreeMap::new();
         self.each_stored(&Filter::default(), |stored| {
-            if let Err(Skip::Unusable(_)) = wire::from_stored(stored) {
+            if let Err(Skip::Unusable(_)) = bench_contract::event::decode(stored) {
                 count(&mut by_type, &stored.event_type);
             }
         })?;

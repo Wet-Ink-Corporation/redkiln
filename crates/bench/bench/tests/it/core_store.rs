@@ -210,6 +210,7 @@ fn reads_and_session_start_create_no_store_beside_an_old_ledger_or_nothing() -> 
             assert_eq!(output.status.code(), Some(0), "{output:?}");
         }
         assert_eq!(status.status.code(), Some(0), "no store: {status:?}");
+        crate::support::envelope(&status)?;
         assert!(
             !work.join(".git/redkiln").exists(),
             "{}: neither the store nor its directory",

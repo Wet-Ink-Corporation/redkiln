@@ -12,7 +12,7 @@ use super::Gathered;
 use crate::envelope::{Finding, Severity};
 use crate::error_chain::reason;
 use crate::path_text::slashed;
-use crate::paths::{self, GIT_TIMEOUT, PathError, StoreLocation};
+use crate::paths::{self, GIT_TIMEOUT, Notice, PathError, StoreLocation};
 use crate::store::Store;
 
 /// What the open store says of itself: its schema and the events of Bench's types this build
@@ -74,29 +74,54 @@ pub(super) const fn store_source(source: paths::StoreSource) -> StoreSource {
 }
 
 /// The repository class (ST-13): the suite config's that locating read, else (`--store` or a
-/// variable chose first) the config of the worktree at `cwd`, or of `cwd` outside git. git
-/// failing otherwise is a `status/unreadable:repo_class` finding and the class is ST-13's
-/// default, `client`.
+/// variable chose first) the config of the worktree at `cwd`, or of `cwd` outside git, which
+/// runs git once more. Each warning of the config read (Core's [`suite::Warning`], or the
+/// location's [`Notice::Suite`]) is a `status/unreadable:repo_class` finding, so `health`
+/// degrades; so is git failing otherwise, and the class is then ST-13's default, `client`.
 pub(super) fn repo_class(
     location: &StoreLocation,
     cwd: &Path,
     gathered: &mut Gathered,
 ) -> RepoClass {
-    let class = match location.repo_class {
-        Some(class) => class,
-        None => match paths::worktree_root_within(cwd, GIT_TIMEOUT) {
-            Ok(root) => Suite::load(Path::new(&root)).repo_class(),
-            Err(PathError::NotARepository { .. }) => Suite::load(cwd).repo_class(),
-            Err(error) => {
-                gathered.unreadable("repo_class", &reason(&error));
-                suite::RepoClass::Client
+    let class = if let Some(class) = location.repo_class {
+        for notice in &location.notices {
+            if let Notice::Suite(warning) = notice {
+                suite_warning(gathered, warning);
             }
-        },
+        }
+        class
+    } else {
+        worktree_class(cwd, gathered)
     };
     match class {
         suite::RepoClass::Own => RepoClass::Own,
         suite::RepoClass::Client => RepoClass::Client,
     }
+}
+
+/// The class of the worktree at `cwd` (of `cwd` outside git), with each warning of its suite
+/// config a finding; `client` and a finding when git fails otherwise.
+fn worktree_class(cwd: &Path, gathered: &mut Gathered) -> suite::RepoClass {
+    let suite = match paths::worktree_root_within(cwd, GIT_TIMEOUT) {
+        Ok(root) => Suite::load(Path::new(&root)),
+        Err(PathError::NotARepository { .. }) => Suite::load(cwd),
+        Err(error) => {
+            gathered.unreadable("repo_class", &reason(&error));
+            return suite::RepoClass::Client;
+        }
+    };
+    for warning in suite.warnings() {
+        suite_warning(gathered, &warning.to_string());
+    }
+    suite.repo_class()
+}
+
+/// One `status/unreadable:repo_class` warning carrying a suite-config warning's own words,
+/// which name the file and what was not used.
+fn suite_warning(gathered: &mut Gathered, warning: &str) {
+    gathered.findings.push(
+        Finding::new("status/unreadable:repo_class", warning).with_severity(Severity::Warning),
+    );
 }
 
 /// `off` with an error finding, `degraded` with a warning, else `ok`: from the findings alone,

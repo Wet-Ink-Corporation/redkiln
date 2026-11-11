@@ -43,7 +43,8 @@ pub(crate) fn status_errors(data: &Value) -> TestResult<Vec<String>> {
 
 /// `output`'s stdout as the one envelope CLI-01 allows: a single line ended by `\n`, `schema`
 /// its first key and one of `bench_contract::cli::OUTPUTS`, passing the envelope schema, with
-/// `ok` true exactly when the exit code is 0 (CLI-02). Panics, naming what broke, otherwise.
+/// `ok` true exactly when the exit code is 0 (CLI-02), and a `bench.status/1` envelope's `data`
+/// passing `status-1` (CLI-12). Panics, naming what broke, otherwise.
 pub(crate) fn envelope(output: &Output) -> TestResult<Value> {
     let text = std::str::from_utf8(&output.stdout)?;
     assert!(
@@ -70,6 +71,10 @@ pub(crate) fn envelope(output: &Output) -> TestResult<Value> {
         Some(output.status.code() == Some(0)),
         "CLI-02: ok agrees with the exit code: {output:?}"
     );
+    if id == "bench.status/1" {
+        let errors = status_errors(&envelope["data"])?;
+        assert!(errors.is_empty(), "{text} breaks status-1: {errors:?}");
+    }
     Ok(envelope)
 }
 

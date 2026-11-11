@@ -123,8 +123,28 @@ impl Fixture {
     fn json(&self, args: &[&str]) -> Setup<(u8, Value)> {
         let args: Vec<&str> = ["--json"].iter().chain(args).copied().collect();
         let (code, out) = self.status(&args)?;
-        Ok((code, serde_json::from_str(&out)?))
+        Ok((code, checked(out.as_bytes())?))
     }
+}
+
+/// `out` read as the envelope, its `data` checked against CLI-12's
+/// `spec/schemas/status-1.schema.json`: every document a test here reads passes it.
+fn checked(out: &[u8]) -> Setup<Value> {
+    let envelope: Value = serde_json::from_slice(out)?;
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../spec/schemas/status-1.schema.json");
+    let schema: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let validator = jsonschema::draft202012::new(&schema)?;
+    let data = envelope.get("data").ok_or("the envelope has no data")?;
+    let errors: Vec<String> = validator
+        .iter_errors(data)
+        .map(|e| format!("{}: {e}", e.instance_path().as_str()))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "data breaks status-1: {errors:?}: {envelope}"
+    );
+    Ok(envelope)
 }
 
 /// The `data` `bench status --json` writes for `fixture` (CLI-12): the common keys, with

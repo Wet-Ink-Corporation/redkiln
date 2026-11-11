@@ -14,10 +14,10 @@ anneal status [--json] [--fields <section>,...] [--tail <n>]
   character is shown as a space, so recorded text cannot break a line or drive the terminal.
 - With `--json` it prints the envelope `bench.status/1` (SPEC CLI-12, `docs/exit-codes.md`),
   whose `data` is the document below, read through `bench_contract::status`.
-- `--fields phase,plan,gates` limits the work to the sections named (any of `phase`, `plan`,
-  `tasks`, `gates`, `verdict`, `clef`, `context`, `ledger_tail`); an unnamed section reads
-  nothing, so a frequent refresh can ask only for what it shows. An unknown name is a usage
-  error.
+- `--fields phase,plan,gates` limits the sections read to those named (any of `phase`,
+  `plan`, `tasks`, `gates`, `verdict`, `clef`, `context`, `ledger_tail`); an unnamed section
+  reads nothing, so a frequent refresh can ask only for what it shows. CLI-12's keys are read
+  whatever it names (see Cost). An unknown name is a usage error.
 - `--tail <n>` is how many events `ledger_tail` lists: 10 by default, 0 to 1000.
 
 `status` is a report (SPEC CLI-06): it exits 0 whenever it wrote its document. When no ledger
@@ -32,8 +32,9 @@ The envelope's `schema` is `bench.status/1` (CLI-01); `data` no longer carries a
 own (it held `"schema": 1` before step 4.4). **Fields are only ever added within version 1**
 (CLI-04): a field, once shipped, keeps its name, type and meaning, and a reader must ignore
 fields it does not know. Removing or changing a field is a new version, `bench.status/2`.
-`spec/fixtures/status/valid/bench-ok.json` is its golden, and Bench's tests check every
-`status --json` against `spec/schemas/status-1.schema.json`.
+`spec/fixtures/status/valid/bench-ok.json` is its golden, and every `status --json` document
+Bench's tests read (in process, `src/status/tests.rs`, and from the binary,
+`tests/it/support/conform.rs`) is checked against `spec/schemas/status-1.schema.json`.
 
 Every key is always present: a value Bench does not have is `null`, never left out.
 
@@ -49,8 +50,10 @@ The keys every plugin's status carries come first:
 - `store_schema`: the store's schema as `<major>.<minor>`, `null` when there is no store yet.
 - `repo_class`: `own` or `client` (ST-13), from the suite config Core read while locating, or,
   when `--store` or a variable chose the store first, from the worktree's (outside git, the
-  folder's) `.redkiln/suite.toml`; `client` when nothing sets it. git failing there is a
-  `status/unreadable:repo_class` warning.
+  folder's) `.redkiln/suite.toml`, which runs git once more; `client` when nothing sets it.
+  Each warning of that suite config (a file that does not parse, a value outside its grammar,
+  a class taken from the legacy config) is a `status/unreadable:repo_class` warning in Core's
+  words, and so is git failing there, with `client`.
 - `unreadable`: Bench events this build skipped, by stored type (EV-10), from one read of every
   Bench event; when any were skipped, one `ledger/unusable` warning says how many.
 - `dropped`: always 0, since Bench records no telemetry (ST-09).

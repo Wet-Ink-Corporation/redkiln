@@ -9,7 +9,7 @@ use bench_contract::event::{GateBlocked, Mode, ModeSet};
 use clap::Parser;
 use serde_json::{Value, json};
 
-use super::{Fixture, append, build_mode, with_store};
+use super::{Fixture, append, build_mode, checked, with_store};
 use crate::cli::{Cli, Command};
 use crate::context;
 use crate::test_repo::Setup;
@@ -24,7 +24,7 @@ fn block(fixture: &Fixture, point: &str, reason: &str, ts: &str) -> Setup<u64> {
 }
 
 /// Runs `bench status --json <args>` in `cwd` instead of the repository.
-fn json_in(fixture: &Fixture, cwd: &Path, args: &[&str]) -> Setup<(u8, Value)> {
+pub(super) fn json_in(fixture: &Fixture, cwd: &Path, args: &[&str]) -> Setup<(u8, Value)> {
     let command_line = ["anneal", "status", "--json"].iter().chain(args);
     let cli = Cli::try_parse_from(command_line)?;
     let Some(Command::Status(status)) = cli.command else {
@@ -32,7 +32,7 @@ fn json_in(fixture: &Fixture, cwd: &Path, args: &[&str]) -> Setup<(u8, Value)> {
     };
     let mut out = Vec::new();
     let code = crate::status::run(&status, cwd, |var| fixture.vars.get(var).cloned(), &mut out)?;
-    Ok((code.value(), serde_json::from_slice(&out)?))
+    Ok((code.value(), checked(&out)?))
 }
 
 #[test]
