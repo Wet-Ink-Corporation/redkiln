@@ -1,0 +1,16 @@
+{
+  "schema": "bench.dag-check/1",
+  "ok": true,
+  "command": "dag check",
+  "data": {
+    "cycle": [],
+    "dangling": [],
+    "done": 0,
+    "edges": 2,
+    "tickets": 4,
+    "tracker": "markdown"
+  },
+  "findings": [],
+  "proves": "the task graph has no cycle and no dangling dependency; with check --plan, every plan task has a ticket of its id with the same blockers among the plan's tasks, and every ticket is a task of the plan or an outside blocker of one (a ticket that blocks a task's ticket, directly or through other such tickets)",
+  "does_not_prove": "that the dependencies are the right ones"
+}

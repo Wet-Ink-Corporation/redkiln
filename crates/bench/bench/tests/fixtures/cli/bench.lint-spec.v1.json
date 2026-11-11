@@ -1,0 +1,20 @@
+{
+  "schema": "bench.lint-spec/1",
+  "ok": true,
+  "command": "lint spec",
+  "data": {
+    "constitution": {
+      "file": "constitution.md",
+      "gates": 3,
+      "version": "1"
+    },
+    "criteria": 5,
+    "file": "spec.md",
+    "findings": [],
+    "glossary": "CONTEXT.md",
+    "needs_clarification": 0
+  },
+  "findings": [],
+  "proves": "the checked files have no error under anneal's lint rules",
+  "does_not_prove": "that the content is right, or that its warnings and review items were addressed"
+}

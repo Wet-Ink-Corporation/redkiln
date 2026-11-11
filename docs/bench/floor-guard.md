@@ -9,7 +9,7 @@ one finding per hit.
 |---|---|
 | 0 | no floor lowered |
 | 1 | a floor was lowered: `data.findings` lists each hit |
-| 2 | tool error: one `ERROR floor-guard: ...` line on stderr and nothing on stdout |
+| 2 | tool error: one `bench: error: floor-guard: ...` line on stderr and nothing on stdout |
 
 Exit 2 covers everything that stops the check from reading the whole diff: not in a git
 repository, a `--base` that does not resolve to a commit, no `--base` while neither

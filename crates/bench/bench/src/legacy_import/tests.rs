@@ -12,7 +12,7 @@ use redkiln_core::store::{Filter, Stored, Wait};
 use redkiln_core::suite::Owner;
 use serde_json::Value;
 
-use super::{Budget, Importer, Outcome, Run, Waiting, due, lines};
+use super::{Budget, Importer, Line, Outcome, Run, Waiting, due, lines, warnings};
 use crate::store::{EventKind, Filter as BenchFilter, LedgerEvent, Store};
 
 /// The committed fixture `name`.
@@ -589,4 +589,27 @@ fn a_live_anneal_ledger_reads_untouched_and_every_event_maps() {
         imported.tally.problems
     );
     assert_eq!(std::fs::read(&live).expect("reads"), before, "untouched");
+}
+
+#[test]
+fn a_commands_report_is_one_warning_per_source_with_its_details_joined() {
+    let line = |headline: bool, text: &str| Line {
+        headline,
+        text: text.to_owned(),
+    };
+    let report = vec![
+        line(true, "a imported"),
+        line(false, "record 1 refused"),
+        line(false, "record 2 refused"),
+        line(true, "b not imported"),
+    ];
+
+    assert_eq!(
+        warnings(report),
+        [
+            "a imported; record 1 refused; record 2 refused",
+            "b not imported"
+        ],
+        "CLI-08: one line each"
+    );
 }

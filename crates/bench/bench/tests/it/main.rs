@@ -10,6 +10,7 @@ compile_error!(
 mod brief;
 mod calibrate;
 mod cli;
+mod cli_envelope;
 mod cli_pin;
 mod core_store;
 mod dag;

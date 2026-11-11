@@ -1,0 +1,19 @@
+{
+  "schema": "bench.mode-diagnose/1",
+  "ok": true,
+  "command": "mode diagnose",
+  "data": {
+    "clean": true,
+    "mode": "diagnose",
+    "plan": null,
+    "position": 1,
+    "source": "git_common_dir",
+    "store": "<root>/.git/redkiln/events.sqlite3",
+    "tree": null,
+    "type": "mode_set",
+    "worktree": "<varies>"
+  },
+  "findings": [],
+  "proves": "the mode was recorded for this worktree, with whether its tree was clean",
+  "does_not_prove": "that the mode's preconditions hold: the preconditions hook checks them at each edit"
+}

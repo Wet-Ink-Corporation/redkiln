@@ -1,0 +1,20 @@
+{
+  "schema": "bench.grill-classify/1",
+  "ok": true,
+  "command": "grill classify",
+  "data": {
+    "action": null,
+    "clef": "off",
+    "fallback": null,
+    "id": null,
+    "is_decision": null,
+    "mode": null,
+    "node": "decide-format",
+    "reason": null,
+    "tree": "tree.json",
+    "written": false
+  },
+  "findings": [],
+  "proves": "the design tree is valid; for confirm, no question is open and the human's quoted confirmation of the tree's hash was recorded",
+  "does_not_prove": "that the right questions were asked, that the answers are right, or that the quoted words came from the human"
+}

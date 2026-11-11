@@ -32,7 +32,7 @@ fn fixture() -> PathBuf {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 fn close(value: &Value, expected: f64) -> bool {
@@ -53,6 +53,7 @@ fn the_hand_computed_log_gives_its_brier_bins_ask_rate_and_proposal() -> TestRes
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let envelope = envelope(&output)?;
+    crate::support::golden(&envelope, &[home.path()], &[])?;
     let data = &envelope["data"];
     assert_eq!(
         (&data["skipped_rows"], &data["unmatched_labels"]),
@@ -115,7 +116,7 @@ fn a_short_summary_goes_to_stderr_and_the_proposals_to_the_anneal_home() -> Test
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let stderr = std::str::from_utf8(&output.stderr)?;
     assert!(stderr.lines().count() <= 20, "short:\n{stderr}");
-    assert!(!stderr.contains("ERROR"), "{stderr}");
+    assert!(!stderr.contains("bench: error:"), "{stderr}");
     assert!(
         stderr.lines().any(|line| line == "D1: stay-shadow"),
         "{stderr}"

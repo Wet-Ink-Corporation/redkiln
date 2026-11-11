@@ -1,0 +1,16 @@
+{
+  "schema": "bench.lint-rules/1",
+  "ok": true,
+  "command": "lint rules",
+  "data": {
+    "cached": 0,
+    "checked": 1,
+    "details": [],
+    "errors": 0,
+    "reviews": 0,
+    "warnings": 0
+  },
+  "findings": [],
+  "proves": "the checked files have no error under anneal's lint rules",
+  "does_not_prove": "that the content is right, or that its warnings and review items were addressed"
+}

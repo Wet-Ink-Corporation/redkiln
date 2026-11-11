@@ -33,7 +33,7 @@ fn lint_rules(name: &str) -> Result<Output, Box<dyn Error>> {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -71,6 +71,7 @@ fn rules_naming_a_real_hook_command_and_test_are_clean() -> TestResult {
     let output = lint_rules("pass.md")?;
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
+    crate::support::golden(&envelope(&output)?, &[], &[])?;
     let data = &envelope(&output)?["data"];
     assert_eq!(
         (&data["checked"], &data["errors"], &data["details"]),
@@ -87,7 +88,7 @@ fn a_missing_rule_document_is_a_usage_error() -> TestResult {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     let stderr = std::str::from_utf8(&output.stderr)?;
-    assert!(stderr.starts_with("ERROR "), "{stderr}");
+    assert!(stderr.starts_with("bench: error: "), "{stderr}");
     Ok(())
 }
 
@@ -114,7 +115,7 @@ fn a_missing_or_file_root_is_a_usage_error() -> TestResult {
         );
         assert!(output.stdout.is_empty(), "nothing on stdout");
         let stderr = std::str::from_utf8(&output.stderr)?;
-        assert!(stderr.starts_with("ERROR "), "{stderr}");
+        assert!(stderr.starts_with("bench: error: "), "{stderr}");
     }
     Ok(())
 }

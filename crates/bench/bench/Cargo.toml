@@ -31,6 +31,9 @@ thiserror = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
+# The SPEC's CLI envelope schema, validated against every envelope the integration tests capture
+# (Move 2 step 4.1, call C3 for Ryan).
+jsonschema = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

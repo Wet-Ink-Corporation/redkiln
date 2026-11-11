@@ -1,0 +1,28 @@
+{
+  "schema": "bench.ledger-tail/1",
+  "ok": true,
+  "command": "ledger tail",
+  "data": {
+    "events": [
+      {
+        "event": {
+          "actor": "cli",
+          "branch": null,
+          "head": null,
+          "session_id": null,
+          "task": "T1",
+          "ts": "<time>",
+          "type": "task_done",
+          "worktree": null
+        },
+        "position": 1
+      }
+    ],
+    "registry": 10,
+    "source": "env",
+    "store": "<root>/ledger.sqlite3"
+  },
+  "findings": [],
+  "proves": "the ledger events read or written match the event schema",
+  "does_not_prove": "that the events are true, or that the work they record was done well"
+}

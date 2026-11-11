@@ -1,0 +1,29 @@
+{
+  "schema": "bench.grill-frontier/1",
+  "ok": true,
+  "command": "grill frontier",
+  "data": {
+    "answered": 7,
+    "ask": [],
+    "confidence": {
+      "best": 0.85,
+      "latest": 0.85,
+      "restate": true,
+      "restate_after_turns_without_gain": 3,
+      "restate_at": 0.8,
+      "turns": 2,
+      "turns_without_gain": 0
+    },
+    "deferred": 1,
+    "frontier": [],
+    "goal": "Add a --json flag to the toy `notes list` command so scripts can read its output.",
+    "hash": "sha256:<hash>",
+    "look_up": [],
+    "nodes": 8,
+    "open": 0,
+    "tree": "design-tree.json"
+  },
+  "findings": [],
+  "proves": "the design tree is valid; for confirm, no question is open and the human's quoted confirmation of the tree's hash was recorded",
+  "does_not_prove": "that the right questions were asked, that the answers are right, or that the quoted words came from the human"
+}

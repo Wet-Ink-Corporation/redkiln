@@ -15,6 +15,7 @@ fn verdict_set_records_the_level_source_commit_patch_id_and_base() -> TestResult
     let head = repo.head()?;
 
     let envelope = repo.set_verdict("tests-verified", "local")?;
+    crate::support::golden(&envelope, &[repo.path()], &[])?;
 
     let data = &envelope["data"];
     assert_eq!(
@@ -67,7 +68,7 @@ fn verdict_set_refuses_a_commit_that_does_not_exist_and_records_nothing() -> Tes
     assert!(output.stdout.is_empty(), "nothing on stdout");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR ") && stderr.contains("no-such-commit"),
+        stderr.starts_with("bench: error: ") && stderr.contains("no-such-commit"),
         "{stderr}"
     );
     assert!(!repo.ledger().exists(), "no ledger created");
@@ -97,6 +98,7 @@ fn a_verdict_for_the_head_is_valid() -> TestResult {
     repo.set_verdict("tests-verified", "local")?;
 
     let envelope = valid(&repo, 0)?;
+    crate::support::golden(&envelope, &[repo.path()], &[])?;
 
     assert_eq!(
         (

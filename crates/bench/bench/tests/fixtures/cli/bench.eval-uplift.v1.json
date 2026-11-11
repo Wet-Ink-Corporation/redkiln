@@ -1,0 +1,48 @@
+{
+  "schema": "bench.eval-uplift/1",
+  "ok": true,
+  "command": "eval uplift",
+  "data": {
+    "baseline": null,
+    "baseline_plugin": null,
+    "cases": 3,
+    "complete": false,
+    "cost_is_lower_bound": false,
+    "cost_usd": 0.0,
+    "coverage": [
+      {
+        "capability": 1,
+        "regression": 1,
+        "skill": "plan"
+      },
+      {
+        "capability": 0,
+        "regression": 1,
+        "skill": "spec"
+      }
+    ],
+    "errored": 0,
+    "graduates": [],
+    "granted_tools": [],
+    "libexec_target": null,
+    "max_cost_usd": null,
+    "mode": "check",
+    "non_discriminating": [],
+    "per_skill": [],
+    "problems": 0,
+    "results": [],
+    "runs": 0,
+    "runs_per_arm": 3,
+    "scaffolded": [],
+    "skills": [
+      "plan",
+      "spec"
+    ],
+    "skipped": false,
+    "stop": null,
+    "watch": []
+  },
+  "findings": [],
+  "proves": "skill routing accuracy, or each skill's behaviour uplift over its baseline, is at or above its bound on the eval set",
+  "does_not_prove": "routing accuracy or behaviour on prompts outside the eval set"
+}

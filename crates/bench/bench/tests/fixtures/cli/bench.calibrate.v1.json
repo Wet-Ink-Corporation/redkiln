@@ -1,0 +1,162 @@
+{
+  "schema": "bench.calibrate/1",
+  "ok": true,
+  "command": "calibrate",
+  "data": {
+    "apply": [
+      {
+        "file": null,
+        "from": 0.4,
+        "kind": "threshold",
+        "point": "D1",
+        "pointer": "/points/D1/rules/noul/bands/1/at_least",
+        "question": "noul",
+        "to": 0.3
+      }
+    ],
+    "costs": {
+      "false_accept": 5,
+      "needless": 1
+    },
+    "diff": [
+      {
+        "after": "            { \"at_least\": 0.3, \"action\": \"ask\" }",
+        "before": "            { \"at_least\": 0.4, \"action\": \"ask\" }",
+        "line": 16,
+        "pointer": "/points/D1/rules/noul/bands/1/at_least"
+      }
+    ],
+    "files": [
+      "<root>/decisions/decisions.1.jsonl",
+      "<root>/decisions/decisions.jsonl"
+    ],
+    "log": "<root>/decisions/decisions.jsonl",
+    "points": [
+      {
+        "history": [
+          {
+            "brier": 0.2885,
+            "day_start_ms": 1759968000000,
+            "labelled": 5,
+            "n": 6,
+            "question": "noul"
+          }
+        ],
+        "mode": "off",
+        "point": "D1",
+        "questions": [
+          {
+            "ask_rate": 0.3333333333333333,
+            "asks": 2,
+            "bins": [
+              {
+                "count": 0,
+                "lower": 0.0,
+                "mean_probability": null,
+                "observed_frequency": null,
+                "upper": 0.1
+              },
+              {
+                "count": 1,
+                "lower": 0.1,
+                "mean_probability": 0.1,
+                "observed_frequency": 0.0,
+                "upper": 0.2
+              },
+              {
+                "count": 0,
+                "lower": 0.2,
+                "mean_probability": null,
+                "observed_frequency": null,
+                "upper": 0.3
+              },
+              {
+                "count": 1,
+                "lower": 0.3,
+                "mean_probability": 0.3,
+                "observed_frequency": 1.0,
+                "upper": 0.4
+              },
+              {
+                "count": 0,
+                "lower": 0.4,
+                "mean_probability": null,
+                "observed_frequency": null,
+                "upper": 0.5
+              },
+              {
+                "count": 0,
+                "lower": 0.5,
+                "mean_probability": null,
+                "observed_frequency": null,
+                "upper": 0.6
+              },
+              {
+                "count": 0,
+                "lower": 0.6,
+                "mean_probability": null,
+                "observed_frequency": null,
+                "upper": 0.7
+              },
+              {
+                "count": 0,
+                "lower": 0.7,
+                "mean_probability": null,
+                "observed_frequency": null,
+                "upper": 0.8
+              },
+              {
+                "count": 1,
+                "lower": 0.8,
+                "mean_probability": 0.8,
+                "observed_frequency": 1.0,
+                "upper": 0.9
+              },
+              {
+                "count": 2,
+                "lower": 0.9,
+                "mean_probability": 0.975,
+                "observed_frequency": 0.5,
+                "upper": 1.0
+              }
+            ],
+            "brier": 0.2885,
+            "labelled": 5,
+            "labelled_via_mod": 0,
+            "n": 6,
+            "question": "noul",
+            "reasons": [
+              "too_few_labelled",
+              "brier_above_bound",
+              "ask_rate_at_or_above_bound"
+            ],
+            "subject": "destructive_or_irreversible",
+            "threshold": {
+              "band": "ask",
+              "ceiling": 0.9,
+              "current": 0.4,
+              "current_expected_cost": 1.2,
+              "false_accept": "below_threshold",
+              "no_proposal": null,
+              "pointer": "/points/D1/rules/noul/bands/1/at_least",
+              "proposed": 0.3,
+              "proposed_expected_cost": 0.2
+            },
+            "unanswered": 1,
+            "unusable_labels": 1,
+            "verdict": "stay-shadow"
+          }
+        ],
+        "verdict": "stay-shadow"
+      }
+    ],
+    "proposals": "<root>/decisions/proposals.json",
+    "skipped_rows": 1,
+    "thresholds": null,
+    "unmatched_labels": 1,
+    "unreported_rows": 0
+  },
+  "findings": [],
+  "proves": "the calibration run completed and was recorded",
+  "does_not_prove": "that the decision point is calibrated well enough to enforce"
+}

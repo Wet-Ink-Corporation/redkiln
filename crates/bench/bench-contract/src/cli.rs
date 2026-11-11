@@ -86,9 +86,119 @@ pub const COMMANDS: &[&str] = &[
 /// value, before the subcommand.
 pub const VALUE_OPTIONS: &[&str] = &[];
 
+/// The version every output id has today: `bench` was never released before SPEC CLI-02, so no
+/// output keeps an older shape under its id (CLI-04).
+pub const OUTPUT_VERSION: u32 = 1;
+
+/// The output id (SPEC CLI-02) of every subcommand path that writes a result envelope, sorted.
+///
+/// Each is `bench.<command>[-<subcommand>]/<n>`, as [`output_id`] builds it. Every path in
+/// [`COMMANDS`] is here but the hooks and `statusline`, which answer Claude Code instead, and
+/// `ledger journal`, whose output is the journal file itself.
+pub const OUTPUTS: &[&str] = &[
+    "bench.brief-build/1",
+    "bench.calibrate/1",
+    "bench.dag-check/1",
+    "bench.dag-frontier/1",
+    "bench.decide-label/1",
+    "bench.decide/1",
+    "bench.eval-routing/1",
+    "bench.eval-uplift/1",
+    "bench.floor-guard/1",
+    "bench.grill-classify/1",
+    "bench.grill-confirm/1",
+    "bench.grill-frontier/1",
+    "bench.ledger-append/1",
+    "bench.ledger-query/1",
+    "bench.ledger-tail/1",
+    "bench.lint-brief/1",
+    "bench.lint-plan/1",
+    "bench.lint-rules/1",
+    "bench.lint-skills/1",
+    "bench.lint-spec/1",
+    "bench.lint-terms/1",
+    "bench.migrate-contract/1",
+    "bench.migrate-done/1",
+    "bench.migrate-start/1",
+    "bench.mode-build/1",
+    "bench.mode-diagnose/1",
+    "bench.mode-off/1",
+    "bench.orchestrate-fan-out/1",
+    "bench.orchestrate-park/1",
+    "bench.orchestrate-rule/1",
+    "bench.perf-noise/1",
+    "bench.perf-sample/1",
+    "bench.plan-approve/1",
+    "bench.plan-check/1",
+    "bench.playbook-list/1",
+    "bench.playbook-show/1",
+    "bench.repro-leftovers/1",
+    "bench.repro-record/1",
+    "bench.rollout-decide/1",
+    "bench.round-start/1",
+    "bench.round-status/1",
+    "bench.ship-skip-rule/1",
+    "bench.snapshot-write/1",
+    "bench.status/1",
+    "bench.task-done/1",
+    "bench.verdict-set/1",
+    "bench.verdict-valid/1",
+    "bench.verify-risk/1",
+    "bench.watch-ci/1",
+    "bench.watch-deploy/1",
+    "bench.watch-pr/1",
+];
+
+/// The output id of the subcommand path `command` (`"dag check"` gives `"bench.dag-check/1"`):
+/// the binary's namespace, the path's words joined by `-`, then [`OUTPUT_VERSION`].
+#[must_use]
+pub fn output_id(command: &str) -> String {
+    format!(
+        "{BINARY}.{}/{OUTPUT_VERSION}",
+        command.split(' ').collect::<Vec<_>>().join("-")
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{COMMANDS, VALUE_OPTIONS};
+    use super::{COMMANDS, OUTPUTS, VALUE_OPTIONS, output_id};
+
+    #[test]
+    fn an_output_id_joins_the_path_words_with_a_hyphen() {
+        assert_eq!(output_id("dag check"), "bench.dag-check/1", "two words");
+        assert_eq!(output_id("floor-guard"), "bench.floor-guard/1", "one word");
+        assert_eq!(
+            output_id("orchestrate fan-out"),
+            "bench.orchestrate-fan-out/1",
+            "a hyphenated subcommand"
+        );
+    }
+
+    #[test]
+    fn outputs_are_sorted_unique_and_each_the_id_of_a_command() {
+        assert!(
+            OUTPUTS.windows(2).all(|pair| pair[0] < pair[1]),
+            "OUTPUTS is sorted and unique"
+        );
+        let ids: Vec<String> = COMMANDS.iter().map(|command| output_id(command)).collect();
+        for output in OUTPUTS {
+            assert!(
+                ids.iter().any(|id| id == output),
+                "{output} is the id of a command"
+            );
+        }
+    }
+
+    #[test]
+    fn every_command_but_the_hooks_statusline_and_the_journal_has_an_output() {
+        let mut expected: Vec<String> = COMMANDS
+            .iter()
+            .filter(|c| !c.starts_with("hook ") && !matches!(**c, "statusline" | "ledger journal"))
+            .map(|command| output_id(command))
+            .collect();
+        expected.sort();
+        assert_eq!(expected, OUTPUTS, "OUTPUTS");
+    }
 
     #[test]
     fn commands_are_sorted_and_unique() {

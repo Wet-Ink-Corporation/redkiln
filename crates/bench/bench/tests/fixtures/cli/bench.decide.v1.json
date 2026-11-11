@@ -1,0 +1,27 @@
+{
+  "schema": "bench.decide/1",
+  "ok": true,
+  "command": "decide",
+  "data": {
+    "action": "deny",
+    "configured_mode": "shadow",
+    "enforce": false,
+    "id": "<varies>",
+    "latency_ms": "<varies>",
+    "log": "<root>/decisions/decisions.jsonl",
+    "mode": "shadow",
+    "model": "@cf/wet-ink/clef-flash",
+    "point": "D1",
+    "probabilities": {
+      "no": 0.05,
+      "yes": 0.95
+    },
+    "probability": 0.95,
+    "question": "noul",
+    "threshold": 0.9,
+    "top": null
+  },
+  "findings": [],
+  "proves": "the decision was obtained and recorded",
+  "does_not_prove": "that the decision is right"
+}

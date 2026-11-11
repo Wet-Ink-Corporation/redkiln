@@ -134,8 +134,9 @@ fn an_unreadable_input_still_prints_a_line_and_one_error_line() {
         "fails open with a line"
     );
     assert!(
-        err.starts_with("ERROR the status-line input is not JSON") && err.lines().count() == 1,
-        "one ERROR line: {err}"
+        err.starts_with("bench: error: the status-line input is not JSON")
+            && err.lines().count() == 1,
+        "one CLI-08 error line: {err}"
     );
 }
 

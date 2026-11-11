@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use super::{TestResult, envelope, eval_uplift};
 
 /// The refusal a run of the seeded suites gives without `--allow-scaffolds`.
-const SCAFFOLD_REFUSAL: &str = "ERROR eval: fixtures are named by 1 selected case \
+const SCAFFOLD_REFUSAL: &str = "bench: error: eval: fixtures are named by 1 selected case \
                                 (plan/regression/seeded.json), whose scaffold scripts run \
                                 outside the eval sandbox with your rights; review them, then \
                                 pass --allow-scaffolds to run them\n";

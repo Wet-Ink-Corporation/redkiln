@@ -28,6 +28,7 @@ if [ -n "$FAKE_GH_FAIL" ]; then
 fi
 case "$*" in
   *graphql*) cat "$FAKE_GH_THREADS" ;;
+  */deployments/*) cat "$FAKE_GH_DEPLOY" ;;
   */check-runs*) cat "$FAKE_GH_CHECKS" ;;
   */status*) cat "$FAKE_GH_STATUS" ;;
   */commits/*) cat "$FAKE_GH_COMMIT" ;;
@@ -86,8 +87,8 @@ fn fixture_path(name: &str) -> PathBuf {
         .join(name)
 }
 
-fn envelope(output: &Output) -> Result<Value, serde_json::Error> {
-    serde_json::from_slice(&output.stdout)
+fn envelope(output: &Output) -> Result<Value, Box<dyn std::error::Error>> {
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -107,6 +108,7 @@ fn failing_checks_exit_4_with_an_envelope_naming_them() -> TestResult {
 
     assert_eq!(output.status.code(), Some(4), "{output:?}");
     let envelope = envelope(&output)?;
+    crate::support::golden(&envelope, &[gh.dir.path()], &[])?;
     let names: Vec<&str> = envelope["data"]["blockers"]
         .as_array()
         .ok_or("blockers is a list")?
@@ -115,6 +117,52 @@ fn failing_checks_exit_4_with_an_envelope_naming_them() -> TestResult {
         .collect();
     assert_eq!(names, ["build", "deploy/preview"]);
     assert!(output.stderr.is_empty(), "{output:?}");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary and a fake gh")]
+fn a_merged_pull_request_is_clear_at_once() -> TestResult {
+    let gh = FakeGhDir::new()?;
+
+    let output = gh
+        .anneal(
+            &["watch", "pr", "7"],
+            &[("FAKE_GH_PULL", "pull-merged.json")],
+        )
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let envelope = envelope(&output)?;
+    assert_eq!(
+        (&envelope["data"]["state"], &envelope["data"]["polls"]),
+        (&Value::from("clear"), &Value::from(1)),
+        "{envelope}"
+    );
+    crate::support::golden(&envelope, &[gh.dir.path()], &[])?;
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary and a fake gh")]
+fn a_successful_deploy_is_clear_at_once() -> TestResult {
+    let gh = FakeGhDir::new()?;
+
+    let output = gh
+        .anneal(
+            &["watch", "deploy", "42", "--repo", "octo/app"],
+            &[("FAKE_GH_DEPLOY", "deploy-success.json")],
+        )
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let envelope = envelope(&output)?;
+    assert_eq!(
+        envelope["data"]["state"],
+        Value::from("clear"),
+        "{envelope}"
+    );
+    crate::support::golden(&envelope, &[gh.dir.path()], &[])?;
     Ok(())
 }
 
@@ -161,7 +209,9 @@ fn a_gh_that_cannot_query_exits_7_with_one_error_line_and_no_envelope() -> TestR
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
     assert!(
-        stderr.starts_with("ERROR watch: gh api repos/{owner}/{repo}/pulls/7 failed: gh: HTTP 401"),
+        stderr.starts_with(
+            "bench: error: watch: gh api repos/{owner}/{repo}/pulls/7 failed: gh: HTTP 401"
+        ),
         "{stderr}"
     );
     Ok(())

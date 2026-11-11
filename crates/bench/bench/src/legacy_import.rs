@@ -16,7 +16,7 @@
 mod map;
 
 use std::collections::HashSet;
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -142,7 +142,7 @@ pub(crate) fn due<'p>(
 
 /// Opens the store `location` names for a command, creating it when absent, and first imports
 /// every old ledger it has not, without a deadline. What the import did is written to standard
-/// error: one `bench: warning:` line per source, then its problems.
+/// error: one `bench: warning:` line per source, its problems after its outcome (SPEC CLI-08).
 ///
 /// # Errors
 /// [`CliError::Ledger`] when the store cannot be opened or its import records read;
@@ -157,11 +157,26 @@ pub(crate) fn open_for_command(location: &StoreLocation) -> Result<Store, CliErr
     let owner = || decider::owner(&location.from, GIT_TIMEOUT).map_err(|error| reason(&error));
     let run = Importer::new(&store, Budget::COMMAND, "cli", owner)?.run(&due);
     let mut err = io::stderr().lock();
-    for line in lines(&run) {
-        let prefix = if line.headline { "warning: " } else { "  " };
-        writeln!(err, "bench: {prefix}{}", line.text).map_err(PathError::Warning)?;
+    for warning in warnings(lines(&run)) {
+        crate::diagnostic::warning(&mut err, &warning).map_err(PathError::Warning)?;
     }
     Ok(store)
+}
+
+/// `lines` as warnings, one per headline (CLI-08: one line each): each detail line joins the
+/// headline before it after `"; "`. A detail before any headline is a warning of its own.
+fn warnings(lines: Vec<Line>) -> Vec<String> {
+    let mut warnings: Vec<String> = Vec::new();
+    for line in lines {
+        match warnings.last_mut() {
+            Some(warning) if !line.headline => {
+                warning.push_str("; ");
+                warning.push_str(&line.text);
+            }
+            _ => warnings.push(line.text),
+        }
+    }
+    warnings
 }
 
 /// [`open_for_command`] for a command that opens the store itself after: with no old ledger

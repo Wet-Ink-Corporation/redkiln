@@ -10,6 +10,10 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
+pub(crate) mod conform;
+
+pub(crate) use conform::{envelope, golden};
+
 /// Runs `git <args>` in `dir`, isolated from the caller's repository and identity, and panics
 /// with git's stderr if it fails.
 pub(crate) fn git(dir: &Path, args: &[&str]) {

@@ -28,6 +28,21 @@ fn the_contract_lists_every_subcommand_clap_accepts() {
 }
 
 #[test]
+fn the_contract_gives_an_output_id_to_every_subcommand_clap_accepts_but_hooks_and_journal() {
+    let mut found = Vec::new();
+    paths(&Cli::command(), "", &mut found);
+    let mut ids: Vec<String> = found
+        .iter()
+        .filter(|path| {
+            !path.starts_with("hook ") && !matches!(path.as_str(), "statusline" | "ledger journal")
+        })
+        .map(|path| cli::output_id(path))
+        .collect();
+    ids.sort();
+    assert_eq!(ids, cli::OUTPUTS, "bench_contract::cli::OUTPUTS");
+}
+
+#[test]
 fn the_contract_lists_every_global_option_that_takes_a_value() {
     let command = Cli::command();
     let mut found: Vec<String> = command

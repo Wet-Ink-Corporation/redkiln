@@ -48,7 +48,7 @@ fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
     Ok(if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(output)?
     })
 }
 
@@ -59,6 +59,7 @@ fn check_reads_the_suites_reports_their_coverage_and_runs_nothing() -> TestResul
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
+    crate::support::golden(&envelope, &[&fixtures()], &[])?;
     assert_eq!(
         (
             &envelope["command"],
@@ -120,7 +121,7 @@ fn a_skill_with_no_suite_named_by_skill_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR eval: --skill diagnose names no skill with suites under the suites directory\n"
+        "bench: error: eval: --skill diagnose names no skill with suites under the suites directory\n"
     );
     Ok(())
 }
@@ -137,7 +138,7 @@ fn a_run_flag_with_check_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR --check runs nothing, so --max-cost-usd does not apply\n"
+        "bench: error: --check runs nothing, so --max-cost-usd does not apply\n"
     );
     Ok(())
 }
@@ -157,7 +158,7 @@ fn a_claude_that_cannot_start_exits_4_with_one_error_line() -> TestResult {
     assert_eq!(output.status.code(), Some(4), "{stderr}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        stderr.starts_with("ERROR eval: ")
+        stderr.starts_with("bench: error: eval: ")
             && stderr.contains("no-such-claude")
             && stderr.lines().count() == 1,
         "{stderr:?}"
@@ -531,7 +532,7 @@ fn a_first_batch_that_fails_after_claude_started_exits_4_saying_its_spend_is_unk
     let stderr = std::str::from_utf8(&run.output.stderr)?;
     assert_eq!(run.output.status.code(), Some(4), "{stderr}");
     assert!(
-        stderr.starts_with("ERROR eval: ")
+        stderr.starts_with("bench: error: eval: ")
             && stderr.contains("spend is unknown")
             && stderr.contains("Error: not logged in")
             && stderr.lines().count() == 1,
@@ -554,7 +555,7 @@ fn a_first_batch_refused_after_its_cost_was_read_exits_4_reporting_the_spend() -
     let stderr = std::str::from_utf8(&run.output.stderr)?;
     assert_eq!(run.output.status.code(), Some(4), "{stderr}");
     assert!(
-        stderr.starts_with("ERROR eval: ")
+        stderr.starts_with("bench: error: eval: ")
             && stderr.contains("reported spending 0.25 USD")
             && stderr.contains("is listed twice in the result")
             && !stderr.contains("spend is unknown")
@@ -653,7 +654,7 @@ fn a_baseline_without_a_plugin_manifest_is_a_usage_error() -> TestResult {
     assert_eq!(output.status.code(), Some(2), "{stderr}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        stderr.starts_with("ERROR eval: reading the --baseline plugin")
+        stderr.starts_with("bench: error: eval: reading the --baseline plugin")
             && stderr.lines().count() == 1,
         "{stderr:?}"
     );
@@ -661,7 +662,7 @@ fn a_baseline_without_a_plugin_manifest_is_a_usage_error() -> TestResult {
 }
 
 /// The refusal a run of `eval-uplift/gated/` gives without `--allow-gated-tools`.
-const GATED_REFUSAL: &str = "ERROR eval: gated tools (Write, Edit or Bash) are named by 1 \
+const GATED_REFUSAL: &str = "bench: error: eval: gated tools (Write, Edit or Bash) are named by 1 \
                              selected case (plan/regression/run-the-tests.json); review them, \
                              then pass --allow-gated-tools to grant them\n";
 

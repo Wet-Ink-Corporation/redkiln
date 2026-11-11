@@ -43,9 +43,14 @@ fn risk_unreachable(cwd: &Path, home: &Path) -> Result<Output, Box<dyn Error>> {
         .output()?)
 }
 
+/// What differs on each run in `verify risk`'s envelope: Clef's decision id holds the time.
+/// The id holds a time, and the reason holds the OS's own words for the refused connection
+/// (macOS says "address not available" where Linux says "connection refused").
+const VERIFY_VARIES: &[&str] = &["/data/clef/id", "/data/clef/reason"];
+
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
     assert!(output.stderr.is_empty(), "nothing on stderr: {output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -71,6 +76,9 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
 
         assert_eq!(output.status.code(), Some(0), "{output:?}");
         let envelope = envelope(&output)?;
+        if file.0 == "src/payments/charge.rs" {
+            crate::support::golden(&envelope, &[dir.path(), home.path()], VERIFY_VARIES)?;
+        }
         assert_eq!(envelope["data"]["doubt_review"], json!(true), "{envelope}");
         assert_eq!(envelope["data"]["triggers"], expected, "{envelope}");
         assert_eq!(
@@ -99,7 +107,7 @@ fn outside_a_repository_it_exits_2_with_one_error_line_and_nothing_on_stdout() -
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
     assert!(
-        stderr.starts_with("ERROR verify risk: reading the change"),
+        stderr.starts_with("bench: error: verify risk: reading the change"),
         "{stderr}"
     );
     Ok(())

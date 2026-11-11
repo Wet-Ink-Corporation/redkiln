@@ -175,10 +175,10 @@ fn a_recording_command_imports_with_one_warning_and_its_problems_beneath() -> Te
         "one warning for the source: {stderr}"
     );
     assert!(
-        stderr
-            .lines()
-            .any(|line| line.starts_with("bench:   record ") && line.contains("actor \"test\"")),
-        "the refused actor beneath it: {stderr}"
+        warnings
+            .iter()
+            .any(|line| line.contains("; record ") && line.contains("actor \"test\"")),
+        "the refused actor after it, on its line (CLI-08): {stderr}"
     );
     let store = work.path().join(".git/redkiln/events.sqlite3");
     assert_eq!(counts(&types(&store)?), (23, 1), "imported, then appended");
@@ -213,7 +213,7 @@ fn status_reports_an_old_ledger_while_it_is_due_and_imports_nothing() -> TestRes
     let (work, _old) = repository()?;
     let status = |work: &Path| -> Result<Value, Box<dyn Error>> {
         let output = bench(work).args(["status", "--json"]).output()?;
-        Ok(serde_json::from_slice(&output.stdout)?)
+        crate::support::envelope(&output)
     };
     let keys = |envelope: &Value| -> Vec<String> {
         envelope["findings"]

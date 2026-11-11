@@ -22,7 +22,7 @@ fn migrate(dir: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 /// The migration's events in the ledger, as `[type, wave]` pairs.
@@ -99,6 +99,10 @@ fn a_contract_while_a_wave_is_open_is_refused_and_recorded_once_every_wave_is_do
     );
     assert_eq!(finished.status.code(), Some(0), "{finished:?}");
     assert_eq!(contracted.status.code(), Some(0), "{contracted:?}");
+    let [first, _, done, ..] = &started;
+    for output in [first, done, &contracted] {
+        crate::support::golden(&envelope(output)?, &[dir.path()], &[])?;
+    }
     assert_eq!(
         events(dir.path(), "users-email")?.last(),
         Some(&json!(["migrate.contract", null])),

@@ -1,0 +1,19 @@
+{
+  "schema": "bench.mode-build/1",
+  "ok": true,
+  "command": "mode build",
+  "data": {
+    "clean": true,
+    "mode": "build",
+    "plan": "define/plan.md",
+    "position": 1,
+    "source": "git_common_dir",
+    "store": "<root>/.git/redkiln/events.sqlite3",
+    "tree": "define/design-tree.json",
+    "type": "mode_set",
+    "worktree": "<varies>"
+  },
+  "findings": [],
+  "proves": "the mode was recorded for this worktree, with whether its tree was clean",
+  "does_not_prove": "that the mode's preconditions hold: the preconditions hook checks them at each edit"
+}

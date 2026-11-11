@@ -1,7 +1,7 @@
 //! `bench verdict set`: records the verdict, then posts its `anneal/verdict` commit status
 //! (`commit_status`) unless `--no-status` is given. The verdict stays recorded whatever becomes
 //! of the status; a status that was asked for and not posted exits
-//! [`exit_codes::VERDICT_STATUS_UNPOSTED`] with a finding and one `WARNING` line on stderr.
+//! [`exit_codes::VERDICT_STATUS_UNPOSTED`] with a finding and one `bench: warning:` line on stderr.
 
 use std::ffi::OsString;
 use std::io::Write;

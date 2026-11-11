@@ -1,0 +1,42 @@
+{
+  "schema": "bench.playbook-list/1",
+  "ok": true,
+  "command": "playbook list",
+  "data": {
+    "playbooks": [
+      {
+        "media_type": "text/markdown",
+        "name": "spec-template",
+        "summary": "the spec template; a spec written from it passes lint spec"
+      },
+      {
+        "media_type": "text/markdown",
+        "name": "plan-template",
+        "summary": "the plan template; a plan written from it passes lint plan"
+      },
+      {
+        "media_type": "application/json",
+        "name": "design-tree-schema",
+        "summary": "the JSON Schema of the grill skill's design tree"
+      },
+      {
+        "media_type": "application/json",
+        "name": "plan-schema",
+        "summary": "the JSON Schema of a plan as lint plan reads it (data.plan)"
+      },
+      {
+        "media_type": "application/json",
+        "name": "route",
+        "summary": "the phases and sizes Clef's D3 chooses from, with their skills"
+      },
+      {
+        "media_type": "application/json",
+        "name": "clef-thresholds",
+        "summary": "each Clef decision point's model, fallback and bands; decide and calibrate use it unless --thresholds names a copy"
+      }
+    ]
+  },
+  "findings": [],
+  "proves": "the playbook's text is the one built into this binary",
+  "does_not_prove": "that the playbook fits the task, or that a file written from it passes its lint"
+}

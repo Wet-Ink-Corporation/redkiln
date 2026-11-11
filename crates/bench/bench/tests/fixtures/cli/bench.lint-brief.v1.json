@@ -1,0 +1,13 @@
+{
+  "schema": "bench.lint-brief/1",
+  "ok": true,
+  "command": "lint brief",
+  "data": {
+    "fields": 9,
+    "file": ".anneal/briefs/36.md",
+    "findings": []
+  },
+  "findings": [],
+  "proves": "the checked files have no error under anneal's lint rules",
+  "does_not_prove": "that the content is right, or that its warnings and review items were addressed"
+}

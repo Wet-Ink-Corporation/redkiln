@@ -84,7 +84,7 @@ impl Session {
     /// worktree, as `bench ledger append` lets anyone do.
     fn green_run_at(&self, ts: &str, duration_ms: u64) -> TestResult {
         let off = anneal_in(self.root()).args(["mode", "off"]).output()?;
-        let entered: Value = serde_json::from_slice(&off.stdout)?;
+        let entered: Value = crate::support::envelope(&off)?;
         let worktree = entered
             .pointer("/data/worktree")
             .cloned()
@@ -554,7 +554,7 @@ fn a_block_is_recorded_as_stop_blocked_in_an_existing_ledger() -> TestResult {
     let query = anneal_in(session.root())
         .args(["ledger", "query", "--type", "stop_blocked"])
         .output()?;
-    let listing: Value = serde_json::from_slice(&query.stdout)?;
+    let listing: Value = crate::support::envelope(&query)?;
     let points: Vec<&str> = listing
         .pointer("/data/events")
         .and_then(Value::as_array)

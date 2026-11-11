@@ -1,0 +1,22 @@
+{
+  "schema": "bench.migrate-done/1",
+  "ok": true,
+  "command": "migrate done",
+  "data": {
+    "contracted": false,
+    "done": [
+      1
+    ],
+    "migration": "users-email",
+    "open": [
+      2
+    ],
+    "position": 3,
+    "recorded": true,
+    "store": "<root>/ledger.sqlite3",
+    "wave": 1
+  },
+  "findings": [],
+  "proves": "the migration step was recorded in order: a wave started once and done after its start, or the contract with every wave done",
+  "does_not_prove": "that the waves migrated the data correctly or completely: the ledger records what was reported"
+}

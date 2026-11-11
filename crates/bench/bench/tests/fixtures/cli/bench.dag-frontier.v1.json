@@ -1,0 +1,61 @@
+{
+  "schema": "bench.dag-frontier/1",
+  "ok": true,
+  "command": "dag frontier",
+  "data": {
+    "budget": 100000,
+    "external_blockers": [],
+    "over_budget": 0,
+    "ready": 2,
+    "tickets": [
+      {
+        "blocked_by": [],
+        "estimate": {
+          "body_tokens": 48,
+          "files": [
+            {
+              "basis": "default",
+              "path": "src/cli.rs",
+              "tokens": 2000
+            },
+            {
+              "basis": "default",
+              "path": "src/list.rs",
+              "tokens": 2000
+            },
+            {
+              "basis": "default",
+              "path": "tests/list_json.rs",
+              "tokens": 2000
+            }
+          ],
+          "tokens": 6048
+        },
+        "id": "T1",
+        "over_budget": false,
+        "title": "JSON array of notes"
+      },
+      {
+        "blocked_by": [],
+        "estimate": {
+          "body_tokens": 34,
+          "files": [
+            {
+              "basis": "default",
+              "path": "tests/list_table.rs",
+              "tokens": 2000
+            }
+          ],
+          "tokens": 2034
+        },
+        "id": "T4",
+        "over_budget": false,
+        "title": "The table is unchanged"
+      }
+    ],
+    "tracker": "markdown"
+  },
+  "findings": [],
+  "proves": "the task graph has no cycle and no dangling dependency; with check --plan, every plan task has a ticket of its id with the same blockers among the plan's tasks, and every ticket is a task of the plan or an outside blocker of one (a ticket that blocks a task's ticket, directly or through other such tickets)",
+  "does_not_prove": "that the dependencies are the right ones"
+}

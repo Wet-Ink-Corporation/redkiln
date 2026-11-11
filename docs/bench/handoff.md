@@ -39,7 +39,7 @@ the Unix epoch), newest last, at most 64 sessions. A snapshot saved before `sour
 fields they do not know, so a later field stays readable (an anneal older than #60 refuses
 the stamped fields, so its monitor reports one `ERROR` line until it is updated). Like a hook
 it fails open: on any failure it still prints a line (`(input unreadable)`, `(usage not
-saved)`), writes one `ERROR` line on stderr and exits 0; only a usage error exits 2.
+saved)`), writes one `bench: error:` line on stderr and exits 0; only a usage error exits 2.
 
 ## The mod's snapshot
 

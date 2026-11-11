@@ -1,0 +1,47 @@
+{
+  "schema": "bench.task-done/1",
+  "ok": true,
+  "command": "task done",
+  "data": {
+    "command": "git --version",
+    "events": [
+      {
+        "event": {
+          "actor": "cli",
+          "branch": null,
+          "command": "git --version",
+          "duration_ms": "<varies>",
+          "exit": 0,
+          "head": null,
+          "outcome": "green",
+          "session_id": "s1",
+          "task": "T1",
+          "timeout_secs": null,
+          "ts": "<time>",
+          "type": "test_run",
+          "worktree": null
+        },
+        "position": 1
+      },
+      {
+        "event": {
+          "actor": "cli",
+          "branch": null,
+          "head": null,
+          "session_id": "s1",
+          "task": "T1",
+          "ts": "<time>",
+          "type": "task_done",
+          "worktree": null
+        },
+        "position": 2
+      }
+    ],
+    "source": "flag",
+    "store": "<root>/ledger.sqlite3",
+    "task": "T1"
+  },
+  "findings": [],
+  "proves": "the task's tests ran green",
+  "does_not_prove": "that the tests cover the task's acceptance criteria"
+}

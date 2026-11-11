@@ -26,6 +26,10 @@ const D1: [&str; 7] = [
     r#"{"tool":"Bash","input":{"command":"rm -rf /"},"phase":"build"}"#,
 ];
 
+/// What differs on each run in a decision's envelope: its id holds the time it was asked, and
+/// the latency is measured.
+const DECIDE_VARIES: &[&str] = &["/data/id", "/data/latency_ms"];
+
 /// Workers AI's reply with D1's `yes` at 0.95, which its bands make `deny`.
 fn answer() -> String {
     let inner = r#"{"probabilities":{"yes":0.95,"no":0.05}}"#;
@@ -33,7 +37,7 @@ fn answer() -> String {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -54,6 +58,7 @@ fn an_answer_from_clef_exits_0_with_the_action_and_one_row() -> TestResult {
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(envelope(&output)?["data"]["action"], json!("deny"));
+    crate::support::golden(&envelope(&output)?, &[home.path()], DECIDE_VARIES)?;
     assert!(
         served
             .head

@@ -1,0 +1,36 @@
+{
+  "schema": "bench.perf-noise/1",
+  "ok": true,
+  "command": "perf noise",
+  "data": {
+    "baseline": {
+      "command": [
+        "git",
+        "--version"
+      ],
+      "file": "slow.json",
+      "mean_secs": "<varies>",
+      "runs": 3
+    },
+    "candidate": {
+      "mean_secs": "<varies>",
+      "runs": 3,
+      "samples_secs": [
+        "<varies>",
+        "<varies>",
+        "<varies>"
+      ]
+    },
+    "confidence": 0.95,
+    "decision": "keep",
+    "delta_secs": "<varies>",
+    "df": "<varies>",
+    "high_secs": "<varies>",
+    "low_secs": "<varies>",
+    "t": "<varies>",
+    "verdict": "faster"
+  },
+  "findings": [],
+  "proves": "the change is faster than the baseline beyond run-to-run noise (the 95% interval of the difference is below zero); for sample, its run times were saved",
+  "does_not_prove": "performance on hardware or workloads that were not measured"
+}

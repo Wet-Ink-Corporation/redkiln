@@ -177,8 +177,8 @@ fn a_closed_stdout_still_exits_0_with_one_error_line() -> TestResult {
     assert_eq!(output.status.code(), Some(0), "fails open: {output:?}");
     let err = String::from_utf8(output.stderr)?;
     assert!(
-        err.starts_with("ERROR writing output") && err.lines().count() == 1,
-        "one ERROR line says why: {err}"
+        err.starts_with("bench: error: writing output") && err.lines().count() == 1,
+        "one CLI-08 error line says why: {err}"
     );
     Ok(())
 }

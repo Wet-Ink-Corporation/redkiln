@@ -1,0 +1,14 @@
+{
+  "schema": "bench.round-status/1",
+  "ok": true,
+  "command": "round status",
+  "data": {
+    "guidance": "send the review package back to the same agent: it fixes its own work",
+    "next": "same-agent",
+    "rounds": 0,
+    "ticket": "36"
+  },
+  "findings": [],
+  "proves": "the ticket's round count was read from the ledger, and for start the next round was recorded",
+  "does_not_prove": "that the round's work was done, or that the agent and model it names were used"
+}

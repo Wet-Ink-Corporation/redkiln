@@ -1,0 +1,18 @@
+{
+  "schema": "bench.perf-sample/1",
+  "ok": true,
+  "command": "perf sample",
+  "data": {
+    "mean_secs": "<varies>",
+    "out": "base.json",
+    "runs": 3,
+    "samples_secs": [
+      "<varies>",
+      "<varies>",
+      "<varies>"
+    ]
+  },
+  "findings": [],
+  "proves": "the change is faster than the baseline beyond run-to-run noise (the 95% interval of the difference is below zero); for sample, its run times were saved",
+  "does_not_prove": "performance on hardware or workloads that were not measured"
+}

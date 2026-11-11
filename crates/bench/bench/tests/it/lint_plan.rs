@@ -60,7 +60,7 @@ fn lint_plan(cwd: &Path, file: &str) -> Result<(Output, Value), Box<dyn Error>> 
     let envelope = if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(&output)?
     };
     Ok((output, envelope))
 }
@@ -206,7 +206,7 @@ fn a_missing_plan_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR lint: no such path: docs/plans/none.md\n",
+        "bench: error: lint: no such path: docs/plans/none.md\n",
         "one line"
     );
     Ok(())

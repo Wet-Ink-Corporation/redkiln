@@ -52,7 +52,7 @@ fn anneal(dir: &Path, bin: &Path, args: &[&str]) -> Command {
 /// The envelope on stdout, after checking the exit code is `code`.
 fn envelope(output: &Output, code: i32) -> TestResult<Value> {
     assert_eq!(output.status.code(), Some(code), "{output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 /// The events of type `kind` in the ledger the commands in `dir` use.
@@ -83,6 +83,7 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
         .output()?;
 
     let parked = envelope(&output, 4)?;
+    crate::support::golden(&parked, &[dir.path()], &[])?;
     assert!(output.stderr.is_empty(), "{output:?}");
     assert_eq!(parked["data"]["parked"], json!(false));
     let recorded = events(dir.path(), "bridge.unavailable")?;
@@ -96,6 +97,43 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
         "{reason}"
     );
     assert_eq!(events(dir.path(), "weighin_parked")?, Vec::<Value>::new());
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let tickets =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/bench/fixtures/dry-run/tickets");
+    crate::support::copy_dir(&tickets, &dir.path().join("tickets"))?;
+
+    let fan_out = anneal_in(dir.path())
+        .args(["orchestrate", "fan-out", "--dir", "tickets"])
+        .output()?;
+    let rule = anneal_in(dir.path())
+        .env("REDKILN_STORE", dir.path().join("ledger.sqlite3"))
+        .args([
+            "orchestrate",
+            "rule",
+            "--ticket",
+            "7",
+            "--what",
+            "share the cache",
+        ])
+        .args(["--why", "one tenant", "--cost", "a migration"])
+        .output()?;
+
+    let fan_out = envelope(&fan_out, 3)?;
+    assert_eq!(fan_out["data"]["tickets"], json!(["T1", "T4"]), "{fan_out}");
+    crate::support::golden(&fan_out, &[dir.path()], &[])?;
+    let rule = envelope(&rule, 0)?;
+    assert_eq!(
+        events(dir.path(), "orchestrate.ruled")?.len(),
+        1,
+        "the ruling is recorded once"
+    );
+    crate::support::golden(&rule, &[dir.path()], &[])?;
     Ok(())
 }
 

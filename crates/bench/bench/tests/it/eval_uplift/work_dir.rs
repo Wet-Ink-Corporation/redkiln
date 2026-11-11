@@ -168,7 +168,7 @@ fn a_relative_anneal_home_the_default_work_dir_needs_stops_the_run() -> TestResu
         ),
         (
             Some(70),
-            "ERROR eval: finding the default work directory: ANNEAL_HOME must be an absolute \
+            "bench: error: eval: finding the default work directory: ANNEAL_HOME must be an absolute \
              path, got rel/home\n",
             true
         )
@@ -337,7 +337,7 @@ fn the_socket_warning_comes_before_a_first_batch_that_fails() -> TestResult {
                 .is_some_and(|line| line.starts_with("WARN eval: ")),
             lines
                 .get(1)
-                .is_some_and(|line| line.starts_with("ERROR eval: ")),
+                .is_some_and(|line| line.starts_with("bench: error: eval: ")),
         ),
         (Some(4), 2, true, true),
         "{stderr}"
@@ -542,7 +542,7 @@ fn check_refuses_work_dir_as_a_run_flag() -> TestResult {
         (output.status.code(), std::str::from_utf8(&output.stderr)?),
         (
             Some(2),
-            "ERROR --check runs nothing, so --work-dir does not apply\n"
+            "bench: error: --check runs nothing, so --work-dir does not apply\n"
         )
     );
     Ok(())

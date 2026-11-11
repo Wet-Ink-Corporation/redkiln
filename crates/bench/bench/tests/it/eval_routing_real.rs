@@ -30,7 +30,7 @@ fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
     Ok(if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(output)?
     })
 }
 
@@ -43,7 +43,7 @@ fn a_claude_only_flag_without_the_claude_router_is_a_usage_error() -> TestResult
     assert_eq!(envelope(&output)?, Value::Null, "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR --max-cost-usd needs --router claude\n"
+        "bench: error: --max-cost-usd needs --router claude\n"
     );
     Ok(())
 }
@@ -110,7 +110,7 @@ fn a_claude_that_cannot_start_exits_4_with_one_error_line() -> TestResult {
     assert_eq!(output.status.code(), Some(4), "{stderr}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        stderr.starts_with("ERROR eval: ")
+        stderr.starts_with("bench: error: eval: ")
             && stderr.contains("no-such-claude")
             && stderr.lines().count() == 1,
         "{stderr:?}"
@@ -245,7 +245,7 @@ fn a_claude_that_fails_without_a_result_exits_4_with_its_stderr_and_leaves_no_wo
     assert_eq!(run.output.status.code(), Some(4), "{stderr}");
     assert!(run.output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        stderr.starts_with("ERROR eval: ")
+        stderr.starts_with("bench: error: eval: ")
             && stderr.contains("Error: not logged in")
             && stderr.contains("its spend is unknown")
             && stderr.lines().count() == 1,

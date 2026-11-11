@@ -31,7 +31,7 @@ fn ledger_at(cwd: &Path, store: &Path, args: &[&str]) -> Result<Output, Box<dyn 
 /// The JSON envelope on stdout, after checking the exit code.
 fn envelope(output: &Output, code: i32) -> Result<Value, Box<dyn Error>> {
     assert_eq!(output.status.code(), Some(code), "{output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 fn positions(envelope: &Value) -> Vec<u64> {
@@ -264,7 +264,9 @@ fn append_refuses_a_by_on_an_approval_or_a_verdict_as_a_usage_error() -> TestRes
             "{claimed}: a usage error, nothing on stdout"
         );
         assert!(
-            stderr.starts_with("ERROR ") && stderr.lines().count() == 1 && stderr.contains("by"),
+            stderr.starts_with("bench: error: ")
+                && stderr.lines().count() == 1
+                && stderr.contains("by"),
             "{claimed}: one ERROR line naming `by`: {stderr}"
         );
     }

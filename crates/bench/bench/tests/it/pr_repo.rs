@@ -137,7 +137,7 @@ impl PrRepo {
             "anneal {args:?}: {output:?}"
         );
         assert!(output.stderr.is_empty(), "anneal {args:?}: {output:?}");
-        Ok(serde_json::from_slice(&output.stdout)?)
+        crate::support::envelope(&output)
     }
 
     /// `bench verdict set` for pull request 7 at `HEAD` (exit 0).

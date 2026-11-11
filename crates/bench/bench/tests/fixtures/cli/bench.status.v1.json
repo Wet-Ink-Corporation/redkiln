@@ -1,0 +1,20 @@
+{
+  "schema": "bench.status/1",
+  "ok": true,
+  "command": "status",
+  "data": {
+    "ledger_tail": [
+      {
+        "actor": "cli",
+        "event": 1,
+        "summary": "task_done task:T1",
+        "ts": "<time>",
+        "type": "task_done"
+      }
+    ],
+    "schema": 1
+  },
+  "findings": [],
+  "proves": "the ledger and the anneal home's state files were read and folded into the status document as they stood",
+  "does_not_prove": "that the recorded work was done or done well, or that the state is still current when it is shown: an absent section had no data, and one that could not be read is a finding"
+}

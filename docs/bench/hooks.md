@@ -43,13 +43,13 @@ change an entry, copy it into the row.
 
 ## Failing open, and guards failing closed
 
-Hooks fail open. `anneal hook <id>` notes its failures in its output, or in one `ERROR` line on
-stderr when stdout cannot be written, and exits 0. Only a usage error exits 2, which is why the
+Hooks fail open. `anneal hook <id>` notes its failures in its output, or in one `bench: error:` line on
+stderr (CLI-08) when stdout cannot be written, and exits 0. Only a usage error exits 2, which is why the
 manifest test runs every entry's arguments through the binary.
 
 Guards fail closed. A guard (`hook guard`, `hook preconditions`, `hook merge-gate`, `hook brief`,
 or any hook passed `--fail-closed`) denies what it
-cannot judge. When its output cannot be written it exits 2 with one `ERROR` line, which Claude
+cannot judge. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
 Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "block"`, so a crash
 or a timeout blocks too.
 

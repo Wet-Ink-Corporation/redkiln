@@ -5,7 +5,7 @@ use std::error::Error;
 
 use serde_json::{Value, json};
 
-use crate::support::anneal_in;
+use crate::support::{anneal_in, envelope, golden};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -22,7 +22,7 @@ fn without_a_ledger_status_exits_2_and_creates_none() -> TestResult {
         .output()?;
 
     assert_eq!(output.status.code(), Some(2), "no ledger");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = envelope(&output)?;
     assert_eq!(envelope["ok"], json!(false), "ok agrees with the exit code");
     assert_eq!(
         envelope["data"]["schema"],
@@ -43,6 +43,12 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
         .env("REDKILN_STORE", STORE)
         .output()?;
     assert!(appended.status.success(), "the event was appended");
+    let tail = anneal_in(work.path())
+        .args(["ledger", "tail", "-n", "1"])
+        .env("REDKILN_STORE", STORE)
+        .output()?;
+    golden(&envelope(&appended)?, &[work.path()], &[])?;
+    golden(&envelope(&tail)?, &[work.path()], &[])?;
 
     let output = anneal_in(work.path())
         .args(["status", "--json", "--fields", "ledger_tail"])
@@ -50,7 +56,8 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
         .output()?;
 
     assert_eq!(output.status.code(), Some(0), "a ledger exists");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = envelope(&output)?;
+    golden(&envelope, &[work.path()], &[])?;
     assert_eq!(envelope["command"], json!("status"), "the command");
     assert_eq!(
         envelope["data"]["ledger_tail"][0]["summary"],

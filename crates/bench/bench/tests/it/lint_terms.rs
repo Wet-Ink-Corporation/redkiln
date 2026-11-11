@@ -27,7 +27,8 @@ fn a_hit_exits_1_with_file_line_and_term() -> TestResult {
 
     assert_eq!(output.status.code(), Some(1), "a hit is an error finding");
     assert!(output.stderr.is_empty(), "findings are not errors");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
+    crate::support::golden(&envelope, &[dir.path()], &[])?;
     assert_eq!(envelope["ok"], json!(false), "ok follows the exit code");
     assert_eq!(envelope["command"], json!("lint terms"), "target named");
     assert_eq!(
@@ -61,7 +62,7 @@ fn clean_files_exit_0_and_a_named_glossary_is_read() -> TestResult {
         .output()?;
 
     assert_eq!(output.status.code(), Some(0), "no hit");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     assert_eq!(
         envelope["data"],
         json!({"glossary": "terms.md", "terms": 2, "checked": 1, "skipped": [], "hits": []}),
@@ -84,7 +85,7 @@ fn a_missing_glossary_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR lint: no such path: CONTEXT.md\n",
+        "bench: error: lint: no such path: CONTEXT.md\n",
         "one ERROR line naming the glossary"
     );
     Ok(())
@@ -101,7 +102,7 @@ fn a_file_named_with_and_without_dot_slash_is_scanned_once() -> TestResult {
         .args(["lint", "terms", "a.md", "./a.md"])
         .output()?;
 
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     assert_eq!(
         envelope["data"]["hits"],
         json!([{"file": "a.md", "line": 1, "term": "verdict"}]),
@@ -123,7 +124,7 @@ fn no_files_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR missing required argument: <FILE>...\n",
+        "bench: error: missing required argument: <FILE>...\n",
         "one ERROR line naming the missing argument"
     );
     Ok(())

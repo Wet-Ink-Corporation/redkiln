@@ -1,0 +1,34 @@
+{
+  "schema": "bench.repro-record/1",
+  "ok": true,
+  "command": "repro record",
+  "data": {
+    "command": "git definitely-not-a-command",
+    "duration_ms": "<varies>",
+    "exit": 1,
+    "id": "bug-7",
+    "ledger": {
+      "event": {
+        "actor": "cli",
+        "branch": null,
+        "head": null,
+        "session_id": "s1",
+        "task": "bug-7",
+        "test": "git definitely-not-a-command",
+        "ts": "<time>",
+        "type": "repro_red",
+        "worktree": "<varies>"
+      },
+      "position": 2,
+      "source": "git_common_dir",
+      "store": "<root>/.git/redkiln/events.sqlite3"
+    },
+    "outcome": "red",
+    "recorded": true,
+    "timeout_secs": null,
+    "worktree": "<varies>"
+  },
+  "findings": [],
+  "proves": "the reproduction exited non-zero and repro_red was recorded for this worktree (record), or no file git knows of holds a [DEBUG-<id>] tag (leftovers)",
+  "does_not_prove": "that the command fails because of the reported bug rather than for another reason (record), or that files over 1 MiB, past the 64 MiB scan budget, with a non-UTF-8 name outside unix, or ignored by git are clean (leftovers)"
+}

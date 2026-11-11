@@ -1,0 +1,23 @@
+{
+  "schema": "bench.verdict-set/1",
+  "ok": true,
+  "command": "verdict set",
+  "data": {
+    "base": "main",
+    "commit_status": {
+      "outcome": "skipped",
+      "reason": "no_token"
+    },
+    "patch_id": "<sha>",
+    "position": 1,
+    "pr": 7,
+    "sha": "<sha>",
+    "source": "local",
+    "store": "<root>/.git/redkiln/events.sqlite3",
+    "type": "verdict_set",
+    "verdict": "tests_verified"
+  },
+  "findings": [],
+  "proves": "the review verdict is well-formed and backed by findings",
+  "does_not_prove": "that the reviewer was right"
+}

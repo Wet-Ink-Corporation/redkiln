@@ -53,7 +53,7 @@ fn anneal(cwd: &Path, args: &[&str]) -> Result<(Output, Value), Box<dyn Error>> 
     let envelope = if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(&output)?
     };
     Ok((output, envelope))
 }

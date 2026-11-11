@@ -26,7 +26,7 @@ fn lint_spec(cwd: &Path, args: &[&str]) -> Result<(Output, Value), Box<dyn Error
     let envelope = if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(&output)?
     };
     Ok((output, envelope))
 }
@@ -226,7 +226,7 @@ fn a_named_glossary_or_constitution_that_is_missing_is_a_usage_error() -> TestRe
         assert!(output.stdout.is_empty(), "{flag}: nothing on stdout");
         assert_eq!(
             String::from_utf8(output.stderr)?,
-            "ERROR lint: no such path: nope.md\n",
+            "bench: error: lint: no such path: nope.md\n",
             "{flag}: one ERROR line"
         );
     }
@@ -255,7 +255,7 @@ fn a_spec_over_the_read_cap_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR lint: spec.md is 1048577 bytes, over the 1048576-byte read cap\n",
+        "bench: error: lint: spec.md is 1048577 bytes, over the 1048576-byte read cap\n",
         "one ERROR line with the size"
     );
     Ok(())

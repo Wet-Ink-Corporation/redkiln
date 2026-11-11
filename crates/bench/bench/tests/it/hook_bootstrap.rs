@@ -291,7 +291,7 @@ fn a_closed_stdout_still_exits_0_with_one_error_line() -> TestResult {
     assert_eq!(output.status.code(), Some(0), "fails open: {output:?}");
     let err = String::from_utf8(output.stderr)?;
     assert!(
-        err.starts_with("ERROR writing output") && err.lines().count() == 1,
+        err.starts_with("bench: error: writing output") && err.lines().count() == 1,
         "one ERROR line says why: {err}"
     );
     Ok(())
@@ -330,7 +330,7 @@ fn lint_index(index: &str) -> Result<(Option<i32>, bool), Box<dyn Error>> {
     let output = anneal_with_home(&root, home.path())
         .args(["lint", "skills", skills, "--index", index])
         .output()?;
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     let flagged = envelope
         .pointer("/data/details")
         .and_then(Value::as_array)

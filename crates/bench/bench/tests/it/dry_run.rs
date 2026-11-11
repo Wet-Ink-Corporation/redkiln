@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-use crate::support::{anneal_in, copy_dir, sha256_hex};
+use crate::support::{anneal_in, copy_dir, golden, sha256_hex};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -54,7 +54,7 @@ fn anneal(cwd: &Path, args: &[&str], code: i32) -> Result<Value, Box<dyn Error>>
         output.stderr.is_empty(),
         "anneal {args:?}: stderr: {output:?}"
     );
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(&output)
 }
 
 fn confirm(cwd: &Path) -> Result<Value, Box<dyn Error>> {
@@ -135,6 +135,8 @@ fn the_design_tree_has_no_open_question_and_its_confirmation_is_appended() -> Te
 
     let frontier = anneal(work.path(), &["grill", "frontier", "--tree", TREE], 0)?;
     let confirmed = confirm(work.path())?;
+    golden(&frontier, &[work.path()], &[])?;
+    golden(&confirmed, &[work.path()], &[])?;
 
     let data = &frontier["data"];
     assert_eq!(
@@ -166,6 +168,7 @@ fn the_spec_lints_clean_against_the_constitution_with_no_open_marker() -> TestRe
     let work = workspace()?;
 
     let linted = anneal(work.path(), &["lint", "spec", SPEC], 0)?;
+    golden(&linted, &[work.path()], &[])?;
 
     assert_eq!(
         linted["data"],
@@ -190,6 +193,9 @@ fn the_plan_lints_clean_and_its_approval_checks_current() -> TestResult {
     let linted = anneal(work.path(), &["lint", "plan", PLAN], 0)?;
     let approved = approve(work.path())?;
     let checked = anneal(work.path(), &["plan", "check", PLAN, "--store", STORE], 0)?;
+    golden(&linted, &[work.path()], &[])?;
+    golden(&approved, &[work.path()], &[])?;
+    golden(&checked, &[work.path()], &[])?;
 
     assert_eq!(
         (&linted["data"]["spec"], &linted["data"]["tasks"]),
@@ -216,6 +222,8 @@ fn the_tickets_check_clean_and_the_frontier_is_t1_and_t4() -> TestResult {
 
     let checked = anneal(work.path(), &["dag", "check", "--dir", "tickets"], 0)?;
     let frontier = anneal(work.path(), &["dag", "frontier", "--dir", "tickets"], 0)?;
+    golden(&checked, &[work.path()], &[])?;
+    golden(&frontier, &[work.path()], &[])?;
 
     assert_eq!(
         checked["data"],
@@ -259,6 +267,16 @@ fn the_replayed_ledger_events_equal_the_recorded_ones() -> TestResult {
     confirm(work.path())?;
     approve(work.path())?;
     let mut queried = anneal(work.path(), &["ledger", "query", "--store", STORE], 0)?;
+    golden(
+        &queried,
+        &[work.path()],
+        &[
+            "/data/events/*/event/ts",
+            "/data/events/*/event/worktree",
+            "/data/events/*/event/branch",
+            "/data/events/*/event/head",
+        ],
+    )?;
 
     let Some(Value::Array(events)) = queried.pointer_mut("/data/events").map(Value::take) else {
         return Err(format!("no events array: {queried}").into());

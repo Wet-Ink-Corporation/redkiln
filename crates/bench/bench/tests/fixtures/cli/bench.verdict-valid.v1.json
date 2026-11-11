@@ -1,0 +1,25 @@
+{
+  "schema": "bench.verdict-valid/1",
+  "ok": true,
+  "command": "verdict valid",
+  "data": {
+    "base": "main",
+    "head": "<sha>",
+    "patch_id": null,
+    "pr": 7,
+    "require_plugin": false,
+    "review": false,
+    "stale": 0,
+    "tests": true,
+    "verdict": {
+      "fresh": "by_sha",
+      "position": 1,
+      "sha": "<sha>",
+      "source": "local",
+      "verdict": "tests_verified"
+    }
+  },
+  "findings": [],
+  "proves": "the review verdict is well-formed and backed by findings",
+  "does_not_prove": "that the reviewer was right"
+}

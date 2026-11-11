@@ -59,7 +59,7 @@ impl Scratch {
             .args(["query", "--type", "gate_blocked"])
             .output()?;
         assert_eq!(output.status.code(), Some(0), "query: {output:?}");
-        let envelope: Value = serde_json::from_slice(&output.stdout)?;
+        let envelope: Value = crate::support::envelope(&output)?;
         Ok(envelope
             .pointer("/data/events")
             .and_then(Value::as_array)
@@ -283,7 +283,7 @@ fn with_closed_stdout(
     Ok(child.wait_with_output()?)
 }
 
-/// Asserts `output` exited 2 with exactly one `ERROR writing output` line on stderr.
+/// Asserts `output` exited 2 with exactly one `bench: error: writing output` line on stderr.
 fn assert_blocked_with_one_error_line(output: Output) -> TestResult {
     assert_eq!(
         output.status.code(),
@@ -292,8 +292,8 @@ fn assert_blocked_with_one_error_line(output: Output) -> TestResult {
     );
     let err = String::from_utf8(output.stderr)?;
     assert!(
-        err.starts_with("ERROR writing output") && err.lines().count() == 1,
-        "one ERROR line says why: {err}"
+        err.starts_with("bench: error: writing output") && err.lines().count() == 1,
+        "one CLI-08 error line says why: {err}"
     );
     Ok(())
 }

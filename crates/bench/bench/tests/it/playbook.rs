@@ -23,7 +23,7 @@ fn anneal(args: &[&str]) -> Result<Output, Box<dyn Error>> {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -35,6 +35,7 @@ fn show_spec_template_writes_the_built_in_text_as_markdown() -> TestResult {
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
+    crate::support::golden(&envelope, &[], &[])?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -105,7 +106,7 @@ fn an_unknown_name_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert!(output.stdout.is_empty(), "{output:?}");
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
-    assert!(stderr.starts_with("ERROR "), "{stderr}");
+    assert!(stderr.starts_with("bench: error: "), "{stderr}");
     assert!(stderr.contains("constitution"), "names the value: {stderr}");
     Ok(())
 }
@@ -117,6 +118,7 @@ fn list_names_every_playbook_in_order_with_its_media_type() -> TestResult {
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
+    crate::support::golden(&envelope, &[], &[])?;
     let listed: Vec<(&str, &str)> = envelope["data"]["playbooks"]
         .as_array()
         .ok_or("data.playbooks is an array")?

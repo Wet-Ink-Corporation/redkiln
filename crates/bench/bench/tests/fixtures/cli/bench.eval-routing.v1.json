@@ -1,0 +1,38 @@
+{
+  "schema": "bench.eval-routing/1",
+  "ok": true,
+  "command": "eval routing",
+  "data": {
+    "cases": 48,
+    "confusion": {
+      "diagnose": {
+        "diagnose": 16,
+        "plan": 0,
+        "spec": 0
+      },
+      "plan": {
+        "diagnose": 0,
+        "plan": 16,
+        "spec": 0
+      },
+      "spec": {
+        "diagnose": 0,
+        "plan": 0,
+        "spec": 16
+      }
+    },
+    "failed": 0,
+    "passed": 48,
+    "problems": 0,
+    "skills": 3,
+    "table": [
+      "expected / top  diagnose  plan  spec",
+      "diagnose              16     0     0",
+      "plan                   0    16     0",
+      "spec                   0     0    16"
+    ]
+  },
+  "findings": [],
+  "proves": "skill routing accuracy, or each skill's behaviour uplift over its baseline, is at or above its bound on the eval set",
+  "does_not_prove": "routing accuracy or behaviour on prompts outside the eval set"
+}
