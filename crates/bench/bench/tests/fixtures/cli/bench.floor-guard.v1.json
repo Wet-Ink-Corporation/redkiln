@@ -1,0 +1,18 @@
+{
+  "schema": "bench.floor-guard/1",
+  "ok": true,
+  "command": "floor-guard",
+  "data": {
+    "base": "main",
+    "base_commit": "<sha>",
+    "files": 2,
+    "findings": [],
+    "merge_base": "<sha>",
+    "omitted": 0,
+    "skipped": [],
+    "untracked": 0
+  },
+  "findings": [],
+  "proves": "no quality floor (coverage, lint level, test count) was lowered",
+  "does_not_prove": "that the floors are high enough"
+}

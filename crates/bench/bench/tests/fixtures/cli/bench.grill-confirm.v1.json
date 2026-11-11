@@ -1,0 +1,26 @@
+{
+  "schema": "bench.grill-confirm/1",
+  "ok": true,
+  "command": "grill confirm",
+  "data": {
+    "event": {
+      "actor": "cli",
+      "branch": null,
+      "hash": "sha256:<hash>",
+      "head": null,
+      "plan": "design-tree.json",
+      "quote": "Yes, that's it: only notes list, compact JSON, go ahead.",
+      "session_id": "dry-run",
+      "ts": "<time>",
+      "type": "grill_confirmed",
+      "worktree": null
+    },
+    "position": 1,
+    "source": "flag",
+    "store": "<root>/ledger.sqlite3",
+    "tree": "design-tree.json"
+  },
+  "findings": [],
+  "proves": "the design tree is valid; for confirm, no question is open and the human's quoted confirmation of the tree's hash was recorded",
+  "does_not_prove": "that the right questions were asked, that the answers are right, or that the quoted words came from the human"
+}

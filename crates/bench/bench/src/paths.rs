@@ -4,7 +4,7 @@
 mod location;
 
 use std::ffi::OsString;
-use std::io::{self, Write as _};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::Duration;
@@ -264,7 +264,7 @@ pub fn ledger_store(
         .iter()
         .filter(|notice| !matches!(notice, Notice::OldLedger { .. }));
     for notice in told {
-        writeln!(err, "bench: warning: {notice}").map_err(PathError::Warning)?;
+        crate::diagnostic::warning(&mut err, notice).map_err(PathError::Warning)?;
     }
     Ok(location)
 }

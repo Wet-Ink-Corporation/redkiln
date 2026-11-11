@@ -64,6 +64,8 @@ fn build_writes_a_brief_that_lints_clean_and_a_review_package_with_the_diff() ->
     );
     let lint = repo.envelope(&["lint", "brief", ".anneal/briefs/36.md"], 0)?;
     assert_eq!(lint["data"]["findings"], json!([]), "{lint}");
+    crate::support::golden(&envelope, &[repo.path()], &[])?;
+    crate::support::golden(&lint, &[repo.path()], &[])?;
     Ok(())
 }
 
@@ -205,7 +207,7 @@ fn assert_refused_through(repo: &PrRepo, link: &std::path::Path) -> TestResult {
     assert_eq!(output.status.code(), Some(70), "{output:?}");
     assert!(output.stdout.is_empty(), "no envelope: {output:?}");
     let expected = format!(
-        "ERROR .anneal/briefs resolves to {}, not this worktree's own \
+        "bench: error: .anneal/briefs resolves to {}, not this worktree's own \
          .anneal/briefs; make it a plain directory\n",
         target.canonicalize()?.display()
     );
@@ -255,7 +257,7 @@ fn a_symlinked_anneal_directory_gets_no_briefs_directory_where_it_leads() -> Tes
 
     assert_eq!(output.status.code(), Some(70), "{output:?}");
     let expected = format!(
-        "ERROR .anneal/briefs resolves to {}, not this worktree's own \
+        "bench: error: .anneal/briefs resolves to {}, not this worktree's own \
          .anneal/briefs; make it a plain directory\n",
         outside.path().canonicalize()?.join("briefs").display()
     );

@@ -1,0 +1,13 @@
+{
+  "schema": "bench.decide-label/1",
+  "ok": true,
+  "command": "decide label",
+  "data": {
+    "id": "d1760000000000-7-0",
+    "log": "<root>/decisions/decisions.jsonl",
+    "outcome": "destructive"
+  },
+  "findings": [],
+  "proves": "the decision was obtained and recorded",
+  "does_not_prove": "that the decision is right"
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "bench.mode-off/1",
+  "ok": true,
+  "command": "mode off",
+  "data": {
+    "clean": true,
+    "mode": "off",
+    "plan": null,
+    "position": 3,
+    "source": "git_common_dir",
+    "store": "<root>/.git/redkiln/events.sqlite3",
+    "tree": null,
+    "type": "mode_set",
+    "worktree": "<varies>"
+  },
+  "findings": [],
+  "proves": "the mode was recorded for this worktree, with whether its tree was clean",
+  "does_not_prove": "that the mode's preconditions hold: the preconditions hook checks them at each edit"
+}

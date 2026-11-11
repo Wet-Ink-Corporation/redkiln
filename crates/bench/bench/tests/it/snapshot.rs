@@ -62,7 +62,8 @@ fn a_written_snapshot_is_the_mod_s_and_the_monitor_warns_on_it() -> TestResult {
     )?;
 
     assert_eq!(written.status.code(), Some(0), "written: {written:?}");
-    let envelope: Value = serde_json::from_slice(&written.stdout)?;
+    let envelope: Value = crate::support::envelope(&written)?;
+    crate::support::golden(&envelope, &[dir.path()], &["/data/written_at_ms"])?;
     assert_eq!(
         envelope.pointer("/data/source"),
         Some(&json!("mod")),
@@ -99,7 +100,7 @@ fn invalid_input_exits_2_with_one_error_line_and_nothing_on_stdout() -> TestResu
     assert!(output.stdout.is_empty(), "nothing on stdout");
     let err = String::from_utf8(output.stderr)?;
     assert_eq!(
-        err, "ERROR snapshot write: window must be more than 0 tokens\n",
+        err, "bench: error: snapshot write: window must be more than 0 tokens\n",
         "one ERROR line naming the field"
     );
     assert!(

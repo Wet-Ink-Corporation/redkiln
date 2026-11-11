@@ -78,6 +78,8 @@
 
 pub mod adr;
 pub mod baseline;
+#[cfg(test)]
+mod bless;
 pub mod brief;
 pub mod calibrate;
 pub mod cli;
@@ -87,6 +89,7 @@ mod context;
 mod cycle;
 pub mod dag;
 pub mod decide;
+mod diagnostic;
 pub mod envelope;
 pub mod error;
 mod error_chain;

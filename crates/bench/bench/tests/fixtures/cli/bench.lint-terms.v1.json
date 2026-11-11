@@ -1,0 +1,35 @@
+{
+  "schema": "bench.lint-terms/1",
+  "ok": false,
+  "command": "lint terms",
+  "data": {
+    "checked": 1,
+    "glossary": "CONTEXT.md",
+    "hits": [
+      {
+        "file": "spec.md",
+        "line": 2,
+        "term": "purchase order"
+      },
+      {
+        "file": "spec.md",
+        "line": 2,
+        "term": "verdict"
+      }
+    ],
+    "skipped": [],
+    "terms": 2
+  },
+  "findings": [
+    {
+      "key": "lint/terms:spec.md:2:purchase order",
+      "message": "spec.md:2: error avoided term `purchase order` fix: use the term CONTEXT.md defines instead."
+    },
+    {
+      "key": "lint/terms:spec.md:2:verdict",
+      "message": "spec.md:2: error avoided term `verdict` fix: use the term CONTEXT.md defines instead."
+    }
+  ],
+  "proves": "the checked files have no error under anneal's lint rules",
+  "does_not_prove": "that the content is right, or that its warnings and review items were addressed"
+}

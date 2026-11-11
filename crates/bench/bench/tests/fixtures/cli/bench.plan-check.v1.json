@@ -1,0 +1,20 @@
+{
+  "schema": "bench.plan-check/1",
+  "ok": true,
+  "command": "plan check",
+  "data": {
+    "approved": {
+      "hash": "sha256:<hash>",
+      "position": 1,
+      "ts": "<time>"
+    },
+    "hash": "sha256:<hash>",
+    "plan": "plan.md",
+    "source": "flag",
+    "status": "current",
+    "store": "<root>/ledger.sqlite3"
+  },
+  "findings": [],
+  "proves": "the plan is approved and the plan's bytes are unchanged since its latest approval (its spec and other files are not compared)",
+  "does_not_prove": "that the plan is correct or complete, or that its spec is unchanged since the approval"
+}

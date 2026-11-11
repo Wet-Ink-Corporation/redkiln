@@ -254,7 +254,7 @@ fn anneal(args: &[&str]) -> Result<(Option<i32>, Value, String), Box<dyn Error>>
     let stdout: Value = if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(&output)?
     };
     Ok((
         output.status.code(),
@@ -333,7 +333,7 @@ fn a_missing_path_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert_eq!(code, Some(2), "a bad path is a usage error");
     assert_eq!(envelope, Value::Null, "nothing on stdout");
     assert!(
-        stderr.starts_with("ERROR ") && stderr.lines().count() == 1,
+        stderr.starts_with("bench: error: ") && stderr.lines().count() == 1,
         "one line: {stderr}"
     );
     Ok(())

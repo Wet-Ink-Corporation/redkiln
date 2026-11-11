@@ -28,7 +28,7 @@ fn events(cwd: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
         .args(["ledger", "--store", "ledger.sqlite3", "query"])
         .output()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let listing: Value = serde_json::from_slice(&output.stdout)?;
+    let listing: Value = crate::support::envelope(&output)?;
     let events = listing
         .pointer("/data/events")
         .and_then(Value::as_array)
@@ -81,7 +81,12 @@ fn a_green_command_records_its_test_run_then_task_done() -> TestResult {
     assert!(run["duration_ms"].is_u64(), "a duration in ms: {run}");
     assert_eq!(run["timeout_secs"], Value::Null, "it did not time out");
     assert_eq!(run["session_id"], "s1", "the session is recorded");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
+    crate::support::golden(
+        &envelope,
+        &[dir.path()],
+        &["/data/events/*/event/duration_ms"],
+    )?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -107,7 +112,7 @@ fn a_failing_command_records_a_red_test_run_and_no_task_done() -> TestResult {
         vec![(json!("test_run"), json!("T1"), json!("red"), json!(1))],
         "only the failed test_run"
     );
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     assert_eq!(envelope["ok"], json!(false), "{envelope}");
     assert_eq!(
         envelope["findings"][0]["key"],
@@ -129,7 +134,7 @@ fn a_command_that_cannot_start_exits_2_and_opens_no_ledger() -> TestResult {
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "one line: {stderr}");
     assert!(
-        stderr.starts_with("ERROR task: could not start anneal-no-such-program-22"),
+        stderr.starts_with("bench: error: task: could not start anneal-no-such-program-22"),
         "{stderr}"
     );
     assert!(

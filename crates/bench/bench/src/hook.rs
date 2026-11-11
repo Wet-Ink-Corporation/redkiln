@@ -1,8 +1,10 @@
 //! `bench hook <name>`, the commands `plugin/hooks/hooks.json` runs, and the output helpers
-//! hooks share: silent on success, exactly one grep-able `ERROR <reason>` line on failure.
+//! hooks share: silent on success, exactly one grep-able `ERROR <reason>` line in the hook's
+//! output on failure.
 //!
-//! Hooks fail open: a hook's own failures are reported in its output (or as an `ERROR` line on
-//! stderr when stdout cannot be written) and it still exits 0. Only a usage error exits 2. The
+//! Hooks fail open: a hook's own failures are reported in its output (or as one
+//! `bench: error: <reason>` line on stderr when stdout cannot be written, SPEC CLI-08) and it
+//! still exits 0. Only a usage error exits 2. The
 //! exception is a guard (`hook guard`, `hook preconditions`, `hook merge-gate`, `hook brief`,
 //! or any hook passed `--fail-closed`),
 //! which fails closed: it denies what it cannot judge, and exits 2 when its decision cannot be
@@ -267,15 +269,15 @@ pub(crate) fn write_ask<W: Write>(out: W, line: &str) -> io::Result<()> {
 
 pub use crate::error_chain::reason;
 
-/// Writes `ERROR <reason>` and a newline to `err`, as one line.
+/// Writes `bench: error: <reason>` and a newline to `err`, as one line (SPEC CLI-08).
 ///
 /// # Errors
 /// Returns the I/O error when `err` cannot be written.
-pub fn write_error<W: Write>(mut err: W, error: &dyn Error) -> io::Result<()> {
-    writeln!(err, "ERROR {}", reason(error))
+pub fn write_error<W: Write>(err: W, error: &dyn Error) -> io::Result<()> {
+    crate::diagnostic::error(err, error)
 }
 
-/// Reports a hook's result: nothing for `Ok`, one `ERROR <reason>` line for `Err`.
+/// Reports a hook's result: nothing for `Ok`, one `bench: error: <reason>` line for `Err`.
 ///
 /// # Errors
 /// Returns the I/O error when `err` cannot be written.
@@ -311,8 +313,8 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(err).expect("UTF-8"),
-            "ERROR guard failed on two lines: disk full\n",
-            "one ERROR line, newlines folded, causes appended"
+            "bench: error: guard failed on two lines: disk full\n",
+            "one CLI-08 error line, newlines folded, causes appended"
         );
     }
 }

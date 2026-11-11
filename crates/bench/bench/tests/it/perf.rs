@@ -12,7 +12,47 @@ use crate::support::anneal_in;
 type TestResult = Result<(), Box<dyn Error>>;
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
+}
+
+/// The timings in `perf sample`'s envelope, which differ on every run.
+const PERF_SAMPLE_VARIES: [&str; 2] = ["/data/mean_secs", "/data/samples_secs/*"];
+
+/// The timings in `perf noise`'s envelope and the statistics computed from them.
+const PERF_NOISE_VARIES: [&str; 8] = [
+    "/data/delta_secs",
+    "/data/low_secs",
+    "/data/high_secs",
+    "/data/df",
+    "/data/t",
+    "/data/baseline/mean_secs",
+    "/data/candidate/mean_secs",
+    "/data/candidate/samples_secs/*",
+];
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary and git")]
+fn a_change_far_faster_than_its_baseline_is_kept() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    std::fs::write(
+        dir.path().join("slow.json"),
+        r#"{"version":1,"command":["git","--version"],"samples_secs":[10.0,10.1,9.9]}"#,
+    )?;
+
+    let noise = anneal_in(dir.path())
+        .args(["perf", "noise", "-n", "3", "--baseline", "slow.json", "--"])
+        .args(["git", "--version"])
+        .output()?;
+
+    assert_eq!(noise.status.code(), Some(0), "keep: {noise:?}");
+    let compared = envelope(&noise)?;
+    assert_eq!(
+        (&compared["data"]["decision"], &compared["data"]["verdict"]),
+        (&json!("keep"), &json!("faster")),
+        "{compared}"
+    );
+    crate::support::golden(&compared, &[dir.path()], &PERF_NOISE_VARIES)?;
+    Ok(())
 }
 
 #[test]
@@ -32,6 +72,7 @@ fn sample_saves_n_runs_and_noise_compares_against_them() -> TestResult {
     let compared = envelope(&noise)?;
 
     assert_eq!(sampled.status.code(), Some(0), "{sampled:?}");
+    crate::support::golden(&envelope(&sampled)?, &[dir.path()], &PERF_SAMPLE_VARIES)?;
     assert_eq!(
         (
             &saved["version"],
@@ -68,7 +109,7 @@ fn a_run_that_fails_is_an_internal_error_naming_the_run_and_saves_nothing() -> T
     assert!(!dir.path().join("x").exists(), "nothing saved");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR perf: run 1 of 2: the command failed (exit 129)")
+        stderr.starts_with("bench: error: perf: run 1 of 2: the command failed (exit 129)")
             && stderr.lines().count() == 1,
         "one ERROR line naming the run: {stderr}"
     );
@@ -90,7 +131,7 @@ fn a_command_that_cannot_start_is_a_usage_error_with_nothing_on_stdout() -> Test
     assert!(!dir.path().join("base.json").exists(), "nothing saved");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR perf: could not start anneal-no-such-program")
+        stderr.starts_with("bench: error: perf: could not start anneal-no-such-program")
             && stderr.lines().count() == 1,
         "one ERROR line: {stderr}"
     );

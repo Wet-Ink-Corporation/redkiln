@@ -1,0 +1,19 @@
+{
+  "schema": "bench.brief-build/1",
+  "ok": true,
+  "command": "brief build",
+  "data": {
+    "base": "main",
+    "base_commit": "<sha>",
+    "brief": ".anneal/briefs/36.md",
+    "diff_omitted": false,
+    "empty_fields": [],
+    "head": "<sha>",
+    "review_package": ".anneal/briefs/36.review.md",
+    "ticket": "36",
+    "waits_on_ci": false
+  },
+  "findings": [],
+  "proves": "the brief and its review package were written from a range rooted at the base",
+  "does_not_prove": "that the brief is complete or its fields right: run bench lint brief, and read it"
+}

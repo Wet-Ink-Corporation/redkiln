@@ -1,0 +1,32 @@
+{
+  "schema": "bench.verify-risk/1",
+  "ok": true,
+  "command": "verify risk",
+  "data": {
+    "base": "main",
+    "clef": {
+      "action": null,
+      "clef": "no_answer",
+      "defect_risk": null,
+      "enforce": false,
+      "id": "<varies>",
+      "mode": "shadow",
+      "reason": "Clef unreachable: connection failed (connection refused)"
+    },
+    "doubt_review": true,
+    "files": 1,
+    "lines": 1,
+    "merge_base": "<sha>",
+    "triggers": [
+      {
+        "category": "payments",
+        "glob": "**/*payment*/**",
+        "path": "src/payments/charge.rs",
+        "trigger": "path"
+      }
+    ]
+  },
+  "findings": [],
+  "proves": "the whole change was read and the doubt review is due: a trigger fired, or Clef D5 did not say skip in effect enforce",
+  "does_not_prove": "that the change has defects, or that a change sent past the review has none"
+}

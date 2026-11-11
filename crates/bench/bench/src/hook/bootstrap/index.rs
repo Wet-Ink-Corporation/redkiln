@@ -209,7 +209,7 @@ mod tests {
             .join("../../..")
             .join(DOC_PATH);
         let expected = index();
-        if std::env::var_os("ANNEAL_BLESS").is_some() {
+        if crate::bless::blessing() {
             std::fs::write(&path, &expected).expect("write docs/bench/bootstrap-index.md");
         }
         let committed =
@@ -217,7 +217,7 @@ mod tests {
         assert!(
             committed == expected,
             "{DOC_PATH} drifted from the index; regenerate it with \
-             `ANNEAL_BLESS=1 cargo test -p bench bootstrap_index_doc`"
+             `BENCH_BLESS=1 cargo test -p bench bootstrap_index_doc`"
         );
     }
 }

@@ -28,7 +28,7 @@ fn decide(metrics: &str) -> Result<Output, Box<dyn Error>> {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -36,6 +36,7 @@ fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
 fn metrics_just_inside_every_go_band_exit_0_go() -> TestResult {
     let output = decide("go.json")?;
     let envelope = envelope(&output)?;
+    crate::support::golden(&envelope, &[&fixtures()], &[])?;
 
     assert_eq!(output.status.code(), Some(0), "{envelope}");
     assert_eq!(
@@ -105,7 +106,8 @@ fn a_missing_bands_file_is_a_usage_error_with_nothing_on_stdout() -> TestResult 
     assert!(output.stdout.is_empty(), "no envelope for a usage error");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR rollout: bands file nope.json") && stderr.lines().count() == 1,
+        stderr.starts_with("bench: error: rollout: bands file nope.json")
+            && stderr.lines().count() == 1,
         "one ERROR line naming the file: {stderr}"
     );
     Ok(())
@@ -150,7 +152,7 @@ fn metrics_naming_a_metric_twice_are_a_usage_error_naming_it() -> TestResult {
     assert!(output.stdout.is_empty(), "no envelope for a usage error");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR rollout: --metrics")
+        stderr.starts_with("bench: error: rollout: --metrics")
             && stderr.contains("metric \"error_rate\" is given twice")
             && stderr.lines().count() == 1,
         "one ERROR line naming the metric: {stderr}"

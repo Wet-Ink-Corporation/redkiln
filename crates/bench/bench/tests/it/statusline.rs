@@ -65,8 +65,8 @@ fn an_unreadable_input_still_exits_0_with_a_line_and_one_error_line() -> TestRes
     );
     let err = String::from_utf8(output.stderr)?;
     assert!(
-        err.starts_with("ERROR ") && err.lines().count() == 1,
-        "one ERROR line: {err}"
+        err.starts_with("bench: error: ") && err.lines().count() == 1,
+        "one CLI-08 error line: {err}"
     );
     Ok(())
 }

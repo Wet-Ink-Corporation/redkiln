@@ -1,0 +1,15 @@
+{
+  "schema": "bench.snapshot-write/1",
+  "ok": true,
+  "command": "snapshot write",
+  "data": {
+    "source": "mod",
+    "used_tokens": 130000.0,
+    "window": 200000,
+    "window_source": "model",
+    "written_at_ms": "<varies>"
+  },
+  "findings": [],
+  "proves": "the snapshot had the documented shape and ranges and was saved for its session as the mod's",
+  "does_not_prove": "that the usage it reports is right or current"
+}

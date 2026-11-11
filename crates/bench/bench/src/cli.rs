@@ -4,8 +4,10 @@
 //! `after_help`, and its own arm in the private `dispatch` function that writes an
 //! [`Envelope`](crate::envelope::Envelope) and returns the code `emit` hands back.
 
+mod pipe;
+
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{self, Write};
 
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -18,6 +20,7 @@ use crate::dag::{self, DagArgs};
 use crate::decide::clock::SystemClock;
 use crate::decide::transport::http::UreqTransport;
 use crate::decide::{self, DecideArgs, DecideEnv};
+use crate::diagnostic;
 use crate::error::CliError;
 use crate::eval::{self, EvalArgs};
 use crate::exit_codes::render::{command_help, overview_help};
@@ -46,6 +49,7 @@ use crate::verdict::{self, VerdictArgs};
 use crate::verify::{self, VerifyArgs};
 use crate::watch::{self, WatchArgs};
 use crate::weighin;
+use pipe::Pipe;
 
 /// The flags clap answers by printing instead of running a command.
 const HELP_AND_VERSION: [&str; 4] = ["-h", "--help", "-V", "--version"];
@@ -159,10 +163,10 @@ pub enum Command {
 enum OnFailure {
     /// The error's own code (64, 70, 74, ...).
     Exit,
-    /// Still exit 0: a hook fails open. The error is still written as one `ERROR` line.
+    /// Still exit 0: a hook fails open. The error is still written as one `bench: error:` line.
     FailOpen,
     /// Exit 2, which Claude Code reads as "block": a guard fails closed. The error is still
-    /// written as one `ERROR` line.
+    /// written as one `bench: error:` line.
     FailClosed,
 }
 
@@ -236,28 +240,41 @@ impl Command {
     }
 }
 
-/// Runs `anneal` with `args` (including the program name), writing results to `out` and
+/// Runs `bench` with `args` (including the program name), writing results to `out` and
 /// errors to `err`, and returns the exit code. `out` is flushed before returning.
 ///
-/// On success `err` stays empty, except for `bench calibrate`'s short human summary, written
-/// after its envelope; on failure it gets exactly one `ERROR <reason>` line and the code is the
-/// error's documented code, never 0. The exceptions are `bench hook` and `bench statusline`,
-/// which fail open: after the `ERROR` line they still exit 0 (only usage errors exit 2). A guard
-/// (`hook guard`, or a hook passed `--fail-closed`) fails closed instead: it exits 2.
-pub fn run<I, T, O, E>(args: I, mut out: O, mut err: E) -> Code
+/// On success `err` stays empty, except for warnings (`bench: warning: <message>`, SPEC
+/// CLI-08) and `bench calibrate`'s short human summary, written after its envelope; on failure
+/// it gets exactly one `bench: error: <reason>` line and the code is the error's documented
+/// code, never 0. The exceptions are `bench hook` and `bench statusline`, which fail open: after
+/// the error line they still exit 0 (only usage errors exit 2). A guard (`hook guard`, or a hook
+/// passed `--fail-closed`) fails closed instead: it exits 2.
+///
+/// When `out`'s reader closes it (a broken pipe), the rest of the output is dropped and the
+/// command exits with the code it earned, saying nothing on `err` (CLI-07). A hook's stdout is
+/// its answer to Claude Code, so for a hook that is still an output failure, reported as above
+/// (CLI-09, CLI-10).
+pub fn run<I, T, O, E>(args: I, out: O, mut err: E) -> Code
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
     O: Write,
     E: Write,
 {
+    let mut out = Pipe::new(out);
     let (result, on_failure) = execute(args, &mut out, &mut err);
     let result = result.and_then(|code| out.flush().map(|()| code).map_err(CliError::Output));
+    let result = match result {
+        Ok(_) if out.reader_closed() && on_failure != OnFailure::Exit => {
+            Err(CliError::Output(io::Error::from(io::ErrorKind::BrokenPipe)))
+        }
+        other => other,
+    };
     let error = match result {
         Ok(code) => return code,
         Err(error) => error,
     };
-    let reported = hook::write_error(&mut err, &error);
+    let reported = diagnostic::error(&mut err, &error);
     match (on_failure, reported) {
         // A hook fails open whether or not stderr took the line.
         (OnFailure::FailOpen, _) => exit_codes::HOOK_DONE,
@@ -389,7 +406,7 @@ fn run_orchestrate<O: Write>(args: &OrchestrateArgs, out: &mut O) -> Result<Code
 /// `bench hook` with the process's stdin, working directory and environment.
 fn run_hook<O: Write>(args: &HookArgs, out: &mut O) -> Result<Code, CliError> {
     let env = HookEnv {
-        stdin: std::io::stdin().lock(),
+        stdin: io::stdin().lock(),
         current_dir: std::env::current_dir,
         lookup: |var: &str| std::env::var_os(var),
     };
@@ -458,18 +475,13 @@ fn run_watch<O: Write>(args: &WatchArgs, out: &mut O) -> Result<Code, CliError> 
 
 /// `bench statusline` with the process's stdin and environment.
 fn run_statusline<O: Write, E: Write>(out: &mut O, err: &mut E) -> Result<Code, CliError> {
-    statusline::run(
-        std::io::stdin().lock(),
-        |var| std::env::var_os(var),
-        out,
-        err,
-    )
+    statusline::run(io::stdin().lock(), |var| std::env::var_os(var), out, err)
 }
 
 /// `bench snapshot` with the process's stdin, environment and system clock.
 fn run_snapshot<O: Write>(args: &SnapshotArgs, out: &mut O) -> Result<Code, CliError> {
     let env = WriterEnv {
-        stdin: std::io::stdin().lock(),
+        stdin: io::stdin().lock(),
         lookup: |var: &str| std::env::var_os(var),
         clock: &SystemClock::new(),
     };

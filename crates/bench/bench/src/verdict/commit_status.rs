@@ -365,16 +365,18 @@ pub(crate) fn finding(pr: u64, reason: &str) -> Finding {
     )
 }
 
-/// Writes the one `WARNING` line for a status of pull request `pr` at `sha` that was not
-/// posted, for `reason`, and flushes `err`.
+/// Writes the one `bench: warning: verdict set: ...` line (SPEC CLI-08) for a status of pull
+/// request `pr` at `sha` that was not posted, for `reason`, and flushes `err`.
 ///
 /// # Errors
 /// The I/O error from writing or flushing `err`.
 pub(crate) fn warn<E: Write>(mut err: E, pr: u64, sha: &str, reason: &str) -> io::Result<()> {
-    writeln!(
-        err,
-        "WARNING verdict set: the verdict for #{pr} is recorded, but its {CONTEXT} commit \
-         status on {sha} was not posted: {reason}"
+    crate::diagnostic::warning(
+        &mut err,
+        &format_args!(
+            "verdict set: the verdict for #{pr} is recorded, but its {CONTEXT} commit status on \
+             {sha} was not posted: {reason}"
+        ),
     )?;
     err.flush()
 }

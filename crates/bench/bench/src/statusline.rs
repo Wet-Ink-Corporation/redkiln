@@ -11,7 +11,7 @@
 //! `docs/handoff.md`).
 //!
 //! It fails open like a hook: whatever goes wrong, it prints a line and exits 0, with one
-//! `ERROR` line on stderr saying why.
+//! `bench: error:` line on stderr saying why (SPEC CLI-08).
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -24,6 +24,7 @@ use crate::context::sessions::SessionsError;
 use crate::context::usage::{self, Level, Reading};
 use crate::context::{self, Saved, Snapshot, Source, WriterEnv};
 use crate::decide::clock::{Clock, SystemClock};
+use crate::diagnostic;
 use crate::error::CliError;
 use crate::error_chain::reason;
 use crate::exit_codes::{self, Code};
@@ -76,9 +77,11 @@ enum SaveError {
     File(#[from] SessionsError),
 }
 
-/// Runs `bench statusline`: reads the input from `stdin`, the auto-compact window variable
-/// and the anneal home through `lookup`, writes the line to `out` and any failure as one
-/// `ERROR` line to `err`.
+/// Runs `bench statusline`.
+///
+/// It reads the input from `stdin`, the auto-compact window variable and the anneal home
+/// through `lookup`, writes the line to `out` and any failure as one `bench: error:` line to
+/// `err`.
 ///
 /// The reading is stamped with the system clock's time.
 ///
@@ -127,7 +130,7 @@ where
     };
     writeln!(out, "{line}").map_err(CliError::Output)?;
     if let Some(problem) = problem {
-        writeln!(err, "ERROR {}", problem.replace(['\r', '\n'], " ")).map_err(CliError::Output)?;
+        diagnostic::error_message(&mut err, &problem).map_err(CliError::Output)?;
     }
     Ok(exit_codes::OK)
 }

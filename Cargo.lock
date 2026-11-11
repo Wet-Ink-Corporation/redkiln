@@ -111,6 +111,7 @@ version = "0.0.5"
 dependencies = [
  "bench-contract",
  "clap",
+ "jsonschema",
  "redkiln-core",
  "serde",
  "serde_json",

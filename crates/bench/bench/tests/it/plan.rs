@@ -60,7 +60,7 @@ fn anneal(cwd: &Path, args: &[&str]) -> Result<(Output, Value), Box<dyn Error>> 
     let envelope = if output.stdout.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&output.stdout)?
+        crate::support::envelope(&output)?
     };
     Ok((output, envelope))
 }
@@ -267,7 +267,7 @@ fn assert_usage_error(output: &Output, what: &str, names: &str) -> TestResult {
     assert!(output.stdout.is_empty(), "{what}: nothing on stdout");
     assert_eq!(stderr.lines().count(), 1, "{what}: one line: {stderr}");
     assert!(
-        stderr.starts_with("ERROR ") && stderr.contains(names),
+        stderr.starts_with("bench: error: ") && stderr.contains(names),
         "{what}: an ERROR line naming {names}: {stderr}"
     );
     Ok(())
@@ -338,7 +338,10 @@ fn check_fails_when_the_ledger_path_is_a_directory() -> TestResult {
     );
     assert!(output.stdout.is_empty(), "no envelope");
     assert_eq!(stderr.lines().count(), 1, "one line: {stderr}");
-    assert!(stderr.starts_with("ERROR "), "an ERROR line: {stderr}");
+    assert!(
+        stderr.starts_with("bench: error: "),
+        "an ERROR line: {stderr}"
+    );
     Ok(())
 }
 
@@ -375,7 +378,7 @@ fn a_missing_plan_is_a_usage_error() -> TestResult {
         assert!(output.stdout.is_empty(), "{action}: nothing on stdout");
         assert_eq!(
             String::from_utf8(output.stderr)?,
-            "ERROR plan: no such path: docs/plans/none.md\n",
+            "bench: error: plan: no such path: docs/plans/none.md\n",
             "{action}: one line"
         );
     }
@@ -480,7 +483,7 @@ fn approve_isolated(cwd: &Path, extra: &[&str]) -> Result<(Output, Value), Box<d
         .env("GIT_CONFIG_GLOBAL", cwd.join("no-global-gitconfig"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()?;
-    let envelope = serde_json::from_slice(&output.stdout)?;
+    let envelope = crate::support::envelope(&output)?;
     Ok((output, envelope))
 }
 

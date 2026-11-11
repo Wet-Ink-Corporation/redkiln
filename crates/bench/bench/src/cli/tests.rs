@@ -79,7 +79,7 @@ fn an_argument_after_any_help_or_version_flag_is_a_usage_error() {
         assert_eq!(code, 2, "{flag} extra is a usage error");
         assert!(out.is_empty(), "{flag} extra: nothing on stdout");
         assert_eq!(
-            err, "ERROR unexpected argument after --help or --version\n",
+            err, "bench: error: unexpected argument after --help or --version\n",
             "{flag} extra: exactly one ERROR line"
         );
     }
@@ -145,7 +145,10 @@ fn unknown_argument_exits_2_with_one_error_line() {
     let (code, out, err) = anneal(&["nope"]);
     assert_eq!(code, 2, "usage errors exit 2");
     assert!(out.is_empty(), "nothing on stdout for a usage error");
-    assert_eq!(err, "ERROR unknown argument: nope\n", "exactly one line");
+    assert_eq!(
+        err, "bench: error: unknown argument: nope\n",
+        "exactly one line"
+    );
 }
 
 #[test]
@@ -158,7 +161,7 @@ fn unknown_flag_and_trailing_arguments_never_exit_0() {
         let (code, out, err) = anneal(args);
         assert_ne!(code, 0, "{args:?} must not exit 0 (out: {out})");
         assert_eq!(err.lines().count(), 1, "{args:?}: one line: {err}");
-        assert!(err.starts_with("ERROR "), "{args:?}: {err}");
+        assert!(err.starts_with("bench: error: "), "{args:?}: {err}");
     }
 }
 
@@ -213,13 +216,77 @@ fn a_missing_required_argument_is_named_for_every_command() {
         assert!(out.is_empty(), "{path:?}: nothing on stdout");
         assert_eq!(err.lines().count(), 1, "{path:?}: one line: {err}");
         assert!(
-            err.starts_with("ERROR missing required argument: "),
+            err.starts_with("bench: error: missing required argument: "),
             "{path:?}: {err}"
         );
         for name in &required {
             assert!(err.contains(name.as_str()), "{path:?} names {name}: {err}");
         }
     }
+}
+
+/// A stdout whose reader has gone: every write is a broken pipe.
+struct ClosedPipe;
+
+impl std::io::Write for ClosedPipe {
+    fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Err(std::io::ErrorKind::BrokenPipe.into())
+    }
+}
+
+/// Runs `bench <args>` with a closed stdout: (exit code, stderr).
+fn into_closed_pipe(args: &[&str]) -> (u8, String) {
+    let mut err = Vec::new();
+    let code = run(
+        std::iter::once("bench").chain(args.iter().copied()),
+        ClosedPipe,
+        &mut err,
+    );
+    (
+        code.value(),
+        String::from_utf8(err).expect("stderr is UTF-8"),
+    )
+}
+
+#[test]
+fn a_success_whose_reader_closed_stdout_exits_0_and_says_nothing() {
+    let (code, err) = into_closed_pipe(&["playbook", "list"]);
+
+    assert_eq!(
+        (code, err.as_str()),
+        (0, ""),
+        "CLI-07: the reader chose to stop"
+    );
+}
+
+#[test]
+fn a_failure_whose_reader_closed_stdout_keeps_its_code() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "no sections\n").expect("the spec is written");
+    let spec = spec.to_str().expect("a UTF-8 temporary path");
+
+    let (code, err) = into_closed_pipe(&["lint", "spec", spec]);
+
+    assert_eq!(
+        (code, err.as_str()),
+        (1, ""),
+        "lint's findings code, with its envelope dropped"
+    );
+}
+
+#[test]
+fn a_usage_error_with_a_closed_stdout_still_says_its_error() {
+    let (code, err) = into_closed_pipe(&["nope"]);
+
+    assert_eq!(
+        (code, err.as_str()),
+        (2, "bench: error: unknown argument: nope\n"),
+        "stderr is a separate stream (CLI-07, CLI-08)"
+    );
 }
 
 #[test]

@@ -1,0 +1,67 @@
+{
+  "schema": "bench.lint-plan/1",
+  "ok": true,
+  "command": "lint plan",
+  "data": {
+    "file": "plan.md",
+    "findings": [],
+    "plan": {
+      "spec": "spec.md",
+      "tasks": [
+        {
+          "blocked_by": [],
+          "files": [
+            "src/cli.rs",
+            "src/list.rs",
+            "tests/list_json.rs"
+          ],
+          "id": "T1",
+          "line": 17,
+          "test": "cargo test --test list_json array",
+          "title": "JSON array of notes"
+        },
+        {
+          "blocked_by": [
+            "T1"
+          ],
+          "files": [
+            "src/list.rs",
+            "tests/list_json.rs"
+          ],
+          "id": "T2",
+          "line": 27,
+          "test": "cargo test --test list_json empty",
+          "title": "Empty list"
+        },
+        {
+          "blocked_by": [
+            "T1"
+          ],
+          "files": [
+            "src/list.rs",
+            "tests/list_json.rs"
+          ],
+          "id": "T3",
+          "line": 37,
+          "test": "cargo test --test list_json unreadable",
+          "title": "Errors under --json"
+        },
+        {
+          "blocked_by": [],
+          "files": [
+            "tests/list_table.rs"
+          ],
+          "id": "T4",
+          "line": 47,
+          "test": "cargo test --test list_table",
+          "title": "The table is unchanged"
+        }
+      ]
+    },
+    "spec": "spec.md",
+    "tasks": 4
+  },
+  "findings": [],
+  "proves": "the checked files have no error under anneal's lint rules",
+  "does_not_prove": "that the content is right, or that its warnings and review items were addressed"
+}

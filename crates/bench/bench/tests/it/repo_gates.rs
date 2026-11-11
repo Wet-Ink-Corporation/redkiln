@@ -106,7 +106,7 @@ fn every_entry_skill_has_valid_regression_and_capability_suites() -> TestResult 
         .arg("--suites")
         .arg(repo().join("evals/bench/uplift"))
         .output()?;
-    let envelope: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: serde_json::Value = crate::support::envelope(&output)?;
 
     assert_eq!(
         output.status.code(),

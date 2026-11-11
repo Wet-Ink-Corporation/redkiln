@@ -101,7 +101,7 @@ impl Repo {
             .args(["ledger", "query", "--type", "subagent_status"])
             .output()?;
         assert_eq!(output.status.code(), Some(0), "{output:?}");
-        let listing: Value = serde_json::from_slice(&output.stdout)?;
+        let listing: Value = crate::support::envelope(&output)?;
         Ok(listing
             .pointer("/data/events")
             .and_then(Value::as_array)

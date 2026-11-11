@@ -50,7 +50,7 @@ fn grill(cwd: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
 fn envelope(output: &Output, code: i32) -> Result<Value, Box<dyn Error>> {
     assert_eq!(output.status.code(), Some(code), "{output:?}");
     assert!(output.stderr.is_empty(), "nothing on stderr: {output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 fn finding_keys(envelope: &Value) -> Vec<&str> {
@@ -182,7 +182,7 @@ fn confirm_without_the_humans_words_is_a_usage_error_and_records_nothing() -> Te
         assert!(output.stdout.is_empty(), "{quote:?}: nothing on stdout");
         let stderr = String::from_utf8(output.stderr)?;
         assert!(
-            stderr.starts_with("ERROR ") && stderr.lines().count() == 1,
+            stderr.starts_with("bench: error: ") && stderr.lines().count() == 1,
             "{quote:?}: one ERROR line: {stderr}"
         );
         assert!(
@@ -298,7 +298,7 @@ fn a_missing_tree_file_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "ERROR design tree absent.json does not exist\n",
+        "bench: error: design tree absent.json does not exist\n",
         "one ERROR line naming the file"
     );
     Ok(())
@@ -310,7 +310,9 @@ fn assert_usage_error(output: &Output, names: &str) -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout: {output:?}");
     let stderr = std::str::from_utf8(&output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR ") && stderr.lines().count() == 1 && stderr.contains(names),
+        stderr.starts_with("bench: error: ")
+            && stderr.lines().count() == 1
+            && stderr.contains(names),
         "one ERROR line naming {names:?}: {stderr}"
     );
     Ok(())
@@ -396,6 +398,7 @@ fn classify_with_clef_off_exits_0_and_leaves_the_tree_and_the_home_alone() -> Te
         .output()?;
 
     let envelope = envelope(&output, 0)?;
+    crate::support::golden(&envelope, &[dir.path()], &[])?;
     assert_eq!(
         [
             &envelope["command"],

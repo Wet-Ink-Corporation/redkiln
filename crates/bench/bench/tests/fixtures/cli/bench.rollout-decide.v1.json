@@ -1,0 +1,38 @@
+{
+  "schema": "bench.rollout-decide/1",
+  "ok": true,
+  "command": "rollout decide",
+  "data": {
+    "decision": "go",
+    "metrics": [
+      {
+        "better": "lower",
+        "hold": 0.01,
+        "metric": "error_rate",
+        "rating": "go",
+        "rollback": 0.05,
+        "value": 0.0099
+      },
+      {
+        "better": "lower",
+        "hold": 300.0,
+        "metric": "p99_ms",
+        "rating": "go",
+        "rollback": 500.0,
+        "value": 299.9
+      },
+      {
+        "better": "higher",
+        "hold": 0.999,
+        "metric": "success_rate",
+        "rating": "go",
+        "rollback": 0.99,
+        "value": 0.9991
+      }
+    ],
+    "unbanded": []
+  },
+  "findings": [],
+  "proves": "the rollout metrics are within their bounds",
+  "does_not_prove": "that the metrics capture what users experience"
+}

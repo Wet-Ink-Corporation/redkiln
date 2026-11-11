@@ -40,7 +40,7 @@ fn status_body(served: &Served) -> TestResult<Value> {
 
 /// The envelope on `output`'s stdout.
 fn envelope(output: &Output) -> TestResult<Value> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn a_refused_status_keeps_the_verdict_and_exits_4_with_one_warning() -> TestResu
     let stderr = std::str::from_utf8(&output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
     assert!(
-        stderr.starts_with("WARNING verdict set: ")
+        stderr.starts_with("bench: warning: verdict set: ")
             && stderr.contains("GitHub answered HTTP 500: Server Error"),
         "{stderr}"
     );

@@ -28,7 +28,7 @@ fn dag(args: &[&str]) -> Result<Output, Box<dyn Error>> {
 }
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 fn finding_messages(envelope: &Value) -> Vec<&str> {
@@ -168,11 +168,11 @@ fn flags_of_the_other_tracker_are_usage_errors() -> TestResult {
     let cases = [
         (
             vec!["check", "--repo", "octo/tickets"],
-            "ERROR --repo and --issue need --tracker github\n",
+            "bench: error: --repo and --issue need --tracker github\n",
         ),
         (
             vec!["check", "--tracker", "github"],
-            "ERROR --tracker github needs --repo owner/name\n",
+            "bench: error: --tracker github needs --repo owner/name\n",
         ),
         (
             vec![
@@ -184,7 +184,7 @@ fn flags_of_the_other_tracker_are_usage_errors() -> TestResult {
                 "--dir",
                 "x",
             ],
-            "ERROR --dir needs --tracker markdown\n",
+            "bench: error: --dir needs --tracker markdown\n",
         ),
     ];
     for (args, stderr) in cases {
@@ -205,7 +205,7 @@ fn a_missing_tickets_directory_exits_70_with_one_error_line() -> TestResult {
     assert!(output.stdout.is_empty(), "no envelope");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR dag: reading the markdown tickets: listing tickets in ")
+        stderr.starts_with("bench: error: dag: reading the markdown tickets: listing tickets in ")
             && stderr.lines().count() == 1,
         "{stderr:?}"
     );
@@ -347,7 +347,7 @@ fn check_with_a_missing_plan_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout");
     let stderr = String::from_utf8(output.stderr)?;
     assert!(
-        stderr.starts_with("ERROR plan: no such path: ") && stderr.lines().count() == 1,
+        stderr.starts_with("bench: error: plan: no such path: ") && stderr.lines().count() == 1,
         "{stderr:?}"
     );
     Ok(())

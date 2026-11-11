@@ -53,7 +53,7 @@ fn repros(root: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
         .args(["ledger", "query", "--type", "repro_red"])
         .output()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let listing: Value = serde_json::from_slice(&output.stdout)?;
+    let listing: Value = crate::support::envelope(&output)?;
     let events = listing
         .pointer("/data/events")
         .and_then(Value::as_array)
@@ -69,7 +69,8 @@ fn repros(root: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
 fn worktree_key(root: &Path) -> Result<Value, Box<dyn Error>> {
     let output = anneal_in(root).args(["mode", "diagnose"]).output()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
+    crate::support::golden(&envelope, &[root], &["/data/worktree"])?;
     Ok(envelope
         .pointer("/data/worktree")
         .cloned()
@@ -82,7 +83,10 @@ fn one_error_line(output: &Output, code: i32) -> Result<String, Box<dyn Error>> 
     assert_eq!(output.status.code(), Some(code), "{output:?}");
     assert!(output.stdout.is_empty(), "nothing on stdout: {output:?}");
     let stderr = std::str::from_utf8(&output.stderr)?;
-    let errors: Vec<&str> = stderr.lines().filter(|l| l.starts_with("ERROR ")).collect();
+    let errors: Vec<&str> = stderr
+        .lines()
+        .filter(|l| l.starts_with("bench: error: "))
+        .collect();
     assert_eq!(errors.len(), 1, "one ERROR line: {stderr}");
     Ok(errors.concat())
 }
@@ -96,7 +100,16 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
     let output = record(dir.path(), &["--id", "bug-7", "--session", "s1"], &RED)?;
 
     assert_eq!(output.status.code(), Some(0), "red recorded: {output:?}");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
+    crate::support::golden(
+        &envelope,
+        &[dir.path()],
+        &[
+            "/data/worktree",
+            "/data/duration_ms",
+            "/data/ledger/event/worktree",
+        ],
+    )?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -161,7 +174,7 @@ fn a_command_that_exits_0_records_nothing_exits_3_and_opens_no_ledger() -> TestR
     let output = record(dir.path(), &[], &GREEN)?;
 
     assert_eq!(output.status.code(), Some(3), "not red: {output:?}");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -195,7 +208,7 @@ fn a_command_that_cannot_start_exits_2_and_records_nothing() -> TestResult {
 
     let line = one_error_line(&output, 2)?;
     assert!(
-        line.starts_with("ERROR repro: could not start anneal-no-such-program-25"),
+        line.starts_with("bench: error: repro: could not start anneal-no-such-program-25"),
         "{line}"
     );
     assert!(!ledger(dir.path()).exists(), "no ledger was opened");
@@ -263,7 +276,8 @@ fn leftovers_lists_each_tagged_line_as_file_and_line_and_exits_1() -> TestResult
     let output = repro(&sub, &["leftovers"])?;
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
+    crate::support::golden(&envelope, &[dir.path()], &[])?;
     assert_eq!(
         (&envelope["command"], &envelope["data"]["leftovers"]),
         (
@@ -288,7 +302,7 @@ fn leftovers_in_a_clean_worktree_exits_0() -> TestResult {
     let output = repro(dir.path(), &["leftovers"])?;
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     assert_eq!(envelope["data"]["leftovers"], json!([]), "{envelope}");
     Ok(())
 }
@@ -303,7 +317,7 @@ fn leftovers_past_1000_lines_counts_the_rest_and_still_exits_1() -> TestResult {
     let output = repro(dir.path(), &["leftovers"])?;
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let envelope: Value = serde_json::from_slice(&output.stdout)?;
+    let envelope: Value = crate::support::envelope(&output)?;
     let findings = envelope["findings"].as_array().ok_or("findings")?;
     assert_eq!(
         (

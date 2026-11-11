@@ -1,0 +1,21 @@
+{
+  "schema": "bench.watch-pr/1",
+  "ok": true,
+  "command": "watch pr",
+  "data": {
+    "blockers": [],
+    "head": "<sha>",
+    "pending": [],
+    "polls": 1,
+    "state": "clear",
+    "target": {
+      "kind": "pr",
+      "number": 7
+    },
+    "timeout_secs": 1800,
+    "waited_secs": 0
+  },
+  "findings": [],
+  "proves": "the pull request, CI run or deploy reached green within the timeout",
+  "does_not_prove": "that it stays green, or that its checks test the right things"
+}

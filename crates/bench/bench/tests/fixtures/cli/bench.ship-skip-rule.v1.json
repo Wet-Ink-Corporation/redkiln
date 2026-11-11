@@ -1,0 +1,16 @@
+{
+  "schema": "bench.ship-skip-rule/1",
+  "ok": true,
+  "command": "ship skip-rule",
+  "data": {
+    "base": "main",
+    "files": 1,
+    "head": "<sha>",
+    "lines": 3,
+    "reasons": [],
+    "skip": true
+  },
+  "findings": [],
+  "proves": "the change meets the rule for skipping a full review",
+  "does_not_prove": "that the change is free of defects"
+}

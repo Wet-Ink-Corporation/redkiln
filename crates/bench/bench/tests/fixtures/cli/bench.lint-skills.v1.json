@@ -1,0 +1,172 @@
+{
+  "schema": "bench.lint-skills/1",
+  "ok": true,
+  "command": "lint skills",
+  "data": {
+    "cached": 0,
+    "checked": 2,
+    "details": [
+      {
+        "checker": "bootstrap-index",
+        "file": "<root>",
+        "fix": "pass `--index <file>` with the SessionStart index text.",
+        "key": "lint/bootstrap-index:<root>:0",
+        "line": 0,
+        "message": "the bootstrap index was not checked.",
+        "rule": 4,
+        "severity": "review"
+      },
+      {
+        "checker": "gate-baseline",
+        "file": "<root>",
+        "fix": "confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md).",
+        "key": "lint/gate-baseline:<root>:0",
+        "line": 0,
+        "message": "not checkable from skills: gates fail only on new findings (snapshot at session start).",
+        "rule": 13,
+        "severity": "review"
+      },
+      {
+        "checker": "hook-failure-policy",
+        "file": "<root>",
+        "fix": "confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md).",
+        "key": "lint/hook-failure-policy:<root>:0",
+        "line": 0,
+        "message": "not checkable from skills: every hook declares onFailure and an explicit timeout (guards 5 s, Clef 2 s).",
+        "rule": 15,
+        "severity": "review"
+      },
+      {
+        "checker": "stop-block-cap",
+        "file": "<root>",
+        "fix": "confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md).",
+        "key": "lint/stop-block-cap:<root>:0",
+        "line": 0,
+        "message": "not checkable from skills: Stop-hook blocks are capped at 2 in a row per session.",
+        "rule": 16,
+        "severity": "review"
+      },
+      {
+        "checker": "check-order",
+        "file": "<root>",
+        "fix": "confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md).",
+        "key": "lint/check-order:<root>:0",
+        "line": 0,
+        "message": "not checkable from skills: a deterministic check runs before Clef, and Clef before any model judge.",
+        "rule": 17,
+        "severity": "review"
+      },
+      {
+        "checker": "hook-silence",
+        "file": "<root>",
+        "fix": "confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md).",
+        "key": "lint/hook-silence:<root>:0",
+        "line": 0,
+        "message": "not checkable from skills: hooks are silent on pass and print one `ERROR <reason>` line on fail.",
+        "rule": 19,
+        "severity": "review"
+      },
+      {
+        "checker": "stable-first",
+        "file": "<root>",
+        "fix": "confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md).",
+        "key": "lint/stable-first:<root>:0",
+        "line": 0,
+        "message": "not checkable from skills: stable content comes first and volatile content (SHAs, times, counters) last.",
+        "rule": 21,
+        "severity": "review"
+      },
+      {
+        "checker": "form-matches-failure",
+        "file": "<root>/plan/SKILL.md",
+        "fix": "broken rule: prohibition plus rationalization table; wrong shape: positive recipe; omission: template slot; no \"unless\" in recipes.",
+        "key": "lint/form-matches-failure:<root>/plan/SKILL.md:1",
+        "line": 1,
+        "message": "check that each instruction's form matches its failure.",
+        "rule": 7,
+        "severity": "review"
+      },
+      {
+        "checker": "facts-and-decisions",
+        "file": "<root>/plan/SKILL.md",
+        "fix": "each question to the user carries a recommended answer that \"yes\" accepts.",
+        "key": "lint/facts-and-decisions:<root>/plan/SKILL.md:1",
+        "line": 1,
+        "message": "check that facts are looked up and decisions are asked.",
+        "rule": 11,
+        "severity": "review"
+      },
+      {
+        "checker": "form-matches-failure",
+        "file": "<root>/spec/SKILL.md",
+        "fix": "broken rule: prohibition plus rationalization table; wrong shape: positive recipe; omission: template slot; no \"unless\" in recipes.",
+        "key": "lint/form-matches-failure:<root>/spec/SKILL.md:1",
+        "line": 1,
+        "message": "check that each instruction's form matches its failure.",
+        "rule": 7,
+        "severity": "review"
+      },
+      {
+        "checker": "facts-and-decisions",
+        "file": "<root>/spec/SKILL.md",
+        "fix": "each question to the user carries a recommended answer that \"yes\" accepts.",
+        "key": "lint/facts-and-decisions:<root>/spec/SKILL.md:1",
+        "line": 1,
+        "message": "check that facts are looked up and decisions are asked.",
+        "rule": 11,
+        "severity": "review"
+      }
+    ],
+    "errors": 0,
+    "reviews": 11,
+    "warnings": 0
+  },
+  "findings": [
+    {
+      "key": "lint/bootstrap-index:<root>:0",
+      "message": "<root>:0: review rule 4 [bootstrap-index] the bootstrap index was not checked. fix: pass `--index <file>` with the SessionStart index text."
+    },
+    {
+      "key": "lint/gate-baseline:<root>:0",
+      "message": "<root>:0: review rule 13 [gate-baseline] not checkable from skills: gates fail only on new findings (snapshot at session start). fix: confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md)."
+    },
+    {
+      "key": "lint/hook-failure-policy:<root>:0",
+      "message": "<root>:0: review rule 15 [hook-failure-policy] not checkable from skills: every hook declares onFailure and an explicit timeout (guards 5 s, Clef 2 s). fix: confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md)."
+    },
+    {
+      "key": "lint/stop-block-cap:<root>:0",
+      "message": "<root>:0: review rule 16 [stop-block-cap] not checkable from skills: Stop-hook blocks are capped at 2 in a row per session. fix: confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md)."
+    },
+    {
+      "key": "lint/check-order:<root>:0",
+      "message": "<root>:0: review rule 17 [check-order] not checkable from skills: a deterministic check runs before Clef, and Clef before any model judge. fix: confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md)."
+    },
+    {
+      "key": "lint/hook-silence:<root>:0",
+      "message": "<root>:0: review rule 19 [hook-silence] not checkable from skills: hooks are silent on pass and print one `ERROR <reason>` line on fail. fix: confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md)."
+    },
+    {
+      "key": "lint/stable-first:<root>:0",
+      "message": "<root>:0: review rule 21 [stable-first] not checkable from skills: stable content comes first and volatile content (SHAs, times, counters) last. fix: confirm it in the hooks, scripts and briefs the skills rely on (docs/skill-rules.md)."
+    },
+    {
+      "key": "lint/form-matches-failure:<root>/plan/SKILL.md:1",
+      "message": "<root>/plan/SKILL.md:1: review rule 7 [form-matches-failure] check that each instruction's form matches its failure. fix: broken rule: prohibition plus rationalization table; wrong shape: positive recipe; omission: template slot; no \"unless\" in recipes."
+    },
+    {
+      "key": "lint/facts-and-decisions:<root>/plan/SKILL.md:1",
+      "message": "<root>/plan/SKILL.md:1: review rule 11 [facts-and-decisions] check that facts are looked up and decisions are asked. fix: each question to the user carries a recommended answer that \"yes\" accepts."
+    },
+    {
+      "key": "lint/form-matches-failure:<root>/spec/SKILL.md:1",
+      "message": "<root>/spec/SKILL.md:1: review rule 7 [form-matches-failure] check that each instruction's form matches its failure. fix: broken rule: prohibition plus rationalization table; wrong shape: positive recipe; omission: template slot; no \"unless\" in recipes."
+    },
+    {
+      "key": "lint/facts-and-decisions:<root>/spec/SKILL.md:1",
+      "message": "<root>/spec/SKILL.md:1: review rule 11 [facts-and-decisions] check that facts are looked up and decisions are asked. fix: each question to the user carries a recommended answer that \"yes\" accepts."
+    }
+  ],
+  "proves": "the checked files have no error under anneal's lint rules",
+  "does_not_prove": "that the content is right, or that its warnings and review items were addressed"
+}

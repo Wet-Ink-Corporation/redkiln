@@ -44,7 +44,7 @@ fn floor_guard(cwd: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
 fn envelope(output: &Output, code: i32) -> Result<Value, Box<dyn Error>> {
     assert_eq!(output.status.code(), Some(code), "{output:?}");
     assert!(output.stderr.is_empty(), "nothing on stderr: {output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(output)
 }
 
 /// `(category, file, line)` of each finding in `data.findings`.
@@ -94,6 +94,7 @@ fn a_clean_diff_exits_0_with_no_findings() -> TestResult {
     let output = floor_guard(dir.path(), &[])?;
 
     let envelope = envelope(&output, 0)?;
+    crate::support::golden(&envelope, &[dir.path()], &[])?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -432,7 +433,10 @@ fn assert_tool_error(output: &Output, needle: &str) -> TestResult {
     );
     let stderr = String::from_utf8(output.stderr.clone())?;
     assert_eq!(stderr.lines().count(), 1, "one line: {stderr}");
-    assert!(stderr.starts_with("ERROR floor-guard: "), "{stderr}");
+    assert!(
+        stderr.starts_with("bench: error: floor-guard: "),
+        "{stderr}"
+    );
     assert!(stderr.contains(needle), "{needle:?} in {stderr}");
     Ok(())
 }

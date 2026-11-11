@@ -47,10 +47,10 @@ pub fn markdown() -> String {
 
 const MARKDOWN_PREAMBLE: &str = "\
 <!-- Generated from crates/bench/bench/src/exit_codes.rs. Do not edit by hand: run
-     ANNEAL_BLESS=1 cargo test -p bench exit_codes_doc to regenerate. -->
+     BENCH_BLESS=1 cargo test -p bench exit_codes_doc to regenerate. -->
 # Exit codes
 
-Every `anneal` command exits with a documented code. Codes mean different things for different
+Every `bench` command exits with a documented code. Codes mean different things for different
 commands (`1` is \"cycle\" for `dag` and \"test red\" for `task`), so each command has its own
 table. A few codes mean the same for every command. Only success exits 0: no failure path exits
 0 (\"2 never reads as 0\"), and the JSON envelope's `ok` is true exactly when the code is 0.
@@ -58,18 +58,24 @@ table. A few codes mean the same for every command. Only success exits 0: no fai
 Usage errors keep clap's 2 because Claude Code reads a hook's exit 2 as \"block\", so a
 mis-invoked guard fails closed. A usage error writes nothing on stdout, while a command's own
 non-zero code always comes with a JSON envelope on stdout, which tells the two apart. Every
-error writes exactly one `ERROR <reason>` line on stderr; for a missing required argument it
-names every one missing (`ERROR missing required argument: <FILE>...`).
+error writes exactly one `bench: error: <reason>` line on stderr, the reason holding its cause
+chain joined by `: `, and every warning one `bench: warning: <message>` line (SPEC CLI-08); for a
+missing required argument it names every one missing
+(`bench: error: missing required argument: <FILE>...`).
+
+When stdout is closed by its reader (a broken pipe, as in `bench ledger journal | head`), a
+command exits with the code it earned and writes nothing on stderr: a success still exits 0
+(SPEC CLI-07). Any other failure to write stdout exits 74.
 
 `bench hook <name>`, the commands `plugin/hooks/hooks.json` runs, is the one exception to \"only
 success exits 0\": hooks fail open. A hook notes its failures in its output (or, when stdout cannot
-be written, in one `ERROR` line on stderr) and still exits 0. Its usage errors still exit 2, which
-Claude Code reads as \"block\" on events that can block, so a test runs every `hooks.json` entry's
-arguments through the binary.
+be written, in one `bench: error:` line on stderr) and still exits 0. Its usage errors still exit
+2, which Claude Code reads as \"block\" on events that can block, so a test runs every `hooks.json`
+entry's arguments through the binary.
 
 A guard (`bench hook guard`, or any hook passed `--fail-closed`) fails closed instead. It denies
 what it cannot judge with a deny decision on stdout and exit 0, and when that decision cannot be
-written it exits 2 with one `ERROR` line on stderr, so Claude Code blocks the tool call.
+written it exits 2 with one `bench: error:` line on stderr, so Claude Code blocks the tool call.
 
 ";
 
@@ -155,14 +161,14 @@ mod tests {
             .join("../../..")
             .join(DOC_PATH);
         let expected = markdown();
-        if std::env::var_os("ANNEAL_BLESS").is_some() {
+        if crate::bless::blessing() {
             std::fs::write(&path, &expected).expect("write docs/exit-codes.md");
         }
         let committed = std::fs::read_to_string(&path).expect("docs/exit-codes.md exists");
         assert!(
             committed == expected,
             "{DOC_PATH} drifted from the exit-code table; regenerate it with \
-             `ANNEAL_BLESS=1 cargo test -p bench exit_codes_doc`"
+             `BENCH_BLESS=1 cargo test -p bench exit_codes_doc`"
         );
     }
 

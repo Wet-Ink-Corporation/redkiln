@@ -1,0 +1,25 @@
+{
+  "schema": "bench.repro-leftovers/1",
+  "ok": false,
+  "command": "repro leftovers",
+  "data": {
+    "leftovers": [
+      {
+        "file": "src/lib.rs",
+        "line": 2
+      }
+    ],
+    "omitted": 0,
+    "over_budget": false,
+    "root": "<root>",
+    "skipped": []
+  },
+  "findings": [
+    {
+      "key": "repro/leftover:src/lib.rs:2",
+      "message": "src/lib.rs:2: a [DEBUG-<id>] tag is left. fix: remove the debug instrumentation on this line"
+    }
+  ],
+  "proves": "the reproduction exited non-zero and repro_red was recorded for this worktree (record), or no file git knows of holds a [DEBUG-<id>] tag (leftovers)",
+  "does_not_prove": "that the command fails because of the reported bug rather than for another reason (record), or that files over 1 MiB, past the 64 MiB scan budget, with a non-UTF-8 name outside unix, or ignored by git are clean (leftovers)"
+}

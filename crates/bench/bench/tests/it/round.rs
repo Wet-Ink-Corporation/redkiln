@@ -29,7 +29,7 @@ fn round(dir: &Path, args: &[&str], code: i32) -> TestResult<Value> {
         "round {args:?}: {output:?}"
     );
     assert!(output.stderr.is_empty(), "round {args:?}: {output:?}");
-    Ok(serde_json::from_slice(&output.stdout)?)
+    crate::support::envelope(&output)
 }
 
 fn ledger(dir: &Path) -> std::path::PathBuf {
@@ -42,6 +42,7 @@ fn status_before_any_round_says_the_same_agent_starts_and_creates_no_ledger() ->
     let dir = repo()?;
 
     let envelope = round(dir.path(), &["status", "--ticket", "36"], 0)?;
+    crate::support::golden(&envelope, &[dir.path()], &[])?;
 
     assert_eq!(
         (&envelope["data"]["rounds"], &envelope["data"]["next"]),
@@ -59,7 +60,8 @@ fn status_before_any_round_says_the_same_agent_starts_and_creates_no_ledger() ->
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn the_round_count_comes_from_the_ledger_across_processes_and_parks_after_five() -> TestResult {
     let dir = repo()?;
-    round(dir.path(), &["start", "--ticket", "other"], 0)?;
+    let first = round(dir.path(), &["start", "--ticket", "other"], 0)?;
+    crate::support::golden(&first, &[dir.path()], &[])?;
 
     let mut plans = Vec::new();
     for _ in 0..5 {
