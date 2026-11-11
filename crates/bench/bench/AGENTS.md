@@ -10,7 +10,7 @@ Plugin (bench), binary `bench`. Process concerns: arguments, stdout and stderr, 
 
 ## Allowed dependencies
 - Workspace crates: `bench-ledger` (event registry and store, until step 3 of `docs/plan/move-2-bench.md` moves it onto `redkiln-core`), `bench-contract` (the command list).
-- Third-party: `clap` (the workspace entry), `serde`, `serde_json`, `thiserror`, `sha2`, `ureq` (3, `rustls` with bundled roots: Clef's transport and `verdict set`'s commit status; M2-A, used by this crate only); dev: `tempfile`.
+- Third-party: `clap` (the workspace entry), `serde`, `serde_json`, `thiserror`, `sha2`, `ureq` (3, `rustls` with bundled roots: Clef's transport and `verdict set`'s commit status; M2-A, used by this crate only); dev: `tempfile`, and `redkiln-core` (reads the old-ledger fixtures in `tests/fixtures/anneal/` from copies, pinned by `tests/it/fixtures.rs`).
 - Never: anything that needs a network at build time.
 
 ## Names at the door (M2-B)

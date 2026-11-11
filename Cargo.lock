@@ -112,6 +112,7 @@ dependencies = [
  "bench-contract",
  "bench-ledger",
  "clap",
+ "redkiln-core",
  "serde",
  "serde_json",
  "sha2",

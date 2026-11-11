@@ -141,9 +141,12 @@ impl Timestamp {
         &self.0
     }
 
-    /// Milliseconds since the Unix epoch, negative before it. A `Timestamp` always parses, and
-    /// years 0000 to 9999 fit an `i64` of milliseconds, so the fallback 0 is never taken.
-    pub(crate) fn unix_millis(&self) -> i64 {
+    /// Milliseconds since the Unix epoch, negative before it; the inverse of
+    /// [`from_unix_millis`](Self::from_unix_millis) for the millisecond form. A `Timestamp`
+    /// always parses, and years 0000 to 9999 fit an `i64` of milliseconds, so the fallback 0 is
+    /// never taken.
+    #[must_use]
+    pub fn unix_millis(&self) -> i64 {
         parse_utc(&self.0)
             .and_then(|at| i64::try_from(at.unix_timestamp_nanos().div_euclid(1_000_000)).ok())
             .unwrap_or(0)

@@ -9,6 +9,8 @@
 //! (migration plan M1-F). A suite.toml that is there but cannot be used is `client`, never the
 //! legacy value: it may have said `client`.
 
+mod owner;
+
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read};

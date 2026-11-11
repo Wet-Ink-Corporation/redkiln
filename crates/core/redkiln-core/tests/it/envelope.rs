@@ -114,3 +114,25 @@ fn foreign_events_are_skipped_and_unusable_ones_counted() {
     assert_eq!(decoded.foreign, 2);
     assert_eq!(decoded.unusable, 2);
 }
+
+#[test]
+fn unix_millis_agrees_with_from_unix_millis_in_both_forms() {
+    let seconds = Timestamp::parse("2026-10-31T04:20:11Z").expect("valid ts");
+    let millis = Timestamp::parse("2026-10-31T04:20:11.123Z").expect("valid ts");
+    assert_eq!(seconds.unix_millis(), 1_793_420_411_000);
+    assert_eq!(millis.unix_millis(), 1_793_420_411_123);
+    assert_eq!(
+        Timestamp::from_unix_millis(millis.unix_millis()).expect("in range"),
+        millis,
+        "the millisecond form round-trips as written"
+    );
+    assert_eq!(
+        Timestamp::from_unix_millis(seconds.unix_millis())
+            .expect("in range")
+            .as_str(),
+        "2026-10-31T04:20:11.000Z",
+        "the second form comes back at the same instant, in the millisecond form"
+    );
+    let before_epoch = Timestamp::parse("1969-12-31T23:59:59.999Z").expect("valid ts");
+    assert_eq!(before_epoch.unix_millis(), -1);
+}

@@ -322,6 +322,65 @@ fn reads_page_after_a_position() {
 }
 
 #[test]
+fn read_last_gives_the_last_matching_events_in_position_order() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = open(&dir.path().join("events.sqlite3"));
+    let raised = Filter::all().of_type(RAISED).expect("a valid type");
+    let three = NonZeroUsize::new(3).expect("non-zero");
+    assert_eq!(
+        store.read_last(&raised, three).expect("read"),
+        vec![],
+        "an empty store has no last events"
+    );
+    for n in 0..5 {
+        store
+            .append(vec![raise(&format!("wi-{n}"))], None)
+            .expect("append");
+        let other = NewEvent::new("weighin.item_closed", b"{}".to_vec()).expect("a valid type");
+        store.append(vec![other], None).expect("append");
+    }
+    let positions = |events: Vec<redkiln_core::store::Stored>| -> Vec<u64> {
+        events.iter().map(|e| e.position).collect()
+    };
+    assert_eq!(
+        positions(store.read_last(&raised, three).expect("read")),
+        vec![5, 7, 9],
+        "the last three raises, oldest first, skipping the other type between them"
+    );
+    let ten = NonZeroUsize::new(10).expect("non-zero");
+    assert_eq!(
+        positions(store.read_last(&raised, ten).expect("read")),
+        vec![1, 3, 5, 7, 9],
+        "fewer than asked when fewer match"
+    );
+    assert_eq!(
+        positions(store.read_last(&Filter::all(), three).expect("read")),
+        vec![8, 9, 10]
+    );
+}
+
+#[test]
+fn read_last_with_a_tag_gives_only_events_carrying_it() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = open(&dir.path().join("events.sqlite3"));
+    for id in ["wi-a", "wi-b", "wi-a", "wi-b", "wi-b"] {
+        store.append(vec![raise(id)], None).expect("append");
+    }
+    let tagged = Filter::all()
+        .of_type(RAISED)
+        .expect("a valid type")
+        .tagged(item("wi-a"));
+    let last = store
+        .read_last(&tagged, NonZeroUsize::new(5).expect("non-zero"))
+        .expect("read");
+    assert_eq!(
+        last.iter().map(|e| e.position).collect::<Vec<_>>(),
+        vec![1, 3]
+    );
+    assert!(last.iter().all(|e| e.tags.contains(&item("wi-a"))));
+}
+
+#[test]
 fn a_wal_store_converts_to_truncate_and_keeps_its_events() {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("events.sqlite3");
