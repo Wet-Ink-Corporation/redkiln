@@ -7,9 +7,10 @@
 //! compaction), then a one-time status-line setup hint while no status line saves context
 //! usage, then the live state from the ledger when it changed for this session (volatile,
 //! last). Before the live state is read, it imports an anneal ledger not yet imported, within a
-//! hook's budget (`legacy_import`), and says what it did. With `CLAUDE_ENV_FILE` and `CLAUDE_PLUGIN_ROOT` set it also appends the line that
-//! puts the plugin's `libexec` on PATH for later Bash calls ([`env_file`]). Every failure
-//! becomes a one-line note in that context: the hook fails open.
+//! hook's budget (`legacy_import`), and says what it did. With `CLAUDE_ENV_FILE` and
+//! `CLAUDE_PLUGIN_ROOT` set it also appends the line that puts the plugin's `libexec` on PATH
+//! for later Bash calls ([`env_file`]). Every failure becomes a one-line note in that context:
+//! the hook fails open.
 
 mod compaction;
 mod env_file;

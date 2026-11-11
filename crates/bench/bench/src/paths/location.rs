@@ -126,8 +126,8 @@ pub(super) fn locate(
         );
     }
     // Existence only: an old ledger is never opened here (ST-15, ST-16). One whose existence
-    // cannot be checked is not reported: the notice is a warning, and the import (`legacy_import`) reads
-    // each source itself and reports what it cannot read.
+    // cannot be checked is not reported: the notice is a warning, and the import
+    // (`legacy_import`) reads each source itself and reports what it cannot read.
     old_ledgers.retain(|path| path.try_exists().is_ok_and(|exists| exists));
     // Each notice names its ledger for the warning; `old_ledgers` keeps them for the import.
     notices.extend(
