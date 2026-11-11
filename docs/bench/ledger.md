@@ -52,6 +52,9 @@ happenstance schemas, WAL and rollback). Who imports it:
   `orchestrate park|rule`), with no deadline.
 - Never `bench status`, which reports a due ledger as a `ledger/old-ledger` finding and
   imports nothing, nor any other hook or read. With nothing due no store is opened or created.
+  Only SessionStart, recording commands and `bench status` mention a due ledger: a read
+  (`ledger query|tail|journal`, `plan check`) beside one not yet imported shows the store as
+  it is, without the old events and without a warning.
 
 Each old event becomes `bench.<name>` (dropped and frozen types included) under its old
 identity (`<old store id>:<old position>`), trust `asserted` with the writer's level in
