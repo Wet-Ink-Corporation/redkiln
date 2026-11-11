@@ -63,7 +63,7 @@ fn calibrate_into<E: Write>(
         },
     };
     let mut out = Vec::new();
-    let code = run(&args(words), &env, &mut out, err, |_| false).map(Code::value);
+    let code = run(&args(words), &env, &mut out, err).map(Code::value);
     let envelope = if out.is_empty() {
         Value::Null
     } else {

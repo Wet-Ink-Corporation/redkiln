@@ -155,7 +155,7 @@ fn calibrate(world: &World) -> TestResult<Value> {
         lookup: |name: &str| -> Option<OsString> { world.lookup(name) },
     };
     let mut out = Vec::new();
-    calibrate::run(&args, &env, &mut out, &mut Vec::new(), |_| false)?;
+    calibrate::run(&args, &env, &mut out, &mut Vec::new())?;
     Ok(serde_json::from_slice(&out)?)
 }
 

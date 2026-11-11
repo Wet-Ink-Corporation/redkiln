@@ -1,5 +1,5 @@
 use super::pipe::Pipe;
-use super::{Cli, Command, run, run_calibrate};
+use super::{Cli, Command, calibrate_unless_closed, run};
 use crate::calibrate::CalibrateEnv;
 use crate::command::CommandName;
 use clap::{CommandFactory, Parser};
@@ -280,8 +280,8 @@ fn a_failure_whose_reader_closed_stdout_keeps_its_code() {
     );
 }
 
-#[test]
-fn calibrate_whose_reader_closed_stdout_writes_no_summary_and_exits_0() {
+/// Runs `bench calibrate` over an empty anneal home with `out` as stdout: (exit code, stderr).
+fn calibrate_into<O: std::io::Write>(out: O) -> (u8, String) {
     let home = tempfile::tempdir().expect("a temporary anneal home");
     let env = CalibrateEnv {
         cwd: home.path(),
@@ -297,16 +297,36 @@ fn calibrate_whose_reader_closed_stdout_writes_no_summary_and_exits_0() {
     };
     let mut err = Vec::new();
 
-    let code =
-        run_calibrate(&args, &env, &mut Pipe::new(ClosedPipe), &mut err).expect("calibrate runs");
+    let code = calibrate_unless_closed(&args, &env, &mut Pipe::new(out), &mut err)
+        .expect("calibrate runs");
+
+    (
+        code.value(),
+        String::from_utf8(err).expect("stderr is UTF-8"),
+    )
+}
+
+#[test]
+fn calibrate_whose_reader_closed_stdout_writes_no_summary_and_exits_0() {
+    let (code, err) = calibrate_into(ClosedPipe);
 
     assert_eq!(
-        (
-            code.value(),
-            String::from_utf8(err).expect("UTF-8").as_str()
-        ),
+        (code, err.as_str()),
         (0, ""),
         "CLI-07: nothing on stderr once the reader stopped, the summary included"
+    );
+}
+
+#[test]
+fn calibrate_with_stdout_still_read_writes_its_summary_after_the_envelope() {
+    let (code, err) = calibrate_into(Vec::new());
+
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.lines()
+            .last()
+            .is_some_and(|line| line.starts_with("proposals: ")),
+        "the summary ends with the proposals line: {err}"
     );
 }
 

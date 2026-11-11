@@ -21,6 +21,20 @@ fn migrate(dir: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
         .output()?)
 }
 
+/// Checks the envelopes of a `start`, a `done` and a `contract` run in `dir` against their
+/// goldens.
+fn goldens(dir: &Path, [start, done, contract]: [&Output; 3]) -> TestResult {
+    let roots = [dir];
+    crate::support::golden("bench.migrate-start/1", &envelope(start)?, &roots, &[])?;
+    crate::support::golden("bench.migrate-done/1", &envelope(done)?, &roots, &[])?;
+    crate::support::golden(
+        "bench.migrate-contract/1",
+        &envelope(contract)?,
+        &roots,
+        &[],
+    )
+}
+
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
     crate::support::envelope(output)
 }
@@ -100,19 +114,7 @@ fn a_contract_while_a_wave_is_open_is_refused_and_recorded_once_every_wave_is_do
     assert_eq!(finished.status.code(), Some(0), "{finished:?}");
     assert_eq!(contracted.status.code(), Some(0), "{contracted:?}");
     let [first, _, done, ..] = &started;
-    crate::support::golden(
-        "bench.migrate-start/1",
-        &envelope(first)?,
-        &[dir.path()],
-        &[],
-    )?;
-    crate::support::golden("bench.migrate-done/1", &envelope(done)?, &[dir.path()], &[])?;
-    crate::support::golden(
-        "bench.migrate-contract/1",
-        &envelope(&contracted)?,
-        &[dir.path()],
-        &[],
-    )?;
+    goldens(dir.path(), [first, done, &contracted])?;
     assert_eq!(
         events(dir.path(), "users-email")?.last(),
         Some(&json!(["migrate.contract", null])),

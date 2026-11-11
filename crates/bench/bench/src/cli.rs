@@ -359,14 +359,7 @@ fn dispatch<O: Write, E: Write>(
         Command::Verdict(args) => run_verdict(args, out, err),
         Command::Eval(args) => eval::run(args, |var| std::env::var_os(var), out, err),
         Command::Decide(args) => run_decide(args, out),
-        Command::Calibrate(args) => {
-            let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-            let env = CalibrateEnv {
-                cwd: &cwd,
-                lookup: |var: &str| std::env::var_os(var),
-            };
-            run_calibrate(args, &env, out, err)
-        }
+        Command::Calibrate(args) => run_calibrate(args, out, err),
         Command::Hook(args) => run_hook(args, out),
         Command::Ship(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
@@ -511,9 +504,24 @@ fn run_brief<O: Write>(args: &BriefArgs, out: &mut O) -> Result<Code, CliError> 
     brief::run(args, &cwd, out)
 }
 
-/// `bench calibrate` in `env`. Its human summary goes to `err` only while `out`'s reader is
-/// still reading: once it closed stdout, nothing is said on stderr either (CLI-07).
-fn run_calibrate<O, E, L>(
+/// `bench calibrate` with the process's working directory and environment.
+fn run_calibrate<O: Write, E: Write>(
+    args: &CalibrateArgs,
+    out: &mut Pipe<O>,
+    err: &mut E,
+) -> Result<Code, CliError> {
+    let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
+    let env = CalibrateEnv {
+        cwd: &cwd,
+        lookup: |var: &str| std::env::var_os(var),
+    };
+    calibrate_unless_closed(args, &env, out, err)
+}
+
+/// `bench calibrate` in `env`. Its human summary, held until the envelope is out, goes to `err`
+/// only while `out`'s reader is still reading: once it closed stdout, nothing is said on stderr
+/// either (CLI-07).
+fn calibrate_unless_closed<O, E, L>(
     args: &CalibrateArgs,
     env: &CalibrateEnv<'_, L>,
     out: &mut Pipe<O>,
@@ -524,7 +532,18 @@ where
     E: Write,
     L: Fn(&str) -> Option<OsString>,
 {
-    calibrate::run(args, env, out, err, Pipe::reader_closed)
+    let mut summary = Vec::new();
+    let code = calibrate::run(args, env, out, &mut summary)?;
+    if out.reader_closed() {
+        return Ok(code);
+    }
+    match err.write_all(&summary).and_then(|()| err.flush()) {
+        Ok(()) => Ok(code),
+        // Best effort, as in `calibrate::run` (docs/calibrate.md): the summary repeats the
+        // envelope already on stdout, and stderr, the stream that refused it, is the only
+        // channel left to report on.
+        Err(_unreportable) => Ok(code),
+    }
 }
 
 /// `--help` and `--version` go to stdout and exit 0 when they are the last argument; anything

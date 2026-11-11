@@ -342,9 +342,9 @@ impl CommandCodes {
             // No scope: `routing|uplift` would widen the help's title column.
             CommandName::Eval => ("", &EVAL_CODES),
             CommandName::Calibrate => ("", &[OK, CALIBRATE_REFUSED]),
-            // A report (CLI-06): it exits 0 whenever it wrote its document; no ledger is a note.
-            CommandName::Status => ("", &[OK]),
-            CommandName::Statusline => ("", &[OK]),
+            // `status` is a report (CLI-06): it exits 0 whenever it wrote its document, and no
+            // ledger is a note. `statusline` always prints its line.
+            CommandName::Status | CommandName::Statusline => ("", &[OK]),
             CommandName::Snapshot => ("write", &[SNAPSHOT_WRITTEN]),
             CommandName::Hook => ("", &[HOOK_DONE, HOOK_BLOCKED]),
         };
