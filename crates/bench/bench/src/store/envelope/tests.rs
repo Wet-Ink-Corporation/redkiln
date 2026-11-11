@@ -107,6 +107,20 @@ fn unknown_types_and_missing_fields_are_schema_errors() {
 }
 
 #[test]
+fn an_unknown_type_points_to_the_types_the_envelope_lists() {
+    let unknown = SchemaError::UnknownType {
+        name: "bench.task_started".to_owned(),
+    };
+
+    assert_eq!(
+        unknown.to_string(),
+        "unknown event type \"bench.task_started\": the types append takes are in data.types \
+         (EV-03)",
+        "the message names the list rather than repeating it"
+    );
+}
+
+#[test]
 fn a_short_name_another_plugin_s_type_or_another_version_is_refused() {
     let event = |kind: &str, version: u64| {
         EventEnvelope::from_ev01(&json!({

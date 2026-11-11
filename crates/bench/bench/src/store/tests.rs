@@ -559,3 +559,31 @@ fn an_event_that_does_not_read_back_says_why_and_that_it_was_written() {
         "the skip itself"
     );
 }
+
+#[test]
+fn a_read_back_that_fails_still_says_the_event_was_written() {
+    use std::error::Error as _;
+
+    let failed = super::StoreError::NotReadBack {
+        position: 7,
+        cause: super::ReadBack::Read(Box::new(super::StoreError::UnconditionedConflict)),
+    };
+
+    assert_eq!(
+        (
+            failed.to_string(),
+            failed.source().map(ToString::to_string),
+            failed
+                .source()
+                .and_then(std::error::Error::source)
+                .map(ToString::to_string),
+        ),
+        (
+            "the event was written at position 7 but did not read back; do not append it again"
+                .to_owned(),
+            Some("the read failed".to_owned()),
+            Some("the store reported a conflict for an unconditioned write".to_owned()),
+        ),
+        "written, and why the read did not return it"
+    );
+}

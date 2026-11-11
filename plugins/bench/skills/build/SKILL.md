@@ -24,7 +24,7 @@ Builds one approved task test-first with a single approval up front and hard sto
 ## Process
 
 1. **Check the plan.** Run `bench plan check <plan>`; exit 3 (not approved) or 4 (changed) goes back to the human to approve, never you; say the task then starts with a failing test. It's working if it exits 0.
-2. **Enter build mode.** Commit or stash first, then run `bench mode build --plan <plan> --tree <tree>`. It's working if `data.clean` is true.
+2. **Enter build mode.** Commit or stash first, then run `bench mode build --plan <plan> --tree <tree>`. It's working if `data.event.data.clean` is true.
 3. **Read the task.** Its `Files:`, its `Test:` command and the spec's criteria it serves. It's working if you can say which test proves it.
 4. **Red.** Write the test, run the task's command, watch it fail for the reason the criterion names. It's working if the failure message names the missing behaviour.
 5. **Green.** Write the least code that passes. Read every `fast-check` note and block after each batch of edits. It's working if the command passes and no block is open.

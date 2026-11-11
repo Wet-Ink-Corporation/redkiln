@@ -35,12 +35,12 @@ repository's ledger:
 | `spec.md` | The spec, from `bench playbook show spec-template`: five EARS criteria, no open marker. |
 | `plan.md` | The plan, from `bench playbook show plan-template`, linking `spec.md`: tasks T1 to T4. |
 | `tickets/T1.md` .. `T4.md` | The plan's tasks as markdown tickets (`docs/dag.md`), ids and blockers as in the plan. |
-| `events.jsonl` | The ledger after the chain, one `ledger query` event per line (its position and Core's EV-01 envelope), with `ts`, `worktree`, `branch`, `head` and `writer` removed. |
+| `events.jsonl` | The ledger after the chain, one `ledger query` event per line (its position and Core's EV-01 envelope), with `ts`, `worktree`, `branch`, `head` and `writer.version` removed. |
 
 The hashes in `events.jsonl` are the sha256 of `design-tree.json` and `plan.md` as checked in
 (LF line endings, from `.gitattributes`). Editing either file means re-running the two ledger
 steps above on a fresh `--store` and re-recording the events, for example with
-`bench ledger query --store ledger.sqlite3 | jq -c '.data.events[] | .event |= del(.ts, .worktree, .branch, .head, .writer)'`.
+`bench ledger query --store ledger.sqlite3 | jq -c '.data.events[] | .event |= del(.ts, .worktree, .branch, .head, .writer.version)'`.
 
 ## Friction found
 

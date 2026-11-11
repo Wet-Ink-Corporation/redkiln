@@ -106,7 +106,7 @@ fn session_tag(id: &str) -> Result<LedgerTag, TagError> {
 /// A `--type` value: the stored name (`bench.task_done`), or the 0.x short name (`task_done`),
 /// still read for scripts written before step 4 and warned about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TypeName {
+pub(crate) struct TypeName {
     kind: EventKind,
     short: bool,
 }
@@ -114,7 +114,7 @@ pub struct TypeName {
 /// A `--type` value that names none of Bench's 17 types.
 #[derive(Debug, thiserror::Error)]
 #[error("unknown event type {name:?}: a bench.* type, such as bench.task_done")]
-pub struct UnknownType {
+pub(crate) struct UnknownType {
     name: String,
 }
 
