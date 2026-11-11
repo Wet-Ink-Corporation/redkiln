@@ -74,10 +74,10 @@ fn worktree_key(root: &Path) -> Result<Value, Box<dyn Error>> {
         "bench.mode-diagnose/1",
         &envelope,
         &[root],
-        &["/data/worktree"],
+        &["/data/event/worktree", "/data/event/writer/version"],
     )?;
     Ok(envelope
-        .pointer("/data/worktree")
+        .pointer("/data/event/worktree")
         .cloned()
         .ok_or("mode reports its worktree")?)
 }
@@ -114,6 +114,7 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
             "/data/worktree",
             "/data/duration_ms",
             "/data/ledger/event/worktree",
+            "/data/ledger/event/writer/version",
         ],
     )?;
     assert_eq!(
@@ -151,6 +152,10 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
             &json!("s1")
         ),
         "{event}"
+    );
+    assert_eq!(
+        envelope["data"]["ledger"]["event"], *event,
+        "record prints the event as the ledger stores it"
     );
     Ok(())
 }

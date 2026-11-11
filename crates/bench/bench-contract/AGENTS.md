@@ -18,7 +18,7 @@ Contract (bench). Depends only on Core, and on Core only behind the `core` featu
 - Changing a payload's bytes needs a new version (EV-06); `event/core/tests.rs` holds each type's version 1 golden.
 - `decode` never fails a read: another namespace's event, or an undeclared `bench.*` type, is `Skip::Foreign` (EV-08); one of the 17 at a newer version or with undecodable data is `Skip::Unusable` (EV-10).
 - Subject tags: `task` and `pr` are Core's keys, `plan`, `point`, `agent`, `migration` are `bench.<key>` (EV-12); a value Core refuses is an error, never shortened (EV-11).
-- `BenchEvent` is the 0.x flat form (`type` beside the payload, short names): anneal's records, which the one-time import reads, and Bench's in-memory event; since step 4 `bench ledger` reads and prints Core's EV-01 envelope instead. `REGISTRY_VERSION` is frozen at 10.
+- `BenchEvent` is the 0.x flat form (`type` beside the payload, short names): anneal's records, which the one-time import reads, and Bench's in-memory event; since step 4 `bench ledger` and the commands that record an event read and print Core's EV-01 envelope instead. `REGISTRY_VERSION` is frozen at 10.
 - `COMMANDS` is sorted and unique, lowercase words separated by one space; a command with subcommands is listed itself only when it runs without one; clap's `help` is not listed. `VALUE_OPTIONS` is sorted long options. `OUTPUTS` is sorted, the CLI-01 schema id (`output_id`: `bench.<path words joined by ->/1`) of every command but `hook *`, `statusline` and `ledger journal`, which write no envelope. `bench`'s `cli_pin` test pins all four against clap's tree, so they change with the CLI or that test fails.
 
 ## Test strategy

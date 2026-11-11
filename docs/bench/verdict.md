@@ -36,6 +36,9 @@ The review plugin records its outcomes, `changes_requested` and `noise_only`, wi
 `anneal ledger append`; `verdict set` records only levels. It writes to the ledger the hook reads
 (no `--store`), and checks `--pr` and `--session` as ledger tags before it opens the ledger, so a
 refused value creates no file. A commit or base that does not resolve is a usage error (2).
+The envelope's `data` holds `store`, `position`, `event` (the `bench.verdict_set` as stored,
+Core's EV-01 envelope as `bench ledger query` prints it, the fields above under `event.data`)
+and `commit_status`.
 
 `--actor human` is a person's to give: the guard denies a model's Bash call that runs
 `verdict set ... --actor human` (rule `human-only`, `docs/guard.md`), so a human verdict comes

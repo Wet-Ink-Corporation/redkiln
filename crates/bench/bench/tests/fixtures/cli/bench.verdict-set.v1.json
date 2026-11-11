@@ -3,19 +3,34 @@
   "ok": true,
   "command": "verdict set",
   "data": {
-    "base": "main",
     "commit_status": {
       "outcome": "skipped",
       "reason": "no_token"
     },
-    "patch_id": "<sha>",
+    "event": {
+      "actor": "cli",
+      "data": {
+        "base": "main",
+        "patch_id": "<sha>",
+        "pr": 7,
+        "sha": "<sha>",
+        "source": "local",
+        "verdict": "tests_verified"
+      },
+      "trust": {
+        "level": "asserted"
+      },
+      "ts": "<time>",
+      "type": "bench.verdict_set",
+      "version": 1,
+      "writer": {
+        "binary": "bench",
+        "spec": "1.0.0",
+        "version": "<varies>"
+      }
+    },
     "position": 1,
-    "pr": 7,
-    "sha": "<sha>",
-    "source": "local",
-    "store": "<root>/.git/redkiln/events.sqlite3",
-    "type": "verdict_set",
-    "verdict": "tests_verified"
+    "store": "<root>/.git/redkiln/events.sqlite3"
   },
   "findings": [],
   "proves": "the review verdict is well-formed and backed by findings",

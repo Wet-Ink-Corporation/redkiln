@@ -6,8 +6,8 @@
 //! Every event is an EV-01 envelope of one of the 17 `bench.*` types declared in
 //! [`bench_contract::event`] (`wire`). Gates and commands above this module see Bench's
 //! in-memory [`EventEnvelope`] (the 0.x flat form); `bench ledger` reads Core's envelope into it
-//! ([`EventEnvelope::from_ev01`]) and prints the envelopes as stored ([`StoredEvent`], since
-//! step 4).
+//! ([`EventEnvelope::from_ev01`]), and it and every command that records an event print the
+//! envelopes as stored ([`StoredEvent`], since step 4).
 //!
 //! - Every filter and every append condition is restricted to Bench's 17 types (a filter that
 //!   names none means all 17), so another plugin's event is never read as Bench's and never
@@ -21,9 +21,9 @@
 //! The types: [`Store`], with [`Filter`] for reads, [`Condition`] for conditional appends, and
 //! [`Appended`], [`Recorded`], [`StoredEvent`] and [`Read`] for what a write and a read
 //! return; [`EventEnvelope`], [`CoreEnvelope`], [`Timestamp`], [`LedgerTag`] and [`TagKey`];
-//! [`StoreError`],
-//! [`SchemaError`], [`TagError`] and [`TimestampError`]. The `bench.*` payload types are not
-//! re-exported: callers name them through [`bench_contract::event`].
+//! [`StoreError`] with [`ReadBack`], [`SchemaError`], [`TagError`] and [`TimestampError`]. The
+//! `bench.*` payload types are not re-exported: callers name them through
+//! [`bench_contract::event`].
 
 mod envelope;
 mod stored;
@@ -62,6 +62,17 @@ const PAGE: NonZeroUsize = match NonZeroUsize::new(512) {
     Some(page) => page,
     None => NonZeroUsize::MIN,
 };
+
+/// Why an event just appended did not read back ([`StoreError::NotReadBack`]).
+#[derive(Debug, thiserror::Error)]
+pub enum ReadBack {
+    /// The read found no Bench event at the position Core reported.
+    #[error("no event at that position")]
+    Missing,
+    /// The read found it and skipped it, as every read skips an event Bench cannot use.
+    #[error("the read skipped it")]
+    Skipped(#[source] Skip),
+}
 
 /// Why a store operation failed.
 #[derive(Debug, thiserror::Error)]
@@ -113,11 +124,18 @@ pub enum StoreError {
     #[error("the store reported a conflict for an unconditioned write")]
     UnconditionedConflict,
     /// The event just appended at `position` did not read back as a usable Bench event, which
-    /// a store that took it never does.
-    #[error("the event appended at position {position} did not read back")]
+    /// a store that took it never does. The event was written: appending it again records it
+    /// twice.
+    #[error(
+        "the event was written at position {position} but did not read back; do not append it \
+         again"
+    )]
     NotReadBack {
         /// Where Core said it wrote the event.
         position: u64,
+        /// Why it did not read back.
+        #[source]
+        cause: ReadBack,
     },
     /// Core's import of an old ledger stopped (ST-15): what it stored stays, and nothing was
     /// recorded, so the next run imports the rest.
@@ -135,15 +153,6 @@ impl StoreError {
             Self::Field(_) | Self::Id { .. } | Self::Tag(_) | Self::Envelope { .. }
         )
     }
-}
-
-/// The Bench type stored as `name` (`bench.task_done`), or `None` for any other name, the 0.x
-/// short ones included.
-#[must_use]
-pub fn kind_of_stored(name: &str) -> Option<EventKind> {
-    EventKind::ALL
-        .into_iter()
-        .find(|kind| kind.stored() == name)
 }
 
 /// Which events to read: any of `types` (all 17 Bench types when empty) carrying every tag in
@@ -405,21 +414,22 @@ impl Store {
     }
 
     /// [`Store::append`], returning the event as Core stored it, read back from its position:
-    /// `bench ledger append`'s report.
+    /// what `bench ledger append` and the commands that record an event print.
     ///
     /// # Errors
-    /// As [`Store::append`]; [`StoreError::NotReadBack`] when the event is not found at the
-    /// position Core reported.
+    /// As [`Store::append`]; [`StoreError::NotReadBack`] when the event, written, is not found
+    /// at the position Core reported or does not read as a usable Bench event.
     pub fn append_stored(&self, event: &EventEnvelope) -> Result<StoredEvent, StoreError> {
         let position = self.append(event)?;
         let filter = Filter::default().to_core()?;
         let after = position.saturating_sub(1);
-        self.inner
-            .read(&filter, after, NonZeroUsize::MIN)?
+        let read = self.inner.read(&filter, after, NonZeroUsize::MIN)?;
+        let not_read_back = |cause| StoreError::NotReadBack { position, cause };
+        let stored = read
             .first()
             .filter(|stored| stored.position == position)
-            .and_then(|stored| StoredEvent::from_stored(stored).ok())
-            .ok_or(StoreError::NotReadBack { position })
+            .ok_or_else(|| not_read_back(ReadBack::Missing))?;
+        StoredEvent::from_stored(stored).map_err(|skip| not_read_back(ReadBack::Skipped(skip)))
     }
 
     /// Appends `event` unless a Bench event matching `condition` exists: first writer wins.

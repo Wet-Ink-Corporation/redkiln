@@ -119,7 +119,7 @@ pub struct UnknownType {
 }
 
 fn type_name(name: &str) -> Result<TypeName, UnknownType> {
-    if let Some(kind) = crate::store::kind_of_stored(name) {
+    if let Some(kind) = EventKind::from_stored(name) {
         return Ok(TypeName { kind, short: false });
     }
     name.parse::<EventKind>()

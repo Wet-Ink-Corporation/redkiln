@@ -280,25 +280,11 @@ fn confirm_appends_one_grill_confirmed_with_the_tree_hash_and_the_quote() -> Tes
         ),
         "the tree's path and hash, the human's words verbatim, the session"
     );
-    assert_shows(&result["data"]["event"], event);
+    assert_eq!(
+        result["data"]["event"], *event,
+        "confirm prints the event as the ledger stores it"
+    );
     Ok(())
-}
-
-/// Asserts that `shown`, the event `grill confirm` printed, is the stored envelope `stored`.
-/// `grill confirm` still prints Bench's flat form (step 4 changes only `bench ledger`'s), so
-/// the two are compared field by field.
-fn assert_shows(shown: &Value, stored: &Value) {
-    let flat = ["type", "plan", "hash", "quote", "session_id", "ts"].map(|key| shown.get(key));
-    let kind = json!("grill_confirmed");
-    let core = [
-        Some(&kind),
-        stored.pointer("/data/plan"),
-        stored.pointer("/data/hash"),
-        stored.pointer("/data/quote"),
-        stored.get("session"),
-        stored.get("ts"),
-    ];
-    assert_eq!(flat, core, "the envelope shows the event");
 }
 
 #[test]

@@ -137,7 +137,12 @@ fn the_design_tree_has_no_open_question_and_its_confirmation_is_appended() -> Te
     let frontier = anneal(work.path(), &["grill", "frontier", "--tree", TREE], 0)?;
     let confirmed = confirm(work.path())?;
     golden("bench.grill-frontier/1", &frontier, &[work.path()], &[])?;
-    golden("bench.grill-confirm/1", &confirmed, &[work.path()], &[])?;
+    golden(
+        "bench.grill-confirm/1",
+        &confirmed,
+        &[work.path()],
+        &["/data/event/writer/version"],
+    )?;
 
     let data = &frontier["data"];
     assert_eq!(

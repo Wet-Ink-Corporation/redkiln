@@ -499,6 +499,25 @@ fn every_kind_parses_from_its_stored_name() {
 }
 
 #[test]
+fn every_kind_is_found_by_its_stored_name_and_no_other_name() {
+    for kind in EventKind::ALL {
+        assert_eq!(
+            (
+                EventKind::from_stored(kind.stored()),
+                EventKind::from_stored(kind.as_str())
+            ),
+            (Some(kind), None),
+            "{kind}: the stored name, never the short one"
+        );
+    }
+    assert_eq!(
+        EventKind::from_stored("weighin.decided"),
+        None,
+        "another plugin's type"
+    );
+}
+
+#[test]
 fn an_unregistered_name_is_unknown() {
     assert_eq!(
         "task_started".parse::<EventKind>(),

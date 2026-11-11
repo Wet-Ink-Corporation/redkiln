@@ -5,15 +5,23 @@
   "data": {
     "event": {
       "actor": "cli",
-      "branch": null,
-      "hash": "sha256:<hash>",
-      "head": null,
-      "plan": "design-tree.json",
-      "quote": "Yes, that's it: only notes list, compact JSON, go ahead.",
-      "session_id": "dry-run",
+      "data": {
+        "hash": "sha256:<hash>",
+        "plan": "design-tree.json",
+        "quote": "Yes, that's it: only notes list, compact JSON, go ahead."
+      },
+      "session": "dry-run",
+      "trust": {
+        "level": "asserted"
+      },
       "ts": "<time>",
-      "type": "grill_confirmed",
-      "worktree": null
+      "type": "bench.grill_confirmed",
+      "version": 1,
+      "writer": {
+        "binary": "bench",
+        "spec": "1.0.0",
+        "version": "<varies>"
+      }
     },
     "position": 1,
     "source": "flag",

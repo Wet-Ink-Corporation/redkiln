@@ -154,6 +154,13 @@ impl EventKind {
         }
     }
 
+    /// The kind stored as `name` ([`EventKind::stored`], `bench.task_done`), or `None` for any
+    /// other name: another namespace's type, or a short name, which [`str::parse`] reads.
+    #[must_use]
+    pub fn from_stored(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.stored() == name)
+    }
+
     /// The key of the subject tag events of this type carry.
     #[must_use]
     pub const fn subject(self) -> SubjectKey {

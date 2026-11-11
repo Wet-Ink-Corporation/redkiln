@@ -395,3 +395,47 @@ fn an_empty_by_does_not_read() {
         "`by: {{}}` claims a giver and names none: {empty:?}, {in_event:?}"
     );
 }
+
+#[test]
+fn every_bench_type_is_declared_at_the_version_bench_writes() {
+    use bench_contract::event::{
+        BridgeUnavailable, GateBlocked, GrillConfirmed, MigrateContract, MigrateWaveDone,
+        MigrateWaveStarted, ModeSet, OrchestrateRuled, PlanApproved, ReproRed, RoundStarted,
+        StopBlocked, SubagentStatus, TYPES, TestRun, WeighinParked,
+    };
+    use redkiln_core::envelope::Payload;
+
+    fn declared<P: Payload>() -> (&'static str, u32) {
+        (P::TYPE, P::VERSION)
+    }
+    let declared = [
+        declared::<TestRun>(),
+        declared::<TaskDone>(),
+        declared::<PlanApproved>(),
+        declared::<GrillConfirmed>(),
+        declared::<ReproRed>(),
+        declared::<VerdictSet>(),
+        declared::<RoundStarted>(),
+        declared::<GateBlocked>(),
+        declared::<StopBlocked>(),
+        declared::<ModeSet>(),
+        declared::<SubagentStatus>(),
+        declared::<MigrateWaveStarted>(),
+        declared::<MigrateWaveDone>(),
+        declared::<MigrateContract>(),
+        declared::<WeighinParked>(),
+        declared::<BridgeUnavailable>(),
+        declared::<OrchestrateRuled>(),
+    ];
+
+    assert_eq!(
+        declared.map(|(name, _)| name),
+        TYPES,
+        "every type the contract declares, in its order"
+    );
+    assert_eq!(
+        declared.map(|(_, version)| version),
+        [super::WRITTEN_VERSION; 17],
+        "append refuses any version but the one the contract declares"
+    );
+}

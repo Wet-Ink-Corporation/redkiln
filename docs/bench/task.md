@@ -28,7 +28,8 @@ one made during it (`docs/hooks.md`); other commands stamp to the second.
 re-running), `outcome`, `exit` (`null` when the command was killed), `duration_ms` (from a
 monotonic clock) and `timeout_secs` (set only when the timeout killed it); see
 `docs/ledger.md`. The envelope's `data` holds `task`, `command`, `store`, `source` and
-`events` (each with its ledger `position`); a red run has one `task/red:<id>` finding.
+`events` (each `{"position": n, "event": {...}}`, the event as stored: Core's EV-01 envelope,
+as `bench ledger query` prints it); a red run has one `task/red:<id>` finding.
 
 Limit: on a timeout only the command's own process is killed. A process it started (a test
 binary under `cargo test`) can outlive it; std has no portable process-group kill.

@@ -234,3 +234,10 @@ an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offs
 error (`append` with a `by`, above, or an unknown `--type`), and
 the global codes in [exit-codes.md](exit-codes.md) (70 when the store cannot be opened or
 written).
+
+An event that is written but does not read back at the position Core reported, or reads back as
+an event Bench cannot use, exits 70 with `the event was written at position <n> but did not read
+back; do not append it again` and its cause (no event there, or the read skipped it). The event
+is in the store: running the command again records it a second time. This holds for `append`
+and for every command that prints the event it records (`grill confirm`, `repro record`, `task
+done`, `mode`, `verdict set`); a store that took the write never does this.

@@ -17,9 +17,9 @@ Each migrate wave is recorded in the ledger, tagged `migration:<id>`:
 
 | Command | Event | Refused (nothing recorded) when |
 |---|---|---|
-| `bench migrate start --migration <id> --wave <n>` | `migrate.wave.started` | wave `n` was already started, or the migration is contracted (exit 3) |
-| `bench migrate done --migration <id> --wave <n>` | `migrate.wave.done` | wave `n` is not open, or the migration is contracted (exit 3) |
-| `bench migrate contract --migration <id>` | `migrate.contract` | any wave is started and not done (exit 1), no wave is done, or it is already contracted (exit 3) |
+| `bench migrate start --migration <id> --wave <n>` | `bench.migrate.wave.started` | wave `n` was already started, or the migration is contracted (exit 3) |
+| `bench migrate done --migration <id> --wave <n>` | `bench.migrate.wave.done` | wave `n` is not open, or the migration is contracted (exit 3) |
+| `bench migrate contract --migration <id>` | `bench.migrate.contract` | any wave is started and not done (exit 1), no wave is done, or it is already contracted (exit 3) |
 
 `--wave` counts from 1, and a wave number is used once. Waves may overlap (wave 2 may start
 before wave 1 is done); contract waits for all of them. Two steps recorded at the same moment

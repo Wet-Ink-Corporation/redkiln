@@ -5,7 +5,7 @@
 
 use std::time::SystemTime;
 
-use redkiln_core::envelope::{FieldError, Timestamp as CoreTimestamp};
+use redkiln_core::envelope::{FieldError, Payload, Timestamp as CoreTimestamp};
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -162,9 +162,9 @@ impl From<Timestamp> for String {
     }
 }
 
-/// The version every Bench type is written at (EV-06): bench-contract declares each of the 17
-/// at version 1 (its `event::core` table).
-pub const WRITTEN_VERSION: u32 = 1;
+/// The version every Bench type is written at (EV-06), as bench-contract declares it (its
+/// `event::core` table declares all 17 at one version; a test pins each to this one).
+pub const WRITTEN_VERSION: u32 = <bench_contract::event::TestRun as Payload>::VERSION;
 
 /// The keys of an EV-01 envelope that `bench ledger append` does not take, because Bench
 /// writes them.
@@ -173,11 +173,10 @@ const SET_BY_BENCH: [&str; 4] = ["trust", "writer", "origin", "cites"];
 /// One event in the 0.x flat form: the event, flattened, and its context.
 ///
 /// Bench's in-memory form of an event, which the store converts to and from Core's EV-01
-/// envelope (the store's `wire` module), and which the commands that record an event (`grill confirm`,
-/// `plan approve`, `mode`, ...) still print. On the wire: `{"type": "task_done", "task": "T1",
+/// envelope (the store's `wire` module). As JSON: `{"type": "task_done", "task": "T1",
 /// "actor": "cli", "session_id": "s1", "worktree": null, "branch": null, "head": null, "ts":
-/// "2026-10-11T09:30:00Z"}`. `bench ledger` reads and prints Core's envelope instead
-/// ([`EventEnvelope::from_ev01`], [`super::StoredEvent`]).
+/// "2026-10-11T09:30:00Z"}`. Nothing prints it: `bench ledger` and the commands that record an
+/// event print Core's envelope as stored ([`EventEnvelope::from_ev01`], [`super::StoredEvent`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EventEnvelope {
     /// The event, flattened into the envelope's JSON object.
@@ -313,7 +312,7 @@ impl EventEnvelope {
 
 /// The kind whose stored name is `name`; a short name is refused with the stored one.
 fn kind_of(name: &str) -> Result<EventKind, SchemaError> {
-    if let Some(kind) = super::kind_of_stored(name) {
+    if let Some(kind) = EventKind::from_stored(name) {
         return Ok(kind);
     }
     match name.parse::<EventKind>() {

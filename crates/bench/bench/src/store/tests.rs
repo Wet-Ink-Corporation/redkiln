@@ -488,3 +488,45 @@ fn opening_an_existing_store_that_is_absent_leaves_nothing_behind() {
         "neither the store nor its directory was created"
     );
 }
+
+#[test]
+fn an_event_that_does_not_read_back_says_why_and_that_it_was_written() {
+    use std::error::Error as _;
+
+    let missing = super::StoreError::NotReadBack {
+        position: 7,
+        cause: super::ReadBack::Missing,
+    };
+    let skipped = super::StoreError::NotReadBack {
+        position: 7,
+        cause: super::ReadBack::Skipped(redkiln_core::envelope::Skip::Foreign),
+    };
+
+    assert_eq!(
+        [&missing, &skipped]
+            .map(|error| (error.to_string(), error.source().map(ToString::to_string))),
+        [
+            (
+                "the event was written at position 7 but did not read back; do not append it \
+                 again"
+                    .to_owned(),
+                Some("no event at that position".to_owned())
+            ),
+            (
+                "the event was written at position 7 but did not read back; do not append it \
+                 again"
+                    .to_owned(),
+                Some("the read skipped it".to_owned())
+            ),
+        ],
+        "the position, that it was written, and the cause"
+    );
+    assert_eq!(
+        skipped
+            .source()
+            .and_then(std::error::Error::source)
+            .map(ToString::to_string),
+        Some("an event of another type".to_owned()),
+        "the skip itself"
+    );
+}

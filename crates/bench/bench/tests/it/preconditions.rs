@@ -300,13 +300,14 @@ fn mode_build_records_the_mode_with_the_plan_and_tree_relative_to_the_root() -> 
         "bench.mode-build/1",
         &envelope,
         &[repo.path()],
-        &["/data/worktree"],
+        &["/data/event/worktree", "/data/event/writer/version"],
     )?;
     for (pointer, expected) in [
-        ("/data/mode", json!("build")),
-        ("/data/clean", json!(true)),
-        ("/data/plan", json!(PLAN)),
-        ("/data/tree", json!(TREE)),
+        ("/data/event/type", json!("bench.mode_set")),
+        ("/data/event/data/mode", json!("build")),
+        ("/data/event/data/clean", json!(true)),
+        ("/data/event/data/plan", json!(PLAN)),
+        ("/data/event/data/tree", json!(TREE)),
     ] {
         assert_eq!(envelope.pointer(pointer), Some(&expected), "{pointer}");
     }
@@ -320,6 +321,10 @@ fn mode_build_records_the_mode_with_the_plan_and_tree_relative_to_the_root() -> 
         event.get("worktree").and_then(Value::as_str).is_some(),
         "tagged with the worktree: {event}"
     );
+    assert_eq!(
+        envelope["data"]["event"], *event,
+        "mode prints the event as the ledger stores it"
+    );
     Ok(())
 }
 
@@ -332,7 +337,7 @@ fn mode_build_on_a_dirty_tree_records_clean_false_with_a_finding_and_exits_0() -
     let envelope = repo.build()?;
 
     assert_eq!(
-        envelope.pointer("/data/clean"),
+        envelope.pointer("/data/event/data/clean"),
         Some(&json!(false)),
         "recorded as not clean"
     );
@@ -711,7 +716,7 @@ fn mode_off_lifts_the_gate() -> TestResult {
         "bench.mode-off/1",
         &off,
         &[repo.path()],
-        &["/data/worktree"],
+        &["/data/event/worktree", "/data/event/writer/version"],
     )?;
 
     assert_allowed(&repo.write_to(SOURCE)?, "mode off");
@@ -754,7 +759,7 @@ fn build_mode_recorded_without_a_plan_denies_source_edits() -> TestResult {
     // The worktree key exactly as `bench mode` writes it, read back from a real entry.
     let entered = repo.anneal(&["mode", "diagnose"], 0)?;
     let worktree = entered
-        .pointer("/data/worktree")
+        .pointer("/data/event/worktree")
         .cloned()
         .ok_or("mode reports its worktree")?;
     let event = json!({

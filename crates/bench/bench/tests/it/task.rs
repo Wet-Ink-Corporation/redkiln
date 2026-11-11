@@ -107,7 +107,10 @@ fn a_green_command_records_its_test_run_then_task_done() -> TestResult {
         "bench.task-done/1",
         &envelope,
         &[dir.path()],
-        &["/data/events/*/event/duration_ms"],
+        &[
+            "/data/events/*/event/data/duration_ms",
+            "/data/events/*/event/writer/version",
+        ],
     )?;
     assert_eq!(
         (
@@ -117,6 +120,33 @@ fn a_green_command_records_its_test_run_then_task_done() -> TestResult {
         ),
         (&json!(true), &json!("task done"), &json!("T1")),
         "{envelope}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn done_prints_the_events_as_the_ledger_stores_them() -> TestResult {
+    let dir = tempfile::tempdir()?;
+
+    let output = task_done(
+        dir.path(),
+        &["T1", "--session", "s1", "--", "git", "--version"],
+    )?;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let envelope: Value = crate::support::envelope(&output)?;
+    let printed: Vec<&Value> = envelope["data"]["events"]
+        .as_array()
+        .ok_or("printed events")?
+        .iter()
+        .map(|printed| &printed["event"])
+        .collect();
+    let recorded = events(dir.path())?;
+    assert_eq!(
+        printed,
+        recorded.iter().collect::<Vec<_>>(),
+        "the test_run and task_done, each as stored"
     );
     Ok(())
 }
@@ -246,7 +276,7 @@ fn in_a_git_worktree_both_events_are_tagged_with_its_key_and_outside_with_none()
     let mode = anneal_in(repo.path()).args(["mode", "diagnose"]).output()?;
     assert_eq!(mode.status.code(), Some(0), "{mode:?}");
     let key = serde_json::from_slice::<Value>(&mode.stdout)?
-        .pointer("/data/worktree")
+        .pointer("/data/event/worktree")
         .cloned()
         .ok_or("mode reports the worktree key")?;
     let outside = tempfile::tempdir()?;

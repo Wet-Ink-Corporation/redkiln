@@ -86,7 +86,7 @@ impl Session {
         let off = anneal_in(self.root()).args(["mode", "off"]).output()?;
         let entered: Value = crate::support::envelope(&off)?;
         let worktree = entered
-            .pointer("/data/worktree")
+            .pointer("/data/event/worktree")
             .cloned()
             .ok_or("mode reports its worktree")?;
         let run = json!({

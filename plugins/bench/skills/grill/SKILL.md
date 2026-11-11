@@ -12,7 +12,7 @@ Turns a new or vague request into requirements the human confirmed, asking from 
 - You MUST keep every question in the design tree and run `bench grill frontier --tree <file>` before each round; ask from its `ask` list, nothing else.
 - You MUST give every question a recommended answer that a plain "yes" accepts, serving the outcome asked for over any rule that blocks it; `bench grill frontier` rejects a blank `answer`.
 - You MUST run `bench grill classify --tree <file> --node <id>` on each new open node, and look up, not ask, every `look_up` node of `bench grill frontier` (`is_decision` below 0.5).
-- You MUST run `bench grill confirm --tree <file> --quote "<their words>"` only after the human explicitly confirms your restatement, quoting them verbatim; it records `grill_confirmed`.
+- You MUST run `bench grill confirm --tree <file> --quote "<their words>"` only after the human explicitly confirms your restatement, quoting them verbatim; it records `bench.grill_confirmed`.
 - Without Bash or Write, ask each round inline, numbered, with recommendations.
 
 ## When to use
@@ -44,7 +44,7 @@ Turns a new or vague request into requirements the human confirmed, asking from 
 
 - Asking what the code, docs or tracker answer.
 - Running `bench grill confirm` with words the human did not write.
-- Editing source before `grill_confirmed` is in the ledger.
+- Editing source before `bench.grill_confirmed` is in the ledger.
 
 ## Verification
 

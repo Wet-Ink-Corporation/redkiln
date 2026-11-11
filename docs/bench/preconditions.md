@@ -26,7 +26,10 @@ is the worktree's key: its top-level directory as `git rev-parse --show-toplevel
 with `/` separators, and in ASCII lowercase on Windows and macOS, whose file systems ignore
 letter case by default (so every spelling of the directory is one worktree). The event is tagged
 `worktree:<key>`. The worktree's mode is its latest `mode_set`; `off`, or none at all, means no
-mode. Every linked worktree has its own mode, although they share one ledger.
+mode. Every linked worktree has its own mode, although they share one ledger. The envelope's
+`data` holds `store`, `source`, `position` and `event`, the `mode_set` as stored (Core's EV-01
+envelope, as `bench ledger query` prints it: the key under `event.worktree`, the payload under
+`event.data`).
 
 There is no `--store`: the mode goes to the ledger the hook reads, resolved as every command
 resolves it without the flag (`$ANNEAL_STORE`, else the git common dir, else `.anneal/` in the
@@ -74,7 +77,8 @@ mode` writes, so it counts for this worktree only. Like `anneal mode` it has no 
 Outside a git worktree, or with an `--id` or `--session` the ledger cannot tag, it is a usage
 error (2) and runs nothing. `data` reports `id`, `command`, `worktree`, `outcome` (`red`,
 `green` or `timed_out`), `exit`, `duration_ms`, `timeout_secs`, `recorded` and, when recorded,
-`ledger` (`store`, `source`, `position`, `event`).
+`ledger` (`store`, `source`, `position`, `event`: the `repro_red` as stored, Core's EV-01
+envelope as `bench ledger query` prints it).
 
 `repro leftovers` lists every line that holds a debug tag, `[DEBUG-` then an id of 1 to 64 ASCII
 letters, digits, `_` or `-`, then `]`, in the files git knows of in the worktree (tracked, plus
