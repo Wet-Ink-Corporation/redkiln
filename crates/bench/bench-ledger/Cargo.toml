@@ -10,6 +10,8 @@ repository.workspace = true
 authors = ["Ryan Britton <ryan.britton@wet-ink.net>"]
 
 [dependencies]
+# The event types live in Bench's contract (Move 2 step 3, PR 3.2); re-exported at their old paths.
+bench-contract = { workspace = true }
 # happenstance at the workspace's =0.6.0 (option A of the 2026-11-10 card): the ledger stays its
 # own store, under TRUNCATE, until step 3 of docs/plan/move-2-bench.md moves it onto redkiln-core.
 happenstance-core = { workspace = true }

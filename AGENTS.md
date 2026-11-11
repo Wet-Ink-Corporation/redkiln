@@ -33,9 +33,9 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/weigh-in/weighin-core` | plugin (weigh-in) | The ledger domain with no I/O: markers, scanning, projection, `.kb` atoms, board format | weighin-contract, knowledge-contract, serde, serde_json, thiserror |
 | `crates/core/redkiln-core` | Core (hub) | The suite's store (ST-04 to ST-11) and its location (ST-01 to ST-03), `suite.toml` (ST-12, ST-13), the envelope and tags, trust, ids and subjects, journals with checkpoint and import, and old ledgers read from a copy | happenstance-core, happenstance-sqlite (`=0.6.0`, `sync`), tokio (`rt`), tempfile, thiserror, serde, serde_json, sha2, time, toml |
 | `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, weighin-contract, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
-| `crates/bench/bench-contract` | contract (bench) | The `bench` command list (`cli`) | none |
+| `crates/bench/bench-contract` | contract (bench) | `bench.*` events (`event`), commands (`cli`) | redkiln-core (optional), serde, thiserror |
 | `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI | bench-ledger, bench-contract, clap, ureq, sha2, serde, serde_json, thiserror |
-| `crates/bench/bench-ledger` | plugin (bench) | anneal's ledger, its own store on happenstance `=0.6.0` until step 3 | happenstance, tokio, time, tempfile, serde, serde_json, thiserror |
+| `crates/bench/bench-ledger` | plugin (bench) | anneal's ledger until step 3 | bench-contract, happenstance, tokio, time, tempfile, serde, serde_json, thiserror |
 | `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.

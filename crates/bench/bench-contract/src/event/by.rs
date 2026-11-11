@@ -90,48 +90,14 @@ impl TryFrom<ByFields> for By {
     }
 }
 
+// Moved from `bench-ledger` (Move 2 step 3, PR 3.2) unchanged; the two tests that read a `by`
+// through `bench-ledger`'s envelope stay there, beside the envelope.
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
     use super::{Actor, By, Via};
-    use crate::envelope::EventEnvelope;
-    use crate::event::{LedgerEvent, PlanApproved, VerdictSet};
-
-    #[test]
-    fn a_plan_approval_and_a_verdict_carry_who_gave_them_and_through_what() {
-        let approval = json!({
-            "type": "plan_approved", "plan": "p.md", "hash": "sha256:00",
-            "by": {"actor": "model", "via": "bash"},
-            "actor": "cli", "ts": "2026-10-19T09:30:00Z",
-        });
-        let verdict = json!({
-            "type": "verdict_set", "pr": 7, "verdict": "approved", "source": "human",
-            "by": {"actor": "human", "via": "mod"},
-            "actor": "cli", "ts": "2026-10-19T09:30:00Z",
-        });
-
-        let approval = EventEnvelope::from_value(&approval).expect("a registered field");
-        let verdict = EventEnvelope::from_value(&verdict).expect("a registered field");
-
-        let by = |event: &LedgerEvent| match event {
-            LedgerEvent::PlanApproved(PlanApproved { by, .. })
-            | LedgerEvent::VerdictSet(VerdictSet { by, .. }) => *by,
-            _ => None,
-        };
-        assert_eq!(
-            (by(&approval.event), by(&verdict.event)),
-            (
-                By::known(Some(Actor::Model), Some(Via::Bash)),
-                By::known(Some(Actor::Human), Some(Via::Mod)),
-            ),
-            "the payload's `by`, apart from the envelope's `actor`"
-        );
-        assert_eq!(
-            approval.actor, "cli",
-            "the writer is still the envelope's actor"
-        );
-    }
+    use crate::event::{BenchEvent as LedgerEvent, PlanApproved};
 
     #[test]
     fn without_an_actor_or_a_via_no_by_is_written() {
@@ -152,22 +118,6 @@ mod tests {
                 json!({"actor": "human"}),
             ),
             "the shape an approval had before #62, and only the parts known"
-        );
-    }
-
-    #[test]
-    fn an_empty_by_does_not_read() {
-        let approval = json!({
-            "type": "plan_approved", "plan": "p.md", "hash": "sha256:00", "by": {},
-            "actor": "cli", "ts": "2026-10-19T09:30:00Z",
-        });
-
-        let empty = serde_json::from_value::<By>(json!({}));
-        let in_event = EventEnvelope::from_value(&approval);
-
-        assert!(
-            empty.is_err() && in_event.is_err(),
-            "`by: {{}}` claims a giver and names none: {empty:?}, {in_event:?}"
         );
     }
 

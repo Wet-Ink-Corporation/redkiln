@@ -212,7 +212,10 @@ impl EventEnvelope {
         let subject = self.event.subject_value();
         context
             .into_iter()
-            .chain([(self.event.kind().subject(), subject.as_deref())])
+            .chain([(
+                TagKey::from(self.event.kind().subject()),
+                subject.as_deref(),
+            )])
             .filter_map(|(key, value)| value.map(|value| LedgerTag::new(key, value)))
             .collect()
     }

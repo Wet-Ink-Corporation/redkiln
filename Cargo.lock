@@ -123,11 +123,18 @@ dependencies = [
 [[package]]
 name = "bench-contract"
 version = "0.0.5"
+dependencies = [
+ "redkiln-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "bench-ledger"
 version = "0.0.5"
 dependencies = [
+ "bench-contract",
  "happenstance-core",
  "happenstance-sqlite",
  "serde",
