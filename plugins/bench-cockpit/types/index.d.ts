@@ -111,7 +111,7 @@ export type AnnealStatus = {
  * What the cockpit last learned from the CLI:
  *
  * - `unread`: no refresh has finished yet;
- * - `absent`: `bench status` exited 2 with its `status/no-ledger` finding (no ledger here);
+ * - `absent`: `bench status` exited 0 with its `status/no-store` note (no ledger here);
  * - `read`: the last good status document, without any section whose fields did not have the
  *   types the cockpit reads (`unreadable` names those);
  * - `unavailable`: the CLI could not be run or printed no status document, and there was no

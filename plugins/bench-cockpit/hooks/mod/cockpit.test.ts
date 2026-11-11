@@ -13,12 +13,12 @@ const SURFACES = ['terminal', 'desktop'] as const
 const FINDINGS_NONE = '"findings":[]'
 const PROVES = '"proves":"the ledger was read","does_not_prove":"that the work was done"'
 
-/** No ledger yet: `bench status` exits 2 with its `status/no-ledger` finding. */
+/** No ledger yet: `bench status` exits 0 with its `status/no-store` note (SPEC CLI-06). */
 const EMPTY = {
-  exitCode: 2,
+  exitCode: 0,
   stdout:
-    '{"ok":false,"command":"status","data":{"schema":1},"findings":[{"key":"status/no-ledger",' +
-    `"message":"no ledger exists yet"}],${PROVES}}`,
+    '{"schema":"bench.status/1","ok":true,"command":"status","data":{"schema":1},' +
+    `"findings":[{"key":"status/no-store","message":"no ledger exists yet","severity":"note"}],${PROVES}}`,
 }
 
 /** Mid-build: an approved plan, 3 of 7 tasks done, an old block since passed, 58% context. */
