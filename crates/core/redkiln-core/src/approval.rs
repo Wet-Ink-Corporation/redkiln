@@ -66,8 +66,10 @@ pub struct ApprovalSubject {
 }
 
 impl ApprovalSubject {
-    /// The subject of `kind` at `locator` whose method and hash are `subject`'s, so the two can
-    /// never disagree. No base: see [`ApprovalSubject::with_base`].
+    /// The subject of `kind` at `locator` whose method and hash are `subject`'s, so a subject
+    /// built here keeps the two in agreement. The fields are public, so a value built or read
+    /// another way may not: readers re-check `hash` against `method` (AP-02). No base: see
+    /// [`ApprovalSubject::with_base`].
     #[must_use]
     pub fn new(kind: impl Into<String>, subject: &Subject, locator: impl Into<String>) -> Self {
         Self {

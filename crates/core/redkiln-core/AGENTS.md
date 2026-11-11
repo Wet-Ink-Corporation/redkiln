@@ -26,7 +26,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 - `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
 - At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
 
-Error variants carry rusqlite's and happenstance's errors as sources on purpose: Core is the store's adapter and pins both crates. Workspace-internal, never published.
+Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published.
 
 ## Invariants
 - The store runs under TRUNCATE, never WAL or DELETE. Nothing here deletes a file beside the store; files are set aside by renaming (ST-05). No SQLite connection Core opens can delete or play back a stale `-journal`: it is probed through a read-only read lock and renamed aside before any read-write connection sees the file, and renamed back when a writer holds it.

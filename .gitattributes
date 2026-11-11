@@ -1,3 +1,5 @@
 # Every text file is LF in the index and in every working tree (matches redkiln-rs ADR-0164).
 * text=auto eol=lf
 *.cmd text eol=crlf
+# The old-ledger fixtures are SQLite files: never diffed or normalised.
+crates/bench/bench/tests/fixtures/anneal/*.sqlite3* binary
