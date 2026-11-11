@@ -22,9 +22,9 @@ const PLAN: &str = "plan.md";
 /// The human's confirmation, as recorded in `events.jsonl`.
 const QUOTE: &str = "Yes, that's it: only notes list, compact JSON, go ahead.";
 const SESSION: &str = "dry-run";
-/// Envelope fields that differ from run to run, left out of `events.jsonl`; `writer` names the
-/// build, whose version moves with every release.
-const VOLATILE: [&str; 5] = ["ts", "worktree", "branch", "head", "writer"];
+/// Envelope fields that differ from run to run, left out of `events.jsonl`; `writer.version`
+/// moves with every release, so it goes too, while the writer's `binary` and `spec` stay.
+const VOLATILE: [&str; 4] = ["ts", "worktree", "branch", "head"];
 
 fn fixture() -> PathBuf {
     [
@@ -107,11 +107,14 @@ fn recorded_events() -> Result<Vec<Value>, Box<dyn Error>> {
         .collect::<Result<_, _>>()?)
 }
 
-/// `{position, event}` with the [`VOLATILE`] keys removed from the event.
+/// `{position, event}` with the [`VOLATILE`] keys and `writer.version` removed from the event.
 fn normalised(mut record: Value) -> Value {
     if let Some(event) = record.get_mut("event").and_then(Value::as_object_mut) {
         for key in VOLATILE {
             event.remove(key);
+        }
+        if let Some(writer) = event.get_mut("writer").and_then(Value::as_object_mut) {
+            writer.remove("version");
         }
     }
     record

@@ -72,6 +72,9 @@ pub enum ReadBack {
     /// The read found it and skipped it, as every read skips an event Bench cannot use.
     #[error("the read skipped it")]
     Skipped(#[source] Skip),
+    /// The read itself failed (boxed: a store error holds this one).
+    #[error("the read failed")]
+    Read(#[source] Box<StoreError>),
 }
 
 /// Why a store operation failed.
@@ -417,14 +420,19 @@ impl Store {
     /// what `bench ledger append` and the commands that record an event print.
     ///
     /// # Errors
-    /// As [`Store::append`]; [`StoreError::NotReadBack`] when the event, written, is not found
-    /// at the position Core reported or does not read as a usable Bench event.
+    /// As [`Store::append`]; [`StoreError::NotReadBack`] when the event, written, cannot be
+    /// read back, is not found at the position Core reported, or does not read as a usable
+    /// Bench event.
     pub fn append_stored(&self, event: &EventEnvelope) -> Result<StoredEvent, StoreError> {
-        let position = self.append(event)?;
+        // Built before the write, so every failure after it is the read back, reported as such.
         let filter = Filter::default().to_core()?;
-        let after = position.saturating_sub(1);
-        let read = self.inner.read(&filter, after, NonZeroUsize::MIN)?;
+        let position = self.append(event)?;
         let not_read_back = |cause| StoreError::NotReadBack { position, cause };
+        let after = position.saturating_sub(1);
+        let read = self
+            .inner
+            .read(&filter, after, NonZeroUsize::MIN)
+            .map_err(|error| not_read_back(ReadBack::Read(Box::new(error.into()))))?;
         let stored = read
             .first()
             .filter(|stored| stored.position == position)

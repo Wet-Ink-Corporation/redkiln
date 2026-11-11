@@ -32,7 +32,7 @@ pub enum SchemaError {
         field: &'static str,
     },
     /// The `type` is not one of Bench's 17.
-    #[error("unknown event type {name:?}: one of bench.test_run, bench.task_done, ... (EV-03)")]
+    #[error("unknown event type {name:?}: the types append takes are in data.types (EV-03)")]
     UnknownType {
         /// The type given.
         name: String,

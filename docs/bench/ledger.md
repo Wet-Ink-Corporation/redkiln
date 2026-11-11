@@ -237,7 +237,8 @@ written).
 
 An event that is written but does not read back at the position Core reported, or reads back as
 an event Bench cannot use, exits 70 with `the event was written at position <n> but did not read
-back; do not append it again` and its cause (no event there, or the read skipped it). The event
+back; do not append it again` and its cause (no event there, the read skipped it, or the
+read failed). The event
 is in the store: running the command again records it a second time. This holds for `append`
 and for every command that prints the event it records (`grill confirm`, `repro record`, `task
 done`, `mode`, `verdict set`); a store that took the write never does this.
