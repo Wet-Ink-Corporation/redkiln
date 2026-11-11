@@ -131,7 +131,7 @@ bench eval routing --router claude --trust-plugin | jq -r '.data.table[]'
 
 ### `--changed-since <ref>`
 
-The suite costs money, so a pull request runs it only when routing could have changed: a model-invoked skill's `name`, `description` or `when_to_use` differs in the working tree from `<ref>`, a skill was added or removed, or `disable-model-invocation` flipped. Otherwise it exits 0 with `data.skipped: true` and runs nothing. A skill file that cannot be read (or whose frontmatter does not parse) on one side only counts as a change; one unreadable on both sides compares equal. A working-tree skill that does not read already stops the run at Tier 1's checks (exit 2).
+The suite costs money, so a pull request runs it only when routing could have changed: a model-invoked skill's `name`, `description` or `when_to_use` differs in the working tree from `<ref>`, a skill was added or removed, or `disable-model-invocation` flipped. Otherwise it exits 0 with `data.skipped: true` and runs nothing. A skill file that cannot be read (or whose frontmatter does not parse) on one side only counts as a change; one unreadable on both sides compares equal. A working-tree skill that does not read already stops the run at Tier 1's checks (exit 5).
 
 ### CI (pending)
 

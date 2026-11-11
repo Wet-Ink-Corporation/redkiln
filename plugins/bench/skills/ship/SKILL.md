@@ -28,7 +28,7 @@ Takes a change that passed `verify` through review, merge, migration and rollout
 4. **GO or NO-GO.** GO only with steps 2 and 3 done and `bench watch pr <n>` at exit 0; otherwise NO-GO. It's working if the decision names each exit code.
 5. **Merge.** Run exactly `gh pr merge <n> --match-head-commit <HEAD> --repo <origin's host/owner/repo>`, alone. It's working if the `merge-gate` hook lets it through.
 6. **Migrate.** For a schema or data change, follow references/migrate.md: expand, then waves with `bench migrate start` and `bench migrate done`, then `bench migrate contract`. It's working if contract exits 0.
-7. **Roll out.** Before each stage of references/release.md, run `bench rollout decide --metrics <json> --bands <file>`. It's working if every widening follows an exit 0; on 1 hold, on 2 run the rollback plan.
+7. **Roll out.** Before each stage of references/release.md, run `bench rollout decide --metrics <json> --bands <file>`. It's working if every widening follows an exit 0; on 1 hold, on 3 run the rollback plan.
 8. **Speed claims.** Run `bench perf sample` on the base and `bench perf noise` on the change. It's working if every kept speed-up has an exit 0 behind it.
 
 ## Rationalizations

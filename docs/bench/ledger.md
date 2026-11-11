@@ -208,7 +208,7 @@ anneal ledger [--store <file>] journal
   journal import reads. The export checkpoint at Stop and before a push waits for
   step 6.
 
-Exit codes: 0 ok, 2 schema error (an envelope with one `ledger/schema` finding on stdout: an event the store refuses, such as an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset) or
-usage error (`append` with a `by`, above), and
+Exit codes: 0 ok, 1 schema error (an envelope with one `ledger/schema` finding on stdout: an event the store refuses, such as an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset), 2 usage
+error (`append` with a `by`, above), and
 the global codes in [exit-codes.md](exit-codes.md) (70 when the store cannot be opened or
 written).

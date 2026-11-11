@@ -5,7 +5,7 @@ anneal rollout decide --metrics '<json object of numbers>' --bands <file>
 ```
 
 `rollout decide` judges a rollout's metrics against band tables and exits with the decision:
-**0 go**, **1 hold**, **2 rollback**. The `ship` skill runs it before each rollout stage
+**0 go**, **1 hold**, **3 rollback**. The `ship` skill runs it before each rollout stage
 (`plugin/skills/ship/references/release.md` holds the default stages, bands and error-budget
 policy).
 
