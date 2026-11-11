@@ -1,6 +1,8 @@
-use super::{Cli, run};
+use super::pipe::Pipe;
+use super::{Cli, Command, calibrate_unless_closed, run};
+use crate::calibrate::CalibrateEnv;
 use crate::command::CommandName;
-use clap::CommandFactory;
+use clap::{CommandFactory, Parser};
 
 /// Runs `anneal <args>` in memory: (exit code, stdout, stderr).
 fn anneal(args: &[&str]) -> (u8, String, String) {
@@ -80,7 +82,7 @@ fn an_argument_after_any_help_or_version_flag_is_a_usage_error() {
         assert!(out.is_empty(), "{flag} extra: nothing on stdout");
         assert_eq!(
             err, "bench: error: unexpected argument after --help or --version\n",
-            "{flag} extra: exactly one ERROR line"
+            "{flag} extra: exactly one `bench: error:` line"
         );
     }
 }
@@ -275,6 +277,56 @@ fn a_failure_whose_reader_closed_stdout_keeps_its_code() {
         (code, err.as_str()),
         (1, ""),
         "lint's findings code, with its envelope dropped"
+    );
+}
+
+/// Runs `bench calibrate` over an empty anneal home with `out` as stdout: (exit code, stderr).
+fn calibrate_into<O: std::io::Write>(out: O) -> (u8, String) {
+    let home = tempfile::tempdir().expect("a temporary anneal home");
+    let env = CalibrateEnv {
+        cwd: home.path(),
+        lookup: |var: &str| -> Option<std::ffi::OsString> {
+            (var == "ANNEAL_HOME").then(|| home.path().as_os_str().to_owned())
+        },
+    };
+    let Ok(Cli {
+        command: Some(Command::Calibrate(args)),
+    }) = Cli::try_parse_from(["bench", "calibrate"])
+    else {
+        panic!("`bench calibrate` parses");
+    };
+    let mut err = Vec::new();
+
+    let code = calibrate_unless_closed(&args, &env, &mut Pipe::new(out), &mut err)
+        .expect("calibrate runs");
+
+    (
+        code.value(),
+        String::from_utf8(err).expect("stderr is UTF-8"),
+    )
+}
+
+#[test]
+fn calibrate_whose_reader_closed_stdout_writes_no_summary_and_exits_0() {
+    let (code, err) = calibrate_into(ClosedPipe);
+
+    assert_eq!(
+        (code, err.as_str()),
+        (0, ""),
+        "CLI-07: nothing on stderr once the reader stopped, the summary included"
+    );
+}
+
+#[test]
+fn calibrate_with_stdout_still_read_writes_its_summary_after_the_envelope() {
+    let (code, err) = calibrate_into(Vec::new());
+
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.lines()
+            .last()
+            .is_some_and(|line| line.starts_with("proposals: ")),
+        "the summary ends with the proposals line: {err}"
     );
 }
 

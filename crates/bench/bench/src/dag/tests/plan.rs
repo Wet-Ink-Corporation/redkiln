@@ -93,7 +93,7 @@ fn check_with_a_plan_keeps_the_graph_code_when_the_graph_fails() {
 
     let (code, envelope) = emitted(|out| check_with(&Markdown::new(dir.path()), Some(&plan), out));
 
-    assert_eq!(code, 2, "dangling wins");
+    assert_eq!(code, 4, "dangling wins");
     assert_eq!(
         keys(&envelope),
         ["dag/dangling:T1->ghost", "dag/plan/no-ticket:T2"],

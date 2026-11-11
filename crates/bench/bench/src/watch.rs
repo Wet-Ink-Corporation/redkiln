@@ -7,9 +7,10 @@
 //! latest status. Each polls with back-off (10 s, doubling, at most 60 s) until a blocker
 //! appears or nothing is pending, at most `--timeout` seconds (default 1800; 0 polls once).
 //!
-//! Exit codes: 0 clear, 2 merge conflict, 3 unresolved review threads, 4 failing checks (or a
-//! failed deployment), 5 timeout, 6 the merge gate would deny the head, 7 query error (one
-//! `ERROR` line, nothing on stdout). With several blockers the lowest code wins; the envelope
+//! Exit codes: 0 clear, 3 unresolved review threads, 4 failing checks (or a failed
+//! deployment), 5 timeout, 6 the merge gate would deny the head, 7 query error (one
+//! `bench: error:` line, nothing on stdout), 8 merge conflict. With several blockers a conflict
+//! wins, then the lowest code; the envelope
 //! names every one (`data.blockers`, one finding each), and on a timeout what was still
 //! pending. GitHub is read only through `gh`: REST `GET`, and one GraphQL query for review
 //! threads. Ctrl-C ends the process by the default SIGINT action: no handler, no temporary
@@ -346,7 +347,7 @@ fn report<O: Write>(
         .map_err(CliError::Output)
 }
 
-/// The state and exit code of a finished watch: the lowest blocker's code, else 5 on a
+/// The state and exit code of a finished watch: the first-ranked blocker's code, else 5 on a
 /// timeout, else 0.
 fn outcome(watched: &Watched) -> (State, Code) {
     match watched.snapshot.blocker_code() {

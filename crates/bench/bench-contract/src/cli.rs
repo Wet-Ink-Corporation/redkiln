@@ -153,10 +153,7 @@ pub const OUTPUTS: &[&str] = &[
 /// the binary's namespace, the path's words joined by `-`, then [`OUTPUT_VERSION`].
 #[must_use]
 pub fn output_id(command: &str) -> String {
-    format!(
-        "{BINARY}.{}/{OUTPUT_VERSION}",
-        command.split(' ').collect::<Vec<_>>().join("-")
-    )
+    format!("{BINARY}.{}/{OUTPUT_VERSION}", command.replace(' ', "-"))
 }
 
 #[cfg(test)]

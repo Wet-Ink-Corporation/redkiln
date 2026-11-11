@@ -90,7 +90,7 @@ fn an_appended_event_is_queried_back_in_the_envelope() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn a_bad_event_exits_2_with_an_envelope_and_writes_nothing() -> TestResult {
+fn a_bad_event_exits_1_with_an_envelope_and_writes_nothing() -> TestResult {
     let dir = tempfile::tempdir()?;
     let store = dir.path().join("ledger.sqlite3");
 
@@ -101,7 +101,7 @@ fn a_bad_event_exits_2_with_an_envelope_and_writes_nothing() -> TestResult {
         "not json",
     ] {
         let output = ledger_at(dir.path(), &store, &["append", bad])?;
-        let refused = envelope(&output, 2)?;
+        let refused = envelope(&output, 1)?;
 
         assert_eq!(refused["ok"], false, "{bad}: {refused}");
         assert_eq!(
@@ -267,7 +267,7 @@ fn append_refuses_a_by_on_an_approval_or_a_verdict_as_a_usage_error() -> TestRes
             stderr.starts_with("bench: error: ")
                 && stderr.lines().count() == 1
                 && stderr.contains("by"),
-            "{claimed}: one ERROR line naming `by`: {stderr}"
+            "{claimed}: one `bench: error:` line naming `by`: {stderr}"
         );
     }
     assert!(!store.exists(), "nothing was appended, not even a ledger");

@@ -127,7 +127,7 @@ Every event is one JSON object: the event's `type` and payload, flattened beside
 Every payload field name is a persisted JSON key: renaming one is a migration. Optional fields
 read back from either `null` or a missing key, so adding one is additive. Writing is strict: an
 unregistered `type`, a missing or mistyped field, a key the type does not define, a `ts` that is
-not RFC 3339 or a tag value that is not valid is a schema error (exit 2) and nothing is written.
+not RFC 3339 or a tag value that is not valid is a schema error (exit 1) and nothing is written.
 Reading ignores keys a newer anneal added.
 
 ## Tags
@@ -208,7 +208,7 @@ anneal ledger [--store <file>] journal
   journal import reads. The export checkpoint at Stop and before a push waits for
   step 6.
 
-Exit codes: 0 ok, 2 schema error (an envelope with one `ledger/schema` finding on stdout: an event the store refuses, such as an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset) or
-usage error (`append` with a `by`, above), and
+Exit codes: 0 ok, 1 schema error (an envelope with one `ledger/schema` finding on stdout: an event the store refuses, such as an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset), 2 usage
+error (`append` with a `by`, above), and
 the global codes in [exit-codes.md](exit-codes.md) (70 when the store cannot be opened or
 written).

@@ -143,7 +143,7 @@ none); an untracked file over 1 MiB, whose lines are not counted. It then asks
 with their line counts, redacted; the row keeps none of it; an empty change asks nothing). Exit 3
 (skip the doubt review) only when no trigger fired and D5, in effect enforce, answered `skip`
 with its row logged; otherwise exit 0 (run it), so in shadow, off, misconfigured or with no answer
-the review runs as it always did. A change that cannot be read exits 2. `data` holds `base`,
+the review runs as it always did. A change that cannot be read exits 1. `data` holds `base`,
 `merge_base`, `files`, `lines`, `doubt_review`, `triggers` (`path` with `glob` and `category`,
 `lines` with `limit`, `unmeasured`; at most 64 file triggers, the rest in `omitted`) and `clef`
 (`clef`: `not_asked`, `off`, `misconfigured`, `decided`, `no_answer`, `unlogged` or `failed`;

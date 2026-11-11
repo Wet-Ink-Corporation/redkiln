@@ -53,7 +53,7 @@ fn the_hand_computed_log_gives_its_brier_bins_ask_rate_and_proposal() -> TestRes
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let envelope = envelope(&output)?;
-    crate::support::golden(&envelope, &[home.path()], &[])?;
+    crate::support::golden("bench.calibrate/1", &envelope, &[home.path()], &[])?;
     let data = &envelope["data"];
     assert_eq!(
         (&data["skipped_rows"], &data["unmatched_labels"]),

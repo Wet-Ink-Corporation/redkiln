@@ -5,7 +5,7 @@ anneal rollout decide --metrics '<json object of numbers>' --bands <file>
 ```
 
 `rollout decide` judges a rollout's metrics against band tables and exits with the decision:
-**0 go**, **1 hold**, **2 rollback**. The `ship` skill runs it before each rollout stage
+**0 go**, **1 hold**, **3 rollback**. The `ship` skill runs it before each rollout stage
 (`plugin/skills/ship/references/release.md` holds the default stages, bands and error-budget
 policy).
 
@@ -50,8 +50,8 @@ The boundary fixtures are `crates/anneal-cli/tests/fixtures/rollout/` (`go.json`
 Each metric that is not go is a finding: `rollout/hold:<metric>`, `rollout/rollback:<metric>`
 or `rollout/missing:<metric>`.
 
-Exit codes: 0 go, 1 hold, 2 rollback (each with its envelope on stdout); a bands file that is
+Exit codes: 0 go, 1 hold, 3 rollback (each with its envelope on stdout); a bands file that is
 missing, not a regular file, too large or invalid, or `--metrics` that names a metric twice or is not a JSON object of
-numbers, is a usage error (2 with one `ERROR` line and nothing on stdout); a bands file that
-exists but cannot be read is 70. A rollback's 2 always comes with an envelope, a usage error's
+numbers, is a usage error (2 with one `bench: error:` line and nothing on stdout); a bands file that
+exists but cannot be read is 70. A rollback's 3 always comes with an envelope, a usage error's 2
 never.

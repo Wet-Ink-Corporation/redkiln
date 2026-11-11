@@ -59,7 +59,7 @@ fn check_reads_the_suites_reports_their_coverage_and_runs_nothing() -> TestResul
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
-    crate::support::golden(&envelope, &[&fixtures()], &[])?;
+    crate::support::golden("bench.eval-uplift/1", &envelope, &[&fixtures()], &[])?;
     assert_eq!(
         (
             &envelope["command"],
@@ -84,7 +84,7 @@ fn check_reads_the_suites_reports_their_coverage_and_runs_nothing() -> TestResul
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn invalid_suites_exit_2_before_anything_runs() -> TestResult {
+fn invalid_suites_exit_5_before_anything_runs() -> TestResult {
     let work = tempfile::tempdir()?;
     let missing = work.path().join("no-such-claude");
 
@@ -94,7 +94,7 @@ fn invalid_suites_exit_2_before_anything_runs() -> TestResult {
     )?;
 
     let envelope = envelope(&output)?;
-    assert_eq!(output.status.code(), Some(2), "{envelope}");
+    assert_eq!(output.status.code(), Some(5), "{envelope}");
     assert_eq!(
         (&envelope["data"]["runs"], &envelope["findings"]),
         (

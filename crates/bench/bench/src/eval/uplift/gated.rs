@@ -7,7 +7,7 @@ use std::fmt;
 
 use super::suites::Case;
 
-/// How many case files a refusal names before it only counts the rest, so its one `ERROR`
+/// How many case files a refusal names before it only counts the rest, so its one `bench: error:`
 /// line stays short whatever the selection.
 const MAX_NAMED: usize = 3;
 

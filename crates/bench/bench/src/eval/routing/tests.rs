@@ -241,7 +241,7 @@ fn file_level_problems_are_reported_once_per_file_and_exit_invalid() {
         ],
         "skills first, then fixtures in order, then missing fixtures; spec is not also missing"
     );
-    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 2");
+    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 5");
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn count_and_owner_problems_point_at_their_lines() {
         Some(&(2, true)),
         "valid prompts are still scored"
     );
-    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 2");
+    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 5");
 }
 
 #[test]
@@ -306,7 +306,7 @@ fn every_owner_is_validated_even_without_prompts() {
         ],
         "an owner with no prompts is checked at its key"
     );
-    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 2");
+    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 5");
 }
 
 #[test]
@@ -351,7 +351,7 @@ fn a_fixture_or_owner_naming_an_unparseable_skill_says_so() {
         ],
         "not reported as unknown: the skill exists but its SKILL.md does not parse"
     );
-    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 2");
+    assert_eq!(outcome.code(), exit_codes::EVAL_INVALID, "exit 5");
 }
 
 #[test]

@@ -10,7 +10,7 @@
 //!
 //! Exit 3 (skip the doubt review) only when no trigger fired and D5, in effect enforce, answered
 //! `skip` with its row logged; exit 0 (run it) otherwise, shadow included, since the skill ran
-//! the doubt review every time before D5. A change that cannot be read exits 2. See
+//! the doubt review every time before D5. A change that cannot be read exits 1. See
 //! `docs/decide.md`.
 
 pub(crate) mod clef;

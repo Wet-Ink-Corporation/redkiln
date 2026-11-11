@@ -300,12 +300,11 @@ const readStatus = async ($: EngineInterface, fields: readonly string[]): Promis
   if (!ran.isRun) return { kind: 'unavailable', reason: ran.reason }
   const envelope = readEnvelope(ran.stdout)
   if (ran.exitCode === 0 && envelope !== null) {
+    // A report exits 0 whenever it wrote its document (SPEC CLI-06); no ledger is a note.
+    if (envelope.findings.includes('status/no-store')) return { kind: 'absent' }
     return envelope.unreadable.length === 0
       ? { kind: 'read', status: envelope.status }
       : { kind: 'read', status: envelope.status, unreadable: envelope.unreadable }
-  }
-  if (ran.exitCode === 2 && envelope?.findings.includes('status/no-ledger') === true) {
-    return { kind: 'absent' }
   }
   const said = firstLine(ran.stderr) ?? firstLine(ran.stdout)
 
@@ -459,7 +458,7 @@ export const statusText = async ($: EngineInterface): Promise<string> => {
   const ran = await runAnneal($, ['status'], TEXT_TIMEOUT_MS)
   if (!ran.isRun) return `${ran.hasStarted ? UNAVAILABLE : NOT_BUILT} (${ran.reason}).`
   const text = ran.stdout.trim()
-  if ((ran.exitCode === 0 || ran.exitCode === 2) && text !== '') return text
+  if (ran.exitCode === 0 && text !== '') return text
   const said = firstLine(ran.stderr) ?? `exit ${ran.exitCode}`
   // A CLI built before `status` existed rejects it as a usage error; anything else is a failure.
   const isMissing = ran.exitCode === 2 && /unrecognized subcommand/i.test(said)

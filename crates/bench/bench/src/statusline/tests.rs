@@ -154,5 +154,5 @@ fn a_usage_file_that_cannot_be_saved_is_said_in_the_line() {
         (0, "anneal ctx 2k/200k 1% (usage not saved)\n"),
         "the line says the monitor will not see it"
     );
-    assert_eq!(err.lines().count(), 1, "one ERROR line: {err}");
+    assert_eq!(err.lines().count(), 1, "one `bench: error:` line: {err}");
 }

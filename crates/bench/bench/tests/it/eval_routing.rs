@@ -46,7 +46,7 @@ fn a_passing_set_exits_0_and_its_table_is_all_diagonal() -> TestResult {
 
     assert_eq!(code, Some(0), "100% rank-1: {envelope}");
     assert_eq!(stderr, "", "nothing on stderr");
-    crate::support::golden(&envelope, &[&fixtures()], &[])?;
+    crate::support::golden("bench.eval-routing/1", &envelope, &[&fixtures()], &[])?;
     assert_eq!(
         envelope["command"],
         json!("eval routing"),
@@ -110,7 +110,7 @@ fn a_failing_set_exits_1_and_the_table_shows_the_confusion() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn an_invalid_fixture_exits_2_with_an_envelope() -> TestResult {
+fn an_invalid_fixture_exits_5_with_an_envelope() -> TestResult {
     let work = tempfile::tempdir()?;
     for name in ["spec.yaml", "diagnose.yaml"] {
         std::fs::copy(fixtures().join("pass").join(name), work.path().join(name))?;
@@ -122,7 +122,7 @@ fn an_invalid_fixture_exits_2_with_an_envelope() -> TestResult {
 
     let (code, envelope, stderr) = eval_routing(&fixtures().join("skills"), work.path())?;
 
-    assert_eq!(code, Some(2), "invalid fixtures: {envelope}");
+    assert_eq!(code, Some(5), "invalid fixtures: {envelope}");
     assert_eq!(stderr, "", "a command result, not an error");
     let keys: Vec<&str> = envelope["findings"]
         .as_array()
@@ -150,7 +150,7 @@ fn a_missing_fixtures_dir_is_a_usage_error_with_nothing_on_stdout() -> TestResul
     assert!(
         stderr.starts_with("bench: error: eval: reading fixtures: no such path: ")
             && stderr.lines().count() == 1,
-        "one ERROR line: {stderr:?}"
+        "one `bench: error:` line: {stderr:?}"
     );
     Ok(())
 }

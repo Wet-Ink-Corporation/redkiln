@@ -220,7 +220,7 @@ an input that lists no calls (or cannot be read, which is noted) takes them from
 
 | Order | Check | Limit | A failure is |
 |---|---|---|---|
-| 1 | `anneal floor-guard` | 6 s | exit 1: a **block**; anything else (exit 2, a timeout): a note |
+| 1 | `anneal floor-guard` | 6 s | exit 1: a **block**; anything else (exit 3, a timeout): a note |
 | 2 | `check_fast` from `.anneal/config.json` (an argv array, no shell), when set | 5 s | a note with its exit and the last 2 KiB of its output |
 | 3 | `anneal lint terms --glossary CONTEXT.md` on the changed files, when `CONTEXT.md` exists | 2 s | a note with the hits |
 | 4 | `anneal lint spec` or `anneal lint plan` for each changed `.md` file whose nearest `specs` or `plans` directory names it | 2 s each | a note with the findings |

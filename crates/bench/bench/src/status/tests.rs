@@ -217,21 +217,28 @@ fn an_empty_ledger_has_schema_1_no_gates_and_an_empty_tail() -> Setup<()> {
 }
 
 #[test]
-fn without_a_ledger_it_exits_2_with_the_document_and_creates_none() -> Setup<()> {
+fn without_a_ledger_it_exits_0_with_the_document_and_creates_none() -> Setup<()> {
     let fixture = Fixture::new()?;
 
     let (code, envelope) = fixture.json(&[])?;
 
-    assert_eq!(code, 2, "no ledger: {envelope}");
+    assert_eq!(
+        code, 0,
+        "a report exits 0 once written (CLI-06): {envelope}"
+    );
     assert_eq!(
         envelope["data"],
         json!({"schema": 1}),
         "no section has data"
     );
     assert_eq!(
-        envelope["findings"][0]["key"],
-        json!("status/no-ledger"),
-        "the finding names the missing ledger"
+        (
+            &envelope["findings"][0]["key"],
+            &envelope["findings"][0]["severity"],
+            &envelope["ok"],
+        ),
+        (&json!("status/no-store"), &json!("note"), &json!(true)),
+        "a note names the missing ledger, and ok agrees with exit 0"
     );
     assert!(!fixture.store_path().exists(), "no ledger was created");
     Ok(())

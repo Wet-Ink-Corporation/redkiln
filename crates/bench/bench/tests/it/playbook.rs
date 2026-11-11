@@ -35,7 +35,7 @@ fn show_spec_template_writes_the_built_in_text_as_markdown() -> TestResult {
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
-    crate::support::golden(&envelope, &[], &[])?;
+    crate::support::golden("bench.playbook-show/1", &envelope, &[], &[])?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -118,7 +118,7 @@ fn list_names_every_playbook_in_order_with_its_media_type() -> TestResult {
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
-    crate::support::golden(&envelope, &[], &[])?;
+    crate::support::golden("bench.playbook-list/1", &envelope, &[], &[])?;
     let listed: Vec<(&str, &str)> = envelope["data"]["playbooks"]
         .as_array()
         .ok_or("data.playbooks is an array")?

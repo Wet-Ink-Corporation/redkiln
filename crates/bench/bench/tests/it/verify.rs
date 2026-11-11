@@ -1,5 +1,5 @@
 //! `bench verify risk` through the built binary: D5's deterministic triggers fire with Clef
-//! unreachable, and a change that cannot be read is exit 2 with one `ERROR` line.
+//! unreachable, and a change that cannot be read is exit 1 with one `bench: error:` line.
 
 use std::error::Error;
 use std::path::Path;
@@ -43,9 +43,9 @@ fn risk_unreachable(cwd: &Path, home: &Path) -> Result<Output, Box<dyn Error>> {
         .output()?)
 }
 
-/// What differs on each run in `verify risk`'s envelope: Clef's decision id holds the time.
-/// The id holds a time, and the reason holds the OS's own words for the refused connection
-/// (macOS says "address not available" where Linux says "connection refused").
+/// What differs between runs of `verify risk`: Clef's decision id holds the time, and its
+/// reason the OS's own words for the refused connection (macOS "address not available", Linux
+/// "connection refused").
 const VERIFY_VARIES: &[&str] = &["/data/clef/id", "/data/clef/reason"];
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
@@ -77,7 +77,12 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
         assert_eq!(output.status.code(), Some(0), "{output:?}");
         let envelope = envelope(&output)?;
         if file.0 == "src/payments/charge.rs" {
-            crate::support::golden(&envelope, &[dir.path(), home.path()], VERIFY_VARIES)?;
+            crate::support::golden(
+                "bench.verify-risk/1",
+                &envelope,
+                &[dir.path(), home.path()],
+                VERIFY_VARIES,
+            )?;
         }
         assert_eq!(envelope["data"]["doubt_review"], json!(true), "{envelope}");
         assert_eq!(envelope["data"]["triggers"], expected, "{envelope}");
@@ -85,6 +90,14 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
             envelope["data"]["clef"]["clef"],
             json!("no_answer"),
             "{envelope}"
+        );
+        // The golden does not compare the reason (it varies by OS), so its frame is pinned here.
+        let reason = envelope["data"]["clef"]["reason"]
+            .as_str()
+            .ok_or("a reason")?;
+        assert!(
+            reason.starts_with("Clef unreachable: connection failed (") && reason.ends_with(')'),
+            "{reason}"
         );
         assert!(
             !output.stdout.windows(12).any(|w| w == b"s3cr3t-T0KEN"),
@@ -96,13 +109,13 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn outside_a_repository_it_exits_2_with_one_error_line_and_nothing_on_stdout() -> TestResult {
+fn outside_a_repository_it_exits_1_with_one_error_line_and_nothing_on_stdout() -> TestResult {
     let dir = tempfile::tempdir()?;
     let home = tempfile::tempdir()?;
 
     let output = risk_unreachable(dir.path(), home.path())?;
 
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");

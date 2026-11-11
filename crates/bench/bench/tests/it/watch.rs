@@ -108,7 +108,7 @@ fn failing_checks_exit_4_with_an_envelope_naming_them() -> TestResult {
 
     assert_eq!(output.status.code(), Some(4), "{output:?}");
     let envelope = envelope(&output)?;
-    crate::support::golden(&envelope, &[gh.dir.path()], &[])?;
+    crate::support::golden("bench.watch-ci/1", &envelope, &[gh.dir.path()], &[])?;
     let names: Vec<&str> = envelope["data"]["blockers"]
         .as_array()
         .ok_or("blockers is a list")?
@@ -139,7 +139,7 @@ fn a_merged_pull_request_is_clear_at_once() -> TestResult {
         (&Value::from("clear"), &Value::from(1)),
         "{envelope}"
     );
-    crate::support::golden(&envelope, &[gh.dir.path()], &[])?;
+    crate::support::golden("bench.watch-pr/1", &envelope, &[gh.dir.path()], &[])?;
     Ok(())
 }
 
@@ -162,7 +162,7 @@ fn a_successful_deploy_is_clear_at_once() -> TestResult {
         Value::from("clear"),
         "{envelope}"
     );
-    crate::support::golden(&envelope, &[gh.dir.path()], &[])?;
+    crate::support::golden("bench.watch-deploy/1", &envelope, &[gh.dir.path()], &[])?;
     Ok(())
 }
 

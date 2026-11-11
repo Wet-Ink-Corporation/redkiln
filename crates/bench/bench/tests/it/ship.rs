@@ -10,7 +10,7 @@ fn a_small_change_to_ordinary_files_may_skip_full_review() -> TestResult {
     let repo = PrRepo::new()?;
 
     let envelope = repo.envelope(&["ship", "skip-rule"], 0)?;
-    crate::support::golden(&envelope, &[repo.path()], &[])?;
+    crate::support::golden("bench.ship-skip-rule/1", &envelope, &[repo.path()], &[])?;
 
     assert_eq!(
         (
@@ -93,7 +93,7 @@ fn a_base_that_names_no_commit_is_a_usage_error() -> TestResult {
     assert!(output.stdout.is_empty(), "nothing on stdout: {output:?}");
     assert!(
         String::from_utf8(output.stderr)?.starts_with("bench: error: base no-such-base"),
-        "one ERROR line naming the base"
+        "one `bench: error:` line naming the base"
     );
     Ok(())
 }

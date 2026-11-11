@@ -13,7 +13,7 @@ const STORE: &str = "ledger.sqlite3";
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn without_a_ledger_status_exits_2_and_creates_none() -> TestResult {
+fn without_a_ledger_status_exits_0_and_creates_none() -> TestResult {
     let work = tempfile::tempdir()?;
 
     let output = anneal_in(work.path())
@@ -21,15 +21,22 @@ fn without_a_ledger_status_exits_2_and_creates_none() -> TestResult {
         .env("REDKILN_STORE", STORE)
         .output()?;
 
-    assert_eq!(output.status.code(), Some(2), "no ledger");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "no ledger: a report still exits 0"
+    );
     let envelope: Value = envelope(&output)?;
-    assert_eq!(envelope["ok"], json!(false), "ok agrees with the exit code");
+    assert_eq!(envelope["ok"], json!(true), "ok agrees with the exit code");
     assert_eq!(
         envelope["data"]["schema"],
         json!(1),
         "the document is versioned"
     );
-    assert!(output.stderr.is_empty(), "no ERROR line: it is an outcome");
+    assert!(
+        output.stderr.is_empty(),
+        "no `bench: error:` line: it is an outcome"
+    );
     assert!(!work.path().join(STORE).exists(), "no ledger was created");
     Ok(())
 }
@@ -47,8 +54,18 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
         .args(["ledger", "tail", "-n", "1"])
         .env("REDKILN_STORE", STORE)
         .output()?;
-    golden(&envelope(&appended)?, &[work.path()], &[])?;
-    golden(&envelope(&tail)?, &[work.path()], &[])?;
+    golden(
+        "bench.ledger-append/1",
+        &envelope(&appended)?,
+        &[work.path()],
+        &[],
+    )?;
+    golden(
+        "bench.ledger-tail/1",
+        &envelope(&tail)?,
+        &[work.path()],
+        &[],
+    )?;
 
     let output = anneal_in(work.path())
         .args(["status", "--json", "--fields", "ledger_tail"])
@@ -57,7 +74,7 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
 
     assert_eq!(output.status.code(), Some(0), "a ledger exists");
     let envelope: Value = envelope(&output)?;
-    golden(&envelope, &[work.path()], &[])?;
+    golden("bench.status/1", &envelope, &[work.path()], &[])?;
     assert_eq!(envelope["command"], json!("status"), "the command");
     assert_eq!(
         envelope["data"]["ledger_tail"][0]["summary"],

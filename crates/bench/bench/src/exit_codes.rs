@@ -65,7 +65,8 @@ pub struct CommandCodes {
 /// Usage error: bad arguments or an unknown command. Nothing is written on stdout.
 ///
 /// Kept at clap's 2 because Claude Code reads a hook's exit 2 as "block", so a mis-invoked guard fails
-/// closed; a command's own 2 always comes with a JSON envelope on stdout, a usage error never.
+/// closed. No command gives 2 a meaning of its own (SPEC CLI-05); the one other 2 is
+/// [`HOOK_BLOCKED`], a guard failing closed (CLI-10).
 pub const USAGE: Code = Code::new(2, "usage error: bad arguments; nothing on stdout");
 /// The command exists in the tree but is not implemented yet.
 pub const NOT_IMPLEMENTED: Code = Code::new(64, "not implemented yet");
@@ -81,7 +82,7 @@ pub const GLOBAL: &[Code] = &[USAGE, NOT_IMPLEMENTED, INTERNAL, OUTPUT];
 pub const OK: Code = Code::new(0, "ok");
 
 /// `ledger`: an event does not match the ledger schema.
-pub const LEDGER_SCHEMA_ERROR: Code = Code::new(2, "schema error");
+pub const LEDGER_SCHEMA_ERROR: Code = Code::new(1, "schema error");
 /// `grill`: the design tree is invalid (a `depends_on` cycle, a dangling dependency, a
 /// duplicate id, a bad field or bound); nothing is recorded.
 pub const GRILL_INVALID: Code = Code::new(1, "invalid design tree");
@@ -92,7 +93,7 @@ pub const TASK_GREEN: Code = Code::new(0, "tests green");
 /// `task done`: a test is red (or ran past its timeout); only the red `test_run` is recorded.
 pub const TASK_TEST_RED: Code = Code::new(1, "test red");
 /// `task done`: the test command could not be started; nothing is recorded.
-pub const TASK_NOT_STARTED: Code = Code::new(2, "the test command could not be started");
+pub const TASK_NOT_STARTED: Code = Code::new(3, "the test command could not be started");
 /// `plan approve|check`: the plan is approved and its bytes are the ones approved.
 pub const PLAN_APPROVED: Code = Code::new(0, "approved and current");
 /// `plan approve|check`: the plan is not approved.
@@ -115,7 +116,7 @@ pub const REPRO_OK: Code = Code::new(
 pub const REPRO_LEFTOVERS: Code = Code::new(1, "leftovers: a `[DEBUG-<id>]` tag is left");
 /// `repro record`: the command could not be started; nothing is recorded.
 pub const REPRO_NOT_STARTED: Code = Code::new(
-    2,
+    5,
     "record: the command could not be started; nothing recorded",
 );
 /// `repro record`: the command exited 0, so it reproduces nothing; nothing is recorded.
@@ -131,9 +132,9 @@ pub const REPRO_TIMED_OUT: Code = Code::new(
 const REPRO_CODES: [Code; 5] = [
     REPRO_OK,
     REPRO_LEFTOVERS,
-    REPRO_NOT_STARTED,
     REPRO_NOT_RED,
     REPRO_TIMED_OUT,
+    REPRO_NOT_STARTED,
 ];
 /// `lint`: no error findings (warnings and review items are listed but do not fail).
 pub const LINT_CLEAN: Code = Code::new(0, "no errors");
@@ -142,7 +143,7 @@ pub const LINT_FINDINGS: Code = Code::new(1, "error findings");
 /// `dag check|frontier`: the graph has a cycle.
 pub const DAG_CYCLE: Code = Code::new(1, "cycle");
 /// `dag check|frontier`: a dependency names a task that does not exist.
-pub const DAG_DANGLING: Code = Code::new(2, "dangling dependency");
+pub const DAG_DANGLING: Code = Code::new(4, "dangling dependency");
 /// `dag check --plan`: the graph is sound but the tickets disagree with the plan's tasks.
 pub const DAG_PLAN_MISMATCH: Code = Code::new(3, "check --plan: tickets disagree with the plan");
 /// `floor-guard`: no floor was lowered.
@@ -150,7 +151,7 @@ pub const FLOOR_HELD: Code = Code::new(0, "no floor lowered");
 /// `floor-guard`: a floor was lowered.
 pub const FLOOR_LOWERED: Code = Code::new(1, "a floor was lowered");
 /// `floor-guard`: a measuring tool failed.
-pub const FLOOR_TOOL_ERROR: Code = Code::new(2, "tool error");
+pub const FLOOR_TOOL_ERROR: Code = Code::new(3, "tool error");
 /// `verdict set|valid`: the verdict is valid.
 pub const VERDICT_VALID: Code = Code::new(0, "valid");
 /// `verdict set|valid`: the verdict is invalid.
@@ -163,7 +164,7 @@ pub const VERDICT_STATUS_UNPOSTED: Code = Code::new(4, "set: recorded, status no
 /// `watch pr|ci|deploy`: the watched target is green.
 pub const WATCH_GREEN: Code = Code::new(0, "green");
 /// `watch pr|ci|deploy`: merge conflict.
-pub const WATCH_CONFLICT: Code = Code::new(2, "merge conflict");
+pub const WATCH_CONFLICT: Code = Code::new(8, "merge conflict");
 /// `watch pr|ci|deploy`: unresolved review threads.
 pub const WATCH_THREADS: Code = Code::new(3, "unresolved review threads");
 /// `watch pr|ci|deploy`: failing checks.
@@ -183,7 +184,7 @@ pub const ROLLOUT_GO: Code = Code::new(0, "go");
 /// `rollout decide`: hold.
 pub const ROLLOUT_HOLD: Code = Code::new(1, "hold");
 /// `rollout decide`: roll back.
-pub const ROLLOUT_ROLLBACK: Code = Code::new(2, "rollback");
+pub const ROLLOUT_ROLLBACK: Code = Code::new(3, "rollback");
 /// `perf noise`: keep the change (faster beyond the noise); `perf sample`: run times saved.
 pub const PERF_KEEP: Code = Code::new(0, "keep (sample: saved)");
 /// `perf noise`: revert the change (neutral or slower).
@@ -197,7 +198,7 @@ pub const MIGRATE_WAVE_OPEN: Code =
 /// not open, after the contract, or a contract with no wave done); nothing is recorded.
 pub const MIGRATE_REFUSED: Code = Code::new(3, "out of order; nothing recorded");
 /// `brief build`: the commit range is invalid.
-pub const BRIEF_BAD_RANGE: Code = Code::new(2, "bad range");
+pub const BRIEF_BAD_RANGE: Code = Code::new(1, "bad range");
 /// `round start|status`: the next round may run (start: it was recorded).
 pub const ROUND_OK: Code = Code::new(0, "a round may run (start: recorded)");
 /// `round start|status`: five rounds ran, so the ticket is parked; start records nothing.
@@ -227,7 +228,7 @@ pub const VERIFY_REVIEW: Code = Code::new(0, "run the doubt review");
 /// skip.
 pub const VERIFY_SKIP: Code = Code::new(3, "skip the doubt review (D5 enforcing, no trigger)");
 /// `verify risk`: the change could not be read (no repository, no base, a git failure).
-pub const VERIFY_TOOL_ERROR: Code = Code::new(2, "the change could not be read");
+pub const VERIFY_TOOL_ERROR: Code = Code::new(1, "the change could not be read");
 /// `decide`: Clef answered and the decision was logged; `decide label`: the label was
 /// appended.
 pub const DECIDE_DECIDED: Code = Code::new(0, "decided and logged (label: appended)");
@@ -245,7 +246,7 @@ pub const DECIDE_CLEF_UNREACHABLE: Code = Code::new(
 pub const EVAL_BELOW_BOUND: Code = Code::new(1, "below bound");
 /// `eval routing`: a fixture or skill is invalid or missing, so accuracy cannot be trusted;
 /// `eval uplift`: a suite or case is invalid.
-pub const EVAL_INVALID: Code = Code::new(2, "invalid fixtures, suites or skills");
+pub const EVAL_INVALID: Code = Code::new(5, "invalid fixtures, suites or skills");
 /// `eval routing --router claude`: the cost cap, the time limit or a failed later batch
 /// stopped the run while a prompt was still unsettled; `eval uplift`: they stopped it before
 /// every batch ran.
@@ -261,9 +262,9 @@ pub const EVAL_ROUTER_FAILED: Code = Code::new(4, "the real router could not run
 const EVAL_CODES: [Code; 5] = [
     OK,
     EVAL_BELOW_BOUND,
-    EVAL_INVALID,
     EVAL_INCOMPLETE,
     EVAL_ROUTER_FAILED,
+    EVAL_INVALID,
 ];
 /// `calibrate --apply`: a threshold step no longer matches the thresholds file (its pointer
 /// does not hold the proposal's `from`, or the edited file would not read back), so nothing
@@ -272,10 +273,6 @@ pub const CALIBRATE_REFUSED: Code = Code::new(
     3,
     "--apply: a proposal no longer matches the thresholds file; nothing written",
 );
-/// `status`: no ledger exists yet. The document (or text) is still written, with only the
-/// sections read from the anneal home, and no ledger is created.
-pub const STATUS_NO_LEDGER: Code = Code::new(2, "no ledger exists yet; none was created");
-
 /// `snapshot write`: the mod's snapshot was saved for its session. Invalid input is a usage
 /// error (2) and saves nothing.
 pub const SNAPSHOT_WRITTEN: Code = Code::new(0, "snapshot written");
@@ -307,7 +304,7 @@ impl CommandCodes {
             CommandName::Lint => ("", &[LINT_CLEAN, LINT_FINDINGS]),
             CommandName::Dag => (
                 "check|frontier",
-                &[OK, DAG_CYCLE, DAG_DANGLING, DAG_PLAN_MISMATCH],
+                &[OK, DAG_CYCLE, DAG_PLAN_MISMATCH, DAG_DANGLING],
             ),
             CommandName::FloorGuard => ("", &[FLOOR_HELD, FLOOR_LOWERED, FLOOR_TOOL_ERROR]),
             CommandName::Verdict => (
@@ -323,12 +320,12 @@ impl CommandCodes {
                 "pr|ci|deploy",
                 &[
                     WATCH_GREEN,
-                    WATCH_CONFLICT,
                     WATCH_THREADS,
                     WATCH_CHECKS,
                     WATCH_TIMEOUT,
                     WATCH_GATE,
                     WATCH_QUERY,
+                    WATCH_CONFLICT,
                 ],
             ),
             CommandName::Ship => ("skip-rule", &[SHIP_SKIP, SHIP_FULL_REVIEW]),
@@ -345,8 +342,9 @@ impl CommandCodes {
             // No scope: `routing|uplift` would widen the help's title column.
             CommandName::Eval => ("", &EVAL_CODES),
             CommandName::Calibrate => ("", &[OK, CALIBRATE_REFUSED]),
-            CommandName::Status => ("", &[OK, STATUS_NO_LEDGER]),
-            CommandName::Statusline => ("", &[OK]),
+            // `status` is a report (CLI-06): it exits 0 whenever it wrote its document, and no
+            // ledger is a note. `statusline` always prints its line.
+            CommandName::Status | CommandName::Statusline => ("", &[OK]),
             CommandName::Snapshot => ("write", &[SNAPSHOT_WRITTEN]),
             CommandName::Hook => ("", &[HOOK_DONE, HOOK_BLOCKED]),
         };
@@ -370,7 +368,7 @@ impl CommandCodes {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandCodes, GLOBAL, USAGE};
+    use super::{CommandCodes, GLOBAL, HOOK_BLOCKED, USAGE};
     use crate::command::CommandName;
 
     #[test]
@@ -405,6 +403,28 @@ mod tests {
                     .iter()
                     .any(|g| *g != USAGE && g.value() == code.value());
                 assert!(!clash, "{command} reuses global code {}", code.value());
+            }
+        }
+    }
+
+    /// SPEC CLI-05: a command never gives 2 a meaning of its own, because Claude Code reads a
+    /// hook's exit 2 as "block". 2 is only the usage error and a guard's failed-closed block
+    /// (CLI-10).
+    #[test]
+    fn two_is_only_the_usage_error_and_the_hook_block() {
+        for code in GLOBAL {
+            assert!(
+                code.value() != 2 || *code == USAGE,
+                "the only global 2 is USAGE: {code:?}"
+            );
+        }
+        for command in CommandName::ALL {
+            for code in CommandCodes::of(command).codes {
+                assert!(
+                    code.value() != 2 || (command == CommandName::Hook && *code == HOOK_BLOCKED),
+                    "{command} gives 2 a meaning of its own: {:?}",
+                    code.meaning()
+                );
             }
         }
     }

@@ -94,7 +94,7 @@ fn a_clean_diff_exits_0_with_no_findings() -> TestResult {
     let output = floor_guard(dir.path(), &[])?;
 
     let envelope = envelope(&output, 0)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.floor-guard/1", &envelope, &[dir.path()], &[])?;
     assert_eq!(
         (
             &envelope["ok"],
@@ -424,9 +424,9 @@ fn committed_changes_on_a_branch_are_diffed_against_the_merge_base() -> TestResu
     Ok(())
 }
 
-/// Checks a tool error: exit 2, nothing on stdout, one `ERROR` line containing `needle`.
+/// Checks a tool error: exit 3, nothing on stdout, one `bench: error:` line containing `needle`.
 fn assert_tool_error(output: &Output, needle: &str) -> TestResult {
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert!(
         output.stdout.is_empty(),
         "no envelope claiming ok: {output:?}"
@@ -443,7 +443,7 @@ fn assert_tool_error(output: &Output, needle: &str) -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn outside_a_git_repository_exits_2() -> TestResult {
+fn outside_a_git_repository_exits_3() -> TestResult {
     let dir = tempfile::tempdir()?;
     let ceiling = dir.path().parent().ok_or("a parent")?;
 
@@ -457,7 +457,7 @@ fn outside_a_git_repository_exits_2() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn a_base_that_does_not_resolve_exits_2() -> TestResult {
+fn a_base_that_does_not_resolve_exits_3() -> TestResult {
     let dir = repo(&[("a", "x\n")])?;
 
     let output = floor_guard(dir.path(), &["--base", "no-such-branch"])?;
@@ -467,7 +467,7 @@ fn a_base_that_does_not_resolve_exits_2() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn with_no_main_or_origin_main_and_no_base_it_exits_2() -> TestResult {
+fn with_no_main_or_origin_main_and_no_base_it_exits_3() -> TestResult {
     let dir = repo(&[("a", "x\n")])?;
     git(dir.path(), &["checkout", "-q", "-b", "trunk"]);
     git(dir.path(), &["branch", "-q", "-D", "main"]);

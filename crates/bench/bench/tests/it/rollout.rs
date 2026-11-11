@@ -36,7 +36,7 @@ fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
 fn metrics_just_inside_every_go_band_exit_0_go() -> TestResult {
     let output = decide("go.json")?;
     let envelope = envelope(&output)?;
-    crate::support::golden(&envelope, &[&fixtures()], &[])?;
+    crate::support::golden("bench.rollout-decide/1", &envelope, &[&fixtures()], &[])?;
 
     assert_eq!(output.status.code(), Some(0), "{envelope}");
     assert_eq!(
@@ -73,11 +73,11 @@ fn metrics_exactly_at_every_hold_threshold_exit_1_hold() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn metrics_exactly_at_every_rollback_threshold_exit_2_rollback() -> TestResult {
+fn metrics_exactly_at_every_rollback_threshold_exit_3_rollback() -> TestResult {
     let output = decide("rollback.json")?;
     let envelope = envelope(&output)?;
 
-    assert_eq!(output.status.code(), Some(2), "{envelope}");
+    assert_eq!(output.status.code(), Some(3), "{envelope}");
     assert_eq!(
         (&envelope["ok"], &envelope["data"]["decision"]),
         (&json!(false), &json!("rollback")),
@@ -108,7 +108,7 @@ fn a_missing_bands_file_is_a_usage_error_with_nothing_on_stdout() -> TestResult 
     assert!(
         stderr.starts_with("bench: error: rollout: bands file nope.json")
             && stderr.lines().count() == 1,
-        "one ERROR line naming the file: {stderr}"
+        "one `bench: error:` line naming the file: {stderr}"
     );
     Ok(())
 }
@@ -155,7 +155,7 @@ fn metrics_naming_a_metric_twice_are_a_usage_error_naming_it() -> TestResult {
         stderr.starts_with("bench: error: rollout: --metrics")
             && stderr.contains("metric \"error_rate\" is given twice")
             && stderr.lines().count() == 1,
-        "one ERROR line naming the metric: {stderr}"
+        "one `bench: error:` line naming the metric: {stderr}"
     );
     Ok(())
 }

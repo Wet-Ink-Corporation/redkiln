@@ -23,7 +23,7 @@ anneal · build · plan ✓ a1b2c3 · task 3/7 · 1 gate open · ctx 58% · guar
 
 - The mode (`phase.mode`); the plan (`plan ✓ <first six hex digits of the approved hash>`, `plan stale`, or `plan unapproved`); `task <done>/<total>`; `<n> gate(s) open`; `ctx <percent>%` (the newest context reading). A section the document leaves out is left out of the row.
 - Dim while nothing blocks. While a gate is open the row is drawn in the theme's `warning` color and ends with the newest open gate's id and reason.
-- Nothing at all while there is no ledger (`anneal status` exits 2 with `status/no-ledger`), before the first refresh has read anything, and while a survey holds the band: the hook passes to the engine (`next(e)`).
+- Nothing at all while there is no ledger (`bench status` exits 0 with its `status/no-store` note), before the first refresh has read anything, and while a survey holds the band: the hook passes to the engine (`next(e)`).
 - `anneal · status unavailable` when the CLI cannot be run or prints no status document and there is no earlier good reading. It is drawn, not logged, and the next refresh tries again.
 
 **Open gates.** `anneal status` lists the gates that recently *blocked* (`gate_blocked`, `stop_blocked`), not the ones still open (`docs/status.md`, `gates`). The cockpit calls a block *open* when nothing but other blocks has been recorded since it: its ledger position is after the newest event of `ledger_tail` that is not a block. A gate the session got past (a later `task_done`, `test_run`, approval, ...) is shown as passed.

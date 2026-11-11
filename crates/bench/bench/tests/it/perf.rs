@@ -51,7 +51,12 @@ fn a_change_far_faster_than_its_baseline_is_kept() -> TestResult {
         (&json!("keep"), &json!("faster")),
         "{compared}"
     );
-    crate::support::golden(&compared, &[dir.path()], &PERF_NOISE_VARIES)?;
+    crate::support::golden(
+        "bench.perf-noise/1",
+        &compared,
+        &[dir.path()],
+        &PERF_NOISE_VARIES,
+    )?;
     Ok(())
 }
 
@@ -72,7 +77,12 @@ fn sample_saves_n_runs_and_noise_compares_against_them() -> TestResult {
     let compared = envelope(&noise)?;
 
     assert_eq!(sampled.status.code(), Some(0), "{sampled:?}");
-    crate::support::golden(&envelope(&sampled)?, &[dir.path()], &PERF_SAMPLE_VARIES)?;
+    crate::support::golden(
+        "bench.perf-sample/1",
+        &envelope(&sampled)?,
+        &[dir.path()],
+        &PERF_SAMPLE_VARIES,
+    )?;
     assert_eq!(
         (
             &saved["version"],
@@ -111,7 +121,7 @@ fn a_run_that_fails_is_an_internal_error_naming_the_run_and_saves_nothing() -> T
     assert!(
         stderr.starts_with("bench: error: perf: run 1 of 2: the command failed (exit 129)")
             && stderr.lines().count() == 1,
-        "one ERROR line naming the run: {stderr}"
+        "one `bench: error:` line naming the run: {stderr}"
     );
     Ok(())
 }
@@ -133,7 +143,7 @@ fn a_command_that_cannot_start_is_a_usage_error_with_nothing_on_stdout() -> Test
     assert!(
         stderr.starts_with("bench: error: perf: could not start anneal-no-such-program")
             && stderr.lines().count() == 1,
-        "one ERROR line: {stderr}"
+        "one `bench: error:` line: {stderr}"
     );
     Ok(())
 }

@@ -69,7 +69,7 @@ mode` writes, so it counts for this worktree only. Like `anneal mode` it has no 
 | exits non-zero, or is killed by a signal | `repro_red` | 0, `data.recorded: true` |
 | exits 0: it reproduces nothing | nothing, and no ledger is opened | 3, finding `repro/not-red:<id>` |
 | runs past `--timeout`: a hang is not a reproduction | nothing, and no ledger is opened | 4, finding `repro/timed-out:<id>` |
-| cannot be started | nothing | 2, one `ERROR` line |
+| cannot be started | nothing | 5, one `bench: error:` line |
 
 Outside a git worktree, or with an `--id` or `--session` the ledger cannot tag, it is a usage
 error (2) and runs nothing. `data` reports `id`, `command`, `worktree`, `outcome` (`red`,

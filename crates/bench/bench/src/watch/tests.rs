@@ -110,14 +110,14 @@ fn exit_0_when_github_finds_the_pull_request_clear_and_the_gate_allows_its_head(
 }
 
 #[test]
-fn exit_2_for_a_merge_conflict() {
+fn exit_8_for_a_merge_conflict() {
     let ran = run(
         &["pr", "7"],
         &green("pull-conflict.json"),
         &FakeGate::default(),
     );
 
-    assert_eq!(ran.code, 2);
+    assert_eq!(ran.code, 8);
     assert_eq!(
         ran.envelope["data"]["blockers"],
         json!([{"kind": "conflict", "pr": 7, "url": "https://github.com/octo/app/pull/7"}])

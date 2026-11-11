@@ -1,8 +1,8 @@
 //! What one poll saw: the blockers, and the work still pending.
 //!
-//! A blocker settles the watch at once; pending work makes it poll again. The exit code of a
-//! blocked watch is the lowest code among its blockers (conflict 2, threads 3, checks and
-//! deployments 4, draft, merge state and the merge gate 6), and every blocker is listed.
+//! A blocker settles the watch at once; pending work makes it poll again. A blocked watch
+//! exits with the code of its first blocker in this order: conflict 8, threads 3, checks and
+//! deployments 4, draft, merge state and the merge gate 6; every blocker is listed.
 
 use std::collections::HashSet;
 
@@ -29,12 +29,13 @@ impl Snapshot {
         !self.blockers.is_empty() || self.pending.is_empty()
     }
 
-    /// The lowest exit code among the blockers; `None` when nothing blocks.
+    /// The exit code of the blocker that ranks first ([`Blocker::rank`]); `None` when nothing
+    /// blocks.
     pub(crate) fn blocker_code(&self) -> Option<Code> {
         self.blockers
             .iter()
+            .min_by_key(|blocker| blocker.rank())
             .map(Blocker::code)
-            .min_by_key(|code| code.value())
     }
 }
 
@@ -103,6 +104,19 @@ pub(crate) enum Blocker {
 }
 
 impl Blocker {
+    /// Which blocker's code a blocked watch exits with, lowest first: a merge conflict, then
+    /// review threads, then failing checks and deployments, then the draft, merge state and
+    /// gate. The conflict ranks first although its code (8) is the highest: SPEC CLI-05 moved
+    /// it off 2, and nothing else about the watch moved with it.
+    const fn rank(&self) -> u8 {
+        match self {
+            Self::Conflict { .. } => 0,
+            Self::Thread { .. } => 1,
+            Self::Check { .. } | Self::Deployment { .. } => 2,
+            Self::Draft { .. } | Self::MergeState { .. } | Self::Gate { .. } => 3,
+        }
+    }
+
     /// The exit code this blocker means.
     pub(crate) const fn code(&self) -> Code {
         match self {
@@ -288,6 +302,29 @@ mod tests {
             Some(3),
             "threads (3) before checks (4) and the gate (6)"
         );
+    }
+
+    #[test]
+    fn a_merge_conflict_wins_over_every_other_blocker_though_its_code_is_highest() {
+        let snapshot = Snapshot {
+            head: None,
+            blockers: vec![
+                Blocker::Thread {
+                    url: None,
+                    path: None,
+                },
+                check("test"),
+                Blocker::Conflict {
+                    pr: 7,
+                    url: "https://github.com/octo/app/pull/7".to_owned(),
+                },
+            ],
+            pending: Vec::new(),
+        };
+
+        let code = snapshot.blocker_code().map(Code::value);
+
+        assert_eq!(code, Some(8), "the conflict (8) before threads (3)");
     }
 
     #[test]

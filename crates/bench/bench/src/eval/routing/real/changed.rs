@@ -6,7 +6,7 @@
 //! change. A skill file that cannot be read (or whose frontmatter does not parse) on one side
 //! only counts as a change; one unreadable on both sides compares equal, as nothing the
 //! router could read changed. Tier 1's checks run first, so a working-tree skill that does
-//! not read stops the run (exit 2) before this comparison is made.
+//! not read stops the run (exit 5) before this comparison is made.
 
 use std::collections::BTreeSet;
 use std::path::Path;

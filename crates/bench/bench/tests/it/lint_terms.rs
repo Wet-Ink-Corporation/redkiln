@@ -28,7 +28,7 @@ fn a_hit_exits_1_with_file_line_and_term() -> TestResult {
     assert_eq!(output.status.code(), Some(1), "a hit is an error finding");
     assert!(output.stderr.is_empty(), "findings are not errors");
     let envelope: Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.lint-terms/1", &envelope, &[dir.path()], &[])?;
     assert_eq!(envelope["ok"], json!(false), "ok follows the exit code");
     assert_eq!(envelope["command"], json!("lint terms"), "target named");
     assert_eq!(
@@ -86,7 +86,7 @@ fn a_missing_glossary_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert_eq!(
         String::from_utf8(output.stderr)?,
         "bench: error: lint: no such path: CONTEXT.md\n",
-        "one ERROR line naming the glossary"
+        "one `bench: error:` line naming the glossary"
     );
     Ok(())
 }
@@ -125,7 +125,7 @@ fn no_files_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert_eq!(
         String::from_utf8(output.stderr)?,
         "bench: error: missing required argument: <FILE>...\n",
-        "one ERROR line naming the missing argument"
+        "one `bench: error:` line naming the missing argument"
     );
     Ok(())
 }

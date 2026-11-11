@@ -15,7 +15,7 @@ fn verdict_set_records_the_level_source_commit_patch_id_and_base() -> TestResult
     let head = repo.head()?;
 
     let envelope = repo.set_verdict("tests-verified", "local")?;
-    crate::support::golden(&envelope, &[repo.path()], &[])?;
+    crate::support::golden("bench.verdict-set/1", &envelope, &[repo.path()], &[])?;
 
     let data = &envelope["data"];
     assert_eq!(
@@ -98,7 +98,7 @@ fn a_verdict_for_the_head_is_valid() -> TestResult {
     repo.set_verdict("tests-verified", "local")?;
 
     let envelope = valid(&repo, 0)?;
-    crate::support::golden(&envelope, &[repo.path()], &[])?;
+    crate::support::golden("bench.verdict-valid/1", &envelope, &[repo.path()], &[])?;
 
     assert_eq!(
         (

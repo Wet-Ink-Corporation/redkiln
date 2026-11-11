@@ -18,9 +18,9 @@
 //! still shown beside the finding. `--fields` limits the work to the sections named:
 //! `--fields phase,plan,gates` runs no git beyond finding the ledger and the worktree. An anneal
 //! ledger not yet imported is one `ledger/old-ledger` finding; `status` never imports it
-//! (`legacy_import`: the cockpit polls it). Exit 0
-//! with a ledger; 2 without one, still with the document, and no ledger is created. See
-//! `docs/status.md`.
+//! (`legacy_import`: the cockpit polls it). A report
+//! (SPEC CLI-06): exit 0 whenever the document was written; without a ledger it carries one
+//! `status/no-store` note finding, and no ledger is created. See `docs/status.md`.
 
 mod head_verdict;
 mod home;
@@ -38,7 +38,7 @@ use clap::{Args, ValueEnum};
 use serde::Serialize;
 
 use crate::command::CommandName;
-use crate::envelope::{Envelope, Finding};
+use crate::envelope::{Envelope, Finding, Severity};
 use crate::error::CliError;
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
@@ -212,26 +212,34 @@ pub(crate) fn run<O: Write>(
         findings: Vec::new(),
     };
     old_ledgers(store.as_ref(), &location.old_ledgers, &mut gathered);
-    let code = if let Some(store) = &store {
+    // A report (SPEC CLI-06): it exits 0 whenever it wrote its document, a missing ledger
+    // included, which is a note for the reader to judge.
+    if let Some(store) = &store {
         from_ledger(store, cwd, args, &mut gathered);
-        exit_codes::OK
     } else {
-        gathered.findings.push(Finding::new(
-            "status/no-ledger",
-            "no ledger exists yet: nothing has been recorded here. fix: run an anneal command \
-             that records, such as `bench mode build`",
-        ));
-        exit_codes::STATUS_NO_LEDGER
-    };
+        gathered.findings.push(
+            Finding::new(
+                "status/no-store",
+                "no ledger exists yet: nothing has been recorded here. fix: run an anneal \
+                 command that records, such as `bench mode build`",
+            )
+            .with_severity(Severity::Note),
+        );
+    }
     from_home(&lookup, args.wanted(), &mut gathered);
     if args.json {
-        Envelope::new(CommandName::Status, None, code, &gathered.document)
-            .with_findings(&gathered.findings)
-            .emit(out)
-            .map_err(CliError::Output)
+        Envelope::new(
+            CommandName::Status,
+            None,
+            exit_codes::OK,
+            &gathered.document,
+        )
+        .with_findings(&gathered.findings)
+        .emit(out)
+        .map_err(CliError::Output)
     } else {
         text::write(&gathered.document, &gathered.findings, out).map_err(CliError::Output)?;
-        Ok(code)
+        Ok(exit_codes::OK)
     }
 }
 

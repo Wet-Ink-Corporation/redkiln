@@ -288,7 +288,11 @@ where
 
 /// Parses `args` and runs the command, returning its result and what a failure of it does to
 /// the exit code. A usage error always exits with its code.
-fn execute<I, T, O, E>(args: I, out: &mut O, err: &mut E) -> (Result<Code, CliError>, OnFailure)
+fn execute<I, T, O, E>(
+    args: I,
+    out: &mut Pipe<O>,
+    err: &mut E,
+) -> (Result<Code, CliError>, OnFailure)
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
@@ -317,7 +321,7 @@ where
 /// (`calibrate`'s summary); errors are written by [`run`].
 fn dispatch<O: Write, E: Write>(
     command: &Command,
-    out: &mut O,
+    out: &mut Pipe<O>,
     err: &mut E,
 ) -> Result<Code, CliError> {
     match command {
@@ -503,7 +507,7 @@ fn run_brief<O: Write>(args: &BriefArgs, out: &mut O) -> Result<Code, CliError> 
 /// `bench calibrate` with the process's working directory and environment.
 fn run_calibrate<O: Write, E: Write>(
     args: &CalibrateArgs,
-    out: &mut O,
+    out: &mut Pipe<O>,
     err: &mut E,
 ) -> Result<Code, CliError> {
     let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
@@ -511,7 +515,35 @@ fn run_calibrate<O: Write, E: Write>(
         cwd: &cwd,
         lookup: |var: &str| std::env::var_os(var),
     };
-    calibrate::run(args, &env, out, err)
+    calibrate_unless_closed(args, &env, out, err)
+}
+
+/// `bench calibrate` in `env`. Its human summary, held until the envelope is out, goes to `err`
+/// only while `out`'s reader is still reading: once it closed stdout, nothing is said on stderr
+/// either (CLI-07).
+fn calibrate_unless_closed<O, E, L>(
+    args: &CalibrateArgs,
+    env: &CalibrateEnv<'_, L>,
+    out: &mut Pipe<O>,
+    err: &mut E,
+) -> Result<Code, CliError>
+where
+    O: Write,
+    E: Write,
+    L: Fn(&str) -> Option<OsString>,
+{
+    let mut summary = Vec::new();
+    let code = calibrate::run(args, env, out, &mut summary)?;
+    if out.reader_closed() {
+        return Ok(code);
+    }
+    match err.write_all(&summary).and_then(|()| err.flush()) {
+        Ok(()) => Ok(code),
+        // Best effort, as in `calibrate::run` (docs/calibrate.md): the summary repeats the
+        // envelope already on stdout, and stderr, the stream that refused it, is the only
+        // channel left to report on.
+        Err(_unreportable) => Ok(code),
+    }
 }
 
 /// `--help` and `--version` go to stdout and exit 0 when they are the last argument; anything

@@ -12,7 +12,8 @@ that it is killed.
 |---|---|---|
 | 0 | the command exited 0 | `test_run` (`outcome: green`, `exit: 0`), then `task_done` |
 | 1 | the command exited non-zero, was killed by a signal, or ran past `--timeout` | `test_run` (`outcome: red`) only |
-| 2 | the command could not be started (not found, not executable), or a usage error | nothing; no ledger is opened |
+| 2 | a usage error | nothing; no ledger is opened |
+| 3 | the command could not be started (not found, not executable) | nothing; no ledger is opened |
 
 A non-zero result never records `task_done`. The ledger is opened only after the command has
 finished, so a command that cannot start leaves no file. The task id and `--session` are

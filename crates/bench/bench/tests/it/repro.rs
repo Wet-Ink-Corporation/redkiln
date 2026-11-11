@@ -70,7 +70,12 @@ fn worktree_key(root: &Path) -> Result<Value, Box<dyn Error>> {
     let output = anneal_in(root).args(["mode", "diagnose"]).output()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[root], &["/data/worktree"])?;
+    crate::support::golden(
+        "bench.mode-diagnose/1",
+        &envelope,
+        &[root],
+        &["/data/worktree"],
+    )?;
     Ok(envelope
         .pointer("/data/worktree")
         .cloned()
@@ -87,7 +92,7 @@ fn one_error_line(output: &Output, code: i32) -> Result<String, Box<dyn Error>> 
         .lines()
         .filter(|l| l.starts_with("bench: error: "))
         .collect();
-    assert_eq!(errors.len(), 1, "one ERROR line: {stderr}");
+    assert_eq!(errors.len(), 1, "one `bench: error:` line: {stderr}");
     Ok(errors.concat())
 }
 
@@ -102,6 +107,7 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
     assert_eq!(output.status.code(), Some(0), "red recorded: {output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
     crate::support::golden(
+        "bench.repro-record/1",
         &envelope,
         &[dir.path()],
         &[
@@ -201,12 +207,12 @@ fn a_command_that_exits_0_records_nothing_exits_3_and_opens_no_ledger() -> TestR
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn a_command_that_cannot_start_exits_2_and_records_nothing() -> TestResult {
+fn a_command_that_cannot_start_exits_5_and_records_nothing() -> TestResult {
     let dir = repo()?;
 
     let output = record(dir.path(), &[], &["anneal-no-such-program-25"])?;
 
-    let line = one_error_line(&output, 2)?;
+    let line = one_error_line(&output, 5)?;
     assert!(
         line.starts_with("bench: error: repro: could not start anneal-no-such-program-25"),
         "{line}"
@@ -277,7 +283,7 @@ fn leftovers_lists_each_tagged_line_as_file_and_line_and_exits_1() -> TestResult
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.repro-leftovers/1", &envelope, &[dir.path()], &[])?;
     assert_eq!(
         (&envelope["command"], &envelope["data"]["leftovers"]),
         (

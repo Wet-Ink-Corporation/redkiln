@@ -135,8 +135,8 @@ fn the_design_tree_has_no_open_question_and_its_confirmation_is_appended() -> Te
 
     let frontier = anneal(work.path(), &["grill", "frontier", "--tree", TREE], 0)?;
     let confirmed = confirm(work.path())?;
-    golden(&frontier, &[work.path()], &[])?;
-    golden(&confirmed, &[work.path()], &[])?;
+    golden("bench.grill-frontier/1", &frontier, &[work.path()], &[])?;
+    golden("bench.grill-confirm/1", &confirmed, &[work.path()], &[])?;
 
     let data = &frontier["data"];
     assert_eq!(
@@ -168,7 +168,7 @@ fn the_spec_lints_clean_against_the_constitution_with_no_open_marker() -> TestRe
     let work = workspace()?;
 
     let linted = anneal(work.path(), &["lint", "spec", SPEC], 0)?;
-    golden(&linted, &[work.path()], &[])?;
+    golden("bench.lint-spec/1", &linted, &[work.path()], &[])?;
 
     assert_eq!(
         linted["data"],
@@ -193,9 +193,9 @@ fn the_plan_lints_clean_and_its_approval_checks_current() -> TestResult {
     let linted = anneal(work.path(), &["lint", "plan", PLAN], 0)?;
     let approved = approve(work.path())?;
     let checked = anneal(work.path(), &["plan", "check", PLAN, "--store", STORE], 0)?;
-    golden(&linted, &[work.path()], &[])?;
-    golden(&approved, &[work.path()], &[])?;
-    golden(&checked, &[work.path()], &[])?;
+    golden("bench.lint-plan/1", &linted, &[work.path()], &[])?;
+    golden("bench.plan-approve/1", &approved, &[work.path()], &[])?;
+    golden("bench.plan-check/1", &checked, &[work.path()], &[])?;
 
     assert_eq!(
         (&linted["data"]["spec"], &linted["data"]["tasks"]),
@@ -222,8 +222,8 @@ fn the_tickets_check_clean_and_the_frontier_is_t1_and_t4() -> TestResult {
 
     let checked = anneal(work.path(), &["dag", "check", "--dir", "tickets"], 0)?;
     let frontier = anneal(work.path(), &["dag", "frontier", "--dir", "tickets"], 0)?;
-    golden(&checked, &[work.path()], &[])?;
-    golden(&frontier, &[work.path()], &[])?;
+    golden("bench.dag-check/1", &checked, &[work.path()], &[])?;
+    golden("bench.dag-frontier/1", &frontier, &[work.path()], &[])?;
 
     assert_eq!(
         checked["data"],
@@ -268,6 +268,7 @@ fn the_replayed_ledger_events_equal_the_recorded_ones() -> TestResult {
     approve(work.path())?;
     let mut queried = anneal(work.path(), &["ledger", "query", "--store", STORE], 0)?;
     golden(
+        "bench.ledger-query/1",
         &queried,
         &[work.path()],
         &[

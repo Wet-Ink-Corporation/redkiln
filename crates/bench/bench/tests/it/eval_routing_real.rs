@@ -65,7 +65,7 @@ fn a_cost_cap_that_is_not_a_positive_amount_is_a_usage_error() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn invalid_fixtures_exit_2_before_the_router_runs() -> TestResult {
+fn invalid_fixtures_exit_5_before_the_router_runs() -> TestResult {
     let work = tempfile::tempdir()?;
     for name in ["spec.yaml", "diagnose.yaml"] {
         std::fs::copy(fixtures().join("pass").join(name), work.path().join(name))?;
@@ -82,7 +82,7 @@ fn invalid_fixtures_exit_2_before_the_router_runs() -> TestResult {
     )?;
 
     let envelope = envelope(&output)?;
-    assert_eq!(output.status.code(), Some(2), "{envelope}");
+    assert_eq!(output.status.code(), Some(5), "{envelope}");
     assert_eq!(
         (
             &envelope["data"]["router"],

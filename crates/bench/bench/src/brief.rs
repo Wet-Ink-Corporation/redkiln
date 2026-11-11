@@ -331,7 +331,7 @@ fn under(root: &Path, relative: &str) -> PathBuf {
         .fold(root.to_path_buf(), |path, part| path.join(part))
 }
 
-/// The envelope for a refused range: exit 2, one `brief/range` finding, nothing written.
+/// The envelope for a refused range: exit 1, one `brief/range` finding, nothing written.
 fn bad_range<O: Write>(
     ticket: &Ticket,
     base: &str,

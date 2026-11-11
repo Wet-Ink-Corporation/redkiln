@@ -10,7 +10,7 @@
 //! The diff is the working tree (committed and uncommitted changes) against the merge base of
 //! `HEAD` and the base (`--base`, else `origin/main`, else `main`), plus every untracked file
 //! git does not ignore, read as all added. Exit 0 when no floor was lowered, 1 when one was
-//! (one finding per hit in `data.findings`), and 2 with one `ERROR` line when the check could
+//! (one finding per hit in `data.findings`), and 3 with one `bench: error:` line when the check could
 //! not run: not in a repository, a base that does not resolve, a git failure or timeout, or
 //! output over its cap. It complements temper's escape-hatch scan rather than replacing it;
 //! `docs/floor-guard.md` describes the split.
@@ -48,7 +48,7 @@ pub struct FloorGuardArgs {
     base: Option<String>,
 }
 
-/// Why `bench floor-guard` could not check the diff. Every variant exits 2: a check that did
+/// Why `bench floor-guard` could not check the diff. Every variant exits 3: a check that did
 /// not run never reads as 0.
 #[derive(Debug, thiserror::Error)]
 pub enum FloorError {
