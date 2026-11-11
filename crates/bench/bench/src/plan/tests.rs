@@ -5,11 +5,25 @@ use crate::store::{EventEnvelope, Store};
 use serde_json::Value;
 
 use super::{
-    PlanBytes, Recording, Writes, approval_by, conflict, latest, normalised, plan_id, read, record,
-    record_with, refuse,
+    ApprovalLedger, PlanBytes, Recorded, Recording, Writes, approval_by, conflict, latest,
+    normalised, plan_id, read, record_with, refuse,
 };
 use crate::error::CliError;
 use crate::exit_codes;
+
+/// Records `event` through [`record_with`] with no Core approval record beside it.
+fn record(
+    store: &impl ApprovalLedger,
+    event: &EventEnvelope,
+    plan: &PlanBytes,
+    previous: Option<&Recorded>,
+) -> Result<Recording, CliError> {
+    let writes = Writes {
+        event,
+        approval: None,
+    };
+    record_with(store, writes, plan, previous)
+}
 
 /// The `plan_approved` event for `plan` with no approver named.
 fn approval(plan: &PlanBytes, session: Option<&str>) -> Result<EventEnvelope, CliError> {
@@ -273,7 +287,7 @@ struct AlwaysOutraced {
     tries: std::cell::Cell<usize>,
 }
 
-impl super::ApprovalLedger for AlwaysOutraced {
+impl ApprovalLedger for AlwaysOutraced {
     fn append_if(
         &self,
         _event: &EventEnvelope,
@@ -284,13 +298,10 @@ impl super::ApprovalLedger for AlwaysOutraced {
         Ok(crate::store::Appended::Conflict)
     }
 
-    fn latest(
-        &self,
-        _approvals: &crate::store::Filter,
-    ) -> Result<Option<crate::store::Recorded>, CliError> {
+    fn latest(&self, _approvals: &crate::store::Filter) -> Result<Option<Recorded>, CliError> {
         let position = u64::try_from(self.tries.get()).unwrap_or(u64::MAX);
         // Each read hands back an owned event, as the store's does.
-        Ok(Some(crate::store::Recorded {
+        Ok(Some(Recorded {
             position,
             event: self.winner.clone(),
         }))

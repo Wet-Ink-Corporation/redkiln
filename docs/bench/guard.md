@@ -29,9 +29,12 @@ and wrappers do not get a command past it.
   The guard also appends a `gate_blocked` event to the ledger, with `point` set to
   `guard.<rule>`, the reason, actor `hook` and the session id. If the ledger cannot take the
   event, the command is still denied, and the reason ends with
-  `(the block was not recorded in the ledger: ...)`. Recording is bounded so the deny always
-  arrives inside the hook's 5 s `timeout`: git gets 1 s to find the ledger and each ledger
-  statement waits at most 100 ms for another process's lock (`a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget`).
+  `(the block was not recorded in the ledger: ...)`. Recording is bounded: git gets at most
+  1 s to find the store (`a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget`),
+  and opening the store and the append each wait at most Core's hook wait (2 s, `Wait::Hook`)
+  for another process's lock. Under a lock held that long a record can pass the hook's 5 s
+  `timeout`; Claude Code then blocks the command without the guard's reason, so the guard
+  still fails closed. The store's writers never hold the lock that long in practice.
 
 ### Failing closed
 

@@ -582,27 +582,6 @@ impl ApprovalLedger for Store {
     }
 }
 
-/// Appends `event`, the approval of `plan`, unless `previous` (the latest approval of `plan`
-/// the caller read) already has its hash, and only if no approval lands after `previous`.
-/// When one did, it is read back: one with the same hash and approver means the plan is
-/// already approved, and one with another hash is a conflict. An approval counts as the same
-/// only when it also names the same approver (`by`), so a human's approval of content a model
-/// approved is recorded too: when the winner has the same hash but another approver, `event`
-/// is appended after it, under the same condition.
-#[cfg(test)]
-fn record(
-    store: &impl ApprovalLedger,
-    event: &EventEnvelope,
-    plan: &PlanBytes,
-    previous: Option<&Recorded>,
-) -> Result<Recording, CliError> {
-    let writes = Writes {
-        event,
-        approval: None,
-    };
-    record_with(store, writes, plan, previous)
-}
-
 /// What recording one approval writes: the `plan_approved` event and, for a human's approval
 /// with an owner, its Core record (AP-05).
 #[derive(Debug, Clone, Copy)]
@@ -611,8 +590,15 @@ struct Writes<'a> {
     approval: Option<&'a ApprovalRecorded>,
 }
 
-/// [`record`], writing `writes.approval`'s Core record before the event in the same
-/// transaction each time the event is appended: both or neither.
+/// Appends `writes.event`, the approval of `plan`, unless `previous` (the latest approval of
+/// `plan` the caller read) already has its hash, and only if no approval lands after
+/// `previous`. When one did, it is read back: one with the same hash and approver means the
+/// plan is already approved, and one with another hash is a conflict. An approval counts as
+/// the same only when it also names the same approver (`by`), so a human's approval of content
+/// a model approved is recorded too: when the winner has the same hash but another approver,
+/// the event is appended after it, under the same condition. `writes.approval`'s Core record,
+/// when there is one, is written before the event in the same transaction each time the event
+/// is appended: both or neither.
 fn record_with(
     store: &impl ApprovalLedger,
     writes: Writes<'_>,

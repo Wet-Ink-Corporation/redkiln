@@ -52,12 +52,16 @@ pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(1);
 /// deny says so.
 const MIN_GIT_TIMEOUT: Duration = Duration::from_millis(200);
 
-/// How long the guard's own record waits for another process's lock: Core's hook wait
-/// (`Wait::Hook`, ST-09; D6 of the step 3 plan), which bounds the whole record.
+/// How long one of the guard's record steps waits for another process's lock: Core's hook
+/// wait (`Wait::Hook`, ST-09; D6 of the step 3 plan). Core can spend it twice, once opening
+/// the store and again for the append's write lock, so a record that meets a lock held that
+/// long can take about 4 s plus git, past the hook's 5 s `timeout`; Claude Code then blocks the
+/// call without the guard's reason, failing closed as `merge_gate` does. The store's writers
+/// never hold the lock that long in practice.
 const RECORD_BUSY_TIMEOUT: Duration = Wait::Hook.timeout();
 
-/// How many [`RECORD_BUSY_TIMEOUT`] waits one record can meet: one, since Core bounds the
-/// record's lock wait as a whole.
+/// How many [`RECORD_BUSY_TIMEOUT`] waits [`git_budget`] holds back for: one, the open's. The
+/// append's second wait is the overrun [`RECORD_BUSY_TIMEOUT`] describes, accepted under D6.
 const RECORD_LOCK_WAITS: u32 = 1;
 
 /// What [`git_budget`] holds back for the record's lock waits: every one of them, in full.
@@ -350,8 +354,8 @@ fn record(
     let mut envelope =
         EventEnvelope::new(event, "hook", Timestamp::now().map_err(RecordError::Clock)?);
     envelope.session_id = session_id;
-    // Core's hook wait (2 s, D6): longer than [`RECORD_BUSY_TIMEOUT`] under a lock held that
-    // long, which in practice the store's writers never hold.
+    // Core's hook wait (2 s, D6) for the open and again for the append; see
+    // [`RECORD_BUSY_TIMEOUT`] for the overrun under a lock held that long.
     Store::open_with(&path, Wait::Hook)
         .and_then(|ledger| ledger.append(&envelope))
         .map(drop)
