@@ -48,7 +48,9 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
+use crate::store::{
+    EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError, Wait,
+};
 use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
@@ -56,7 +58,7 @@ use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::harness::claude_code::ToolUse;
 use crate::hook::guard::{
-    BUSY_TIMEOUT, Context, GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge,
+    Context, GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge,
 };
 use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
 use crate::paths::{self, PathError};
@@ -68,9 +70,10 @@ use crate::verdict::assess::{Invalid, Outcome};
 use crate::verdict::pull_request::{self, PullRequest, Query};
 use pull::Pull;
 
-/// What git and the ledger reads may start within, from the hook's start: the 5 s hook
-/// `timeout` less one ledger read's lock wait begun at the end of it, the record's lock wait
-/// ([`BUSY_TIMEOUT`] each) and process start-up.
+/// What git and the ledger reads may start within, from the hook's start. Each store open
+/// waits up to Core's `Wait::Hook` (2 s) for another process's lock (D6 of the step 3 plan),
+/// which can now take a gate held by a lock past the hook's 5 s `timeout`; Claude Code then
+/// blocks the merge without the gate's reason, failing closed as the gate does.
 const GIT_BUDGET: Duration = Duration::from_millis(3_500);
 
 /// The `point` of the gate's `gate_blocked` events, before the check's id.
@@ -387,16 +390,10 @@ fn tripped(how: &str) -> Denial {
     )
 }
 
-/// The ledger seen from `cwd` when its file exists: git to find it and each later statement's
-/// lock wait both within what is left of `budget` (and at most [`GIT_TIMEOUT`] and
-/// [`BUSY_TIMEOUT`]).
+/// The store seen from `cwd` when there is one: git to find it within what is left of `budget`
+/// (and at most [`GIT_TIMEOUT`]), each write waiting Core's hook wait (2 s, D6).
 fn open_existing(cwd: &Path, lookup: impl Fn(&str) -> Option<OsString>, budget: Budget) -> Ledger {
-    existing_ledger::open_existing(
-        cwd,
-        lookup,
-        budget.cap(GIT_TIMEOUT),
-        budget.cap(BUSY_TIMEOUT),
-    )
+    existing_ledger::open_existing(cwd, lookup, budget.cap(GIT_TIMEOUT), Wait::Hook)
 }
 
 /// The denial for `merge` run from `cwd`, with the verdicts in `store`, if any.

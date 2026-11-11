@@ -70,7 +70,7 @@ impl Repo {
     fn append(&self, event: LedgerEvent) -> TestResult {
         let root = paths::worktree_root_within(self.root(), paths::GIT_TIMEOUT)?;
         let mut envelope = EventEnvelope::new(event, "cli", Timestamp::now()?);
-        envelope.worktree = Some(scope::worktree_key(&root));
+        envelope.worktree = Some(scope::worktree_id(&root));
         Store::open(&self.store_path())?.append(&envelope)?;
         Ok(())
     }
@@ -104,7 +104,7 @@ impl Repo {
         let store = self.store_path();
         let home = self.state.path().join("home");
         let lookup = move |var: &str| match var {
-            "ANNEAL_STORE" => Some(OsString::from(&store)),
+            "REDKILN_STORE" => Some(OsString::from(&store)),
             "ANNEAL_HOME" => Some(OsString::from(&home)),
             _ => None,
         };

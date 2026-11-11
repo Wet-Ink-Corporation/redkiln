@@ -124,7 +124,7 @@ impl World {
         let mut vars = BTreeMap::new();
         vars.insert("ANNEAL_HOME", dir.path().join("home").into_os_string());
         vars.insert(
-            "ANNEAL_STORE",
+            "REDKILN_STORE",
             dir.path().join("ledger.sqlite3").into_os_string(),
         );
         Self { dir, vars }

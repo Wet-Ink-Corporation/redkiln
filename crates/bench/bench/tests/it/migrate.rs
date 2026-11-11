@@ -1,5 +1,5 @@
 //! `bench migrate start|done|contract` through the built binary, on a ledger named by
-//! `ANNEAL_STORE` in a scratch directory: a contract while a wave is open is refused and
+//! `REDKILN_STORE` in a scratch directory: a contract while a wave is open is refused and
 //! appends nothing; once every wave is done it is recorded.
 
 use std::error::Error;
@@ -15,7 +15,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 /// `bench migrate <args>` in `dir`, with the ledger at `dir/ledger.sqlite3`.
 fn migrate(dir: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
     Ok(anneal_in(dir)
-        .env("ANNEAL_STORE", "ledger.sqlite3")
+        .env("REDKILN_STORE", "ledger.sqlite3")
         .arg("migrate")
         .args(args)
         .output()?)
@@ -28,7 +28,7 @@ fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
 /// The migration's events in the ledger, as `[type, wave]` pairs.
 fn events(dir: &Path, migration: &str) -> Result<Vec<Value>, Box<dyn Error>> {
     let output = anneal_in(dir)
-        .env("ANNEAL_STORE", "ledger.sqlite3")
+        .env("REDKILN_STORE", "ledger.sqlite3")
         .args([
             "ledger",
             "query",

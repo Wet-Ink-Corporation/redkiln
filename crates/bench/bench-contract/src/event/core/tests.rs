@@ -451,3 +451,29 @@ fn a_newer_version_and_undecodable_data_are_unusable() {
         "EV-10: the payload does not decode"
     );
 }
+
+#[test]
+fn an_unknown_key_in_tokens_is_ignored_on_read() {
+    let later = br#"{"type":"bench.subagent_status","version":1,"ts":"2026-11-10T09:30:00Z","actor":"hook","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.2.0","spec":"1.0.0"},"data":{"agent":"Explore","tokens":{"input":1,"output":2,"cache_read":3,"cache_creation":4,"reasoning":5}}}"#;
+
+    let decoded = decode(&stored("bench.subagent_status", later)).expect("EV-09: usable");
+
+    assert_eq!(
+        decoded.data,
+        BenchEvent::SubagentStatus(SubagentStatus {
+            agent: "Explore".to_owned(),
+            agent_id: None,
+            status: None,
+            violation: None,
+            missing: Vec::new(),
+            duration_ms: None,
+            tokens: Some(TokenUsage {
+                input: 1,
+                output: 2,
+                cache_read: 3,
+                cache_creation: 4,
+            }),
+        }),
+        "the known counts, the later key ignored"
+    );
+}

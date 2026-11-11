@@ -33,7 +33,7 @@ impl Scratch {
     /// Runs `bench hook guard --fail-closed` with `stdin`, the ledger at `store`.
     fn guard(&self, stdin: &[u8]) -> Result<Output, Box<dyn Error>> {
         let mut command = anneal_in(self.path());
-        command.env("ANNEAL_STORE", &self.store);
+        command.env("REDKILN_STORE", &self.store);
         run_guard(command, stdin)
     }
 
@@ -271,7 +271,7 @@ fn with_closed_stdout(
 ) -> Result<Output, Box<dyn Error>> {
     let mut child = anneal_in(scratch.path())
         .args(args)
-        .env("ANNEAL_STORE", &scratch.store)
+        .env("REDKILN_STORE", &scratch.store)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

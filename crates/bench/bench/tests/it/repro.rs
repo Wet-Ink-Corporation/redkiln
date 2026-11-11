@@ -30,7 +30,7 @@ fn repo() -> Result<TempDir, Box<dyn Error>> {
 
 /// The ledger `repro record` writes to: the one in the git common dir.
 fn ledger(root: &Path) -> PathBuf {
-    root.join(".git").join("anneal").join("ledger.sqlite3")
+    root.join(".git").join("redkiln").join("events.sqlite3")
 }
 
 /// Runs `bench repro <args>` in `cwd`.

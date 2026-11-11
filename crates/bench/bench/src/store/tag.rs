@@ -1,34 +1,36 @@
-//! The tag vocabulary: `key:value` tags the store indexes events by.
+//! The tag vocabulary the CLI and Bench's readers name: `key:value` tags the store indexes
+//! events by, in Core's tag registry (EV-12).
 //!
-//! Every event carries `session:` and `worktree:` when its envelope names them, plus one
-//! subject tag chosen by its type (`task:`, `plan:`, `pr:`, `point:`, `agent:` or `migration:`). The keys are a closed
-//! set; values follow happenstance's tag rules (non-empty, no control characters, at most
-//! [`MAX_TAG_LEN`](happenstance_core::MAX_TAG_LEN) bytes with the key).
+//! Every event carries `session:` and `worktree:` when its envelope names them (Core sets both),
+//! plus one subject tag chosen by its type. The CLI's short keys map to Core's: `session`,
+//! `worktree`, `task` and `pr` are Core's own keys, and `plan`, `point`, `agent` and `migration`
+//! are written `bench.<key>` (EV-12). A value is never shortened (EV-11).
 
 use std::fmt;
 use std::str::FromStr;
 
 use bench_contract::event::SubjectKey;
-use happenstance_core::{InvalidTag, Tag};
+use redkiln_core::envelope::Namespace;
+use redkiln_core::store::{CoreKey, Tag, TagError as CoreTagError};
 
-/// A tag key in the ledger's vocabulary.
+/// A tag key in the CLI's vocabulary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum TagKey {
     /// `session:<session_id>`
     Session,
-    /// `worktree:<worktree>`
+    /// `worktree:<worktree id>`
     Worktree,
     /// `task:<task id>`
     Task,
-    /// `plan:<plan id>`
+    /// `bench.plan:<plan id>`
     Plan,
     /// `pr:<number>`
     Pr,
-    /// `point:<gate or decision point>`
+    /// `bench.point:<gate or decision point>`
     Point,
-    /// `agent:<subagent type>`
+    /// `bench.agent:<subagent type>`
     Agent,
-    /// `migration:<migration id>`
+    /// `bench.migration:<migration id>`
     Migration,
 }
 
@@ -45,7 +47,7 @@ impl TagKey {
         Self::Migration,
     ];
 
-    /// The key as stored, before the `:`.
+    /// The short key, as the CLI's `--tag` names it, before the `:`.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -59,10 +61,24 @@ impl TagKey {
             Self::Migration => "migration",
         }
     }
+
+    /// The store's tag `key:value` for this key: Core's key, or `bench.<key>`.
+    fn tag(self, value: &str) -> Result<Tag, CoreTagError> {
+        let core = |key| Tag::core(key, value);
+        match self {
+            Self::Session => core(CoreKey::Session),
+            Self::Worktree => core(CoreKey::Worktree),
+            Self::Task => core(CoreKey::Task),
+            Self::Pr => core(CoreKey::Pr),
+            Self::Plan | Self::Point | Self::Agent | Self::Migration => {
+                Tag::namespaced(Namespace::Bench, self.as_str(), value)
+            }
+        }
+    }
 }
 
 impl From<SubjectKey> for TagKey {
-    /// The ledger key of an event's subject: the same short key.
+    /// The CLI key of an event's subject: the same short key.
     fn from(key: SubjectKey) -> Self {
         match key {
             SubjectKey::Task => Self::Task,
@@ -99,33 +115,34 @@ pub enum TagError {
         /// The key that was given.
         key: String,
     },
-    /// The value is not a valid tag value (empty, a control character, too long).
+    /// The value is not one the store's key holds (empty, a control character, too long, a
+    /// pull request 0, a worktree that is not a `wt-` id).
     #[error("invalid {key} tag value {value:?}")]
     Value {
         /// The tag's key.
         key: TagKey,
         /// The value that was refused.
         value: String,
-        /// Why the store refuses it.
+        /// Why Core refuses it.
         #[source]
-        source: InvalidTag,
+        source: CoreTagError,
     },
 }
 
-/// A validated `key:value` tag from the ledger's vocabulary.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A validated tag from the CLI's vocabulary, as the store writes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LedgerTag {
     key: TagKey,
     tag: Tag,
 }
 
 impl LedgerTag {
-    /// The tag `key:value`.
+    /// The tag of `key` with `value`.
     ///
     /// # Errors
-    /// [`TagError::Value`] when `value` is not a valid tag value.
+    /// [`TagError::Value`] when `value` is not one the store's key holds.
     pub fn new(key: TagKey, value: &str) -> Result<Self, TagError> {
-        Tag::key_value(key.as_str(), value)
+        key.tag(value)
             .map(|tag| Self { key, tag })
             .map_err(|source| TagError::Value {
                 key,
@@ -140,20 +157,15 @@ impl LedgerTag {
         self.key
     }
 
-    /// The whole tag, `key:value`.
+    /// The whole tag as the store keeps it: `task:T1`, `bench.plan:p.md`.
     #[must_use]
     pub fn as_str(&self) -> &str {
         self.tag.as_str()
     }
 
     /// The store's tag.
-    pub(crate) const fn as_tag(&self) -> &Tag {
+    pub(super) const fn as_tag(&self) -> &Tag {
         &self.tag
-    }
-
-    /// The store's tag, by value.
-    pub(crate) fn into_tag(self) -> Tag {
-        self.tag
     }
 }
 
@@ -166,62 +178,25 @@ impl fmt::Display for LedgerTag {
 impl FromStr for LedgerTag {
     type Err = TagError;
 
-    /// Parses `key:value`, splitting at the first `:`.
+    /// Parses `key:value`, splitting at the first `:`. The key is a short one (`plan`) or, for
+    /// Bench's own keys, as stored (`bench.plan`).
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let (key, value) = text.split_once(':').ok_or_else(|| TagError::NotKeyValue {
             text: text.to_owned(),
         })?;
-        let key = TagKey::ALL
-            .into_iter()
-            .find(|candidate| candidate.as_str() == key)
-            .ok_or_else(|| TagError::UnknownKey {
-                key: key.to_owned(),
-            })?;
+        let found = TagKey::ALL.into_iter().find(|candidate| {
+            candidate.as_str() == key
+                || (matches!(
+                    candidate,
+                    TagKey::Plan | TagKey::Point | TagKey::Agent | TagKey::Migration
+                ) && key.strip_prefix("bench.") == Some(candidate.as_str()))
+        });
+        let key = found.ok_or_else(|| TagError::UnknownKey {
+            key: key.to_owned(),
+        })?;
         Self::new(key, value)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{LedgerTag, SubjectKey, TagError, TagKey};
-
-    #[test]
-    fn every_subject_key_is_the_ledger_key_of_the_same_name() {
-        for key in SubjectKey::ALL {
-            assert_eq!(TagKey::from(key).as_str(), key.as_str(), "{key}");
-        }
-    }
-
-    #[test]
-    fn key_value_text_parses_into_a_vocabulary_tag() {
-        let tag: LedgerTag = "task:T1:a".parse().expect("a task tag");
-
-        assert_eq!(tag.key(), TagKey::Task, "split at the first colon");
-        assert_eq!(tag.as_str(), "task:T1:a", "the value keeps later colons");
-    }
-
-    #[test]
-    fn unknown_keys_missing_colons_and_empty_values_are_refused() {
-        assert!(
-            matches!("item:x".parse::<LedgerTag>(), Err(TagError::UnknownKey { key }) if key == "item"),
-            "item is not in the vocabulary"
-        );
-        assert!(
-            matches!(
-                "task".parse::<LedgerTag>(),
-                Err(TagError::NotKeyValue { .. })
-            ),
-            "no colon"
-        );
-        assert!(
-            matches!(
-                "plan:".parse::<LedgerTag>(),
-                Err(TagError::Value {
-                    key: TagKey::Plan,
-                    ..
-                })
-            ),
-            "empty value"
-        );
-    }
-}
+mod tests;

@@ -5,7 +5,8 @@ use crate::store::{EventEnvelope, Store};
 use serde_json::Value;
 
 use super::{
-    PlanBytes, Recording, approval_by, conflict, latest, normalised, plan_id, read, record, refuse,
+    PlanBytes, Recording, Writes, approval_by, conflict, latest, normalised, plan_id, read, record,
+    record_with, refuse,
 };
 use crate::error::CliError;
 use crate::exit_codes;
@@ -80,6 +81,39 @@ fn edited(plan: &PlanBytes) -> PlanBytes {
         hash: "sha256:other".to_owned(),
         approvals: plan.approvals.clone(),
     }
+}
+
+#[test]
+fn a_lost_race_writes_neither_the_approval_nor_its_core_record() -> Result<(), Box<dyn Error>> {
+    let dir = tempfile::tempdir()?;
+    let (plan, store) = setup(dir.path())?;
+    let previous = latest(&store, &plan.approvals)?;
+    store.append(&approval(&edited(&plan), None)?)?;
+    let owner = redkiln_core::suite::Owner::from_git_config("user.name ryan\n").ok_or("owner")?;
+    let record = super::decider::approval(&owner, &plan.bytes, &plan.id);
+
+    let event = approval(&plan, None)?;
+    let writes = Writes {
+        event: &event,
+        approval: Some(&record),
+    };
+
+    let recording = record_with(&store, writes, &plan, previous.as_ref())?;
+
+    assert_eq!(recording, Recording::Conflict, "the other approval won");
+    let core = redkiln_core::store::Store::open_existing(
+        &dir.path().join("ledger.sqlite3"),
+        redkiln_core::store::Wait::Command,
+    )?
+    .ok_or("the store")?;
+    let page = std::num::NonZeroUsize::new(8).ok_or("non-zero")?;
+    let types: Vec<String> = core
+        .read(&redkiln_core::store::Filter::all(), 0, page)?
+        .into_iter()
+        .map(|stored| stored.event_type)
+        .collect();
+    assert_eq!(types, ["bench.plan_approved"], "only the winner's event");
+    Ok(())
 }
 
 #[test]
@@ -243,6 +277,7 @@ impl super::ApprovalLedger for AlwaysOutraced {
     fn append_if(
         &self,
         _event: &EventEnvelope,
+        _approval: Option<&redkiln_core::approval::ApprovalRecorded>,
         _condition: &crate::store::Condition,
     ) -> Result<crate::store::Appended, CliError> {
         self.tries.set(self.tries.get().saturating_add(1));

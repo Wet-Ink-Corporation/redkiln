@@ -1,4 +1,4 @@
-use super::{PathKind, classify, normalise, relative, worktree_key};
+use super::{PathKind, classify, normalise, relative, worktree_id, worktree_key};
 
 #[test]
 fn the_handoff_note_at_the_root_is_scratch_and_elsewhere_is_not() {
@@ -227,5 +227,35 @@ fn the_define_artifacts_are_artifacts_in_any_letter_case() {
     assert_eq!(
         classify("design-tree.json.bak", &artifacts),
         PathKind::Source
+    );
+}
+
+#[test]
+fn a_worktree_is_named_by_its_id_one_per_toplevel() {
+    let main = std::env::temp_dir().join("repo");
+    let linked = std::env::temp_dir().join("repo-linked");
+    let main = main.to_str().expect("UTF-8");
+    let linked = linked.to_str().expect("UTF-8");
+
+    let id = worktree_id(main);
+
+    assert!(
+        redkiln_core::ids::WorktreeId::parse(&id).is_ok(),
+        "ID-06's form: {id}"
+    );
+    assert_eq!(worktree_id(main), id, "stable");
+    assert_ne!(worktree_id(linked), id, "another worktree, another id");
+}
+
+#[test]
+fn a_relative_root_has_no_id_and_keeps_its_key_which_the_store_refuses() {
+    assert_eq!(
+        worktree_id("rel/repo"),
+        worktree_key("rel/repo"),
+        "no id to write"
+    );
+    assert!(
+        redkiln_core::ids::WorktreeId::parse(&worktree_id("rel/repo")).is_err(),
+        "so nothing is written or found under it"
     );
 }

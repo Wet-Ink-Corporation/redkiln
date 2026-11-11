@@ -5,8 +5,8 @@
 //! `task done` runs a test command (`task::run_command`: no shell, its output on anneal's
 //! stderr, killed past `--timeout`, 1800 s by default). Only a red run, one that exited
 //! non-zero or was killed by a signal, appends `repro_red` (`task` the id, `test` the command),
-//! with the envelope's `worktree` set to the worktree key `bench mode` writes
-//! (`mode::scope::worktree_key`), so the preconditions hook unlocks only that worktree. A run
+//! with the envelope's `worktree` set to the worktree id `bench mode` writes
+//! (`mode::scope::worktree_id`, ID-06), so the preconditions hook unlocks only that worktree. A run
 //! that exits 0 reproduces nothing and a run that times out is a hang, not a reproduction:
 //! each records nothing, opens no ledger and exits with its own code. There is no `--store`:
 //! like `bench mode`, it writes to the ledger the hook reads.
@@ -192,7 +192,7 @@ fn record<O: Write>(
         test: command.clone(),
     });
     let mut envelope = EventEnvelope::new(event, "cli", Timestamp::now()?);
-    envelope.worktree = Some(scope::worktree_key(&root));
+    envelope.worktree = Some(scope::worktree_id(&root));
     envelope.session_id.clone_from(&args.session);
     // The id, worktree and session become ledger tags; check them before anything runs, so a
     // value the store would refuse is a usage error that runs nothing and leaves no file.

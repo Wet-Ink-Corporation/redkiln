@@ -45,7 +45,7 @@ use bench_contract::event::GateBlocked;
 
 use crate::error_chain::reason;
 use crate::existing_ledger::LedgerError;
-use crate::hook::guard::{BUSY_TIMEOUT, GIT_TIMEOUT, MAX_INPUT_BYTES};
+use crate::hook::guard::{GIT_TIMEOUT, MAX_INPUT_BYTES};
 use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
 use crate::mode::scope;
 use crate::mode::{self, Active, Entered};
@@ -484,7 +484,7 @@ fn diagnose(store: &Store, root: &str, since: u64) -> Option<Denial> {
         )
     };
     // `bench repro record` refuses a worktree the ledger cannot tag, so none has a repro.
-    let Ok(worktree) = LedgerTag::new(TagKey::Worktree, &scope::worktree_key(root)) else {
+    let Ok(worktree) = LedgerTag::new(TagKey::Worktree, &scope::worktree_id(root)) else {
         return Some(missing());
     };
     let repros = Filter {

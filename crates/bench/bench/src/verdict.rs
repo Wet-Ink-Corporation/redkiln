@@ -29,7 +29,6 @@ mod set;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
 
 use bench_contract::event::{Verdict, VerdictSource};
 use clap::{Args, Subcommand, ValueEnum};
@@ -44,12 +43,10 @@ use crate::exit_codes::{self, Code};
 use crate::paths::{self, GIT_TIMEOUT, PathError};
 use crate::pr_diff::{Budget, PrError};
 use crate::repo_config;
+use crate::store::Wait;
 use assess::{Fresh, Invalid, Judged, Outcome};
 pub(crate) use commit_status::GithubEnv;
 use pull_request::{PullRequest, Query, ReadError};
-
-/// How long `verdict valid` waits for another process's ledger lock, as `Store::open` does.
-const LEDGER_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `bench verdict`.
 #[derive(Debug, Args)]
@@ -246,12 +243,13 @@ fn run_valid<O: Write>(
 ) -> Result<Code, CliError> {
     let Place { cwd, root } = place;
     let config = repo_config::gate(root).map_err(PrError::from)?;
-    let store = existing_ledger::open_existing(cwd, lookup, GIT_TIMEOUT, LEDGER_BUSY_TIMEOUT)
-        .map_err(|error| match error {
+    let store = existing_ledger::open_existing(cwd, lookup, GIT_TIMEOUT, Wait::Command).map_err(
+        |error| match error {
             LedgerError::CurrentDir(source) => CliError::CurrentDir(source),
             LedgerError::Locate(source) => CliError::Path(source),
             LedgerError::Open(source) => CliError::Ledger(source),
-        })?;
+        },
+    )?;
     let query = Query {
         root,
         pr: args.pr,

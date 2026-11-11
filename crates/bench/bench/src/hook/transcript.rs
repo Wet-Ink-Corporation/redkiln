@@ -235,7 +235,7 @@ pub(crate) fn usage(path: &Path, max: u64) -> io::Result<Option<Usage>> {
         if let Some(at) = line
             .timestamp
             .and_then(|ts| Timestamp::try_from(ts).ok())
-            .and_then(|ts| ts.unix_millis())
+            .map(|ts| ts.unix_millis())
         {
             first = Some(first.map_or(at, |seen| seen.min(at)));
             last = Some(last.map_or(at, |seen| seen.max(at)));

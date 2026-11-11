@@ -21,7 +21,7 @@ fn anneal(dir: &Path, args: &[&str], stdin: &[u8]) -> Result<Output, Box<dyn Err
     let mut child = anneal_in(dir)
         .args(args)
         .env("ANNEAL_HOME", dir.join("home"))
-        .env("ANNEAL_STORE", dir.join("ledger.sqlite3"))
+        .env("REDKILN_STORE", dir.join("ledger.sqlite3"))
         .env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

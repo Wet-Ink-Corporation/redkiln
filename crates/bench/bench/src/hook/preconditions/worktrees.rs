@@ -8,11 +8,11 @@ use std::io;
 use std::mem;
 use std::path::{Path, PathBuf};
 
-use crate::store::Store;
+use crate::store::{Store, Wait};
 
 use super::{
-    BUSY_TIMEOUT, Check, Denial, JUDGE_BUDGET, Ledger, RecordError, Verdict, build, mode_denial,
-    relative_in, unjudged,
+    Check, Denial, JUDGE_BUDGET, Ledger, RecordError, Verdict, build, mode_denial, relative_in,
+    unjudged,
 };
 use crate::existing_ledger;
 use crate::mode::scope::{self, PathKind};
@@ -22,7 +22,7 @@ use crate::pr_diff::Budget;
 
 /// The worktrees met so far in one hook call, and the time left to meet more.
 pub(super) struct Worktrees<L> {
-    /// Reads the environment (`$ANNEAL_STORE`).
+    /// Reads the environment (`$REDKILN_STORE`, `$ANNEAL_STORE`).
     lookup: L,
     /// What git and the ledger may still take.
     budget: Budget,
@@ -148,10 +148,10 @@ where
         if let Some(index) = self.met.iter().position(|known| known.root == root) {
             return Place::Worktree(index);
         }
-        let (Ok(git), busy) = (self.budget.next(), self.budget.cap(BUSY_TIMEOUT)) else {
+        let Ok(git) = self.budget.next() else {
             return Place::Denied(Verdict::deny(no_time_left(), Err(RecordError::OutOfTime)));
         };
-        let gate = match existing_ledger::open_existing(anchor, &self.lookup, git, busy) {
+        let gate = match existing_ledger::open_existing(anchor, &self.lookup, git, Wait::Hook) {
             // No ledger: no mode was ever entered in the edited file's repository.
             Ok(None) => Gate::Open,
             Ok(Some(store)) => match mode::active(&store, &root) {
@@ -248,10 +248,11 @@ pub(super) fn open_within(
     lookup: impl Fn(&str) -> Option<OsString>,
     budget: Budget,
 ) -> Ledger {
-    let (Ok(git), busy) = (budget.next(), budget.cap(BUSY_TIMEOUT)) else {
+    let Ok(git) = budget.next() else {
         return Err(RecordError::OutOfTime);
     };
-    existing_ledger::open_existing(dir, lookup, git, busy).map_err(RecordError::Ledger)
+    // A hook's write waits Core's hook wait (2 s, D6), whatever is left of `budget`.
+    existing_ledger::open_existing(dir, lookup, git, Wait::Hook).map_err(RecordError::Ledger)
 }
 
 /// The denial for an edit the hook's budget left no time to judge.

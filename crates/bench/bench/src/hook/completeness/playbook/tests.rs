@@ -8,7 +8,8 @@ use crate::mode::{Active, BuildMode, Entered};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-const WORKTREE: &str = "/repo";
+/// A worktree id (ID-06): the store keys worktrees by id, never by path (D9 iii).
+const WORKTREE: &str = "wt-0123456789ab";
 
 fn store() -> Result<(tempfile::TempDir, Store), Box<dyn Error>> {
     let dir = tempfile::tempdir()?;
@@ -97,7 +98,7 @@ fn build_mode_without_source_edits_needs_nothing() -> TestResult {
 #[test]
 fn diagnose_mode_needs_a_red_reproduction_in_this_worktree_after_entry() -> TestResult {
     let (_dir, store) = store()?;
-    append(&store, repro(), "/sibling")?;
+    append(&store, repro(), "wt-ba9876543210")?;
 
     let missing = nudges(&store, &worktree()?, &diagnose_at(0), false)?;
 

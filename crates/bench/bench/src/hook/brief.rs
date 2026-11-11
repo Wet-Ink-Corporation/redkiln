@@ -23,14 +23,14 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp, Wait};
 use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::harness::claude_code::SubagentToolUse;
-use crate::hook::guard::{BUSY_TIMEOUT, GIT_TIMEOUT};
+use crate::hook::guard::GIT_TIMEOUT;
 use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
 use crate::lint::brief::{BriefFinding, Rule, check};
 use crate::paths::{self, PathError};
@@ -173,12 +173,7 @@ where
         }
     };
     let ledger = cwd.map_err(LedgerError::CurrentDir).and_then(|cwd| {
-        existing_ledger::open_existing(
-            &cwd,
-            lookup,
-            budget.cap(GIT_TIMEOUT),
-            budget.cap(BUSY_TIMEOUT),
-        )
+        existing_ledger::open_existing(&cwd, lookup, budget.cap(GIT_TIMEOUT), Wait::Hook)
     });
     let unrecorded = match ledger {
         Ok(Some(store)) => record(&store, &denial, session).err(),

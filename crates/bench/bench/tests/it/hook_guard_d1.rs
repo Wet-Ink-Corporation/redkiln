@@ -46,7 +46,7 @@ impl Scratch {
     /// `mode` with the shipped thresholds.
     fn guard(&self, mode: &str, command: &str) -> Result<Output, Box<dyn Error>> {
         let mut child = anneal_in(self.dir.path())
-            .env("ANNEAL_STORE", self.dir.path().join("ledger.sqlite3"))
+            .env("REDKILN_STORE", self.dir.path().join("ledger.sqlite3"))
             .env("ANNEAL_HOME", self.home())
             .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
             .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN-value")

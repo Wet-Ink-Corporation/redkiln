@@ -18,7 +18,7 @@ use crate::hook::HookEnv;
 
 /// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout.
 fn guard(stdin: &[u8], store: &Path) -> String {
-    let lookup = |var: &str| (var == "ANNEAL_STORE").then(|| OsString::from(store));
+    let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(store));
     let env = HookEnv {
         stdin,
         current_dir: || Ok(PathBuf::from("/")),
@@ -226,7 +226,7 @@ fn a_failed_read_of_stdin_is_denied() {
     }
     let dir = tempfile::tempdir().expect("a temporary directory");
     let store = dir.path().join("ledger.sqlite3");
-    let lookup = |var: &str| (var == "ANNEAL_STORE").then(|| OsString::from(&store));
+    let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(&store));
     let env = HookEnv {
         stdin: Broken,
         current_dir: || Ok(PathBuf::from("/")),

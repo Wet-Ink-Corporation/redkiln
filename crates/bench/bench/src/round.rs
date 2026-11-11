@@ -11,10 +11,9 @@
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
 
 use crate::store::{
-    Appended, Condition, EventEnvelope, EventKind, Filter, LedgerEvent, Store, Timestamp,
+    Appended, Condition, EventEnvelope, EventKind, Filter, LedgerEvent, Store, Timestamp, Wait,
 };
 use bench_contract::event::RoundStarted;
 use clap::{Args, Subcommand};
@@ -40,9 +39,6 @@ const START_ATTEMPTS: usize = 4;
 
 /// How many `round_started` events of all tickets are read, as `migrate` caps a migration's.
 const MAX_ROUND_EVENTS: usize = 4096;
-
-/// How long `status` waits for another process's ledger lock, as `Store::open` does.
-const LEDGER_BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// `bench round`.
 #[derive(Debug, Args)]
@@ -345,12 +341,13 @@ fn run_status<O: Write>(
     out: &mut O,
 ) -> Result<Code, CliError> {
     let ticket = args.ticket.parse::<Ticket>()?;
-    let store = existing_ledger::open_existing(cwd, lookup, GIT_TIMEOUT, LEDGER_BUSY_TIMEOUT)
-        .map_err(|error| match error {
+    let store = existing_ledger::open_existing(cwd, lookup, GIT_TIMEOUT, Wait::Command).map_err(
+        |error| match error {
             LedgerError::CurrentDir(source) => CliError::CurrentDir(source),
             LedgerError::Locate(source) => CliError::Path(source),
             LedgerError::Open(source) => CliError::Ledger(source),
-        })?;
+        },
+    )?;
     let rounds = match &store {
         Some(store) => count(store, &ticket)?.rounds,
         None => 0,

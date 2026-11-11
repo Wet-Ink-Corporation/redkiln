@@ -19,7 +19,8 @@ fn filter(migration: &str) -> Filter {
 fn envelope(migration: &str, step: Step) -> EventEnvelope {
     EventEnvelope::new(
         step.event(migration.to_owned()),
-        "test",
+        // An actor Core accepts (EV-01); anneal's ledger took any text (D9 iv).
+        "cli",
         Timestamp::now().expect("a clock"),
     )
 }

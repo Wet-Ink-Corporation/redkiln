@@ -54,7 +54,7 @@ fn blocked_points(repo: &PrRepo) -> TestResult<Vec<String>> {
 fn append_verdict(repo: &PrRepo, verdict: &str) -> TestResult {
     let event = serde_json::json!({
         "type": "verdict_set", "pr": 7, "verdict": verdict, "source": "review_plugin",
-        "sha": repo.head()?, "actor": "review-plugin", "ts": "2026-10-12T09:00:00Z",
+        "sha": repo.head()?, "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
     })
     .to_string();
     repo.envelope(&["ledger", "append", &event], 0)?;

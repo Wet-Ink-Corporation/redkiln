@@ -120,13 +120,14 @@ fn context(
     let (hint, hint_note) = compaction::statusline_hint(&lookup, &SystemClock::new());
     let path_note = env_file::export_libexec(&lookup);
     let (mut text, index_note) = plugin_index(&lookup);
-    let (state, state_note) = match &cwd {
+    let (state, state_note, notices) = match &cwd {
         Ok(cwd) => fresh_state(input.session_id.as_deref(), cwd, lookup),
         Err(error) => (
             None,
             Some(format!(
                 "anneal skipped the live state: reading the working directory: {error}"
             )),
+            Vec::new(),
         ),
     };
     for section in [handoff, hint, state].into_iter().flatten() {
@@ -141,7 +142,7 @@ fn context(
         hint_note,
         state_note,
     ];
-    for note in notes.into_iter().flatten() {
+    for note in notes.into_iter().flatten().chain(notices) {
         text.push('\n');
         text.push_str(&note);
         text.push('\n');
@@ -181,25 +182,42 @@ fn plugin_index(lookup: impl Fn(&str) -> Option<OsString>) -> (String, Option<St
 }
 
 /// The live state section for the ledger seen from `cwd`, unless `session` was already given
-/// exactly this state; and a note when what the session was given could not be recorded.
+/// exactly this state; a note when what the session was given could not be recorded; and what
+/// locating the store noticed (an anneal ledger left as it is, `$ANNEAL_STORE`, the suite
+/// config), one note each.
 fn fresh_state(
     session: Option<&str>,
     cwd: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
-) -> (Option<String>, Option<String>) {
-    let store = match paths::ledger_store_within(None, lookup, cwd, GIT_TIMEOUT) {
-        Ok(location) => location.path,
-        Err(error) => return (Some(state::unavailable(&reason(&error))), None),
+) -> (Option<String>, Option<String>, Vec<String>) {
+    let (store, notices) = match paths::ledger_store_within(None, lookup, cwd, GIT_TIMEOUT) {
+        Ok(location) => (
+            location.path,
+            location
+                .notices
+                .iter()
+                .map(|notice| format!("bench: {notice}"))
+                .collect(),
+        ),
+        Err(error) => return (Some(state::unavailable(&reason(&error))), None, Vec::new()),
     };
-    let state = match state::live_state(&store) {
+    let (state, note) = session_state(session, &store);
+    (state, note, notices)
+}
+
+/// [`fresh_state`] for the store at `store`.
+fn session_state(session: Option<&str>, store: &Path) -> (Option<String>, Option<String>) {
+    let state = match state::live_state(store) {
         Ok(Some(state)) => state,
         Ok(None) => return (None, None),
-        Err(error) => state::unavailable(&reason(&error)),
+        // Said every time, and nothing written beside a file that is not a store (an anneal
+        // ledger's directory is left as it is).
+        Err(error) => return (Some(state::unavailable(&reason(&error))), None),
     };
     let Some(session) = session else {
         return (Some(state), None);
     };
-    let file = state::sessions_path(&store);
+    let file = state::sessions_path(store);
     let recorded = Sessions::load(&file).and_then(|mut sessions| {
         if sessions.is_current(session, &state) {
             return Ok(false);
@@ -237,7 +255,7 @@ mod tests {
         store: Option<&Path>,
     ) -> String {
         let lookup = |var: &str| {
-            (var == "ANNEAL_STORE")
+            (var == "REDKILN_STORE")
                 .then_some(store)
                 .flatten()
                 .map(OsString::from)

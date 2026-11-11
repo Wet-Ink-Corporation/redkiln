@@ -88,6 +88,7 @@ pub(crate) fn anneal_with_home(cwd: &Path, home: &Path) -> Command {
         .env("ANNEAL_HOME", home)
         .env("ANNEAL_CLEF_URL", "http://127.0.0.1:0")
         .env_remove("ANNEAL_STORE")
+        .env_remove("REDKILN_STORE")
         .env_remove("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID")
         .env_remove("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN")
         .env_remove("CLAUDE_PLUGIN_OPTION_CLEF_MODE")

@@ -179,7 +179,7 @@ fn no_home_and_relative_home_are_errors() {
 #[test]
 fn the_store_flag_wins_over_the_environment() {
     let cwd = absolute("work");
-    let lookup = env(&[("ANNEAL_STORE", "from-env.sqlite3")]);
+    let lookup = env(&[("REDKILN_STORE", "from-env.sqlite3")]);
 
     let found = ledger_store(Some(Path::new("flag.sqlite3")), lookup, &cwd).expect("resolves");
 
@@ -191,7 +191,7 @@ fn the_store_flag_wins_over_the_environment() {
 fn anneal_store_is_used_relative_to_the_working_directory() {
     let cwd = absolute("work");
 
-    let found = ledger_store(None, env(&[("ANNEAL_STORE", "l.sqlite3")]), &cwd).expect("resolves");
+    let found = ledger_store(None, env(&[("REDKILN_STORE", "l.sqlite3")]), &cwd).expect("resolves");
 
     assert_eq!(found.path, cwd.join("l.sqlite3"), "joined to cwd");
     assert_eq!(found.source, StoreSource::Env, "the variable chose it");
@@ -200,16 +200,16 @@ fn anneal_store_is_used_relative_to_the_working_directory() {
 #[test]
 #[cfg_attr(miri, ignore = "runs git in a subprocess")]
 fn outside_git_an_empty_anneal_store_falls_through_to_the_folder() {
+    // The temporary directory is in no repository. (A `.git` file pointing nowhere is a broken
+    // repository to Core, not none (ST-01), so it no longer marks a folder: D9 iv.)
     let dir = tempfile::tempdir().expect("temp dir");
-    // A `.git` file pointing nowhere stops git here, even inside an enclosing repository.
-    std::fs::write(dir.path().join(".git"), "gitdir: does-not-exist\n").expect("write");
 
-    let found = ledger_store(None, env(&[("ANNEAL_STORE", "")]), dir.path()).expect("resolves");
+    let found = ledger_store(None, env(&[("REDKILN_STORE", "")]), dir.path()).expect("resolves");
 
     assert_eq!(
         found.path,
-        dir.path().join(".anneal/ledger.sqlite3"),
-        "<folder>/.anneal"
+        dir.path().join(".redkiln/events.sqlite3"),
+        "<folder>/.redkiln"
     );
     assert_eq!(found.source, StoreSource::Folder, "outside git");
 }

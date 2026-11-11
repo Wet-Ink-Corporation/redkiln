@@ -58,7 +58,7 @@ fn envelope(output: &Output, code: i32) -> TestResult<Value> {
 /// The events of type `kind` in the ledger the commands in `dir` use.
 fn events(dir: &Path, kind: &str) -> TestResult<Vec<Value>> {
     let output = anneal_in(dir)
-        .env("ANNEAL_STORE", dir.join("ledger.sqlite3"))
+        .env("REDKILN_STORE", dir.join("ledger.sqlite3"))
         .args(["ledger", "query", "--type", kind])
         .output()?;
     let queried = envelope(&output, 0)?;
@@ -79,7 +79,7 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
     let missing = dir.path().join("no-weighin-here");
 
     let output = anneal(dir.path(), &missing, &PARK)
-        .env("ANNEAL_STORE", dir.path().join("ledger.sqlite3"))
+        .env("REDKILN_STORE", dir.path().join("ledger.sqlite3"))
         .output()?;
 
     let parked = envelope(&output, 4)?;
@@ -128,7 +128,7 @@ fn a_park_pipes_one_batch_and_a_retry_names_the_same_item_recorded_once() -> Tes
     let log = dir.path().join("stdin.log");
     let park = || {
         anneal(dir.path(), &bin, &PARK)
-            .env("ANNEAL_STORE", dir.path().join("ledger.sqlite3"))
+            .env("REDKILN_STORE", dir.path().join("ledger.sqlite3"))
             .env("FAKE_WEIGHIN_LOG", &log)
             .env("FAKE_WEIGHIN_STATE", dir.path().join("raised"))
             .output()

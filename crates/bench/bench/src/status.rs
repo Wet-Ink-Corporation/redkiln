@@ -29,9 +29,8 @@ mod unreadable;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
 
-use crate::store::Store;
+use crate::store::{Store, Wait};
 use clap::{Args, ValueEnum};
 use serde::Serialize;
 
@@ -46,10 +45,6 @@ use unreadable::Unreadable;
 
 /// The document's schema version. Fields are only ever added within schema 1.
 pub const SCHEMA: u32 = 1;
-
-/// How long a ledger statement waits for another process's lock: a UI refreshes often and
-/// should not hang on a busy writer (H-13).
-const LEDGER_BUSY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The most events `--tail` may ask for (H-13).
 const MAX_TAIL: u16 = 1000;
@@ -199,7 +194,8 @@ pub(crate) fn run<O: Write>(
     lookup: impl Fn(&str) -> Option<OsString>,
     out: &mut O,
 ) -> Result<Code, CliError> {
-    let store = existing_ledger::open_existing(cwd, &lookup, GIT_TIMEOUT, LEDGER_BUSY_TIMEOUT)
+    let store = existing_ledger::open_existing(cwd, &lookup, GIT_TIMEOUT, Wait::Hook)
+        // A UI refreshes often and should not hang on a busy writer: Core's hook wait, 2 s (H-13).
         .map_err(|error| match error {
             LedgerError::CurrentDir(source) => CliError::CurrentDir(source),
             LedgerError::Locate(source) => CliError::Path(source),

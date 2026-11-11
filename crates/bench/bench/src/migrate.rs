@@ -8,7 +8,7 @@
 //! a contract. A refused step appends nothing: exit 1 when contract finds a wave open, 3 for
 //! any other refusal. The append is first-writer-wins on the migration's events after those
 //! read, so two racing steps cannot both land. Like `mode`, it has no `--store`: it writes to
-//! the ledger `$ANNEAL_STORE`, the git common dir or the folder gives. See `docs/migrate.md`.
+//! the suite store `paths::ledger_store` locates without a flag. See `docs/migrate.md`.
 
 pub(crate) mod waves;
 

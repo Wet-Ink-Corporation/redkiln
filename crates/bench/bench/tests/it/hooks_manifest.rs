@@ -217,7 +217,7 @@ fn run_hook_args(args: &[String]) -> Result<Option<i32>, Box<dyn Error>> {
     let scratch = tempfile::tempdir()?;
     let mut child = anneal_in(scratch.path())
         .args(args)
-        .env("ANNEAL_STORE", scratch.path().join("ledger.sqlite3"))
+        .env("REDKILN_STORE", scratch.path().join("ledger.sqlite3"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

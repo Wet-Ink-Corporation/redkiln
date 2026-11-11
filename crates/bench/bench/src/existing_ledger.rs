@@ -1,18 +1,16 @@
-//! Opening the ledger only when it already exists, within a caller's time limits: hooks must
-//! never create a ledger, and must not wait on git or a locked store past their timeout.
-//! Crate-private; the preconditions and fast-check hooks share it.
+//! Opening the store only when it already exists, within a caller's time limits: hooks and
+//! read-only commands never create a store, and must not wait on git or a locked store past
+//! their limit. Crate-private; the hooks and the read-only commands share it.
 
 use std::ffi::OsString;
-use std::fs;
 use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::store::{Store, StoreError};
-
 use crate::paths::{self, PathError};
+use crate::store::{Store, StoreError, Wait};
 
-/// Why the ledger could not be opened.
+/// Why the store could not be opened.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum LedgerError {
     /// The working directory, needed to find it, cannot be read.
@@ -26,28 +24,21 @@ pub(crate) enum LedgerError {
     Open(#[source] StoreError),
 }
 
-/// The ledger seen from `cwd` (found as `paths::ledger_store_within` finds it, git given
-/// `git_timeout`) when its file exists, each statement waiting at most `busy_timeout` for a
-/// lock; `None` when it does not exist, since opening it would create it.
+/// The store seen from `cwd` (found as `paths::ledger_store_within` finds it, git given
+/// `git_timeout`) when there is one, each write waiting at most `wait` for a lock; `None`,
+/// with nothing created, when there is none (Core's `open_existing`: a missing, empty or
+/// never-stamped file).
 ///
 /// # Errors
-/// The [`LedgerError`] when it cannot be found or opened. Only a missing file means no
-/// ledger; anything else at its path (a directory, an unreadable file) is opened, so its
-/// failure is reported rather than read as "no ledger".
+/// The [`LedgerError`] when it cannot be found or opened: an anneal ledger or another
+/// program's database at the path is refused, never read as "no store".
 pub(crate) fn open_existing(
     cwd: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
     git_timeout: Duration,
-    busy_timeout: Duration,
+    wait: Wait,
 ) -> Result<Option<Store>, LedgerError> {
     let location =
         paths::ledger_store_within(None, lookup, cwd, git_timeout).map_err(LedgerError::Locate)?;
-    if let Err(error) = fs::metadata(&location.path)
-        && error.kind() == io::ErrorKind::NotFound
-    {
-        return Ok(None);
-    }
-    Store::open_with_busy_timeout(&location.path, busy_timeout)
-        .map(Some)
-        .map_err(LedgerError::Open)
+    Store::open_existing(&location.path, wait).map_err(LedgerError::Open)
 }

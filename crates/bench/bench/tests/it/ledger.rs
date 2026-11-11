@@ -199,7 +199,7 @@ fn the_main_checkout_and_a_linked_worktree_share_one_store() -> TestResult {
     assert_eq!(store_of(&appended)?, store_of(&queried)?, "one file");
     assert_eq!(
         store_of(&appended)?,
-        std::fs::canonicalize(main.join(".git/anneal/ledger.sqlite3"))?,
+        std::fs::canonicalize(main.join(".git/redkiln/events.sqlite3"))?,
         "inside the git common dir"
     );
     assert_eq!(queried["data"]["source"], "git_common_dir", "{queried}");

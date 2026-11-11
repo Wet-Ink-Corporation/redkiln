@@ -4,7 +4,7 @@
 What other crates may name of Bench (M2-C, decided 2026-11-09): `event`, the 17 `bench.*` event types (EV-04: the namespace owner declares them) with their payloads, which Loop's planning gate and the suite mod read; `cli`, the `bench` binary's name, every subcommand path it accepts and its global value options, which `cargo xtask plugins` reads to check that every `bench …` a skill names exists; and `plugin`, the `rk-bench` plugin name.
 
 ## Layer
-Contract (bench). Depends only on Core, and on Core only behind the `core` feature; never on Bench's own internals (`bench`, `bench-ledger`). No file, clock, process or environment access.
+Contract (bench). Depends only on Core, and on Core only behind the `core` feature; never on Bench's own internals (`bench`). No file, clock, process or environment access.
 
 ## Allowed dependencies
 - Workspace crates: `redkiln-core`, only behind the `core` feature (`Payload`, `Tag`, `Stored`, `decode`). Without it the crate is pure, so `tools/xtask` links it without Core or SQLite.
