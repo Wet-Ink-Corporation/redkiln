@@ -1,12 +1,27 @@
 [package]
 name = "bench-contract"
-description = "Bench's contract: what other crates may name of the bench CLI (its binary, subcommands and value options)."
+description = "Bench's contract: what other crates may name of Bench: its bench.* events and payloads, and the bench CLI's binary, subcommands and value options."
 version = "0.0.5"              # the plugin's own version (AGENTS.md, Versions and tags)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+
+[features]
+# Core's half of the contract: the `Payload` impls of the 17 `bench.*` types, their subject tags
+# and the read dispatch. Off, the crate is pure (serde, thiserror), so tools/xtask
+# links it without linking Core (and SQLite); the bench binary turns it on
+# when it writes through Core.
+core = ["dep:redkiln-core"]
+
+[dependencies]
+redkiln-core = { workspace = true, optional = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [lints]
 workspace = true

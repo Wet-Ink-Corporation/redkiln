@@ -8,6 +8,7 @@
 use std::fmt;
 use std::str::FromStr;
 
+use bench_contract::event::SubjectKey;
 use happenstance_core::{InvalidTag, Tag};
 
 /// A tag key in the ledger's vocabulary.
@@ -56,6 +57,21 @@ impl TagKey {
             Self::Point => "point",
             Self::Agent => "agent",
             Self::Migration => "migration",
+        }
+    }
+}
+
+impl From<SubjectKey> for TagKey {
+    /// The ledger key of an event's subject: the same short key.
+    fn from(key: SubjectKey) -> Self {
+        match key {
+            SubjectKey::Task => Self::Task,
+            SubjectKey::Plan => Self::Plan,
+            SubjectKey::Pr => Self::Pr,
+            SubjectKey::Point => Self::Point,
+            SubjectKey::Agent => Self::Agent,
+            SubjectKey::Migration => Self::Migration,
+            SubjectKey::Worktree => Self::Worktree,
         }
     }
 }
@@ -167,7 +183,14 @@ impl FromStr for LedgerTag {
 
 #[cfg(test)]
 mod tests {
-    use super::{LedgerTag, TagError, TagKey};
+    use super::{LedgerTag, SubjectKey, TagError, TagKey};
+
+    #[test]
+    fn every_subject_key_is_the_ledger_key_of_the_same_name() {
+        for key in SubjectKey::ALL {
+            assert_eq!(TagKey::from(key).as_str(), key.as_str(), "{key}");
+        }
+    }
 
     #[test]
     fn key_value_text_parses_into_a_vocabulary_tag() {
