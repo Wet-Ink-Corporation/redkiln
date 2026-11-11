@@ -103,7 +103,7 @@ GitHub keeps the latest status of a context per commit, so a human `approved` re
   unusable proxy or `SSL_CERT_FILE`, a proxy that refused the tunnel, GitHub unreachable, a
   timeout, a non-2xx answer) exits 4 with the envelope (`ok: false`, `data.commit_status`
   `{"outcome": "failed", "state"?, "reason"}` and a `verdict/status:<n>` finding), then one
-  `WARNING verdict set: ...` line on stderr. Run `verdict set` again to post it, or pass
+  `bench: warning: verdict set: ...` line on stderr. Run `verdict set` again to post it, or pass
   `--no-status`.
 - **Tests.** `ANNEAL_GITHUB_API` replaces the API base, honoured only by a debug build and
   only as `http://` on `127.0.0.1` or `[::1]` (as `ANNEAL_CLEF_URL`), so a released binary
