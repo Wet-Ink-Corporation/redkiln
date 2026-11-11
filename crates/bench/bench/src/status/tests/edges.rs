@@ -99,13 +99,13 @@ fn outside_a_repository_only_the_ledger_wide_sections_are_read() -> Setup<()> {
             &fixture,
             json!({
                 "gates": [
-                    {"id": "guard.rm-rf", "kind": "gate_blocked", "reason": "rm -rf /", "event": 2,
+                    {"id": "guard.rm-rf", "kind": "bench.gate_blocked", "reason": "rm -rf /", "event": 2,
                      "ts": "2026-10-19T10:00:02Z"},
                 ],
                 "ledger_tail": [
-                    {"event": 1, "type": "mode_set", "summary": "mode_set diagnose", "actor": "cli",
+                    {"event": 1, "type": "bench.mode_set", "summary": "mode_set diagnose", "actor": "cli",
                      "ts": "2026-10-19T10:00:01Z"},
-                    {"event": 2, "type": "gate_blocked", "summary": "gate_blocked point:guard.rm-rf",
+                    {"event": 2, "type": "bench.gate_blocked", "summary": "gate_blocked point:guard.rm-rf",
                      "actor": "cli",
                      "ts": "2026-10-19T10:00:02Z"},
                 ],

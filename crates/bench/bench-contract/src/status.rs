@@ -1,7 +1,7 @@
 //! The `data` of `bench status --json`, schema `bench.status/1` (SPEC CLI-12).
 //!
-//! CLI-12's common keys come first, then Bench's sections (`phase` … `ledger_tail`, in
-//! [`sections`]); field order is wire order. Every `Option` is written as `null`, never left
+//! CLI-12's common keys come first, then Bench's sections (`phase` … `ledger_tail`, [`Phase`]
+//! to [`TailEvent`]); field order is wire order. Every `Option` is written as `null`, never left
 //! out, since CLI-12 lists every key as present and a section with no data, or not asked for
 //! with `--fields`, is `null`. Unknown keys are accepted when read, at the top and in a
 //! section: CLI-04 lets a version grow additively, so a reader takes what a later Bench adds.

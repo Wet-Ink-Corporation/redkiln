@@ -28,7 +28,7 @@ pub struct Phase {
 pub struct Playbook {
     /// The playbook's name, the mode's.
     pub name: String,
-    /// The event types its rules require, by short name (`test_run`).
+    /// The event types its rules require, by stored name (`bench.test_run`).
     pub requires: Vec<String>,
 }
 
@@ -104,12 +104,12 @@ pub struct NextTask {
     pub title: String,
 }
 
-/// One gate that blocked: a `gate_blocked` or a `stop_blocked` event.
+/// One gate that blocked: a `bench.gate_blocked` or a `bench.stop_blocked` event.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gate {
     /// The gate, as its event names it (`guard.rm-rf`, `completeness.claim`).
     pub id: String,
-    /// `gate_blocked` or `stop_blocked`.
+    /// `bench.gate_blocked` or `bench.stop_blocked`.
     pub kind: String,
     /// Why it blocked, in one line.
     pub reason: String,
@@ -339,10 +339,11 @@ pub enum Level {
 pub struct TailEvent {
     /// Its position.
     pub event: u64,
-    /// Its type, by short name (`task_done`).
+    /// Its type, by stored name (`bench.task_done`).
     #[serde(rename = "type")]
     pub kind: String,
-    /// Its type and what it is about, one line (`task_done task:T1`).
+    /// Its short type name and what it is about, one line, as the handoff note writes it
+    /// (`task_done task:T1`).
     pub summary: String,
     /// Who wrote it.
     pub actor: String,

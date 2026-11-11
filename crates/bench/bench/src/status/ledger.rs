@@ -64,7 +64,7 @@ pub(super) fn phase(entered: Entered) -> Phase {
     let requires = RULES
         .iter()
         .filter(|rule| rule.mode == mode)
-        .map(|rule| rule.event.as_str().to_owned())
+        .map(|rule| rule.event.stored().to_owned())
         .collect();
     Phase {
         mode,
@@ -164,7 +164,7 @@ pub(super) fn gates(store: &Store) -> Result<Vec<Gate>, Unreadable> {
 
 /// The gate a blocking event records; `None` for any other event.
 fn gate(recorded: Recorded) -> Option<Gate> {
-    let kind = recorded.event.event.kind().as_str();
+    let kind = recorded.event.event.kind().stored();
     let (LedgerEvent::GateBlocked(GateBlocked { point, reason })
     | LedgerEvent::StopBlocked(StopBlocked { point, reason })) = recorded.event.event
     else {
@@ -186,7 +186,7 @@ pub(super) fn tail(store: &Store, n: usize) -> Result<Vec<TailEvent>, Unreadable
         .into_iter()
         .map(|recorded| TailEvent {
             event: recorded.position,
-            kind: recorded.event.event.kind().as_str().to_owned(),
+            kind: recorded.event.event.kind().stored().to_owned(),
             summary: facts::event_word(&recorded),
             ts: recorded.event.ts.as_str().to_owned(),
             actor: recorded.event.actor,

@@ -14,7 +14,7 @@
         "event": 1,
         "summary": "task_done task:T1",
         "ts": "<time>",
-        "type": "task_done"
+        "type": "bench.task_done"
       }
     ],
     "phase": null,

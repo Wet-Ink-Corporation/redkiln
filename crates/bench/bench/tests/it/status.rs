@@ -8,6 +8,7 @@ use std::path::Path;
 use std::process::Output;
 
 use bench_contract::status::{self, Health, RepoClass, Status, StoreSource};
+use serde::Deserialize as _;
 use serde_json::{Value, json};
 
 use crate::support::conform::status_errors;
@@ -21,13 +22,15 @@ const STORE: &str = "ledger.sqlite3";
 fn report(output: &Output) -> TestResult<(Value, Status)> {
     let envelope: Value = envelope(output)?;
     assert_eq!(
-        envelope["schema"],
-        json!(status::SCHEMA),
+        envelope.get("schema"),
+        Some(&json!(status::SCHEMA)),
         "CLI-12's output id"
     );
-    let errors = status_errors(&envelope["data"])?;
+    let data = envelope.get("data").ok_or("a data key")?;
+    let errors = status_errors(data)?;
     assert!(errors.is_empty(), "{envelope} breaks status-1: {errors:?}");
-    let data = serde_json::from_value(envelope["data"].clone())?;
+    // The contract reads its own copy; the envelope is returned whole for the golden.
+    let data = Status::deserialize(data)?;
     Ok((envelope, data))
 }
 

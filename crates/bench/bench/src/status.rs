@@ -162,7 +162,7 @@ struct Gathered {
 }
 
 impl Gathered {
-    /// Keeps `read`'s value, or notes why `section` could not be read and leaves it absent.
+    /// Keeps `read`'s value, or notes why `section` could not be read and leaves it `null`.
     fn keep<T>(&mut self, section: Section, read: Result<Option<T>, Unreadable>) -> Option<T> {
         match read {
             Ok(value) => value,

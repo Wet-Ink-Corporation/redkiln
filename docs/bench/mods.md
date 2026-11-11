@@ -10,7 +10,7 @@ anneal ships a [Claude Code mod](https://code.claude.com/docs/en/plugins/mods/ov
 
 ## What it does (#57, #59, #63)
 
-The cockpit reads `anneal status --json` (`docs/status.md`) and draws it in two places, the band and the pane. Asked with `/anneal calibration`, it also reads `anneal calibrate` (`docs/calibrate.md`) and draws the calibration dashboard. It writes nothing to the ledger and runs no other `anneal` subcommand.
+The cockpit reads `anneal status --json` (`docs/status.md`), only an envelope whose `schema` is `bench.status/1` (SPEC CLI-12), and draws it in two places, the band and the pane. Asked with `/anneal calibration`, it also reads `anneal calibrate` (`docs/calibrate.md`) and draws the calibration dashboard. It writes nothing to the ledger and runs no other `anneal` subcommand.
 
 ### The band
 
@@ -26,7 +26,7 @@ anneal · build · plan ✓ a1b2c3 · task 3/7 · 1 gate open · ctx 58% · guar
 - Nothing at all while there is no ledger (`bench status` exits 0 with its `status/no-store` note), before the first refresh has read anything, and while a survey holds the band: the hook passes to the engine (`next(e)`).
 - `anneal · status unavailable` when the CLI cannot be run or prints no status document and there is no earlier good reading. It is drawn, not logged, and the next refresh tries again.
 
-**Open gates.** `anneal status` lists the gates that recently *blocked* (`gate_blocked`, `stop_blocked`), not the ones still open (`docs/status.md`, `gates`). The cockpit calls a block *open* when nothing but other blocks has been recorded since it: its ledger position is after the newest event of `ledger_tail` that is not a block. A gate the session got past (a later `task_done`, `test_run`, approval, ...) is shown as passed.
+**Open gates.** `anneal status` lists the gates that recently *blocked* (`bench.gate_blocked`, `bench.stop_blocked`), not the ones still open (`docs/status.md`, `gates`). The cockpit calls a block *open* when nothing but other blocks has been recorded since it: its ledger position is after the newest event of `ledger_tail` that is not a block. A gate the session got past (a later `task_done`, `test_run`, approval, ...) is shown as passed.
 
 ### The pane
 
@@ -51,7 +51,7 @@ The cockpit asks for a refresh at `session.start`, at `turn.complete`, and after
 - starts at most once a second: an ask within a second of the last start waits for that second to pass, and every ask meanwhile folds into it (ten tool calls in one second are at most two runs);
 - puts the result in `$.state` (`anneal.reading`), writing only when it changed, so a hot reload keeps it and a write redraws only the band and pane that read it;
 - keeps the last good reading when the CLI times out or fails, and logs nothing to the transcript. A refusal by the host of a call the refresh needs goes to the debug log and, with no good reading to keep, becomes the reason the pane gives (`anneal status unavailable: <reason>`); a refused clock leaves nothing scheduled, so the next ask tries again;
-- keeps of the status document only the sections whose fields have the types the band and pane read (`phase.mode`, `plan.status`, `tasks.done` and `total`, each of `gates`, `context.percent`, each of `ledger_tail`, and the verdict and Clef fields the pane shows). A section that does not match is dropped and named in the pane (`Unreadable sections, not drawn: tasks, gates`); should a stored reading still fail to draw, the band shows `anneal · status unreadable` and the pane `anneal status unreadable` rather than nothing.
+- keeps of the status document only the sections whose fields have the types the band and pane read (`phase.mode`, `plan.status`, `tasks.done` and `total`, each of `gates`, `context.percent`, each of `ledger_tail`, and the verdict and Clef fields the pane shows). A `null` section (no data, or not asked for) is drawn as absent. A section that does not match is dropped and named in the pane (`Unreadable sections, not drawn: tasks, gates`); should a stored reading still fail to draw, the band shows `anneal · status unreadable` and the pane `anneal status unreadable` rather than nothing.
 
 The pacing is the module's own and starts over on a reload; the reading does not.
 

@@ -53,7 +53,7 @@ const MID_BUILD_DATA = {
   ...COMMON,
   phase: {
     mode: 'build',
-    playbook: { name: 'build', requires: ['test_run'] },
+    playbook: { name: 'build', requires: ['bench.test_run'] },
     event: 1,
     plan: 'docs/plan.md',
     tree: 'docs/tree.json',
@@ -69,7 +69,7 @@ const MID_BUILD_DATA = {
   gates: [
     {
       id: 'preconditions.plan',
-      kind: 'gate_blocked',
+      kind: 'bench.gate_blocked',
       reason: 'the plan is not approved',
       event: 3,
       ts: '2026-10-19T10:00:03Z',
@@ -82,8 +82,8 @@ const MID_BUILD_DATA = {
   },
   context: { used_tokens: 116800, window: 200000, percent: 58.4, level: null },
   ledger_tail: [
-    { event: 3, type: 'gate_blocked', summary: 'gate_blocked point:preconditions.plan', ts: '2026-10-19T10:00:03Z' },
-    { event: 4, type: 'task_done', summary: 'task_done task:T3', ts: '2026-10-19T10:00:04Z' },
+    { event: 3, type: 'bench.gate_blocked', summary: 'gate_blocked point:preconditions.plan', ts: '2026-10-19T10:00:03Z' },
+    { event: 4, type: 'bench.task_done', summary: 'task_done task:T3', ts: '2026-10-19T10:00:04Z' },
   ],
 }
 const MID_BUILD = { exitCode: 0, stdout: envelope(MID_BUILD_DATA) }
@@ -95,7 +95,7 @@ const BLOCKED_DATA = {
     ...MID_BUILD_DATA.gates,
     {
       id: 'guard.rm',
-      kind: 'gate_blocked',
+      kind: 'bench.gate_blocked',
       reason: 'rm -rf outside the worktree',
       event: 5,
       ts: '2026-10-19T10:00:05Z',
@@ -103,7 +103,7 @@ const BLOCKED_DATA = {
   ],
   ledger_tail: [
     ...MID_BUILD_DATA.ledger_tail,
-    { event: 5, type: 'gate_blocked', summary: 'gate_blocked point:guard.rm', ts: '2026-10-19T10:00:05Z' },
+    { event: 5, type: 'bench.gate_blocked', summary: 'gate_blocked point:guard.rm', ts: '2026-10-19T10:00:05Z' },
   ],
 }
 const BLOCKED = { exitCode: 0, stdout: envelope(BLOCKED_DATA) }
@@ -393,7 +393,7 @@ test('/anneal opens the pane, which then asks for its sections too', async ($, o
     expect(await ui.find({ key: 'gate-reason:5' })).toBe(undefined)
     await ui.press({ key: 'gate:5' })
     expect((await ui.find({ key: 'gate-reason:5' }))?.text).toBe('  rm -rf outside the worktree')
-    expect((await ui.find({ key: 'gate-kind:5' }))?.text).toBe('  gate_blocked at 2026-10-19T10:00:05Z')
+    expect((await ui.find({ key: 'gate-kind:5' }))?.text).toBe('  bench.gate_blocked at 2026-10-19T10:00:05Z')
     await ui.press({ key: 'gate:5' })
     expect(await ui.find({ key: 'gate-reason:5' })).toBe(undefined)
     await ui.unmount()

@@ -429,7 +429,7 @@ export const openGates = (status: AnnealStatus): readonly AnnealGate[] => {
   const gates = status.gates ?? []
   if (tail == null) return []
   const progressed = tail
-    .filter(entry => entry.type !== 'gate_blocked' && entry.type !== 'stop_blocked')
+    .filter(entry => entry.type !== 'bench.gate_blocked' && entry.type !== 'bench.stop_blocked')
     .reduce((newest, entry) => Math.max(newest, entry.event), 0)
 
   return gates.filter(gate => gate.event > progressed)

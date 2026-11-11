@@ -314,7 +314,7 @@ fn mid_build_worktree(head: &str, hash: &str) -> Value {
     json!({
             "phase": {
                 "mode": "build",
-                "playbook": {"name": "build", "requires": ["test_run"]},
+                "playbook": {"name": "build", "requires": ["bench.test_run"]},
                 "event": 1,
                 "plan": PLAN,
                 "tree": "docs/tree.json",
@@ -370,13 +370,13 @@ fn mid_build_rest() -> Value {
                 "level": "warn",
             },
             "ledger_tail": [
-                {"event": 1, "type": "mode_set", "summary": "mode_set build", "actor": "cli",
+                {"event": 1, "type": "bench.mode_set", "summary": "mode_set build", "actor": "cli",
                  "ts": "2026-10-19T10:00:01Z"},
-                {"event": 2, "type": "plan_approved", "summary": "plan_approved plan:docs/plan.md",
+                {"event": 2, "type": "bench.plan_approved", "summary": "plan_approved plan:docs/plan.md",
                  "actor": "cli", "ts": "2026-10-19T10:00:02Z"},
-                {"event": 3, "type": "task_done", "summary": "task_done task:T1", "actor": "cli",
+                {"event": 3, "type": "bench.task_done", "summary": "task_done task:T1", "actor": "cli",
                  "ts": "2026-10-19T10:00:03Z"},
-                {"event": 4, "type": "verdict_set", "summary": "verdict_set pr:7", "actor": "cli",
+                {"event": 4, "type": "bench.verdict_set", "summary": "verdict_set pr:7", "actor": "cli",
                  "ts": "2026-10-19T10:00:04Z"},
             ],
     })
@@ -419,10 +419,10 @@ fn a_stale_plan_and_blocked_gates_are_shown_with_their_events() -> Setup<()> {
                 },
                 "tasks": {"done": 0, "total": 2, "next": {"id": "T1", "title": "CSV writer"}},
                 "gates": [
-                    {"id": "preconditions.plan", "kind": "gate_blocked",
+                    {"id": "preconditions.plan", "kind": "bench.gate_blocked",
                      "reason": "build mode: the plan changed since it was approved", "event": 3,
                      "ts": "2026-10-19T10:00:03Z"},
-                    {"id": "completeness.claim", "kind": "stop_blocked",
+                    {"id": "completeness.claim", "kind": "bench.stop_blocked",
                      "reason": "a success claim with no green test run", "event": 4,
                      "ts": "2026-10-19T10:00:04Z"},
                 ],

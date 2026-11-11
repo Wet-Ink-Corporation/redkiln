@@ -17,7 +17,7 @@ fn envelope() -> Value {
 
 /// The golden envelope's `data`, read through the contract.
 fn read() -> Status {
-    serde_json::from_value(envelope()["data"].clone()).expect("the golden reads")
+    serde_json::from_value(envelope()["data"].take()).expect("the golden reads")
 }
 
 /// The bytes of the golden's `data`, as written: between `"data":` and `,"findings":`.
@@ -108,7 +108,7 @@ fn the_golden_s_values_read_as_their_types() {
 
 #[test]
 fn a_later_key_is_accepted_at_the_top_and_in_a_section() {
-    let mut data = envelope()["data"].clone();
+    let mut data = envelope()["data"].take();
     data["added_in_a_later_build"] = json!({"any": [1, 2]});
     data["phase"]["added_too"] = json!(true);
 
