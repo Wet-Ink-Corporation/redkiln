@@ -6,7 +6,8 @@
 //! worktree's `.continue-here` note when there is one (the `handoff` hook writes it before a
 //! compaction), then a one-time status-line setup hint while no status line saves context
 //! usage, then the live state from the ledger when it changed for this session (volatile,
-//! last). With `CLAUDE_ENV_FILE` and `CLAUDE_PLUGIN_ROOT` set it also appends the line that
+//! last). Before the live state is read, it imports an anneal ledger not yet imported, within a
+//! hook's budget (`legacy_import`), and says what it did. With `CLAUDE_ENV_FILE` and `CLAUDE_PLUGIN_ROOT` set it also appends the line that
 //! puts the plugin's `libexec` on PATH for later Bash calls ([`env_file`]). Every failure
 //! becomes a one-line note in that context: the hook fails open.
 
@@ -18,14 +19,15 @@ mod state;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
 use crate::decide::clock::SystemClock;
 use crate::harness::claude_code::{self, PLUGIN_ROOT_VAR};
 use crate::hook::{HookEnv, reason};
-use crate::paths;
+use crate::legacy_import::{self, Budget};
+use crate::paths::{self, Notice, StoreLocation};
 use state::Sessions;
 
 /// The most stdin a bootstrap reads; Claude Code's `SessionStart` input is far smaller (H-13).
@@ -98,6 +100,8 @@ fn context(
     current_dir: impl FnOnce() -> io::Result<PathBuf>,
     lookup: impl Fn(&str) -> Option<OsString>,
 ) -> String {
+    // The import's budget runs from here, before git or a store is asked anything.
+    let started = Instant::now();
     let (input, input_note) = match input {
         Ok(input) => (input, None),
         Err(error) => (
@@ -121,7 +125,7 @@ fn context(
     let path_note = env_file::export_libexec(&lookup);
     let (mut text, index_note) = plugin_index(&lookup);
     let (state, state_note, notices) = match &cwd {
-        Ok(cwd) => fresh_state(input.session_id.as_deref(), cwd, lookup),
+        Ok(cwd) => fresh_state(input.session_id.as_deref(), cwd, lookup, started),
         Err(error) => (
             None,
             Some(format!(
@@ -183,26 +187,49 @@ fn plugin_index(lookup: impl Fn(&str) -> Option<OsString>) -> (String, Option<St
 
 /// The live state section for the ledger seen from `cwd`, unless `session` was already given
 /// exactly this state; a note when what the session was given could not be recorded; and what
-/// locating the store noticed (an anneal ledger left as it is, `$ANNEAL_STORE`, the suite
-/// config), one note each.
+/// locating the store noticed (`$ANNEAL_STORE`, the suite config), one note each, then what
+/// the one-time import of an anneal ledger did, within the hook's budget from `started`. The
+/// import runs first, so the live state shows what it imported.
 fn fresh_state(
     session: Option<&str>,
     cwd: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
+    started: Instant,
 ) -> (Option<String>, Option<String>, Vec<String>) {
-    let (store, notices) = match paths::ledger_store_within(None, lookup, cwd, GIT_TIMEOUT) {
-        Ok(location) => (
-            location.path,
-            location
-                .notices
-                .iter()
-                .map(|notice| format!("bench: {notice}"))
-                .collect(),
-        ),
+    let location = match paths::ledger_store_within(None, lookup, cwd, GIT_TIMEOUT) {
+        Ok(location) => location,
         Err(error) => return (Some(state::unavailable(&reason(&error))), None, Vec::new()),
     };
-    let (state, note) = session_state(session, &store);
+    // An old ledger is told by the import's report below, once per outcome, not every time.
+    let mut notices: Vec<String> = location
+        .notices
+        .iter()
+        .filter(|notice| !matches!(notice, Notice::OldLedger { .. }))
+        .map(|notice| format!("bench: {notice}"))
+        .collect();
+    notices.extend(import_notes(&location, started));
+    let (state, note) = session_state(session, &location.path);
     (state, note, notices)
+}
+
+/// The one-time import of the anneal ledgers `location` found, within a hook's budget, as
+/// notes: none when nothing is due (then no store is opened or created).
+fn import_notes(location: &StoreLocation, started: Instant) -> Vec<String> {
+    match legacy_import::at_session_start(location, Budget::hook(started), GIT_TIMEOUT) {
+        Ok(None) => Vec::new(),
+        Ok(Some(run)) => legacy_import::lines(&run)
+            .into_iter()
+            .map(|line| {
+                let indent = if line.headline { "" } else { "  " };
+                format!("bench: {indent}{}", line.text)
+            })
+            .collect(),
+        Err(error) => vec![format!(
+            "bench could not import the anneal ledger, left as it is; the next session or \
+             bench command tries again: {}",
+            reason(&error)
+        )],
+    }
 }
 
 /// [`fresh_state`] for the store at `store`.

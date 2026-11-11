@@ -27,15 +27,23 @@ pub(super) fn writer() -> Result<Writer, StoreError> {
 }
 
 /// Every envelope key but `type`, `version` and `data`, each checked: the context one write
-/// shares between its events (a plan approval and its Core record, D3).
+/// shares between its events (a plan approval and its Core record, D3). The one-time import
+/// builds it from an old record's fields (`legacy_import`); the branch and head are checked
+/// when an event is built from it.
 #[derive(Debug, Clone)]
-pub(super) struct Context {
-    ts: CoreTimestamp,
-    author: Author,
-    session: Option<SessionId>,
-    worktree: Option<WorktreeId>,
-    branch: Option<String>,
-    head: Option<String>,
+pub(crate) struct Context {
+    /// When the event was written (EV-01).
+    pub(crate) ts: CoreTimestamp,
+    /// Who wrote it, at what trust, with which binary.
+    pub(crate) author: Author,
+    /// The writing session, if any.
+    pub(crate) session: Option<SessionId>,
+    /// The writing worktree, if any.
+    pub(crate) worktree: Option<WorktreeId>,
+    /// The checked-out branch, if any.
+    pub(crate) branch: Option<String>,
+    /// The commit at `HEAD`, if any.
+    pub(crate) head: Option<String>,
 }
 
 impl Context {
@@ -48,7 +56,7 @@ impl Context {
     /// # Errors
     /// [`StoreError::Field`] for an actor Core refuses, [`StoreError::Id`] for a session or a
     /// worktree that is not an id.
-    pub(super) fn of(env: &EventEnvelope, writer: &Writer) -> Result<Self, StoreError> {
+    pub(crate) fn of(env: &EventEnvelope, writer: &Writer) -> Result<Self, StoreError> {
         let id = |field: Field, value: &str, source| StoreError::Id {
             field,
             value: value.to_owned(),
@@ -77,12 +85,28 @@ impl Context {
         })
     }
 
+    /// The stored event of the Bench event `event` in this context.
+    ///
+    /// # Errors
+    /// As [`to_new_event_in`].
+    pub(crate) fn bench_event(self, event: &LedgerEvent) -> Result<NewEvent, StoreError> {
+        to_new_event_in(self, event)
+    }
+
+    /// The stored Core record of a human's approval in this context.
+    ///
+    /// # Errors
+    /// As [`approval_event`].
+    pub(crate) fn approval_event(self, approval: ApprovalRecorded) -> Result<NewEvent, StoreError> {
+        approval_event(self, approval)
+    }
+
     /// The durable event of `data` in this context, with the caller's `tags` (Core adds
     /// `plugin`, `trust`, `session` and `worktree`).
     ///
     /// # Errors
     /// [`StoreError::Envelope`] naming the first rule of EV-05 the envelope breaks.
-    pub(super) fn event<P: Payload>(self, data: P, tags: Vec<Tag>) -> Result<NewEvent, StoreError> {
+    fn event<P: Payload>(self, data: P, tags: Vec<Tag>) -> Result<NewEvent, StoreError> {
         let Self {
             ts,
             author,

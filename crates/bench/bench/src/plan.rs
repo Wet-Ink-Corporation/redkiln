@@ -12,7 +12,7 @@
 //! 4 stale. It never creates a ledger. See `docs/plan.md`.
 
 mod check;
-mod decider;
+pub(crate) mod decider;
 mod tree;
 
 pub(crate) use check::Status;
@@ -38,6 +38,7 @@ use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::error_chain;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::lint::plan::{self as plan_lint, PlanFinding};
 use crate::lint::spec::TreeLink;
 use crate::lint::{read_whole, read_whole_bytes, spec};
@@ -312,9 +313,12 @@ fn approve<O: Write>(
     };
     let location = paths::ledger_store(args.store.as_deref(), lookup, cwd)?;
     let (store, tree) = match linked {
-        None => (Store::open(&location.path)?, None),
+        None => (legacy_import::open_for_command(&location)?, None),
         Some(linked) => match tree::confirmed(linked, &location.path)? {
-            Confirmation::Confirmed { ledger, path } => (ledger, Some(path)),
+            Confirmation::Confirmed { ledger, path } => {
+                legacy_import::import_for_command(&location)?;
+                (ledger, Some(path))
+            }
             Confirmation::Refused(refusal) => return refuse(&plan, spec_path, &refusal, out),
         },
     };

@@ -216,9 +216,14 @@ pub struct StoreLocation {
     pub path: PathBuf,
     /// Which step of the resolution order chose it.
     pub source: StoreSource,
-    /// The anneal ledgers that exist, left as they are (imported by a later step).
+    /// The anneal ledgers that exist, left as they are: what the one-time import reads, from a
+    /// copy (`legacy_import`).
     #[serde(skip)]
     pub old_ledgers: Vec<PathBuf>,
+    /// The directory the store was located from: where the import asks for the suite owner who
+    /// decides an imported human approval.
+    #[serde(skip)]
+    pub from: PathBuf,
     /// What a command reports as warnings: the `$ANNEAL_STORE` fallback, each old ledger, the
     /// suite config's problems.
     #[serde(skip)]
@@ -235,8 +240,9 @@ pub struct StoreLocation {
 /// 5. `<git-common-dir>/redkiln/events.sqlite3`, the same file from every worktree;
 /// 6. `<cwd>/.redkiln/events.sqlite3` outside git.
 ///
-/// Each notice is written to the process's standard error as one `bench: warning:` line, the
-/// command's own output being its stdout envelope.
+/// Each notice but an old ledger's is written to the process's standard error as one
+/// `bench: warning:` line, the command's own output being its stdout envelope; the import
+/// reports old ledgers (`legacy_import::open_for_command`).
 ///
 /// # Errors
 /// [`PathError::Git`], [`PathError::GitTimeout`], [`PathError::GitFailed`] or
@@ -251,7 +257,13 @@ pub fn ledger_store(
 ) -> Result<StoreLocation, PathError> {
     let location = ledger_store_within(flag, lookup, cwd, GIT_TIMEOUT)?;
     let mut err = io::stderr().lock();
-    for notice in &location.notices {
+    // An old ledger is told by the import a recording command runs (`legacy_import`), and by
+    // `bench status` while it is due, not by every command once it is imported.
+    let told = location
+        .notices
+        .iter()
+        .filter(|notice| !matches!(notice, Notice::OldLedger { .. }));
+    for notice in told {
         writeln!(err, "bench: warning: {notice}").map_err(PathError::Warning)?;
     }
     Ok(location)

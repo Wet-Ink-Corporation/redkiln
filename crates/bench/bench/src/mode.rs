@@ -34,6 +34,7 @@ use crate::command::CommandName;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::paths::{self, GIT_TIMEOUT, PathError, StoreLocation, StoreSource};
 
 /// `bench mode`.
@@ -171,7 +172,7 @@ pub(crate) fn run<O: Write>(
         });
     }
     let location = paths::ledger_store(None, lookup, cwd)?;
-    let position = Store::open(&location.path)?.append(&envelope)?;
+    let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
     let recorded = Recording {
         mode,
         subcommand,

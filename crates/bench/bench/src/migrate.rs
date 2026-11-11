@@ -27,6 +27,7 @@ use crate::command::CommandName;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::paths;
 use waves::{Refusal, Step, Waves};
 
@@ -145,8 +146,11 @@ pub(crate) fn run<O: Write>(
         return report.refused(&state, &refusal, out);
     }
     let store = match existing {
-        Some(store) => store,
-        None => Store::open(&location.path)?,
+        Some(store) => {
+            legacy_import::import_for_command(&location)?;
+            store
+        }
+        None => legacy_import::open_for_command(&location)?,
     };
     let appended = record(&store, &envelope, filter, last)?;
     report.appended(state, appended, out)

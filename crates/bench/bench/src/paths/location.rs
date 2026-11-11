@@ -1,6 +1,6 @@
 //! Where Bench's store is: the suite store, located by Core (ST-01), with anneal's
-//! `$ANNEAL_STORE` read below `$REDKILN_STORE`, and the anneal ledgers this build does not open
-//! but reports (Move 2 step 3; step 3.5 imports them).
+//! `$ANNEAL_STORE` read below `$REDKILN_STORE`, and the anneal ledgers this build never opens
+//! but imports once from a copy (Move 2 step 3, `legacy_import`).
 //!
 //! The chain: `--store`; `$REDKILN_STORE`; `$ANNEAL_STORE`, which names an anneal ledger, so the
 //! store goes beside it as `<parent>/<stem>.events.sqlite3` (D5, weighin's D2 B); `[suite]
@@ -35,7 +35,8 @@ pub enum Notice {
         /// The store beside it.
         store: PathBuf,
     },
-    /// An anneal ledger exists, which this build leaves as it is and does not read yet.
+    /// An anneal ledger exists, which this build leaves as it is and imports once
+    /// (`legacy_import`, which reports it in place of this notice).
     OldLedger {
         /// The ledger.
         path: PathBuf,
@@ -56,8 +57,8 @@ impl fmt::Display for Notice {
             ),
             Self::OldLedger { path } => write!(
                 f,
-                "the anneal ledger {} is left as it is: bench keeps its events in the suite \
-                 store and does not read it yet",
+                "the anneal ledger {} is left as it is: bench imports its events into the \
+                 suite store once",
                 path.display()
             ),
             Self::Suite(warning) => f.write_str(warning),
@@ -125,7 +126,7 @@ pub(super) fn locate(
         );
     }
     // Existence only: an old ledger is never opened here (ST-15, ST-16). One whose existence
-    // cannot be checked is not reported: the notice is a warning, and the import (3.5) reads
+    // cannot be checked is not reported: the notice is a warning, and the import (`legacy_import`) reads
     // each source itself and reports what it cannot read.
     old_ledgers.retain(|path| path.try_exists().is_ok_and(|exists| exists));
     // Each notice names its ledger for the warning; `old_ledgers` keeps them for the import.
@@ -138,6 +139,7 @@ pub(super) fn locate(
         path: located.store,
         source,
         old_ledgers,
+        from: cwd.to_path_buf(),
         notices,
     })
 }

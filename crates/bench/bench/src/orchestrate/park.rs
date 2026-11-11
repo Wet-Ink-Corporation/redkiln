@@ -23,6 +23,7 @@ use crate::error::CliError;
 use crate::error_chain;
 use crate::exit_codes::{self, Code};
 use crate::hook::injection_scan::detect;
+use crate::legacy_import;
 use crate::paths;
 use crate::weighin::{self, ItemId, ParkRequest, Runner};
 
@@ -153,7 +154,8 @@ where
     let decision = decision_id(args.decision.as_deref())?;
     let session = args.session.as_deref();
     check_session(&ticket, session)?;
-    let store = Store::open(&paths::ledger_store(None, &ports.lookup, ports.cwd)?.path)?;
+    let store =
+        legacy_import::open_for_command(&paths::ledger_store(None, &ports.lookup, ports.cwd)?)?;
     let record = Record {
         store: &store,
         ticket: &ticket,
@@ -259,7 +261,8 @@ where
     };
     let session = args.session.as_deref();
     check_session(&ticket, session)?;
-    let store = Store::open(&paths::ledger_store(None, &ports.lookup, ports.cwd)?.path)?;
+    let store =
+        legacy_import::open_for_command(&paths::ledger_store(None, &ports.lookup, ports.cwd)?)?;
     let position = store.append(&envelope(LedgerEvent::OrchestrateRuled(ruled), session)?)?;
     let data = RuleData {
         ticket: ticket.as_str(),

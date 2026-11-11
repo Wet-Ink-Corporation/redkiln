@@ -15,11 +15,11 @@ Plugin (bench), binary `bench`. Process concerns: arguments, stdout and stderr, 
 
 ## Names at the door (M2-B)
 - Binary, clap command and launcher copies: `bench`; crates `bench`, `bench-contract`; install ids `rk-bench`, `rk-bench-cockpit`.
-- Since step 3: events are `bench.<name>` in the suite store (`<git-common-dir>/redkiln/events.sqlite3`, `$REDKILN_STORE`); `$ANNEAL_STORE` still read, below it, naming an anneal ledger the store goes beside; anneal ledgers are found and warned about, never opened. `bench ledger append|query|tail` keep the 0.x short names until step 4; `bench ledger journal` prints JR-02 lines. Unchanged until step 5: `.anneal/`, `~/.anneal` and `$ANNEAL_HOME`. Old names in the imported charter and in `docs/bench/` are anneal's.
+- Since step 3: events are `bench.<name>` in the suite store (`<git-common-dir>/redkiln/events.sqlite3`, `$REDKILN_STORE`); `$ANNEAL_STORE` still read, below it, naming an anneal ledger the store goes beside; anneal ledgers are never opened in place, but imported once from Core's copy (`src/legacy_import.rs`: SessionStart within 8 MiB and 2 s, recording commands without a budget, never `bench status` or another hook; `docs/bench/ledger.md`). `bench ledger append|query|tail` keep the 0.x short names until step 4; `bench ledger journal` prints JR-02 lines. Unchanged until step 5: `.anneal/`, `~/.anneal` and `$ANNEAL_HOME`. Old names in the imported charter and in `docs/bench/` are anneal's.
 - `bench_contract::cli` lists every subcommand path; `tests/it/cli_pin.rs` pins it against clap.
 
 ## Harness
 Claude Code's protocol (hook payload and response keys, `CLAUDE_*` names) lives only in `src/harness.rs` and `src/harness/` (CLI-13, `cargo xtask plugins` check (b)); every other module and every out-of-line test reaches it through `harness`.
 
 ## Test strategy
-Unit tests beside the code; integration tests in `tests/it/` run the built binary (`core_store.rs`: old ledgers untouched, reads create no store, journal lines import). `cargo nextest run -p bench`. Tests that read repository data use the monorepo paths (`plugins/bench/`, `docs/bench/`, `evals/bench/`).
+Unit tests beside the code; integration tests in `tests/it/` run the built binary (`core_store.rs`: old ledgers untouched, reads create no store, journal lines import; `legacy_import.rs`: the import once, through SessionStart, a command and `$ANNEAL_STORE`); the import over every fixture is unit-tested in `src/legacy_import/tests.rs`. `cargo nextest run -p bench`. Tests that read repository data use the monorepo paths (`plugins/bench/`, `docs/bench/`, `evals/bench/`).

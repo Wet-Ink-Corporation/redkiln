@@ -27,6 +27,7 @@ use crate::command::CommandName;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
+use crate::legacy_import;
 use crate::mode::scope;
 use crate::paths::{self, PathError, StoreSource};
 use crate::process::{self, WaitError};
@@ -278,6 +279,7 @@ fn done<O: Write>(
     };
     // Only now, with the command finished, is the ledger opened.
     let location = paths::ledger_store(args.store.as_deref(), lookup, cwd)?;
+    legacy_import::import_for_command(&location)?;
     let events = record(stamp, &run, &command, &location.path)?;
     let data = Data {
         task: &args.id,

@@ -26,14 +26,21 @@ mod envelope;
 mod tag;
 mod wire;
 
+use std::collections::HashSet;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use redkiln_core::approval::ApprovalRecorded;
-use redkiln_core::envelope::{EnvelopeError, Field, FieldError, Skip, Writer};
+use redkiln_core::envelope::{
+    EnvelopeError, Field, FieldError, Payload as _, Skip, Writer, decode_all,
+};
 use redkiln_core::ids::IdError;
-use redkiln_core::journal::{LineError, encode_line};
+use redkiln_core::journal::{
+    ImportCompleted, ImportError, ImportSource, LineError, Mapped, MappedImport, Recording,
+    encode_line, import_mapped,
+};
 pub use redkiln_core::store::Wait;
 use redkiln_core::store::{
     Appended as CoreAppended, Condition as CoreCondition, Filter as CoreFilter, OpenError,
@@ -46,6 +53,7 @@ pub use bench_contract::event::{
 };
 pub use envelope::{EventEnvelope, SchemaError, Timestamp, TimestampError};
 pub use tag::{LedgerTag, TagError, TagKey};
+pub(crate) use wire::Context as EventContext;
 
 /// How many events one read of the store returns at most.
 const PAGE: NonZeroUsize = match NonZeroUsize::new(512) {
@@ -102,6 +110,10 @@ pub enum StoreError {
     /// Core reported a conflict for a write that had no condition, which it never does.
     #[error("the store reported a conflict for an unconditioned write")]
     UnconditionedConflict,
+    /// Core's import of an old ledger stopped (ST-15): what it stored stays, and nothing was
+    /// recorded, so the next run imports the rest.
+    #[error("importing into the store")]
+    Import(#[source] Box<ImportError>),
 }
 
 impl StoreError {
@@ -284,6 +296,56 @@ impl Store {
             .map_err(refused)?
             .map(Self::over)
             .transpose()
+    }
+
+    /// The writer every envelope this store appends names (`bench <version>`).
+    pub(crate) const fn writer(&self) -> &Writer {
+        &self.writer
+    }
+
+    /// Imports `records`, mapped from an old ledger, through Core's import (ST-15), recorded
+    /// as `recording` says unless `deadline` passes first ([`MappedImport::Stopped`]).
+    ///
+    /// # Errors
+    /// [`StoreError::Import`] when Core's import stops on a store error.
+    pub(crate) fn import(
+        &self,
+        records: impl IntoIterator<Item = (u64, Mapped)>,
+        recording: Recording,
+        deadline: Option<Instant>,
+    ) -> Result<MappedImport, StoreError> {
+        import_mapped(&self.inner, records, recording, deadline)
+            .map_err(|error| StoreError::Import(Box::new(error)))
+    }
+
+    /// The paths of the old ledgers this store recorded importing itself (JR-13): each
+    /// `core.import_completed` it appended whose source is `{"legacy": {path, ..}}`. A record
+    /// that came in from another store's journal names what that store read, so it does not
+    /// count; nor does one this build cannot decode.
+    ///
+    /// # Errors
+    /// [`StoreError::Core`] when the store cannot be read.
+    pub(crate) fn imported_sources(&self) -> Result<HashSet<String>, StoreError> {
+        let filter = CoreFilter::all().of_type(ImportCompleted::TYPE)?;
+        let mine = self.inner.store_id();
+        let mut done = HashSet::new();
+        let mut after = 0;
+        loop {
+            let page = self.inner.read(&filter, after, PAGE)?;
+            let Some(end) = page.last().map(|stored| stored.position) else {
+                return Ok(done);
+            };
+            let own = page.iter().filter(|stored| stored.id.store() == mine);
+            for envelope in decode_all::<ImportCompleted>(own).events {
+                if let ImportSource::Legacy { path, .. } = envelope.data.source {
+                    done.insert(path);
+                }
+            }
+            if page.len() < PAGE.get() {
+                return Ok(done);
+            }
+            after = end;
+        }
     }
 
     fn over(inner: redkiln_core::store::Store) -> Result<Self, StoreError> {

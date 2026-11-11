@@ -100,6 +100,7 @@ mod harness;
 pub mod hook;
 pub mod json_file;
 pub mod ledger;
+mod legacy_import;
 pub mod lint;
 pub mod migrate;
 pub mod mode;
