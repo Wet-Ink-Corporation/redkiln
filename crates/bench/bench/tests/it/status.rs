@@ -1,5 +1,5 @@
 //! `bench status` through the binary, in a scratch directory outside git with the ledger at
-//! `$ANNEAL_STORE` there.
+//! `$REDKILN_STORE` there.
 
 use std::error::Error;
 
@@ -18,7 +18,7 @@ fn without_a_ledger_status_exits_2_and_creates_none() -> TestResult {
 
     let output = anneal_in(work.path())
         .args(["status", "--json"])
-        .env("ANNEAL_STORE", STORE)
+        .env("REDKILN_STORE", STORE)
         .output()?;
 
     assert_eq!(output.status.code(), Some(2), "no ledger");
@@ -40,13 +40,13 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
     let work = tempfile::tempdir()?;
     let appended = anneal_in(work.path())
         .args(["ledger", "append", r#"{"type":"task_done","task":"T1"}"#])
-        .env("ANNEAL_STORE", STORE)
+        .env("REDKILN_STORE", STORE)
         .output()?;
     assert!(appended.status.success(), "the event was appended");
 
     let output = anneal_in(work.path())
         .args(["status", "--json", "--fields", "ledger_tail"])
-        .env("ANNEAL_STORE", STORE)
+        .env("REDKILN_STORE", STORE)
         .output()?;
 
     assert_eq!(output.status.code(), Some(0), "a ledger exists");

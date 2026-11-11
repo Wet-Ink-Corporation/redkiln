@@ -81,7 +81,12 @@ fn outside_a_repository_only_the_ledger_wide_sections_are_read() -> Setup<()> {
         plan: None,
         tree: None,
     });
-    append(&store, mode, Some("elsewhere"), "2026-10-19T10:00:01Z")?;
+    append(
+        &store,
+        mode,
+        Some("wt-0e15e3e1e5e0"),
+        "2026-10-19T10:00:01Z",
+    )?;
     block(&fixture, "guard.rm-rf", "rm -rf /", "2026-10-19T10:00:02Z")?;
     let outside = tempfile::tempdir()?;
 

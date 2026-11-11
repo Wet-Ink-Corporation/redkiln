@@ -3,7 +3,7 @@ use crate::harness::claude_code::keys::{
 };
 use std::ffi::OsString;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use crate::store::{EventKind, Filter, LedgerEvent, Store};
@@ -18,10 +18,12 @@ use crate::hook::HookEnv;
 
 /// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout.
 fn guard(stdin: &[u8], store: &Path) -> String {
-    let lookup = |var: &str| (var == "ANNEAL_STORE").then(|| OsString::from(store));
+    let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(store));
     let env = HookEnv {
         stdin,
-        current_dir: || Ok(PathBuf::from("/")),
+        // An absolute directory on every platform (Core refuses a relative one, and `/` is
+        // relative on Windows); the store is `$REDKILN_STORE`'s, so git never runs here.
+        current_dir: || Ok(std::env::temp_dir()),
         lookup,
     };
     let mut out = Vec::new();
@@ -226,10 +228,12 @@ fn a_failed_read_of_stdin_is_denied() {
     }
     let dir = tempfile::tempdir().expect("a temporary directory");
     let store = dir.path().join("ledger.sqlite3");
-    let lookup = |var: &str| (var == "ANNEAL_STORE").then(|| OsString::from(&store));
+    let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(&store));
     let env = HookEnv {
         stdin: Broken,
-        current_dir: || Ok(PathBuf::from("/")),
+        // An absolute directory on every platform (Core refuses a relative one, and `/` is
+        // relative on Windows); the store is `$REDKILN_STORE`'s, so git never runs here.
+        current_dir: || Ok(std::env::temp_dir()),
         lookup,
     };
     let mut out = Vec::new();

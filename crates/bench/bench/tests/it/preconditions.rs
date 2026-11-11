@@ -76,8 +76,8 @@ impl Repo {
     fn ledger(&self) -> PathBuf {
         self.path()
             .join(".git")
-            .join("anneal")
-            .join("ledger.sqlite3")
+            .join("redkiln")
+            .join("events.sqlite3")
     }
 
     /// Runs `anneal <args>` in the repository, expecting `code` and a quiet stderr, and returns

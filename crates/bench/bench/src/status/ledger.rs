@@ -245,7 +245,7 @@ impl Worktree<'_> {
     /// worktree since build mode was entered (`hook::handoff::facts`).
     pub(super) fn tasks(&self, build: &BuildPlan<'_>, bytes: &[u8]) -> Result<Tasks, Unreadable> {
         let tasks = facts::plan_tasks(build.plan, bytes);
-        let key = scope::worktree_key(self.root);
+        let key = scope::worktree_id(self.root);
         let done = facts::done_since(self.store, build.since, Some(&key))
             .map_err(Unreadable::DoneTasks)?;
         let finished = facts::finished(&tasks, &done);

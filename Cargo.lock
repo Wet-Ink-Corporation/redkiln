@@ -110,7 +110,6 @@ name = "bench"
 version = "0.0.5"
 dependencies = [
  "bench-contract",
- "bench-ledger",
  "clap",
  "redkiln-core",
  "serde",
@@ -129,21 +128,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
-]
-
-[[package]]
-name = "bench-ledger"
-version = "0.0.5"
-dependencies = [
- "bench-contract",
- "happenstance-core",
- "happenstance-sqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "time",
- "tokio",
 ]
 
 [[package]]

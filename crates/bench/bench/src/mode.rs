@@ -1,8 +1,8 @@
 //! `bench mode build|diagnose|off`: the bench mode of a worktree, which the preconditions
 //! hook (`hook::preconditions`) enforces.
 //!
-//! Each command appends one `mode_set` event whose envelope names the worktree (its key,
-//! `scope::worktree_key` of the top-level directory git prints), so the latest `mode_set`
+//! Each command appends one `mode_set` event whose envelope names the worktree (its ID-06 id,
+//! `scope::worktree_id` of the top-level directory git prints), so the latest `mode_set`
 //! tagged with a worktree is its mode. `build` records the plan and design tree, relative to
 //! the worktree root, and whether the working tree was clean (untracked files included, apart
 //! from character devices: see `clean`); a dirty tree is still recorded, with a finding, and
@@ -69,7 +69,10 @@ pub struct BuildArgs {
 }
 
 /// For whom `bench mode` records. There is no `--store`: the mode goes to the ledger the
-/// preconditions hook reads (`$ANNEAL_STORE`, else the git common dir, else the folder).
+/// preconditions hook reads.
+///
+/// That is the suite store: `$REDKILN_STORE`, else beside `$ANNEAL_STORE`'s ledger, else
+/// `[suite] store`, else the git common dir, else the folder.
 #[derive(Debug, Args)]
 pub struct RecordArgs {
     /// The session id to record
@@ -156,7 +159,7 @@ pub(crate) fn run<O: Write>(
         tree,
     });
     let mut envelope = EventEnvelope::new(event, "cli", Timestamp::now()?);
-    envelope.worktree = Some(scope::worktree_key(&root));
+    envelope.worktree = Some(scope::worktree_id(&root));
     envelope.session_id.clone_from(&record.session);
     // The worktree, plan and session become ledger tags; check them before a ledger is opened
     // (or created), so a value the store would refuse is a usage error that leaves no file.
@@ -335,13 +338,13 @@ pub(crate) struct Entered {
 }
 
 /// The active mode of the worktree whose top-level directory git prints as `root`: the latest
-/// `mode_set` tagged with its key ([`scope::worktree_key`]), or `None` when there is none or
+/// `mode_set` tagged with its id ([`scope::worktree_id`]), or `None` when there is none or
 /// it is `off`.
 ///
 /// # Errors
 /// The [`StoreError`] when the ledger cannot be read.
 pub(crate) fn active(store: &Store, root: &str) -> Result<Option<Entered>, StoreError> {
-    let tag = match LedgerTag::new(TagKey::Worktree, &scope::worktree_key(root)) {
+    let tag = match LedgerTag::new(TagKey::Worktree, &scope::worktree_id(root)) {
         Ok(tag) => tag,
         // `bench mode` refuses a worktree the ledger cannot tag, so none has a mode.
         Err(_untaggable) => return Ok(None),

@@ -18,9 +18,12 @@ name = "bench"
 path = "src/main.rs"
 
 [dependencies]
-bench-contract = { workspace = true }
-bench-ledger = { workspace = true }
+# Core's half of the contract: the `bench.*` payloads as Core payloads, their tags and `decode`.
+bench-contract = { workspace = true, features = ["core"] }
 clap = { workspace = true }
+# The suite store, its location, envelopes, ids and journal lines (Move 2 step 3): bench never
+# opens SQLite itself.
+redkiln-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -28,8 +31,6 @@ thiserror = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
-# Reads the old-ledger fixtures from copies (tests/it/fixtures.rs), as step 3's import will.
-redkiln-core = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]

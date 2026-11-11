@@ -31,10 +31,11 @@ use std::time::Duration;
 use crate::error_chain::reason;
 use crate::existing_ledger::open_existing;
 use crate::harness::claude_code;
-use crate::hook::guard::{BUSY_TIMEOUT, GIT_TIMEOUT};
+use crate::hook::guard::GIT_TIMEOUT;
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::mode;
 use crate::paths::{self, PathError};
+use crate::store::Wait;
 use batch::{Batch, Input, MAX_FILES};
 use checks::{Anneal, Budget, Outcome};
 
@@ -174,7 +175,7 @@ fn in_mode(
         Err(PathError::NotARepository { .. }) => return Ok(None),
         Err(error) => return Err(unknown("the worktree cannot be found", &error)),
     };
-    let store = match open_existing(Path::new(&root), lookup, GIT_TIMEOUT, BUSY_TIMEOUT) {
+    let store = match open_existing(Path::new(&root), lookup, GIT_TIMEOUT, Wait::Hook) {
         Ok(Some(store)) => store,
         Ok(None) => return Ok(None),
         Err(error) => return Err(unknown("the ledger cannot be read", &error)),

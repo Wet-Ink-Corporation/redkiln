@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use crate::store::{
-    EventKind, Filter, LedgerEvent, LedgerTag, Store, StoreError, TagKey, Timestamp,
+    EventKind, Filter, LedgerEvent, LedgerTag, Store, StoreError, TagKey, Timestamp, Wait,
 };
 use bench_contract::event::TestRun;
 
@@ -13,7 +13,6 @@ use crate::existing_ledger;
 use crate::hook::completeness::claim::success_claim;
 use crate::hook::completeness::edits::{self, Edit};
 use crate::hook::completeness::{GIT_TIMEOUT, playbook};
-use crate::hook::guard::BUSY_TIMEOUT;
 use crate::mode::{self, scope};
 use crate::paths::{self, PathError};
 use crate::repro::leftovers::{self, LeftoverScan};
@@ -102,11 +101,11 @@ pub(crate) fn run(
             None
         }
     };
-    match existing_ledger::open_existing(root_path, lookup, GIT_TIMEOUT, BUSY_TIMEOUT) {
+    match existing_ledger::open_existing(root_path, lookup, GIT_TIMEOUT, Wait::Hook) {
         Ok(store) => found.store = store,
         Err(error) => found.note("the ledger could not be read", &error),
     }
-    let key = scope::worktree_key(&root);
+    let key = scope::worktree_id(&root);
     let tag = worktree_tag(&key);
     found.worktree = Some(key);
     if let (Some(claim), Some(Some(edit))) = (reply.and_then(success_claim), &edit) {
@@ -171,7 +170,7 @@ fn check_claim(claim: &str, edit: &Edit, tag: Option<&LedgerTag>, found: &mut Fi
     let fresh = match (&found.store, tag) {
         (Some(store), Some(tag)) => {
             let now_ms = match Timestamp::now() {
-                Ok(now) => now.unix_millis(),
+                Ok(now) => Some(now.unix_millis()),
                 Err(error) => return found.note("the clock could not be read", &error),
             };
             match latest_green_start(store, tag, now_ms) {
@@ -224,7 +223,7 @@ fn latest_green_start(
     let latest = store.tail(&runs, RUNS_READ)?;
     let horizon = now_ms.map(|now| now.saturating_add(FUTURE_SLACK_MS));
     let believable = latest.iter().rev().find_map(|run| {
-        let stamped = run.event.ts.unix_millis()?;
+        let stamped = run.event.ts.unix_millis();
         horizon
             .is_none_or(|horizon| stamped <= horizon)
             .then_some((run, stamped))

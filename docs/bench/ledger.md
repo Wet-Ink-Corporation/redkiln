@@ -1,52 +1,67 @@
 # The ledger
 
 The ledger records what happened in a repository's sessions: tests run, tasks done, plans
-approved, gates and stops blocked. Hooks and commands append to it; gates query it. It is a
-[happenstance](https://crates.io/crates/happenstance-sqlite) SQLite event store (0.3.2, the
-version weigh-in runs), kept by the `anneal-ledger` crate and driven by `anneal ledger`.
+approved, gates and stops blocked. Hooks and commands append to it; gates query it. Since Move
+2 step 3 (PR 3.4) it is Bench's share of the suite store, the one Core store every Redkiln
+plugin writes (`spec/store.md`), reached through `redkiln-core` from
+`crates/bench/bench/src/store.rs`, and driven by `bench ledger`. Bench's events are the 17
+`bench.*` types (`bench-contract`); everything below still shows them in anneal's 0.x flat
+form, with short names, until step 4.
 
 ## Where it lives
 
-One file per repository, shared by every worktree and never committed:
-`<git-common-dir>/anneal/ledger.sqlite3`. A command resolves the store in this order:
+One file per repository, shared by every worktree and every plugin, never committed:
+`<git-common-dir>/redkiln/events.sqlite3`. A command resolves it as Core does (ST-01), with
+anneal's variable read below Core's:
 
 1. `--store <file>` (relative paths are taken from the working directory);
-2. `$ANNEAL_STORE` (empty counts as unset);
-3. the anneal config file (there is none yet; the step is reserved);
-4. `<git-common-dir>/anneal/ledger.sqlite3`, the same file from the main checkout and every
+2. `$REDKILN_STORE` (blank counts as unset);
+3. `$ANNEAL_STORE`, which names an anneal ledger: the store goes beside it, as
+   `<parent>/<stem>.events.sqlite3`, with a warning (D5 of the step 3 plan);
+4. `store` under `[suite]` in `.redkiln/suite.toml`;
+5. `<git-common-dir>/redkiln/events.sqlite3`, the same file from the main checkout and every
    linked worktree;
-5. `<folder>/.anneal/ledger.sqlite3` outside git: only when git says the directory is not in a
-   repository. Any other git failure (for example "detected dubious ownership", or a broken
-   `.git` file) stops the command with exit 70, so a repository git refuses never gets a
-   second, per-folder ledger.
+6. `<folder>/.redkiln/events.sqlite3` outside git: only when git says the directory is not in a
+   repository. Any other git failure (for example "detected dubious ownership", or a `.git`
+   file that points nowhere) stops the command with exit 70, so a repository git refuses never
+   gets a second, per-folder store.
 
 Query results report the file in `data.store` and the step that chose it in `data.source`
-(`flag`, `env`, `git_common_dir` or `folder`).
+(`flag`, `env`, `config`, `git_common_dir` or `folder`).
+
+## Old ledgers
+
+anneal's ledger, `<git-common-dir>/anneal/ledger.sqlite3` (outside git
+`<folder>/.anneal/ledger.sqlite3`), and the file `$ANNEAL_STORE` names are never opened: a
+command warns once on stderr (`bench: warning: the anneal ledger <path> is left as it is`)
+and SessionStart says so in its context. `--store` or `$REDKILN_STORE` naming one is refused
+with exit 70 and the hint that bench imports an anneal ledger rather than opening it; the file
+is left as it was. Step 3.5 imports them, once each.
 
 ## Storage rules
 
-- **TRUNCATE journal, never WAL.** WAL creates `-wal` and `-shm` files and deletes them on
-  close; Cowork's connected folders refuse deletes and WAL's shared memory. The ledger keeps one
-  `ledger.sqlite3-journal` beside it, emptied at each commit and never deleted. It is never
-  opened through happenstance's own `SqliteEventStore::open`, which switches to WAL: anneal opens
-  its own connection and copies happenstance's schema in from a template, inside one
-  `BEGIN IMMEDIATE`. A file already in WAL is refused, not converted.
-- **Refused files are left as they were.** Opening only reads until the file is known to be a
-  ledger this anneal reads, or an empty database. A ledger stamped by a newer anneal, a file in
-  WAL, and a SQLite database with tables that is not a ledger (say, a wrong `--store` or
-  `$ANNEAL_STORE`) are each refused with exit 70, and nothing in them changes. The schema
-  version and WAL are read from the file's 100-byte header before SQLite opens it, so refusing
-  a WAL file creates no `-wal` or `-shm` beside it. Only a new file or an empty database is
-  given the ledger schema.
-- **Schema version.** `PRAGMA user_version` holds the ledger schema (1: happenstance 0.3.2's
-  schema under TRUNCATE), stamped in the transaction that creates the schema.
-- **Concurrent writers.** Every append is its own `BEGIN IMMEDIATE` transaction, and each
-  connection waits up to 10 seconds for another's lock, so concurrent hooks serialise.
-- **Conditioned appends (DCB).** `Store::append_if` writes only if no event matching a condition
-  exists (optionally: after a position the writer has read). It is checked inside the append's
-  transaction, so of two writers racing on the same condition exactly one wins; the other gets
-  `Conflict`. Gates that need first-writer-wins use it: `anneal plan approve` appends
-  `plan_approved` only if no other approval of the plan landed after the one it read.
+Core's: the store's journal mode, stamp, refusals of a newer or foreign file, busy waits and
+first-writer-wins appends are the SPEC's (ST-04 to ST-11) and Core's tests. What Bench adds:
+
+- **Bench sees only Bench.** Every read and every append condition names Bench's 17 types
+  (EV-08), so another plugin's events neither appear in `bench ledger query` nor make a Bench
+  write conflict. Positions are the shared store's, so they skip what other plugins wrote.
+- **Unusable events are counted, not errors** (EV-10): a `bench.*` event at a later version, or
+  one whose data this build cannot read, is skipped; `query` and `tail` add a `ledger/unusable`
+  finding with the count, and SessionStart's live state says how many it skipped.
+- **Waits.** Commands wait up to 10 s for another writer's lock, hooks up to 2 s (Core's
+  `Wait::Command` and `Wait::Hook`).
+- **Conditioned appends (DCB).** `Store::append_if` writes only if no Bench event matching a
+  condition exists (optionally: after a position the writer has read), checked inside the
+  append's transaction; `bench plan approve` appends `plan_approved` only if no other approval
+  of the plan landed after the one it read.
+- **Plan approvals for the suite.** `bench plan approve --actor human` also writes
+  `core.approval_recorded` (AP-01: subject the plan's `sha256:`, scope `repository`, decider
+  `human:<owner>`, the owner from `[suite] owner` or git's `user.name`), in the same
+  transaction, so other plugins' gates can see it. With no owner only `plan_approved` is
+  written, and a `plan/approve/no-owner` finding says so.
+- **Reads create nothing.** `query`, `tail`, `journal`, `bench status` and every hook that only
+  reads open the store only when it exists.
 
 ## The envelope
 
@@ -146,11 +161,12 @@ anneal ledger [--store <file>] journal
 - `query` and `tail` filter by any of the `--type`s and all of the `--tag`s (`--session <id>` is
   `--tag session:<id>`). Their `data` holds `store`, `source`, `registry` and `events`, each
   `{"position": n, "event": {...}}` in position order. `tail` keeps the last `N` (default 10).
-- `journal` prints every event's envelope as one JSON line, in position order, with no result
-  envelope: the output is a journal file a cloud session commits, since its ledger leaves with
-  its container.
+- `journal` prints every Bench event as its journal line (JR-02: the Core envelope with
+  `origin`, `bench.*` names), in position order, with no result envelope: the form Core's
+  journal import reads. The export checkpoint at Stop and before a push waits for
+  step 6.
 
-Exit codes: 0 ok, 2 schema error (an envelope with one `ledger/schema` finding on stdout) or
+Exit codes: 0 ok, 2 schema error (an envelope with one `ledger/schema` finding on stdout: an event the store refuses, such as an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset) or
 usage error (`append` with a `by`, above), and
 the global codes in [exit-codes.md](exit-codes.md) (70 when the store cannot be opened or
 written).

@@ -11,6 +11,7 @@ mod brief;
 mod calibrate;
 mod cli;
 mod cli_pin;
+mod core_store;
 mod dag;
 mod decide;
 mod decide_http;

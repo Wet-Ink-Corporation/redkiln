@@ -292,9 +292,9 @@ pub enum AgentStatus {
     Wip,
 }
 
-/// Tokens a subagent used, summed over its transcript's assistant messages.
+/// Tokens a subagent used, summed over its transcript's assistant messages. A reader ignores a
+/// key it does not know (EV-09); `bench ledger append` refuses one on write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct TokenUsage {
     /// Input tokens not read from or written to the cache.
     pub input: u64,

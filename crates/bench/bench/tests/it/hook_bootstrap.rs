@@ -51,7 +51,7 @@ impl Scratch {
     fn bootstrap(&self, stdin: &[u8]) -> Result<Output, Box<dyn Error>> {
         let mut child = anneal_in(self.path())
             .args(["hook", "bootstrap"])
-            .env("ANNEAL_STORE", &self.store)
+            .env("REDKILN_STORE", &self.store)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -275,7 +275,7 @@ fn a_closed_stdout_still_exits_0_with_one_error_line() -> TestResult {
     let scratch = Scratch::new()?;
     let mut child = anneal_in(scratch.path())
         .args(["hook", "bootstrap"])
-        .env("ANNEAL_STORE", &scratch.store)
+        .env("REDKILN_STORE", &scratch.store)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

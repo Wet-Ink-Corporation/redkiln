@@ -3,13 +3,15 @@
 
 use std::error::Error;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::process::Output;
 
+use redkiln_core::store::{Filter, Store, Wait};
 use serde_json::Value;
 use tempfile::TempDir;
 
-use crate::support::anneal_in;
+use crate::support::{anneal_in, git};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -466,5 +468,126 @@ fn plan_approve_help_describes_the_actors_without_naming_outcomes() -> TestResul
         help.contains("A person") && help.contains("A model") && !help.contains("outcome"),
         "the actor values read for an approval too: {help}"
     );
+    Ok(())
+}
+
+/// `plan approve` of [`PLAN`] with `extra` flags, git reading only the repository's own
+/// configuration (no global or system file), so the owner is what the test set.
+fn approve_isolated(cwd: &Path, extra: &[&str]) -> Result<(Output, Value), Box<dyn Error>> {
+    let output = anneal_in(cwd)
+        .args(["plan", "approve", PLAN, "--store", STORE])
+        .args(extra)
+        .env("GIT_CONFIG_GLOBAL", cwd.join("no-global-gitconfig"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()?;
+    let envelope = serde_json::from_slice(&output.stdout)?;
+    Ok((output, envelope))
+}
+
+/// An event as Core stores it: its type, its envelope's `data` and its tags.
+type StoredEvent = (String, Value, Vec<String>);
+
+/// Every event in the scratch store, as Core reads it.
+fn stored(cwd: &Path) -> Result<Vec<StoredEvent>, Box<dyn Error>> {
+    let store = Store::open_existing(&cwd.join(STORE), Wait::Command)?.ok_or("a store")?;
+    let page = NonZeroUsize::new(64).ok_or("non-zero")?;
+    store
+        .read(&Filter::all(), 0, page)?
+        .into_iter()
+        .map(|event| {
+            let envelope: Value = serde_json::from_slice(&event.data)?;
+            let tags = event
+                .tags
+                .iter()
+                .map(|tag| tag.as_str().to_owned())
+                .collect();
+            let data = envelope
+                .get("data")
+                .cloned()
+                .ok_or("an envelope has data")?;
+            Ok((event.event_type, data, tags))
+        })
+        .collect()
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_humans_approval_is_also_recorded_for_other_plugins_with_the_owner_as_decider() -> TestResult {
+    let work = workspace(AGREED_SPEC, CLEAN_PLAN)?;
+    git(work.path(), &["init", "-q"]);
+    git(work.path(), &["config", "user.name", "Ryan Britton"]);
+
+    let (output, envelope) = approve_isolated(work.path(), &["--actor", "human", "--via", "mod"])?;
+
+    assert_eq!(output.status.code(), Some(0), "approved: {envelope}");
+    assert_eq!(keys(&envelope), Vec::<String>::new(), "no finding");
+    let hash = envelope["data"]["hash"].as_str().ok_or("a hash")?;
+    let events = stored(work.path())?;
+    let types: Vec<&str> = events.iter().map(|(kind, ..)| kind.as_str()).collect();
+    assert_eq!(
+        types,
+        ["core.approval_recorded", "bench.plan_approved"],
+        "both, in one append"
+    );
+    let (_, approval, tags) = events.first().ok_or("an approval")?;
+    assert_eq!(
+        approval,
+        &serde_json::json!({
+            "subject": {"kind": "plan", "method": "sha256", "hash": hash, "locator": PLAN},
+            "verdict": "approved",
+            "scope": "repository",
+            "decider": "human:ryan-britton",
+        }),
+        "AP-01's record (D3)"
+    );
+    assert!(
+        tags.contains(&format!("subject:{hash}")),
+        "found by its subject (AP-01): {tags:?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_humans_approval_with_no_owner_is_recorded_for_bench_only_with_a_finding() -> TestResult {
+    let work = workspace(AGREED_SPEC, CLEAN_PLAN)?;
+    git(work.path(), &["init", "-q"]);
+
+    let (output, envelope) = approve_isolated(work.path(), &["--actor", "human"])?;
+
+    assert_eq!(output.status.code(), Some(0), "still approved: {envelope}");
+    assert_eq!(
+        keys(&envelope),
+        [format!("plan/approve/no-owner:{PLAN}")],
+        "says so"
+    );
+    let types: Vec<String> = stored(work.path())?
+        .into_iter()
+        .map(|(kind, ..)| kind)
+        .collect();
+    assert_eq!(
+        types,
+        ["bench.plan_approved"],
+        "no decider-less record (AP-01)"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_models_approval_writes_no_core_record_and_no_finding() -> TestResult {
+    let work = workspace(AGREED_SPEC, CLEAN_PLAN)?;
+    git(work.path(), &["init", "-q"]);
+    git(work.path(), &["config", "user.name", "Ryan Britton"]);
+
+    let (output, envelope) = approve_isolated(work.path(), &["--actor", "model"])?;
+
+    assert_eq!(output.status.code(), Some(0), "approved: {envelope}");
+    assert_eq!(keys(&envelope), Vec::<String>::new(), "no finding");
+    let types: Vec<String> = stored(work.path())?
+        .into_iter()
+        .map(|(kind, ..)| kind)
+        .collect();
+    assert_eq!(types, ["bench.plan_approved"], "AP-05: a human's only");
     Ok(())
 }

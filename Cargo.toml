@@ -39,8 +39,8 @@ thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # (docs/decisions.md, 2026-11-01); 0.6.0 brings rusqlite 0.41 (SQLite 3.54.1, RUSTSEC-2026-0459)
 # and happenstance schema 2, which Core migrates on open (ST-08, 2026-11-09). Only Core opens the
 # suite's store; weighin writes through Core since #17 part 5a (2026-11-06) and depends on neither
-# happenstance crate. bench-ledger opens its own TRUNCATE ledger on these pins until step 3 of
-# docs/plan/move-2-bench.md (option A of the 2026-11-10 card, decided by Ryan).
+# happenstance crate, and bench since Move 2 step 3 (bench-ledger, its own TRUNCATE ledger on these
+# pins until then, is gone).
 redkiln-core = { path = "crates/core/redkiln-core" }
 happenstance-core = { version = "=0.6.0", features = ["serde"] }
 happenstance-sqlite = { version = "=0.6.0", features = ["sync"] }
@@ -62,11 +62,9 @@ anyhow = "1"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 tempfile = "3"
 
-# Bench's crates as imported at Move 2 (docs/plan/move-2-bench.md, step 1). bench-ledger takes the
-# =0.6.0 happenstance entries above for its own TRUNCATE store until step 3 moves it onto Core
-# (option A of the 2026-11-10 card, decided by Ryan).
+# Bench's crates as imported at Move 2 (docs/plan/move-2-bench.md, step 1). Bench keeps its events
+# in the Core store through redkiln-core since step 3, which removed bench-ledger.
 bench-contract = { path = "crates/bench/bench-contract" }
-bench-ledger = { path = "crates/bench/bench-ledger" }
 # Clef's HTTP transport and `verdict set`'s commit status, for the bench crate only (M2-A, Ryan
 # 2026-11-09, as anneal had it since 2026-10-12): blocking, rustls with bundled Mozilla roots, no
 # gzip or proxy features.

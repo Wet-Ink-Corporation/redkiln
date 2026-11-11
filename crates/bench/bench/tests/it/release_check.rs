@@ -21,7 +21,7 @@ fn anneal(project: &Path, home: &Path) -> Command {
     let mut command = anneal_in(project);
     command
         .env("ANNEAL_HOME", home)
-        .env("ANNEAL_STORE", project.join("ledger.sqlite3"))
+        .env("REDKILN_STORE", project.join("ledger.sqlite3"))
         .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
         .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN")
         .env("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "shadow")

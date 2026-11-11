@@ -1,3 +1,5 @@
+> **This crate is gone.** Move 2 step 3 (PR 3.4, 2026-11-11) removed `bench-ledger` (anneal's `anneal-ledger`): Bench's events are `bench.*` types in `bench-contract` and live in the suite store through `redkiln-core`, reached from `crates/bench/bench/src/store.rs`. This charter is kept as the record of what the crate was; its rules no longer apply to any code.
+
 # Crate charter: `anneal-ledger`
 
 ## Purpose

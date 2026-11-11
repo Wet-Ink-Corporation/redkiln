@@ -3,6 +3,10 @@
 //! symlinks before calling in), and ASCII letters match in any case, as the guard's protected
 //! paths do (APFS and NTFS are case-insensitive by default).
 
+use std::path::Path;
+
+use redkiln_core::ids::{Host, WorktreeId};
+
 use crate::context::note::CONTINUE_HERE;
 use crate::floor_guard::is_test_path;
 
@@ -173,6 +177,21 @@ pub(crate) fn worktree_key(root: &str) -> String {
         slashed.to_ascii_lowercase()
     } else {
         slashed
+    }
+}
+
+/// The id that names a worktree in the store (`EventEnvelope::worktree`, tag `worktree:`):
+/// `wt-` and 12 hex of its normalised top-level directory (ID-06, the same normalisation as
+/// [`worktree_key`]), so no absolute path is stored. `bench mode`, `repro` and `task done`
+/// write it and the hooks read by it.
+///
+/// A `root` that is not an absolute path (git always prints one) has no id: its key is
+/// returned instead, which the store refuses as a worktree, so nothing is written under it and
+/// nothing found by it, as for any other value the store cannot tag.
+pub(crate) fn worktree_id(root: &str) -> String {
+    match WorktreeId::of_toplevel(Path::new(root), Host::current()) {
+        Ok(id) => id.as_str().to_owned(),
+        Err(_not_a_toplevel) => worktree_key(root),
     }
 }
 

@@ -1,13 +1,18 @@
-//! Where anneal keeps state: the ledger store (normally in the git common dir) and
+//! Where Bench keeps state: the suite store (normally in the git common dir, `location`) and
 //! `~/.anneal` (decision log).
 
+mod location;
+
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::Duration;
 
+use redkiln_core::location::LocateError;
 use serde::Serialize;
+
+pub use location::Notice;
 
 #[cfg(test)]
 use crate::process::read_capped;
@@ -19,15 +24,19 @@ pub const GIT_TIMEOUT: Duration = Duration::from_secs(10);
 /// The environment variable that overrides the anneal home directory.
 pub const ANNEAL_HOME_VAR: &str = "ANNEAL_HOME";
 
-/// The environment variable that overrides the ledger store's file.
+/// anneal's variable naming its ledger file; read below `$REDKILN_STORE` (D5).
 pub const ANNEAL_STORE_VAR: &str = "ANNEAL_STORE";
-
-/// The ledger file's name inside its directory.
-const LEDGER_FILE: &str = "ledger.sqlite3";
 
 /// Why a path could not be resolved.
 #[derive(Debug, thiserror::Error)]
 pub enum PathError {
+    /// Core could not locate the store for a reason other than git's (a relative working
+    /// directory, a `~/` path with no home directory).
+    #[error("locating the store")]
+    Locate(#[source] LocateError),
+    /// A warning about the store could not be written to standard error.
+    #[error("writing a warning to standard error")]
+    Warning(#[source] io::Error),
     /// `git` could not be started or waited on.
     #[error("running git")]
     Git(#[source] io::Error),
@@ -184,52 +193,72 @@ fn wait_capped(child: &mut Child, timeout: Duration, cap: u64) -> Result<Output,
     })
 }
 
-/// Where the ledger store was found.
+/// Where the store was found: the step of ST-01 that chose it (ST-03's `store_source`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StoreSource {
     /// `--store <file>`.
     Flag,
-    /// `$ANNEAL_STORE`.
+    /// `$REDKILN_STORE`, or the store beside the anneal ledger `$ANNEAL_STORE` names.
     Env,
-    /// `<git-common-dir>/anneal/ledger.sqlite3`.
+    /// `store` in `.redkiln/suite.toml`.
+    Config,
+    /// `<git-common-dir>/redkiln/events.sqlite3`.
     GitCommonDir,
-    /// `<folder>/.anneal/ledger.sqlite3`, outside git.
+    /// `<folder>/.redkiln/events.sqlite3`, outside git.
     Folder,
 }
 
-/// The ledger store's file and how it was chosen.
+/// The store's file, how it was chosen, and what a command warns about.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct StoreLocation {
-    /// The ledger file.
+    /// The store file.
     pub path: PathBuf,
     /// Which step of the resolution order chose it.
     pub source: StoreSource,
+    /// The anneal ledgers that exist, left as they are (imported by a later step).
+    #[serde(skip)]
+    pub old_ledgers: Vec<PathBuf>,
+    /// What a command reports as warnings: the `$ANNEAL_STORE` fallback, each old ledger, the
+    /// suite config's problems.
+    #[serde(skip)]
+    pub notices: Vec<Notice>,
 }
 
-/// The ledger store for a command run in `cwd`, in this order:
+/// The store for a command run in `cwd` (ST-01, through Core), in this order:
 ///
 /// 1. `flag` (`--store <file>`), relative to `cwd`;
-/// 2. `$ANNEAL_STORE` (read through `lookup`; empty counts as unset), relative to `cwd`;
-/// 3. the anneal config file, once there is one (there is none yet, so this step is skipped);
-/// 4. `<git-common-dir>/anneal/ledger.sqlite3`, the same file from every worktree;
-/// 5. `<cwd>/.anneal/ledger.sqlite3` outside git.
+/// 2. `$REDKILN_STORE` (read through `lookup`; blank counts as unset), relative to `cwd`;
+/// 3. `$ANNEAL_STORE`, which names an anneal ledger: the store is beside it,
+///    `<parent>/<stem>.events.sqlite3`, with a notice;
+/// 4. `store` in `.redkiln/suite.toml`;
+/// 5. `<git-common-dir>/redkiln/events.sqlite3`, the same file from every worktree;
+/// 6. `<cwd>/.redkiln/events.sqlite3` outside git.
+///
+/// Each notice is written to the process's standard error as one `bench: warning:` line, the
+/// command's own output being its stdout envelope.
 ///
 /// # Errors
 /// [`PathError::Git`], [`PathError::GitTimeout`], [`PathError::GitFailed`] or
 /// [`PathError::NonUtf8Output`] when git cannot answer. Only git saying `cwd` is not in a
-/// repository is step 5; any other git failure (such as "dubious ownership") is an error, so a
-/// repository git refuses never gets a second, per-folder ledger.
+/// repository is step 6; any other git failure (such as "dubious ownership") is an error, so a
+/// repository git refuses never gets a second, per-folder store. [`PathError::Locate`] for
+/// Core's other refusals; [`PathError::Warning`] when standard error refuses a warning.
 pub fn ledger_store(
     flag: Option<&Path>,
     lookup: impl Fn(&str) -> Option<OsString>,
     cwd: &Path,
 ) -> Result<StoreLocation, PathError> {
-    ledger_store_within(flag, lookup, cwd, GIT_TIMEOUT)
+    let location = ledger_store_within(flag, lookup, cwd, GIT_TIMEOUT)?;
+    let mut err = io::stderr().lock();
+    for notice in &location.notices {
+        writeln!(err, "bench: warning: {notice}").map_err(PathError::Warning)?;
+    }
+    Ok(location)
 }
 
-/// [`ledger_store`], with git given `git_timeout` instead of [`GIT_TIMEOUT`]: for callers with a
-/// deadline, such as a hook.
+/// [`ledger_store`], with git given `git_timeout` instead of [`GIT_TIMEOUT`] and nothing
+/// written: for hooks, which report notices themselves (`SessionStart`) or not at all.
 ///
 /// # Errors
 /// As [`ledger_store`]; [`PathError::GitTimeout`] carries `git_timeout`.
@@ -239,24 +268,7 @@ pub fn ledger_store_within(
     cwd: &Path,
     git_timeout: Duration,
 ) -> Result<StoreLocation, PathError> {
-    let located = |path: PathBuf, source| StoreLocation { path, source };
-    if let Some(path) = flag {
-        return Ok(located(cwd.join(path), StoreSource::Flag));
-    }
-    if let Some(path) = lookup(ANNEAL_STORE_VAR).filter(|value| !value.is_empty()) {
-        return Ok(located(cwd.join(path), StoreSource::Env));
-    }
-    match git_common_dir_within(cwd, git_timeout) {
-        Ok(common) => Ok(located(
-            common.join("anneal").join(LEDGER_FILE),
-            StoreSource::GitCommonDir,
-        )),
-        Err(PathError::NotARepository { .. }) => Ok(located(
-            cwd.join(".anneal").join(LEDGER_FILE),
-            StoreSource::Folder,
-        )),
-        Err(other) => Err(other),
-    }
+    location::locate(flag, lookup, cwd, git_timeout)
 }
 
 /// The anneal home directory from the process environment; see [`anneal_home_from`].

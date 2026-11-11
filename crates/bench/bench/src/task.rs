@@ -351,11 +351,11 @@ impl<'a> From<&'a DoneArgs> for Stamp<'a> {
     }
 }
 
-/// The worktree key (`mode::scope::worktree_key`) of the git worktree holding `cwd`, which the
+/// The worktree id (`mode::scope::worktree_id`) of the git worktree holding `cwd`, which the
 /// Stop hook selects test runs by; `None` outside one.
 fn worktree_of(cwd: &Path) -> Result<Option<String>, CliError> {
     match paths::worktree_root_within(cwd, paths::GIT_TIMEOUT) {
-        Ok(root) => Ok(Some(scope::worktree_key(&root))),
+        Ok(root) => Ok(Some(scope::worktree_id(&root))),
         Err(PathError::NotARepository { .. }) => Ok(None),
         Err(other) => Err(CliError::Path(other)),
     }

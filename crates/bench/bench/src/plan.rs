@@ -12,6 +12,7 @@
 //! 4 stale. It never creates a ledger. See `docs/plan.md`.
 
 mod check;
+mod decider;
 mod tree;
 
 pub(crate) use check::Status;
@@ -27,6 +28,7 @@ use crate::store::{
 };
 use bench_contract::event::{By, PlanApproved};
 use clap::{Args, Subcommand};
+use redkiln_core::approval::ApprovalRecorded;
 use serde::Serialize;
 
 use crate::command::CommandName;
@@ -34,6 +36,7 @@ use crate::content_hash::sha256;
 use crate::decide::label::{Actor, Source, Via};
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
+use crate::error_chain;
 use crate::exit_codes::{self, Code};
 use crate::lint::plan::{self as plan_lint, PlanFinding};
 use crate::lint::spec::TreeLink;
@@ -315,8 +318,9 @@ fn approve<O: Write>(
             Confirmation::Refused(refusal) => return refuse(&plan, spec_path, &refusal, out),
         },
     };
-    let previous = latest(&store, &plan.approvals)?;
-    let (appended, position) = match record(&store, &event, &plan, previous.as_ref())? {
+    let core = core_approval(args.actor, cwd, &plan);
+    let (recorded, findings) = record_approval(&store, &event, core, &plan)?;
+    let (appended, position) = match recorded {
         Recording::Already(position) => (false, position),
         Recording::Appended(position) => (true, position),
         Recording::Conflict => return refuse(&plan, spec_path, &conflict(&plan), out),
@@ -338,9 +342,69 @@ fn approve<O: Write>(
             Some(APPROVE),
             exit_codes::PLAN_APPROVED,
             data,
-        ),
+        )
+        .with_findings(&findings),
         out,
     )
+}
+
+/// Records `event`, the approval of `plan`, with `core`'s record when there is one
+/// ([`core_approval`]); and `core`'s findings only when the approval was appended without it.
+fn record_approval(
+    store: &Store,
+    event: &EventEnvelope,
+    core: (Option<ApprovalRecorded>, Vec<Finding>),
+    plan: &PlanBytes,
+) -> Result<(Recording, Vec<Finding>), CliError> {
+    let (approval, findings) = core;
+    let previous = latest(store, &plan.approvals)?;
+    let writes = Writes {
+        event,
+        approval: approval.as_ref(),
+    };
+    let recorded = record_with(store, writes, plan, previous.as_ref())?;
+    // Only an appended approval went without its Core record.
+    let findings = match recorded {
+        Recording::Appended(_) => findings,
+        Recording::Already(_) | Recording::Conflict => Vec::new(),
+    };
+    Ok((recorded, findings))
+}
+
+/// The Core record a human's approval of `plan` also writes (AP-05, D3), decided by the suite
+/// owner (D2), and the finding when it has none: `--actor model`, or no `--actor`, records
+/// none and says nothing.
+fn core_approval(
+    actor: Option<Actor>,
+    cwd: &Path,
+    plan: &PlanBytes,
+) -> (Option<ApprovalRecorded>, Vec<Finding>) {
+    if actor != Some(Actor::Human) {
+        return (None, Vec::new());
+    }
+    match decider::owner(cwd, paths::GIT_TIMEOUT) {
+        Ok(Some(owner)) => (
+            Some(decider::approval(&owner, &plan.bytes, &plan.id)),
+            Vec::new(),
+        ),
+        Ok(None) => (
+            None,
+            vec![decider::unrecorded(
+                &plan.id,
+                "neither the suite config nor git names an owner",
+            )],
+        ),
+        Err(error) => (
+            None,
+            vec![decider::unrecorded(
+                &plan.id,
+                &format!(
+                    "the owner could not be read: {}",
+                    error_chain::reason(&error)
+                ),
+            )],
+        ),
+    }
 }
 
 /// Why an approval is refused: its findings, the spec's marker count when that is why, how
@@ -490,9 +554,14 @@ const MAX_APPROVER_RACES: usize = 8;
 /// What [`record`] needs of the ledger: a conditioned append and the latest approval of a
 /// plan. The [`Store`] in production; a fake in the tests, which reaches the race cap.
 trait ApprovalLedger {
-    /// Appends `event` only when `condition` holds.
-    fn append_if(&self, event: &EventEnvelope, condition: &Condition)
-    -> Result<Appended, CliError>;
+    /// Appends `event`, and before it `approval`'s Core record when given, in one transaction,
+    /// only when `condition` holds.
+    fn append_if(
+        &self,
+        event: &EventEnvelope,
+        approval: Option<&ApprovalRecorded>,
+        condition: &Condition,
+    ) -> Result<Appended, CliError>;
 
     /// The latest event among `approvals`.
     fn latest(&self, approvals: &Filter) -> Result<Option<Recorded>, CliError>;
@@ -502,9 +571,10 @@ impl ApprovalLedger for Store {
     fn append_if(
         &self,
         event: &EventEnvelope,
+        approval: Option<&ApprovalRecorded>,
         condition: &Condition,
     ) -> Result<Appended, CliError> {
-        Ok(Self::append_if(self, event, condition)?)
+        Ok(self.append_with_approval_if(event, approval, condition)?)
     }
 
     fn latest(&self, approvals: &Filter) -> Result<Option<Recorded>, CliError> {
@@ -512,19 +582,30 @@ impl ApprovalLedger for Store {
     }
 }
 
-/// Appends `event`, the approval of `plan`, unless `previous` (the latest approval of `plan`
-/// the caller read) already has its hash, and only if no approval lands after `previous`.
-/// When one did, it is read back: one with the same hash and approver means the plan is
-/// already approved, and one with another hash is a conflict. An approval counts as the same
-/// only when it also names the same approver (`by`), so a human's approval of content a model
-/// approved is recorded too: when the winner has the same hash but another approver, `event`
-/// is appended after it, under the same condition.
-fn record(
+/// What recording one approval writes: the `plan_approved` event and, for a human's approval
+/// with an owner, its Core record (AP-05).
+#[derive(Debug, Clone, Copy)]
+struct Writes<'a> {
+    event: &'a EventEnvelope,
+    approval: Option<&'a ApprovalRecorded>,
+}
+
+/// Appends `writes.event`, the approval of `plan`, unless `previous` (the latest approval of
+/// `plan` the caller read) already has its hash, and only if no approval lands after
+/// `previous`. When one did, it is read back: one with the same hash and approver means the
+/// plan is already approved, and one with another hash is a conflict. An approval counts as
+/// the same only when it also names the same approver (`by`), so a human's approval of content
+/// a model approved is recorded too: when the winner has the same hash but another approver,
+/// the event is appended after it, under the same condition. `writes.approval`'s Core record,
+/// when there is one, is written before the event in the same transaction each time the event
+/// is appended: both or neither.
+fn record_with(
     store: &impl ApprovalLedger,
-    event: &EventEnvelope,
+    writes: Writes<'_>,
     plan: &PlanBytes,
     previous: Option<&Recorded>,
 ) -> Result<Recording, CliError> {
+    let Writes { event, approval } = writes;
     let by = approved(event).and_then(|approval| approval.by);
     let already = |recorded: &Recorded| {
         approved(&recorded.event)
@@ -538,7 +619,7 @@ fn record(
     for _ in 0..MAX_APPROVER_RACES {
         // The condition owns its filter; `plan` keeps the filter to read the winner back.
         let condition = Condition::none_matching(plan.approvals.clone()).after(after);
-        if let Appended::At(position) = store.append_if(event, &condition)? {
+        if let Appended::At(position) = store.append_if(event, approval, &condition)? {
             return Ok(Recording::Appended(position));
         }
         let Some(winner) = store.latest(&plan.approvals)? else {

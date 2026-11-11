@@ -129,7 +129,9 @@ fn find_root(suites: &Path) -> Result<PathBuf, String> {
             PathError::GitFailed { .. }
             | PathError::NonUtf8Output(_)
             | PathError::NoHome
-            | PathError::RelativeHome { .. },
+            | PathError::RelativeHome { .. }
+            | PathError::Locate(_)
+            | PathError::Warning(_),
         ) => return Err("git failed to name the suites' repository".to_owned()),
     };
     resolved

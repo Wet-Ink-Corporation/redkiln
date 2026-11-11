@@ -6,7 +6,7 @@
 
 use std::io;
 
-use crate::store::{StoreError, TimestampError};
+use crate::store::{JournalError, StoreError, TimestampError};
 
 use crate::baseline::BaselineError;
 use crate::brief::BriefError;
@@ -64,6 +64,9 @@ pub enum CliError {
     /// The ledger could not be opened, written or read.
     #[error(transparent)]
     Ledger(#[from] StoreError),
+    /// `bench ledger journal` could not write an event as a journal line.
+    #[error(transparent)]
+    Journal(JournalError),
     /// The system clock could not be read as a timestamp.
     #[error(transparent)]
     Clock(#[from] TimestampError),
@@ -175,6 +178,7 @@ impl CliError {
             Self::Path(_)
             | Self::Baseline(_)
             | Self::Ledger(_)
+            | Self::Journal(_)
             | Self::Clock(_)
             | Self::CurrentDir(_)
             | Self::Dag(_)

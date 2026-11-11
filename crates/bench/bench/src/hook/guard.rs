@@ -20,7 +20,9 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
+use crate::store::{
+    EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError, Wait,
+};
 use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
@@ -46,27 +48,21 @@ pub(crate) const MAX_INPUT_BYTES: u64 = 1024 * 1024;
 /// The preconditions hook, under the same 5 s budget, shares it.
 pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// How long each ledger statement of the other hooks waits for another process's lock (the
-/// default is 10 s). The guard's own record waits [`RECORD_BUSY_TIMEOUT`] per statement instead.
-pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
-
 /// The least time worth giving git to find the ledger; with less, the record is skipped and the
 /// deny says so.
 const MIN_GIT_TIMEOUT: Duration = Duration::from_millis(200);
 
-/// How long each statement of the guard's own ledger record waits for another process's lock.
-/// Shorter than [`BUSY_TIMEOUT`] so that [`RECORD_LOCK_WAITS`] of them fit in the budget; an
-/// append holds the lock for one small insert, so a writer that is not stuck still gets through.
-const RECORD_BUSY_TIMEOUT: Duration = Duration::from_millis(100);
+/// How long one of the guard's record steps waits for another process's lock: Core's hook
+/// wait (`Wait::Hook`, ST-09; D6 of the step 3 plan). Core can spend it twice, once opening
+/// the store and again for the append's write lock, so a record that meets a lock held that
+/// long can take about 4 s plus git, past the hook's 5 s `timeout`; Claude Code then blocks the
+/// call without the guard's reason, failing closed as `merge_gate` does. The store's writers
+/// never hold the lock that long in practice.
+const RECORD_BUSY_TIMEOUT: Duration = Wait::Hook.timeout();
 
-/// The most statements of one record that can each meet another process's lock, so wait up to
-/// [`RECORD_BUSY_TIMEOUT`]: SQLite's timeout is per statement, not per record. Opening an
-/// existing ledger runs nine (the schema version, the journal mode and the contents, setting the
-/// journal mode, `synchronous` and `foreign_keys`, the stamp, then happenstance's two identity
-/// reads) and the append two (`BEGIN IMMEDIATE` and `COMMIT`; the statements between them hold
-/// the lock); a new ledger adds four (`ATTACH`, `BEGIN IMMEDIATE`, `COMMIT`, `DETACH`). That is
-/// 15, rounded up to 16.
-const RECORD_LOCK_WAITS: u32 = 16;
+/// How many [`RECORD_BUSY_TIMEOUT`] waits [`git_budget`] holds back for: one, the open's. The
+/// append's second wait is the overrun [`RECORD_BUSY_TIMEOUT`] describes, accepted under D6.
+const RECORD_LOCK_WAITS: u32 = 1;
 
 /// What [`git_budget`] holds back for the record's lock waits: every one of them, in full.
 const RECORD_LOCK_RESERVE: Duration = RECORD_BUSY_TIMEOUT.saturating_mul(RECORD_LOCK_WAITS);
@@ -358,7 +354,9 @@ fn record(
     let mut envelope =
         EventEnvelope::new(event, "hook", Timestamp::now().map_err(RecordError::Clock)?);
     envelope.session_id = session_id;
-    Store::open_with_busy_timeout(&path, RECORD_BUSY_TIMEOUT)
+    // Core's hook wait (2 s, D6) for the open and again for the append; see
+    // [`RECORD_BUSY_TIMEOUT`] for the overrun under a lock held that long.
+    Store::open_with(&path, Wait::Hook)
         .and_then(|ledger| ledger.append(&envelope))
         .map(drop)
         .map_err(RecordError::Append)

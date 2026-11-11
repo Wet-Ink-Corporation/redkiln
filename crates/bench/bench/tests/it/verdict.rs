@@ -157,7 +157,7 @@ fn a_latest_noise_only_verdict_exits_3() -> TestResult {
     let head = repo.head()?;
     let event = json!({
         "type": "verdict_set", "pr": 7, "verdict": "noise_only", "source": "review_plugin",
-        "sha": head, "actor": "review-plugin", "ts": "2026-10-12T09:00:00Z",
+        "sha": head, "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
     })
     .to_string();
     repo.envelope(&["ledger", "append", &event], 0)?;

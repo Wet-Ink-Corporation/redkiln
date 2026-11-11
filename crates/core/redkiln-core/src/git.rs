@@ -240,31 +240,42 @@ pub(crate) fn run_spooled(
     })
 }
 
-/// Waits for `child` until `timeout`; past it the child is killed and reaped. A timeout too
-/// large to add to the clock waits for as long as the child runs.
+/// Waits for `child` until `timeout`; past it the child is killed and reaped. The deadline is
+/// checked once before the first poll, so a zero timeout always expires, however fast the
+/// child; after that the exit is polled before each check, so a child that ended within its
+/// time is never reported late. A timeout too large to add to the clock waits for as long as
+/// the child runs.
 fn wait(child: &mut Child, timeout: Duration) -> Result<ExitStatus, GitError> {
     let Some(deadline) = Instant::now().checked_add(timeout) else {
         return child.wait().map_err(GitError::Io);
     };
+    if Instant::now() >= deadline {
+        return expire(child, timeout);
+    }
     loop {
         if let Some(status) = child.try_wait().map_err(GitError::Io)? {
             return Ok(status);
         }
         if Instant::now() >= deadline {
-            match child.kill() {
-                // Killed, or it exited since `try_wait` (`InvalidInput`): either way it ends now,
-                // so reaping it cannot wait.
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
-                // Not killed: waiting for it could outlast the deadline, so it is left unreaped
-                // (std reaps nothing on drop) rather than waited for.
-                Err(e) => return Err(GitError::Io(e)),
-            }
-            child.wait().map_err(GitError::Io)?;
-            return Err(GitError::Timeout { timeout });
+            return expire(child, timeout);
         }
         std::thread::sleep(POLL);
     }
+}
+
+/// Kills and reaps `child`, past its `timeout`, and reports the timeout.
+fn expire(child: &mut Child, timeout: Duration) -> Result<ExitStatus, GitError> {
+    match child.kill() {
+        // Killed, or it exited since it was last polled (`InvalidInput`): either way it ends
+        // now, so reaping it cannot wait.
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => {}
+        // Not killed: waiting for it could outlast the deadline, so it is left unreaped (std
+        // reaps nothing on drop) rather than waited for.
+        Err(e) => return Err(GitError::Io(e)),
+    }
+    child.wait().map_err(GitError::Io)?;
+    Err(GitError::Timeout { timeout })
 }
 
 /// The whole of a spool file, refused past [`MAX_OUTPUT_BYTES`].
@@ -310,6 +321,20 @@ mod tests {
             "killed, not waited for: {:?}",
             started.elapsed()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_zero_timeout_expires_even_for_a_child_that_exits_at_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for _ in 0..20 {
+            let outcome = sh(dir.path(), "exit 0", Duration::ZERO);
+            assert!(
+                matches!(outcome, Err(GitError::Timeout { timeout }) if timeout.is_zero()),
+                "the deadline is checked before the exit is polled: {:?}",
+                outcome.map(|c| c.status)
+            );
+        }
     }
 
     #[cfg(unix)]

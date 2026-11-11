@@ -124,7 +124,7 @@ impl World {
         let mut vars = BTreeMap::new();
         vars.insert("ANNEAL_HOME", dir.path().join("home").into_os_string());
         vars.insert(
-            "ANNEAL_STORE",
+            "REDKILN_STORE",
             dir.path().join("ledger.sqlite3").into_os_string(),
         );
         Self { dir, vars }
@@ -194,7 +194,9 @@ impl World {
         .to_string();
         let env = HookEnv {
             stdin: stdin.as_bytes(),
-            current_dir: || Ok(PathBuf::from("/")),
+            // An absolute directory on every platform (Core refuses a relative one, and `/` is
+            // relative on Windows).
+            current_dir: || Ok(std::env::temp_dir()),
             lookup: |var: &str| self.vars.get(var).cloned(),
         };
         let mut out = Vec::new();

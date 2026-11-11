@@ -88,7 +88,7 @@ impl World {
         let store = self.store();
         let lookup = |name: &str| -> Option<OsString> {
             match name {
-                "ANNEAL_STORE" => Some(store.clone().into_os_string()),
+                "REDKILN_STORE" => Some(store.clone().into_os_string()),
                 "WEIGHIN_BIN" => bin.map(|bin| bin.as_os_str().to_owned()),
                 _ => None,
             }

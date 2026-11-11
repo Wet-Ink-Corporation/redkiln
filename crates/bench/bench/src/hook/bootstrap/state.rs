@@ -1,21 +1,16 @@
 //! Live state: the ledger tail, injected only when it changed for the session.
 //!
-//! What each session last saw is kept beside the ledger in [`SESSIONS_FILE`]: per session a
-//! hash of its id and a hash of the state text it was given, newest last, at most
-//! [`MAX_SESSIONS`] of them.
+//! What each session last saw is kept in [`SESSIONS_FILE`] in Bench's folder beside the store,
+//! [`STATE_DIR`]: per session a hash of its id and a hash of the state text it was given,
+//! newest last, at most [`MAX_SESSIONS`] of them.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
-use crate::store::{Filter, Recorded, Store, StoreError};
+use crate::store::{Filter, Recorded, Store, StoreError, Wait};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::baseline::{self, BaselineError};
-
-/// How long each ledger statement waits for another process's lock (the default is 10 s). The
-/// open and the tail run about ten statements, so a stuck writer costs at most about 5 s.
-const BUSY_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// How many of the newest ledger events the live state shows.
 pub(crate) const TAIL_EVENTS: usize = 5;
@@ -23,7 +18,10 @@ pub(crate) const TAIL_EVENTS: usize = 5;
 /// How many sessions the sessions file remembers; older ones are dropped (H-13).
 pub(crate) const MAX_SESSIONS: usize = 64;
 
-/// The sessions file's name, beside the ledger file.
+/// Bench's folder beside the suite store, which every plugin shares.
+const STATE_DIR: &str = "bench";
+
+/// The sessions file's name, in [`STATE_DIR`].
 const SESSIONS_FILE: &str = "bootstrap-sessions.json";
 
 /// The sessions file's `kind`, so another file of the same name is not overwritten.
@@ -42,21 +40,23 @@ const HASH_HEX_DIGITS: usize = 16;
 /// # Errors
 /// [`StoreError`] when the ledger cannot be opened or read.
 pub(crate) fn live_state(store: &Path) -> Result<Option<String>, StoreError> {
-    // A file that cannot be stat'ed is treated like a missing one, as `Path::is_file` does.
-    let is_ledger = store
-        .metadata()
-        .is_ok_and(|meta| meta.is_file() && meta.len() > 0);
-    if !is_ledger {
+    let Some(store) = Store::open_existing(store, Wait::Hook)? else {
+        return Ok(None);
+    };
+    let read = store.tail_read(&Filter::default(), TAIL_EVENTS)?;
+    if read.events.is_empty() && read.unusable == 0 {
         return Ok(None);
     }
-    let events = Store::open_with_busy_timeout(store, BUSY_TIMEOUT)?
-        .tail(&Filter::default(), TAIL_EVENTS)?;
-    if events.is_empty() {
-        return Ok(None);
-    }
-    let lines: String = events.iter().map(event_line).collect();
+    let lines: String = read.events.iter().map(event_line).collect();
+    // EV-10: skipped, and said so.
+    let skipped = match read.unusable {
+        0 => String::new(),
+        n => format!(
+            "\n{n} of the newest events could not be read by this build and were skipped.\n"
+        ),
+    };
     Ok(Some(format!(
-        "## Live state\n\nLedger tail (newest last):\n\n{lines}"
+        "## Live state\n\nLedger tail (newest last):\n\n{lines}{skipped}"
     )))
 }
 
@@ -88,10 +88,11 @@ fn event_line(recorded: &Recorded) -> String {
     )
 }
 
-/// The sessions file for the ledger at `store`.
+/// The sessions file for the store at `store`: in Bench's own folder beside it,
+/// `<store dir>/bench/` (as Weigh-In keeps its state beside the suite store).
 #[must_use]
 pub(crate) fn sessions_path(store: &Path) -> PathBuf {
-    store.with_file_name(SESSIONS_FILE)
+    store.with_file_name(STATE_DIR).join(SESSIONS_FILE)
 }
 
 /// What each recent session was last given, oldest first.

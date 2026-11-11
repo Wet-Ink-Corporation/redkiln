@@ -5,10 +5,25 @@ use crate::store::{EventEnvelope, Store};
 use serde_json::Value;
 
 use super::{
-    PlanBytes, Recording, approval_by, conflict, latest, normalised, plan_id, read, record, refuse,
+    ApprovalLedger, PlanBytes, Recorded, Recording, Writes, approval_by, conflict, latest,
+    normalised, plan_id, read, record_with, refuse,
 };
 use crate::error::CliError;
 use crate::exit_codes;
+
+/// Records `event` through [`record_with`] with no Core approval record beside it.
+fn record(
+    store: &impl ApprovalLedger,
+    event: &EventEnvelope,
+    plan: &PlanBytes,
+    previous: Option<&Recorded>,
+) -> Result<Recording, CliError> {
+    let writes = Writes {
+        event,
+        approval: None,
+    };
+    record_with(store, writes, plan, previous)
+}
 
 /// The `plan_approved` event for `plan` with no approver named.
 fn approval(plan: &PlanBytes, session: Option<&str>) -> Result<EventEnvelope, CliError> {
@@ -80,6 +95,39 @@ fn edited(plan: &PlanBytes) -> PlanBytes {
         hash: "sha256:other".to_owned(),
         approvals: plan.approvals.clone(),
     }
+}
+
+#[test]
+fn a_lost_race_writes_neither_the_approval_nor_its_core_record() -> Result<(), Box<dyn Error>> {
+    let dir = tempfile::tempdir()?;
+    let (plan, store) = setup(dir.path())?;
+    let previous = latest(&store, &plan.approvals)?;
+    store.append(&approval(&edited(&plan), None)?)?;
+    let owner = redkiln_core::suite::Owner::from_git_config("user.name ryan\n").ok_or("owner")?;
+    let record = super::decider::approval(&owner, &plan.bytes, &plan.id);
+
+    let event = approval(&plan, None)?;
+    let writes = Writes {
+        event: &event,
+        approval: Some(&record),
+    };
+
+    let recording = record_with(&store, writes, &plan, previous.as_ref())?;
+
+    assert_eq!(recording, Recording::Conflict, "the other approval won");
+    let core = redkiln_core::store::Store::open_existing(
+        &dir.path().join("ledger.sqlite3"),
+        redkiln_core::store::Wait::Command,
+    )?
+    .ok_or("the store")?;
+    let page = std::num::NonZeroUsize::new(8).ok_or("non-zero")?;
+    let types: Vec<String> = core
+        .read(&redkiln_core::store::Filter::all(), 0, page)?
+        .into_iter()
+        .map(|stored| stored.event_type)
+        .collect();
+    assert_eq!(types, ["bench.plan_approved"], "only the winner's event");
+    Ok(())
 }
 
 #[test]
@@ -239,23 +287,21 @@ struct AlwaysOutraced {
     tries: std::cell::Cell<usize>,
 }
 
-impl super::ApprovalLedger for AlwaysOutraced {
+impl ApprovalLedger for AlwaysOutraced {
     fn append_if(
         &self,
         _event: &EventEnvelope,
+        _approval: Option<&redkiln_core::approval::ApprovalRecorded>,
         _condition: &crate::store::Condition,
     ) -> Result<crate::store::Appended, CliError> {
         self.tries.set(self.tries.get().saturating_add(1));
         Ok(crate::store::Appended::Conflict)
     }
 
-    fn latest(
-        &self,
-        _approvals: &crate::store::Filter,
-    ) -> Result<Option<crate::store::Recorded>, CliError> {
+    fn latest(&self, _approvals: &crate::store::Filter) -> Result<Option<Recorded>, CliError> {
         let position = u64::try_from(self.tries.get()).unwrap_or(u64::MAX);
         // Each read hands back an owned event, as the store's does.
-        Ok(Some(crate::store::Recorded {
+        Ok(Some(Recorded {
             position,
             event: self.winner.clone(),
         }))

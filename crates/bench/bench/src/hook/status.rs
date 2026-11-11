@@ -16,13 +16,12 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::store::{EventEnvelope, LedgerEvent, LedgerTag, TagKey, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, LedgerTag, TagKey, Timestamp, Wait};
 use bench_contract::event::SubagentStatus;
 
 use crate::error_chain::reason;
 use crate::existing_ledger;
 use crate::harness::claude_code::{StopOutput, SubagentStopInput};
-use crate::hook::guard::BUSY_TIMEOUT;
 use crate::hook::transcript::{self, Usage};
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::mode::scope;
@@ -106,7 +105,7 @@ fn record(
             }
         },
     };
-    let store = match existing_ledger::open_existing(&cwd, lookup, GIT_TIMEOUT, BUSY_TIMEOUT) {
+    let store = match existing_ledger::open_existing(&cwd, lookup, GIT_TIMEOUT, Wait::Hook) {
         Ok(Some(store)) => store,
         Ok(None) => return,
         Err(error) => {
@@ -175,7 +174,7 @@ fn agent(agent_type: Option<String>) -> String {
 /// The worktree key of `cwd`'s worktree; `None` outside one, and, with a note, when git fails.
 fn worktree(cwd: &Path, notes: &mut Vec<String>) -> Option<String> {
     match paths::worktree_root_within(cwd, GIT_TIMEOUT) {
-        Ok(root) => Some(scope::worktree_key(&root)),
+        Ok(root) => Some(scope::worktree_id(&root)),
         Err(PathError::NotARepository { .. }) => None,
         Err(error) => {
             notes.push(format!(

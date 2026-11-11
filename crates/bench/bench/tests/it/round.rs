@@ -33,7 +33,7 @@ fn round(dir: &Path, args: &[&str], code: i32) -> TestResult<Value> {
 }
 
 fn ledger(dir: &Path) -> std::path::PathBuf {
-    dir.join(".git").join("anneal").join("ledger.sqlite3")
+    dir.join(".git").join("redkiln").join("events.sqlite3")
 }
 
 #[test]

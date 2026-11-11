@@ -1,8 +1,10 @@
-//! `bench ledger`: append to, query, tail and journal the event ledger.
+//! `bench ledger`: append to, query, tail and journal Bench's events in the suite store.
 //!
-//! The ledger itself (event registry, envelope, SQLite store) is the `bench-ledger` crate;
-//! this module parses the command line, resolves the store ([`paths::ledger_store`]) and
-//! writes the result. A bad event exits 2 with an envelope and nothing is written. A `by` on
+//! The store is [`crate::store`] over Core; this module parses the command line, resolves the
+//! store ([`paths::ledger_store`]) and writes the result in the 0.x flat form, short type names
+//! and `registry` included, until step 4. A bad event exits 2 with an envelope and nothing is
+//! written; reads create no store, and skip and count a stored event this build cannot use
+//! (EV-10). `journal` prints JR-04 journal lines (D7). A `by` on
 //! `plan_approved` or `verdict_set` is a usage error (2, nothing on stdout, nothing written):
 //! `plan approve` and `verdict set` write it.
 
@@ -11,8 +13,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::store::{
-    EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, REGISTRY_VERSION, Recorded, Store,
-    StoreError, TagError, TagKey, Timestamp,
+    EventEnvelope, EventKind, Filter, JournalError, LedgerEvent, LedgerTag, REGISTRY_VERSION, Read,
+    Recorded, Store, StoreError, TagError, TagKey, Timestamp, Wait,
 };
 use bench_contract::event::{PlanApproved, VerdictSet};
 use clap::{Args, Subcommand};
@@ -45,7 +47,7 @@ pub enum LedgerAction {
     Query(FilterArgs),
     /// Print the last events matching the filters, oldest first
     Tail(TailArgs),
-    /// Print every event as one JSON line, for committing a journal
+    /// Print every bench event as one journal line (the importable form)
     Journal,
 }
 
@@ -116,14 +118,14 @@ pub(crate) fn run<O: Write>(
         LedgerAction::Append(append_args) => append(append_args, locate, out),
         LedgerAction::Query(filter) => {
             let filter = filter.to_filter();
-            read(&locate()?, "query", |store| store.query(&filter), out)
+            read(&locate()?, "query", |store| store.query_read(&filter), out)
         }
         LedgerAction::Tail(tail) => {
             let filter = tail.filter.to_filter();
             read(
                 &locate()?,
                 "tail",
-                |store| store.tail(&filter, tail.lines),
+                |store| store.tail_read(&filter, tail.lines),
                 out,
             )
         }
@@ -159,7 +161,13 @@ fn append<O: Write>(
     };
     refuse_a_claimed_giver(&event.event)?;
     let location = locate()?;
-    let position = Store::open(&location.path)?.append(&event)?;
+    // Core's own checks (the actor, a `wt-` worktree, the branch and head, EV-05) are the
+    // schema's too: nothing is written.
+    let position = match Store::open(&location.path)?.append(&event) {
+        Ok(position) => position,
+        Err(refused) if refused.is_schema() => return schema_error(SUBCOMMAND, &refused, out),
+        Err(other) => return Err(other.into()),
+    };
     let data = Appended {
         store: &location.path,
         source: location.source,
@@ -225,57 +233,57 @@ fn fill(
     Ok(())
 }
 
+/// Runs `select` on the store at `location` and writes what it found. A stored Bench event
+/// this build cannot use is skipped and counted (EV-10): a `ledger/unusable` finding says how
+/// many. With no store, nothing is created and nothing found.
 fn read<O: Write>(
     location: &StoreLocation,
     subcommand: &str,
-    select: impl FnOnce(&Store) -> Result<Vec<Recorded>, StoreError>,
+    select: impl FnOnce(&Store) -> Result<Read, StoreError>,
     out: &mut O,
 ) -> Result<Code, CliError> {
-    let events = match select_events(location, subcommand, select, out)? {
-        Ok(events) => events,
-        Err(code) => return Ok(code),
+    let read = match Store::open_existing(&location.path, Wait::Command)? {
+        Some(store) => select(&store)?,
+        None => Read::default(),
     };
     let data = Listing {
         store: &location.path,
         source: location.source,
         registry: REGISTRY_VERSION,
-        events: &events,
+        events: &read.events,
     };
-    emit(
-        &Envelope::new(CommandName::Ledger, Some(subcommand), exit_codes::OK, data),
-        out,
-    )
+    let findings: Vec<Finding> = (read.unusable > 0)
+        .then(|| {
+            Finding::new(
+                "ledger/unusable",
+                format!(
+                    "{} stored bench event(s) could not be read by this build (a newer version, \
+                     or data it cannot decode) and were skipped",
+                    read.unusable
+                ),
+            )
+        })
+        .into_iter()
+        .collect();
+    let envelope = Envelope::new(CommandName::Ledger, Some(subcommand), exit_codes::OK, data);
+    emit(&envelope.with_findings(&findings), out)
 }
 
-/// Runs `select` on the store at `location`. A stored event this build cannot decode is a
-/// schema error: its envelope is written and its code returned as `Err`.
-fn select_events<O: Write>(
-    location: &StoreLocation,
-    subcommand: &str,
-    select: impl FnOnce(&Store) -> Result<Vec<Recorded>, StoreError>,
-    out: &mut O,
-) -> Result<Result<Vec<Recorded>, Code>, CliError> {
-    match select(&Store::open(&location.path)?) {
-        Ok(events) => Ok(Ok(events)),
-        Err(decode @ StoreError::Decode { .. }) => schema_error(subcommand, &decode, out).map(Err),
-        Err(other) => Err(other.into()),
-    }
-}
-
-/// Every event's envelope as one JSON line, in position order. Not wrapped in the result
-/// envelope: the output is the journal file itself.
+/// Every Bench event as its journal line (JR-04, D7), in position order: the importable form.
+/// Not wrapped in the result envelope: the output is the journal file itself. With no store,
+/// nothing is created and nothing printed.
 fn journal<O: Write>(location: &StoreLocation, out: &mut O) -> Result<Code, CliError> {
-    let all = |store: &Store| store.query(&Filter::default());
-    let events = match select_events(location, "journal", all, out)? {
-        Ok(events) => events,
-        Err(code) => return Ok(code),
+    let Some(store) = Store::open_existing(&location.path, Wait::Command)? else {
+        return Ok(exit_codes::OK);
     };
-    for recorded in &events {
-        serde_json::to_writer(&mut *out, &recorded.event)
-            .map_err(|error| CliError::Output(error.into()))?;
-        out.write_all(b"\n").map_err(CliError::Output)?;
+    // Each line already ends in its `\n` (JR-01).
+    let written = store.journal(|line| out.write_all(line));
+    match written {
+        Ok(()) => Ok(exit_codes::OK),
+        Err(JournalError::Store(error)) => Err(error.into()),
+        Err(JournalError::Write(error)) => Err(CliError::Output(error)),
+        Err(line @ JournalError::Line { .. }) => Err(CliError::Journal(line)),
     }
-    Ok(exit_codes::OK)
 }
 
 /// The envelope for an event that does not match the schema: exit 2, one finding.

@@ -50,8 +50,8 @@ impl PrRepo {
     pub(crate) fn ledger(&self) -> PathBuf {
         self.path()
             .join(".git")
-            .join("anneal")
-            .join("ledger.sqlite3")
+            .join("redkiln")
+            .join("events.sqlite3")
     }
 
     /// Runs `git <args>` isolated from the caller's repository and identity; returns stdout

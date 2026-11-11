@@ -1,4 +1,4 @@
-//! `bench status` in process, against a scratch repository, a ledger at `$ANNEAL_STORE` and an
+//! `bench status` in process, against a scratch repository, a store at `$REDKILN_STORE` and an
 //! anneal home at `$ANNEAL_HOME`, each in its own temporary directory. The JSON tests compare
 //! the whole document (a snapshot); only `HEAD`'s commit id is read from the repository.
 
@@ -78,7 +78,7 @@ impl Fixture {
         repo.commit("plan")?;
         let state = tempfile::tempdir()?;
         let mut vars = BTreeMap::new();
-        vars.insert("ANNEAL_STORE", state.path().join("ledger.sqlite3").into());
+        vars.insert("REDKILN_STORE", state.path().join("ledger.sqlite3").into());
         vars.insert("ANNEAL_HOME", state.path().join("home").into());
         Ok(Self { repo, state, vars })
     }
@@ -98,7 +98,7 @@ impl Fixture {
     /// The worktree key events of this repository are tagged with.
     fn key(&self) -> Setup<String> {
         let root = paths::worktree_root_within(self.repo.path(), GIT_TIMEOUT)?;
-        Ok(scope::worktree_key(&root))
+        Ok(scope::worktree_id(&root))
     }
 
     /// Runs `bench status <args>` in the repository: the exit code and stdout.
