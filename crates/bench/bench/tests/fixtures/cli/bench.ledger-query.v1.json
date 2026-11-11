@@ -7,34 +7,49 @@
       {
         "event": {
           "actor": "cli",
-          "branch": "<varies>",
-          "hash": "sha256:<hash>",
-          "head": "<varies>",
-          "plan": "design-tree.json",
-          "quote": "Yes, that's it: only notes list, compact JSON, go ahead.",
-          "session_id": "dry-run",
+          "data": {
+            "hash": "sha256:<hash>",
+            "plan": "design-tree.json",
+            "quote": "Yes, that's it: only notes list, compact JSON, go ahead."
+          },
+          "session": "dry-run",
+          "trust": {
+            "level": "asserted"
+          },
           "ts": "<varies>",
-          "type": "grill_confirmed",
-          "worktree": "<varies>"
+          "type": "bench.grill_confirmed",
+          "version": 1,
+          "writer": {
+            "binary": "bench",
+            "spec": "1.0.0",
+            "version": "<varies>"
+          }
         },
         "position": 1
       },
       {
         "event": {
           "actor": "cli",
-          "branch": "<varies>",
-          "hash": "sha256:<hash>",
-          "head": "<varies>",
-          "plan": "plan.md",
-          "session_id": "dry-run",
+          "data": {
+            "hash": "sha256:<hash>",
+            "plan": "plan.md"
+          },
+          "session": "dry-run",
+          "trust": {
+            "level": "asserted"
+          },
           "ts": "<varies>",
-          "type": "plan_approved",
-          "worktree": "<varies>"
+          "type": "bench.plan_approved",
+          "version": 1,
+          "writer": {
+            "binary": "bench",
+            "spec": "1.0.0",
+            "version": "<varies>"
+          }
         },
         "position": 2
       }
     ],
-    "registry": 10,
     "source": "flag",
     "store": "<root>/ledger.sqlite3"
   },

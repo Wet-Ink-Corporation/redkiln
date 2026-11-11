@@ -4,8 +4,10 @@
 //! hook and test in this crate reaches the store through this module and nothing else.
 //!
 //! Every event is an EV-01 envelope of one of the 17 `bench.*` types declared in
-//! [`bench_contract::event`] (`wire`). Readers above this module still see the 0.x flat
-//! [`EventEnvelope`] with short type names, which `bench ledger` prints until step 4.
+//! [`bench_contract::event`] (`wire`). Gates and commands above this module see Bench's
+//! in-memory [`EventEnvelope`] (the 0.x flat form); `bench ledger` reads Core's envelope into it
+//! ([`EventEnvelope::from_ev01`]) and prints the envelopes as stored ([`StoredEvent`], since
+//! step 4).
 //!
 //! - Every filter and every append condition is restricted to Bench's 17 types (a filter that
 //!   names none means all 17), so another plugin's event is never read as Bench's and never
@@ -17,12 +19,14 @@
 //!   ledger is never opened as a store, only imported (ST-15), and is left as it was.
 //!
 //! The types: [`Store`], with [`Filter`] for reads, [`Condition`] for conditional appends, and
-//! [`Appended`], [`Recorded`] and [`Read`] for what a write and a read return;
-//! [`EventEnvelope`], [`Timestamp`], [`LedgerTag`] and [`TagKey`]; [`StoreError`],
+//! [`Appended`], [`Recorded`], [`StoredEvent`] and [`Read`] for what a write and a read
+//! return; [`EventEnvelope`], [`CoreEnvelope`], [`Timestamp`], [`LedgerTag`] and [`TagKey`];
+//! [`StoreError`],
 //! [`SchemaError`], [`TagError`] and [`TimestampError`]. The `bench.*` payload types are not
 //! re-exported: callers name them through [`bench_contract::event`].
 
 mod envelope;
+mod stored;
 mod tag;
 mod wire;
 
@@ -46,12 +50,10 @@ use redkiln_core::store::{
     Appended as CoreAppended, Condition as CoreCondition, Filter as CoreFilter, OpenError,
     StoreError as CoreStoreError, Stored, TagError as CoreTagError,
 };
-use serde::Serialize;
 
-pub use bench_contract::event::{
-    BenchEvent as LedgerEvent, EventKind, REGISTRY_VERSION, TYPES, UnknownEventKind,
-};
-pub use envelope::{EventEnvelope, SchemaError, Timestamp, TimestampError};
+pub use bench_contract::event::{BenchEvent as LedgerEvent, EventKind, TYPES, UnknownEventKind};
+pub use envelope::{EventEnvelope, SchemaError, Timestamp, TimestampError, WRITTEN_VERSION};
+pub use stored::{CoreEnvelope, StoredEvent};
 pub use tag::{LedgerTag, TagError, TagKey};
 pub(crate) use wire::Context as EventContext;
 
@@ -110,6 +112,13 @@ pub enum StoreError {
     /// Core reported a conflict for a write that had no condition, which it never does.
     #[error("the store reported a conflict for an unconditioned write")]
     UnconditionedConflict,
+    /// The event just appended at `position` did not read back as a usable Bench event, which
+    /// a store that took it never does.
+    #[error("the event appended at position {position} did not read back")]
+    NotReadBack {
+        /// Where Core said it wrote the event.
+        position: u64,
+    },
     /// Core's import of an old ledger stopped (ST-15): what it stored stays, and nothing was
     /// recorded, so the next run imports the rest.
     #[error("importing into the store")]
@@ -126,6 +135,15 @@ impl StoreError {
             Self::Field(_) | Self::Id { .. } | Self::Tag(_) | Self::Envelope { .. }
         )
     }
+}
+
+/// The Bench type stored as `name` (`bench.task_done`), or `None` for any other name, the 0.x
+/// short ones included.
+#[must_use]
+pub fn kind_of_stored(name: &str) -> Option<EventKind> {
+    EventKind::ALL
+        .into_iter()
+        .find(|kind| kind.stored() == name)
 }
 
 /// Which events to read: any of `types` (all 17 Bench types when empty) carrying every tag in
@@ -204,7 +222,7 @@ pub enum Appended {
 }
 
 /// An event as stored: its position in the suite's store and its envelope.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Recorded {
     /// Where the event sits in the store, from 1, among every plugin's events.
     pub position: u64,
@@ -212,23 +230,39 @@ pub struct Recorded {
     pub event: EventEnvelope,
 }
 
-/// A read: the Bench events it found, and how many it skipped as unusable (EV-10).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+impl Recorded {
+    fn from_stored(stored: &Stored) -> Result<Self, Skip> {
+        Ok(Self {
+            position: stored.position,
+            event: wire::from_stored(stored)?,
+        })
+    }
+}
+
+/// A read: the Bench events it found, each a `T` ([`Recorded`] for the gates, [`StoredEvent`]
+/// for `bench ledger`), and how many it skipped as unusable (EV-10).
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[must_use]
-pub struct Read {
+pub struct Read<T = Recorded> {
     /// The events, in position order.
-    pub events: Vec<Recorded>,
+    pub events: Vec<T>,
     /// Bench events this build could not use: a newer version, or data that does not decode.
     pub unusable: u64,
 }
 
-impl Read {
-    fn take(&mut self, stored: &Stored) {
-        match wire::from_stored(stored) {
-            Ok(event) => self.events.push(Recorded {
-                position: stored.position,
-                event,
-            }),
+impl<T> Default for Read<T> {
+    fn default() -> Self {
+        Self {
+            events: Vec::new(),
+            unusable: 0,
+        }
+    }
+}
+
+impl<T> Read<T> {
+    fn take(&mut self, stored: &Stored, read: fn(&Stored) -> Result<T, Skip>) {
+        match read(stored) {
+            Ok(event) => self.events.push(event),
             Err(Skip::Unusable(_)) => self.unusable = self.unusable.saturating_add(1),
             // The filter reads Bench's types only.
             Err(Skip::Foreign) => {}
@@ -370,6 +404,24 @@ impl Store {
         }
     }
 
+    /// [`Store::append`], returning the event as Core stored it, read back from its position:
+    /// `bench ledger append`'s report.
+    ///
+    /// # Errors
+    /// As [`Store::append`]; [`StoreError::NotReadBack`] when the event is not found at the
+    /// position Core reported.
+    pub fn append_stored(&self, event: &EventEnvelope) -> Result<StoredEvent, StoreError> {
+        let position = self.append(event)?;
+        let filter = Filter::default().to_core()?;
+        let after = position.saturating_sub(1);
+        self.inner
+            .read(&filter, after, NonZeroUsize::MIN)?
+            .first()
+            .filter(|stored| stored.position == position)
+            .and_then(|stored| StoredEvent::from_stored(stored).ok())
+            .ok_or(StoreError::NotReadBack { position })
+    }
+
     /// Appends `event` unless a Bench event matching `condition` exists: first writer wins.
     /// The condition is checked inside the append's transaction.
     ///
@@ -424,17 +476,34 @@ impl Store {
     /// # Errors
     /// As [`Store::query`].
     pub fn query_read(&self, filter: &Filter) -> Result<Read, StoreError> {
+        self.read_all(filter, Recorded::from_stored)
+    }
+
+    /// [`Store::query_read`], each event as Core stores it: `bench ledger query`'s listing.
+    ///
+    /// # Errors
+    /// As [`Store::query`].
+    pub fn query_stored(&self, filter: &Filter) -> Result<Read<StoredEvent>, StoreError> {
+        self.read_all(filter, StoredEvent::from_stored)
+    }
+
+    /// Every event matching `filter`, a page at a time, each read with `read`.
+    fn read_all<T>(
+        &self,
+        filter: &Filter,
+        read: fn(&Stored) -> Result<T, Skip>,
+    ) -> Result<Read<T>, StoreError> {
         let filter = filter.to_core()?;
-        let mut read = Read::default();
+        let mut found = Read::default();
         let mut after = 0;
         loop {
             let page = self.inner.read(&filter, after, PAGE)?;
             for stored in &page {
                 after = stored.position;
-                read.take(stored);
+                found.take(stored, read);
             }
             if page.len() < PAGE.get() {
-                return Ok(read);
+                return Ok(found);
             }
         }
     }
@@ -454,14 +523,32 @@ impl Store {
     /// # Errors
     /// As [`Store::query`].
     pub fn tail_read(&self, filter: &Filter, n: usize) -> Result<Read, StoreError> {
-        let mut read = Read::default();
+        self.read_last(filter, n, Recorded::from_stored)
+    }
+
+    /// [`Store::tail_read`], each event as Core stores it: `bench ledger tail`'s listing.
+    ///
+    /// # Errors
+    /// As [`Store::query`].
+    pub fn tail_stored(&self, filter: &Filter, n: usize) -> Result<Read<StoredEvent>, StoreError> {
+        self.read_last(filter, n, StoredEvent::from_stored)
+    }
+
+    /// The last `n` events matching `filter`, read and then each read with `read`.
+    fn read_last<T>(
+        &self,
+        filter: &Filter,
+        n: usize,
+        read: fn(&Stored) -> Result<T, Skip>,
+    ) -> Result<Read<T>, StoreError> {
+        let mut found = Read::default();
         let Some(n) = NonZeroUsize::new(n) else {
-            return Ok(read);
+            return Ok(found);
         };
         for stored in &self.inner.read_last(&filter.to_core()?, n)? {
-            read.take(stored);
+            found.take(stored, read);
         }
-        Ok(read)
+        Ok(found)
     }
 
     /// Writes every Bench event as its journal line (JR-04), in position order, through

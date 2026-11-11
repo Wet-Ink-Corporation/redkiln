@@ -158,8 +158,9 @@ fn a_latest_noise_only_verdict_exits_3() -> TestResult {
     let repo = PrRepo::new()?;
     let head = repo.head()?;
     let event = json!({
-        "type": "verdict_set", "pr": 7, "verdict": "noise_only", "source": "review_plugin",
-        "sha": head, "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
+        "type": "bench.verdict_set",
+        "data": {"pr": 7, "verdict": "noise_only", "source": "review_plugin", "sha": head},
+        "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
     })
     .to_string();
     repo.envelope(&["ledger", "append", &event], 0)?;
@@ -193,9 +194,9 @@ fn verdict_set_records_who_set_it_and_through_what_only_when_told() -> TestResul
         (Some(&json!({"actor": "human", "via": "mod"})), None),
         "{told} {untold}"
     );
-    let events = repo.envelope(&["ledger", "query", "--type", "verdict_set"], 0)?;
+    let events = repo.envelope(&["ledger", "query", "--type", "bench.verdict_set"], 0)?;
     assert_eq!(
-        events["data"]["events"][0]["event"]["by"],
+        events["data"]["events"][0]["event"]["data"]["by"],
         json!({"actor": "human", "via": "mod"}),
         "recorded in the ledger: {events}"
     );

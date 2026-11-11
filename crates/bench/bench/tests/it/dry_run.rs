@@ -22,8 +22,9 @@ const PLAN: &str = "plan.md";
 /// The human's confirmation, as recorded in `events.jsonl`.
 const QUOTE: &str = "Yes, that's it: only notes list, compact JSON, go ahead.";
 const SESSION: &str = "dry-run";
-/// Envelope fields that differ from run to run, left out of `events.jsonl`.
-const VOLATILE: [&str; 4] = ["ts", "worktree", "branch", "head"];
+/// Envelope fields that differ from run to run, left out of `events.jsonl`; `writer` names the
+/// build, whose version moves with every release.
+const VOLATILE: [&str; 5] = ["ts", "worktree", "branch", "head", "writer"];
 
 fn fixture() -> PathBuf {
     [
@@ -244,7 +245,7 @@ fn the_recorded_hashes_are_those_of_the_checked_in_tree_and_plan() -> TestResult
 
     let hashes: Vec<&Value> = recorded
         .iter()
-        .map(|record| &record["event"]["hash"])
+        .map(|record| &record["event"]["data"]["hash"])
         .collect();
 
     assert_eq!(
@@ -272,10 +273,10 @@ fn the_replayed_ledger_events_equal_the_recorded_ones() -> TestResult {
         &queried,
         &[work.path()],
         &[
+            // EV-01 leaves out the worktree, branch and head outside git, where the 0.x form
+            // wrote them as null.
             "/data/events/*/event/ts",
-            "/data/events/*/event/worktree",
-            "/data/events/*/event/branch",
-            "/data/events/*/event/head",
+            "/data/events/*/event/writer/version",
         ],
     )?;
 

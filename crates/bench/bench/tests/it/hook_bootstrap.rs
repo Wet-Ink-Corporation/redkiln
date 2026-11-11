@@ -37,7 +37,7 @@ impl Scratch {
 
     /// Appends a `task_done` event for `task` to the ledger.
     fn append_task_done(&self, task: &str) -> TestResult {
-        let event = format!(r#"{{"type":"task_done","task":"{task}"}}"#);
+        let event = format!(r#"{{"type":"bench.task_done","data":{{"task":"{task}"}}}}"#);
         let output = anneal_in(self.path())
             .args(["ledger", "--store"])
             .arg(&self.store)

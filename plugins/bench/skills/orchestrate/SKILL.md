@@ -50,6 +50,6 @@ Rulings, not stalls. Fanning out costs about 15 times the tokens of one session,
 
 ## Verification
 
-- `bench ledger query --type weighin_parked` and `--type orchestrate.ruled` list each call.
+- `bench ledger query --type bench.weighin_parked` and `--type bench.orchestrate.ruled` list each call.
 - `weighin open --repo` shows each parked item with its default.
 - Each ticket has a verifier verdict within five rounds.

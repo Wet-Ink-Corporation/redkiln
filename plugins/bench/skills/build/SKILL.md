@@ -50,4 +50,4 @@ Builds one approved task test-first with a single approval up front and hard sto
 ## Verification
 
 - `bench floor-guard` exits 0.
-- `bench ledger query --type task_done` shows the task, after a green `test_run`.
+- `bench ledger query --type bench.task_done` shows the task, after a green `bench.test_run`.

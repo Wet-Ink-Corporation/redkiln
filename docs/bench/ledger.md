@@ -5,8 +5,12 @@ approved, gates and stops blocked. Hooks and commands append to it; gates query 
 2 step 3 (PR 3.4) it is Bench's share of the suite store, the one Core store every Redkiln
 plugin writes (`spec/store.md`), reached through `redkiln-core` from
 `crates/bench/bench/src/store.rs`, and driven by `bench ledger`. Bench's events are the 17
-`bench.*` types (`bench-contract`); everything below still shows them in anneal's 0.x flat
-form, with short names, until step 4.
+`bench.*` types (`bench-contract`). Since step 4 (PR 4.3) `bench ledger` reads and prints
+them as Core stores them: the EV-01 envelope (`spec/events.md`), `type` `bench.<name>` and
+the payload under `data`. The payload tables below give each type's short name, which is
+the part after `bench.`; anneal's 0.x flat form survives only in old ledgers, which the
+one-time import reads, and in what the recording commands (`grill confirm`, `plan approve`,
+`mode`, ...) print.
 
 ## Where it lives
 
@@ -107,28 +111,38 @@ first-writer-wins appends are the SPEC's (ST-04 to ST-11) and Core's tests. What
 
 ## The envelope
 
-Every event is one JSON object: the event's `type` and payload, flattened beside its context.
+Every event is one EV-01 envelope (`spec/events.md`): a JSON object with the payload nested
+under `data`, as Core stores it. `bench ledger query` and `tail` print it as stored, keys in
+EV-01's order and optional ones left out when absent.
 
-| Key | Type | Meaning |
-|---|---|---|
-| `type` | string | The event type, snake case, from the registry below |
-| *payload* | | The type's fields (below) |
-| `actor` | string | Who wrote it: `cli`, `hook`, `agent` or `human:<name>` |
-| `session_id` | string or null | The writing agent session |
-| `worktree` | string or null | The writer's git worktree; `anneal mode` writes its key: the top-level directory `git rev-parse --show-toplevel` prints, with `/` separators, ASCII-lowercased on Windows and macOS |
-| `branch` | string or null | The checked-out branch |
-| `head` | string or null | The commit at `HEAD` |
-| `ts` | string | When it was written, RFC 3339 (anneal writes UTC seconds, `2026-10-11T09:30:00Z`, except `anneal task done`, which stamps UTC milliseconds as its command ends, `2026-10-11T09:30:00.25Z`, trailing zeros dropped) |
+| Key | Type | Meaning | `append` |
+|---|---|---|---|
+| `type` | string | `bench.` and the type's short name, from the registry below | required |
+| `version` | integer | The payload version: 1 for every Bench type (EV-06) | optional, must be 1 |
+| `ts` | string | When it was written: RFC 3339 UTC with a `Z`, to the second or the millisecond (EV-01); Bench writes seconds, except `bench task done`, which stamps milliseconds as its command ends | filled with now when absent or `null` |
+| `actor` | string | Who acted: `cli`, `hook`, `agent`, `ci`, `human:<name>` or `app:<name>` | filled from `--actor` (default `cli`) when absent or `null` |
+| `trust` | object | `{"level": "asserted"}` for every event Bench writes (`spec/trust.md`) | refused: Bench writes it |
+| `writer` | object | `{"binary": "bench", "version": <the build's>, "spec": "1.0.0"}` | refused: Bench writes it |
+| `session` | string, absent | The writing agent session (ID-05) | optional, filled from `--session` |
+| `worktree` | string, absent | The writer's worktree id, `wt-` and 12 hex (ID-06); `bench mode`, `task done` and `repro record` set it | optional |
+| `branch` | string, absent | The checked-out branch | optional |
+| `head` | string, absent | The commit at `HEAD` | optional |
+| `origin` | string, absent | The event's identity once it left its first store (ID-02): imported events carry it | refused |
+| `cites` | array, absent | Events this one answers (ID-03); Bench writes none | refused |
+| `data` | object | The type's payload (below) | required |
 
 ```json
-{"type":"task_done","task":"T1","actor":"cli","session_id":"s1","worktree":null,"branch":null,"head":null,"ts":"2026-10-11T09:30:00Z"}
+{"type":"bench.task_done","version":1,"ts":"2026-10-11T09:30:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.0.5","spec":"1.0.0"},"session":"s1","data":{"task":"T1"}}
 ```
 
 Every payload field name is a persisted JSON key: renaming one is a migration. Optional fields
-read back from either `null` or a missing key, so adding one is additive. Writing is strict: an
-unregistered `type`, a missing or mistyped field, a key the type does not define, a `ts` that is
-not RFC 3339 or a tag value that is not valid is a schema error (exit 1) and nothing is written.
-Reading ignores keys a newer anneal added.
+read back from either `null` or a missing key, so adding one is additive. Writing is strict: a
+`type` that is not one of the 17 `bench.*` types (a 0.x short name such as `task_done` is
+refused with the stored name), a `version` other than 1, a key EV-01 does not define (the 0.x
+`session_id` included), a key Bench writes itself (`trust`, `writer`, `origin`, `cites`; `null`
+reads as absent), a missing or mistyped payload field, a payload key the type does not define
+(named from `data.`), a `ts` outside EV-01's forms or a tag value that is not valid is a schema
+error (exit 1) and nothing is written. Reading ignores keys a newer Bench or SPEC added.
 
 ## Tags
 
@@ -136,7 +150,7 @@ The store indexes events by `key:value` tags. The keys are a closed vocabulary:
 
 | Tag | Carried by |
 |---|---|
-| `session:<session_id>` | every event with a `session_id` |
+| `session:<session>` | every event with a `session` |
 | `worktree:<worktree>` | every event with a `worktree` (`mode_set`, `repro_red` and `test_run` are selected by it) |
 | `task:<task>` | `test_run` (when it names a task), `task_done`, `repro_red`; `weighin_parked`, `bridge.unavailable` and `orchestrate.ruled` (their `ticket`) |
 | `plan:<plan>` | `plan_approved`, `grill_confirmed` |
@@ -185,30 +199,38 @@ version 10 added the status `wip` to `subagent_status` (temper's `Status: WIP`, 
 ## Commands
 
 ```text
-anneal ledger [--store <file>] append '<event json>' [--actor <who>] [--session <id>]
-anneal ledger [--store <file>] query [--type <type>]... [--tag <key:value>]... [--session <id>]
-anneal ledger [--store <file>] tail [-n <N>] [same filters as query]
-anneal ledger [--store <file>] journal
+bench ledger [--store <file>] append '<EV-01 envelope json>' [--actor <who>] [--session <id>]
+bench ledger [--store <file>] query [--type <type>]... [--tag <key:value>]... [--session <id>]
+bench ledger [--store <file>] tail [-n <N>] [same filters as query]
+bench ledger [--store <file>] journal
 ```
 
-- `append` fills `actor` (default `cli`), `session_id` (from `--session`) and `ts` (now) when
-  the event leaves them out or sets them to `null`. Its envelope's `data` holds `store`,
-  `source`, `position` and the stored `event`. It refuses a `by` on `plan_approved` or
-  `verdict_set` as a usage error (exit 2, one `ERROR` line on stderr, nothing on stdout,
-  nothing appended and no ledger opened): who gave an approval or a verdict is recorded only by
-  their writers, `anneal plan approve` and `anneal verdict set` (`--actor`, `--via`). For
-  `verdict_set` that is where the guard's `human-only` rule sees the actor (`docs/guard.md`), so
-  a raw append cannot claim a human verdict; `plan approve` is allowed with any actor
-  (wi-720468), so for `plan_approved` the refusal only keeps one writer of `by`.
+- `append` takes an EV-01 envelope's writable keys (the table above), for example
+  `'{"type":"bench.task_done","data":{"task":"T1"}}'`, and fills `actor` (from `--actor`,
+  default `cli`), `session` (from `--session`) and `ts` (now) when it leaves them out or sets
+  them to `null`; Bench writes `version`, `trust` and `writer`. Its envelope's `data` holds
+  `store`, `source`, `position` and `event`, the envelope as stored (read back from its
+  position). It refuses a `by` on `bench.plan_approved` or `bench.verdict_set` as a usage error
+  (exit 2, one `bench: error:` line on stderr, nothing on stdout, nothing appended and no ledger
+  opened): who gave an approval or a verdict is recorded only by their writers, `bench plan
+  approve` and `bench verdict set` (`--actor`, `--via`). For `verdict_set` that is where the
+  guard's `human-only` rule sees the actor (`docs/guard.md`), so a raw append cannot claim a
+  human verdict; `plan approve` is allowed with any actor (wi-720468), so for `plan_approved`
+  the refusal only keeps one writer of `by`.
 - `query` and `tail` filter by any of the `--type`s and all of the `--tag`s (`--session <id>` is
-  `--tag session:<id>`). Their `data` holds `store`, `source`, `registry` and `events`, each
-  `{"position": n, "event": {...}}` in position order. `tail` keeps the last `N` (default 10).
+  `--tag session:<id>`). `--type` takes the stored name (`bench.task_done`); a 0.x short name
+  (`task_done`) still filters, with one `bench: warning:` line naming the stored name. Their
+  `data` holds `store`, `source` and `events`, each `{"position": n, "event": {...}}` in
+  position order, `event` the envelope as stored and `position` the store's (EV-02). `tail`
+  keeps the last `N` (default 10).
 - `journal` prints every Bench event as its journal line (JR-02: the Core envelope with
   `origin`, `bench.*` names), in position order, with no result envelope: the form Core's
   journal import reads. The export checkpoint at Stop and before a push waits for
   step 6.
 
-Exit codes: 0 ok, 2 schema error (an envelope with one `ledger/schema` finding on stdout: an event the store refuses, such as an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset) or
-usage error (`append` with a `by`, above), and
+Exit codes: 0 ok, 1 schema error (an envelope with one `ledger/schema` finding on stdout and
+the 17 types `append` takes in `data.types`: an event the parse or the store refuses, such as
+an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset), 2 usage
+error (`append` with a `by`, above, or an unknown `--type`), and
 the global codes in [exit-codes.md](exit-codes.md) (70 when the store cannot be opened or
 written).

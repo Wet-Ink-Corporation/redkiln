@@ -49,4 +49,4 @@ Turns a new or vague request into requirements the human confirmed, asking from 
 ## Verification
 
 - `bench grill frontier --tree <file>` exits 0 with no open node.
-- `bench ledger query --type grill_confirmed` shows the tree's path, its `sha256:` hash and the human's words.
+- `bench ledger query --type bench.grill_confirmed` shows the tree's path, its `sha256:` hash and the human's words.

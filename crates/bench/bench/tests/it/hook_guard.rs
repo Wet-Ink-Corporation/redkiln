@@ -56,7 +56,7 @@ impl Scratch {
         let output = anneal_in(self.path())
             .args(["ledger", "--store"])
             .arg(&self.store)
-            .args(["query", "--type", "gate_blocked"])
+            .args(["query", "--type", "bench.gate_blocked"])
             .output()?;
         assert_eq!(output.status.code(), Some(0), "query: {output:?}");
         let envelope: Value = crate::support::envelope(&output)?;
@@ -134,12 +134,12 @@ fn a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event() -> TestResul
         return Err(format!("one gate_blocked event, got {events:?}").into());
     };
     assert_eq!(
-        event.pointer("/event/point"),
+        event.pointer("/event/data/point"),
         Some(&Value::from("guard.force-push")),
         "{event}"
     );
     assert_eq!(
-        event.pointer("/event/session_id"),
+        event.pointer("/event/session"),
         Some(&Value::from("s-it")),
         "{event}"
     );
@@ -209,7 +209,7 @@ fn a_model_s_human_verdict_is_denied_as_human_only_and_its_plan_approval_is_not(
     let events = scratch.blocked()?;
     let points: Vec<Option<&Value>> = events
         .iter()
-        .map(|event| event.pointer("/event/point"))
+        .map(|event| event.pointer("/event/data/point"))
         .collect();
     assert_eq!(
         points,

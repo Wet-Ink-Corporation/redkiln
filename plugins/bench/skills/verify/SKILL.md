@@ -42,6 +42,6 @@ description: Use when asked "is it fixed?", "tested?" or "can we close it?", or 
 
 ## Verification
 
-- `bench ledger tail` shows a green `test_run` newer than the last source change.
+- `bench ledger tail` shows a green `bench.test_run` newer than the last source change.
 - `bench repro leftovers` exits 0, and in a Rust repository `temper:gate` is green.
-- `bench ledger query --type subagent_status` shows each reviewer's status.
+- `bench ledger query --type bench.subagent_status` shows each reviewer's status.

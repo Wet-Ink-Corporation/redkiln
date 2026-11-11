@@ -57,7 +57,7 @@ fn events(dir: &Path, migration: &str) -> Result<Vec<Value>, Box<dyn Error>> {
         .map(|events| {
             events
                 .iter()
-                .map(|e| json!([e.pointer("/event/type"), e.pointer("/event/wave")]))
+                .map(|e| json!([e.pointer("/event/type"), e.pointer("/event/data/wave")]))
                 .collect()
         })
         .unwrap_or_default())
@@ -105,9 +105,9 @@ fn a_contract_while_a_wave_is_open_is_refused_and_recorded_once_every_wave_is_do
     assert_eq!(
         before,
         [
-            json!(["migrate.wave.started", 1]),
-            json!(["migrate.wave.started", 2]),
-            json!(["migrate.wave.done", 1]),
+            json!(["bench.migrate.wave.started", 1]),
+            json!(["bench.migrate.wave.started", 2]),
+            json!(["bench.migrate.wave.done", 1]),
         ],
         "the refused contract appended nothing"
     );
@@ -117,7 +117,7 @@ fn a_contract_while_a_wave_is_open_is_refused_and_recorded_once_every_wave_is_do
     goldens(dir.path(), [first, done, &contracted])?;
     assert_eq!(
         events(dir.path(), "users-email")?.last(),
-        Some(&json!(["migrate.contract", null])),
+        Some(&json!(["bench.migrate.contract", null])),
         "the contract is recorded last"
     );
     Ok(())

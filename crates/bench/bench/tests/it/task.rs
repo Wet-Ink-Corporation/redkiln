@@ -40,14 +40,15 @@ fn events(cwd: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
         .collect())
 }
 
-/// `(type, task, outcome, exit)` of each event, the fields every assertion here compares.
+/// `(type, task, outcome, exit)` of each event, the fields every assertion here compares: the
+/// envelope's type and three payload fields.
 fn summary(events: &[Value]) -> Vec<(Value, Value, Value, Value)> {
-    let field = |event: &Value, key: &str| event.get(key).cloned().unwrap_or(Value::Null);
+    let field = |event: &Value, key: &str| event["data"].get(key).cloned().unwrap_or(Value::Null);
     events
         .iter()
         .map(|event| {
             (
-                field(event, "type"),
+                event["type"].clone(),
                 field(event, "task"),
                 field(event, "outcome"),
                 field(event, "exit"),
@@ -71,16 +72,36 @@ fn a_green_command_records_its_test_run_then_task_done() -> TestResult {
     assert_eq!(
         summary(&recorded),
         vec![
-            (json!("test_run"), json!("T1"), json!("green"), json!(0)),
-            (json!("task_done"), json!("T1"), Value::Null, Value::Null),
+            (
+                json!("bench.test_run"),
+                json!("T1"),
+                json!("green"),
+                json!(0)
+            ),
+            (
+                json!("bench.task_done"),
+                json!("T1"),
+                Value::Null,
+                Value::Null
+            ),
         ],
         "a green test_run, then task_done"
     );
     let run = recorded.first().ok_or("a test_run")?;
-    assert_eq!(run["command"], "git --version", "the command as run");
-    assert!(run["duration_ms"].is_u64(), "a duration in ms: {run}");
-    assert_eq!(run["timeout_secs"], Value::Null, "it did not time out");
-    assert_eq!(run["session_id"], "s1", "the session is recorded");
+    assert_eq!(
+        run["data"]["command"], "git --version",
+        "the command as run"
+    );
+    assert!(
+        run["data"]["duration_ms"].is_u64(),
+        "a duration in ms: {run}"
+    );
+    assert_eq!(
+        run["data"]["timeout_secs"],
+        Value::Null,
+        "it did not time out"
+    );
+    assert_eq!(run["session"], "s1", "the session is recorded");
     let envelope: Value = crate::support::envelope(&output)?;
     crate::support::golden(
         "bench.task-done/1",
@@ -110,7 +131,7 @@ fn a_failing_command_records_a_red_test_run_and_no_task_done() -> TestResult {
     assert_eq!(output.status.code(), Some(1), "test red: {output:?}");
     assert_eq!(
         summary(&events(dir.path())?),
-        vec![(json!("test_run"), json!("T1"), json!("red"), json!(1))],
+        vec![(json!("bench.test_run"), json!("T1"), json!("red"), json!(1))],
         "only the failed test_run"
     );
     let envelope: Value = crate::support::envelope(&output)?;

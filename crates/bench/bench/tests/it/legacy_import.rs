@@ -16,7 +16,7 @@ use crate::support::{anneal_in, git};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-const TASK_DONE: &str = r#"{"type":"task_done","task":"T1"}"#;
+const TASK_DONE: &str = r#"{"type":"bench.task_done","data":{"task":"T1"}}"#;
 
 /// The committed fixture `name`.
 fn fixture(name: &str) -> PathBuf {

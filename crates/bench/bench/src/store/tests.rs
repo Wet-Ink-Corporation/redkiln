@@ -336,6 +336,94 @@ fn a_later_version_and_undecodable_data_are_skipped_and_counted() {
 
 #[test]
 #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn append_stored_returns_core_s_envelope_in_ev01_s_key_order() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let store = Store::open(&ledger_path(dir.path())).expect("opens");
+
+    let appended = store
+        .append_stored(&task_done("T1", "s1"))
+        .expect("appends");
+
+    assert_eq!(appended.position, 1, "append reports its position");
+    let text = serde_json::to_string(&appended.event).expect("serialises");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&text).expect("JSON"),
+        serde_json::json!({
+            "type": "bench.task_done", "version": 1, "ts": "2026-10-11T09:30:00Z",
+            "actor": "cli", "trust": {"level": "asserted"},
+            "writer": {"binary": "bench", "version": env!("CARGO_PKG_VERSION"), "spec": "1.0.0"},
+            "session": "s1", "data": {"task": "T1"},
+        }),
+        "EV-01's envelope, absent keys left out, the payload under data"
+    );
+    assert!(
+        text.starts_with(r#"{"type":"bench.task_done","version":1,"ts":"#)
+            && text.ends_with(r#""session":"s1","data":{"task":"T1"}}"#),
+        "EV-01's key order: {text}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn the_stored_reads_print_core_s_envelope_as_stored_and_skip_what_the_gates_skip() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = ledger_path(dir.path());
+    let store = Store::open(&path).expect("opens");
+    let appended = store
+        .append_stored(&task_done("T1", "s1"))
+        .expect("appends");
+    let other = envelope_text(
+        "bench.task_done",
+        1,
+        "bench",
+        r#"{"task":"T2"},"origin":"0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:41","later":true"#,
+    );
+    append_raw(&path, "bench.task_done", &other, &[]);
+    append_raw(
+        &path,
+        "bench.verdict_set",
+        &envelope_text("bench.verdict_set", 2, "bench", r#"{"pr":7}"#),
+        &[],
+    );
+
+    let read = store.query_stored(&Filter::default()).expect("reads");
+    let tail = store.tail_stored(&Filter::default(), 2).expect("reads");
+    let printed: Vec<serde_json::Value> = read
+        .events
+        .iter()
+        .map(|stored| serde_json::to_value(stored).expect("serialises"))
+        .collect();
+
+    assert_eq!(
+        (read.events.len(), read.unusable),
+        (2, 1),
+        "the newer version is skipped and counted (EV-10)"
+    );
+    assert_eq!(
+        read.events.first().map(|stored| &stored.event),
+        Some(&appended.event),
+        "a query prints what append printed"
+    );
+    assert_eq!(
+        printed.get(1),
+        Some(&serde_json::json!({
+            "position": 2,
+            "event": serde_json::from_str::<serde_json::Value>(&other).expect("JSON"),
+        })),
+        "origin and a key a later SPEC adds are kept as stored"
+    );
+    assert_eq!(
+        (
+            tail.events.iter().map(|s| s.position).collect::<Vec<_>>(),
+            tail.unusable
+        ),
+        (vec![2], 1),
+        "a tail of two: the last usable one, the newest counted"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
 fn a_query_reads_every_page_and_a_tail_only_benchs_last_events() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = ledger_path(dir.path());

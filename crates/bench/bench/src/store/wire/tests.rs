@@ -34,12 +34,22 @@ const ONE_OF_EACH: [&str; 17] = [
     r#"{"type":"orchestrate.ruled","ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert","decision":"later"}"#,
 ];
 
-/// `payload` (a 0.x JSON object without the envelope keys) with the envelope keys added.
-fn with_context(payload: &str) -> String {
-    let body = payload.strip_suffix('}').expect("an object");
-    format!(
-        r#"{body},"actor":"agent","ts":"2026-11-11T09:30:00.120Z","session_id":"s-1","worktree":"{WORKTREE}","branch":"main","head":"0123456789abcdef0123456789abcdef01234567"}}"#
-    )
+/// `payload` (a 0.x JSON object: its short `type` beside its fields) as the EV-01 envelope
+/// `bench ledger append` takes, every context key set.
+fn with_context(payload: &str) -> serde_json::Value {
+    let mut data: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(payload).expect("an object");
+    let short = data.remove("type").expect("a type");
+    let kind: crate::store::EventKind = short
+        .as_str()
+        .expect("a name")
+        .parse()
+        .expect("a short name");
+    serde_json::json!({
+        "type": kind.stored(), "data": data, "actor": "agent", "ts": "2026-11-11T09:30:00.120Z",
+        "session": "s-1", "worktree": WORKTREE, "branch": "main",
+        "head": "0123456789abcdef0123456789abcdef01234567",
+    })
 }
 
 fn store_at(dir: &Path) -> Store {
@@ -68,8 +78,8 @@ fn every_kind_reads_back_as_the_envelope_written() {
     let written: Vec<EventEnvelope> = ONE_OF_EACH
         .iter()
         .map(|payload| {
-            let value = serde_json::from_str(&with_context(payload)).expect("JSON");
-            EventEnvelope::from_value(&value).unwrap_or_else(|e| panic!("{payload}: {e}"))
+            EventEnvelope::from_ev01(&with_context(payload))
+                .unwrap_or_else(|e| panic!("{payload}: {e}"))
         })
         .collect();
     for envelope in &written {
@@ -91,12 +101,10 @@ fn every_kind_reads_back_as_the_envelope_written() {
 fn a_plan_approval_is_stored_as_core_writes_bench_plan_approved() {
     let dir = tempfile::tempdir().expect("temp dir");
     let store = store_at(dir.path());
-    let envelope = EventEnvelope::parse(
-        format!(
-            r#"{{"type":"plan_approved","plan":"docs/plan.md","hash":"sha256:00","actor":"cli","ts":"2026-11-11T09:30:00Z","session_id":"s-1","worktree":"{WORKTREE}"}}"#
-        )
-        .as_bytes(),
-    )
+    let envelope = EventEnvelope::from_ev01(&serde_json::json!({
+        "type": "bench.plan_approved", "data": {"plan": "docs/plan.md", "hash": "sha256:00"},
+        "actor": "cli", "ts": "2026-11-11T09:30:00Z", "session": "s-1", "worktree": WORKTREE,
+    }))
     .expect("a valid event");
 
     store.append(&envelope).expect("appends");
@@ -133,9 +141,9 @@ fn a_plan_approval_is_stored_as_core_writes_bench_plan_approved() {
 #[test]
 fn a_timestamp_core_refuses_is_a_ts_error_before_any_store() {
     for ts in ["2026-11-11T11:30:00+02:00", "2026-11-11T09:30:00.12Z"] {
-        let result = EventEnvelope::parse(
-            format!(r#"{{"type":"task_done","task":"T1","actor":"cli","ts":"{ts}"}}"#).as_bytes(),
-        );
+        let result = EventEnvelope::from_ev01(&serde_json::json!({
+            "type": "bench.task_done", "data": {"task": "T1"}, "actor": "cli", "ts": ts,
+        }));
 
         assert!(
             matches!(&result, Err(SchemaError::Json(e)) if e.to_string().contains(ts)),
