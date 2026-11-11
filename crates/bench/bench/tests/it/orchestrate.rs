@@ -83,7 +83,7 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
         .output()?;
 
     let parked = envelope(&output, 4)?;
-    crate::support::golden(&parked, &[dir.path()], &[])?;
+    crate::support::golden("bench.orchestrate-park/1", &parked, &[dir.path()], &[])?;
     assert!(output.stderr.is_empty(), "{output:?}");
     assert_eq!(parked["data"]["parked"], json!(false));
     let recorded = events(dir.path(), "bridge.unavailable")?;
@@ -126,14 +126,14 @@ fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() ->
 
     let fan_out = envelope(&fan_out, 3)?;
     assert_eq!(fan_out["data"]["tickets"], json!(["T1", "T4"]), "{fan_out}");
-    crate::support::golden(&fan_out, &[dir.path()], &[])?;
+    crate::support::golden("bench.orchestrate-fan-out/1", &fan_out, &[dir.path()], &[])?;
     let rule = envelope(&rule, 0)?;
     assert_eq!(
         events(dir.path(), "orchestrate.ruled")?.len(),
         1,
         "the ruling is recorded once"
     );
-    crate::support::golden(&rule, &[dir.path()], &[])?;
+    crate::support::golden("bench.orchestrate-rule/1", &rule, &[dir.path()], &[])?;
     Ok(())
 }
 

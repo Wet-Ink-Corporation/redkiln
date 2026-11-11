@@ -83,6 +83,7 @@ fn a_green_command_records_its_test_run_then_task_done() -> TestResult {
     assert_eq!(run["session_id"], "s1", "the session is recorded");
     let envelope: Value = crate::support::envelope(&output)?;
     crate::support::golden(
+        "bench.task-done/1",
         &envelope,
         &[dir.path()],
         &["/data/events/*/event/duration_ms"],
@@ -180,7 +181,7 @@ fn a_missing_command_or_zero_timeout_is_a_usage_error() -> TestResult {
         assert_eq!(
             String::from_utf8(output.stderr)?.lines().count(),
             1,
-            "{args:?}: one ERROR line"
+            "{args:?}: one `bench: error:` line"
         );
     }
     assert!(
@@ -204,7 +205,11 @@ fn a_task_id_the_ledger_cannot_tag_is_a_usage_error_and_runs_nothing() -> TestRe
         !stderr.contains("git version"),
         "the command did not run: {stderr}"
     );
-    assert_eq!(stderr.lines().count(), 1, "one ERROR line: {stderr}");
+    assert_eq!(
+        stderr.lines().count(),
+        1,
+        "one `bench: error:` line: {stderr}"
+    );
     assert!(
         !dir.path().join("ledger.sqlite3").exists(),
         "no ledger was opened"

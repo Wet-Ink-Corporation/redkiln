@@ -227,7 +227,7 @@ fn a_named_glossary_or_constitution_that_is_missing_is_a_usage_error() -> TestRe
         assert_eq!(
             String::from_utf8(output.stderr)?,
             "bench: error: lint: no such path: nope.md\n",
-            "{flag}: one ERROR line"
+            "{flag}: one `bench: error:` line"
         );
     }
     Ok(())
@@ -256,7 +256,7 @@ fn a_spec_over_the_read_cap_is_a_usage_error() -> TestResult {
     assert_eq!(
         String::from_utf8(output.stderr)?,
         "bench: error: lint: spec.md is 1048577 bytes, over the 1048576-byte read cap\n",
-        "one ERROR line with the size"
+        "one `bench: error:` line with the size"
     );
     Ok(())
 }

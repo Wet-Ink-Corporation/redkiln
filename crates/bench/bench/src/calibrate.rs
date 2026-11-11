@@ -144,17 +144,21 @@ impl CalibrateError {
 
 /// Runs `bench calibrate` with `env`: the proposals file, then the envelope on `out` (flushed),
 /// then the summary on `err` (flushed), so the summary is written only for a run that
-/// succeeded. The summary is best effort: a summary stderr refuses leaves the exit code 0.
-pub(crate) fn run<O, E, L>(
+/// succeeded, and only when `reader_closed(out)` is false: once stdout's reader stopped,
+/// nothing is said on stderr (SPEC CLI-07). The summary is best effort: a summary stderr
+/// refuses leaves the exit code 0.
+pub(crate) fn run<O, E, L, C>(
     args: &CalibrateArgs,
     env: &CalibrateEnv<'_, L>,
     out: &mut O,
     err: &mut E,
+    reader_closed: C,
 ) -> Result<Code, CliError>
 where
     O: Write,
     E: Write,
     L: Fn(&str) -> Option<OsString>,
+    C: FnOnce(&O) -> bool,
 {
     let home = paths::anneal_home_from(&env.lookup)?;
     let log = DecisionLog::in_home(&home);
@@ -194,6 +198,9 @@ where
     output::write_proposals(&calibration)?;
     let code = output::emit(&calibration, selected, out).map_err(CliError::Output)?;
     out.flush().map_err(CliError::Output)?;
+    if reader_closed(out) {
+        return Ok(code);
+    }
     let summary =
         output::write_summary(&calibration, selected, &mut *err).and_then(|()| err.flush());
     match summary {

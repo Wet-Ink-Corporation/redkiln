@@ -296,7 +296,12 @@ fn mode_build_records_the_mode_with_the_plan_and_tree_relative_to_the_root() -> 
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[repo.path()], &["/data/worktree"])?;
+    crate::support::golden(
+        "bench.mode-build/1",
+        &envelope,
+        &[repo.path()],
+        &["/data/worktree"],
+    )?;
     for (pointer, expected) in [
         ("/data/mode", json!("build")),
         ("/data/clean", json!(true)),
@@ -702,7 +707,12 @@ fn mode_off_lifts_the_gate() -> TestResult {
     denial(&repo.write_to(SOURCE)?)?;
 
     let off = repo.anneal(&["mode", "off"], 0)?;
-    crate::support::golden(&off, &[repo.path()], &["/data/worktree"])?;
+    crate::support::golden(
+        "bench.mode-off/1",
+        &off,
+        &[repo.path()],
+        &["/data/worktree"],
+    )?;
 
     assert_allowed(&repo.write_to(SOURCE)?, "mode off");
     Ok(())

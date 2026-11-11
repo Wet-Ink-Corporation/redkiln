@@ -267,7 +267,7 @@ fn append_refuses_a_by_on_an_approval_or_a_verdict_as_a_usage_error() -> TestRes
             stderr.starts_with("bench: error: ")
                 && stderr.lines().count() == 1
                 && stderr.contains("by"),
-            "{claimed}: one ERROR line naming `by`: {stderr}"
+            "{claimed}: one `bench: error:` line naming `by`: {stderr}"
         );
     }
     assert!(!store.exists(), "nothing was appended, not even a ledger");

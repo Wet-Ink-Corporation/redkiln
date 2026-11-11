@@ -288,7 +288,11 @@ where
 
 /// Parses `args` and runs the command, returning its result and what a failure of it does to
 /// the exit code. A usage error always exits with its code.
-fn execute<I, T, O, E>(args: I, out: &mut O, err: &mut E) -> (Result<Code, CliError>, OnFailure)
+fn execute<I, T, O, E>(
+    args: I,
+    out: &mut Pipe<O>,
+    err: &mut E,
+) -> (Result<Code, CliError>, OnFailure)
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
@@ -317,7 +321,7 @@ where
 /// (`calibrate`'s summary); errors are written by [`run`].
 fn dispatch<O: Write, E: Write>(
     command: &Command,
-    out: &mut O,
+    out: &mut Pipe<O>,
     err: &mut E,
 ) -> Result<Code, CliError> {
     match command {
@@ -355,7 +359,14 @@ fn dispatch<O: Write, E: Write>(
         Command::Verdict(args) => run_verdict(args, out, err),
         Command::Eval(args) => eval::run(args, |var| std::env::var_os(var), out, err),
         Command::Decide(args) => run_decide(args, out),
-        Command::Calibrate(args) => run_calibrate(args, out, err),
+        Command::Calibrate(args) => {
+            let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
+            let env = CalibrateEnv {
+                cwd: &cwd,
+                lookup: |var: &str| std::env::var_os(var),
+            };
+            run_calibrate(args, &env, out, err)
+        }
         Command::Hook(args) => run_hook(args, out),
         Command::Ship(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
@@ -500,18 +511,20 @@ fn run_brief<O: Write>(args: &BriefArgs, out: &mut O) -> Result<Code, CliError> 
     brief::run(args, &cwd, out)
 }
 
-/// `bench calibrate` with the process's working directory and environment.
-fn run_calibrate<O: Write, E: Write>(
+/// `bench calibrate` in `env`. Its human summary goes to `err` only while `out`'s reader is
+/// still reading: once it closed stdout, nothing is said on stderr either (CLI-07).
+fn run_calibrate<O, E, L>(
     args: &CalibrateArgs,
-    out: &mut O,
+    env: &CalibrateEnv<'_, L>,
+    out: &mut Pipe<O>,
     err: &mut E,
-) -> Result<Code, CliError> {
-    let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-    let env = CalibrateEnv {
-        cwd: &cwd,
-        lookup: |var: &str| std::env::var_os(var),
-    };
-    calibrate::run(args, &env, out, err)
+) -> Result<Code, CliError>
+where
+    O: Write,
+    E: Write,
+    L: Fn(&str) -> Option<OsString>,
+{
+    calibrate::run(args, env, out, err, Pipe::reader_closed)
 }
 
 /// `--help` and `--version` go to stdout and exit 0 when they are the last argument; anything

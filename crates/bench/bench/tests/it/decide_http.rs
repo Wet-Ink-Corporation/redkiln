@@ -58,7 +58,12 @@ fn an_answer_from_clef_exits_0_with_the_action_and_one_row() -> TestResult {
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(envelope(&output)?["data"]["action"], json!("deny"));
-    crate::support::golden(&envelope(&output)?, &[home.path()], DECIDE_VARIES)?;
+    crate::support::golden(
+        "bench.decide/1",
+        &envelope(&output)?,
+        &[home.path()],
+        DECIDE_VARIES,
+    )?;
     assert!(
         served
             .head

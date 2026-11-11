@@ -35,7 +35,7 @@ fn calibrate_with(home: &Path, vars: &[(&str, &str)]) -> Result<Value, Box<dyn E
         },
     };
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let code = run(&args(&[]), &env, &mut out, &mut err)?;
+    let code = run(&args(&[]), &env, &mut out, &mut err, |_| false)?;
     assert_eq!(code.value(), 0);
     Ok(serde_json::from_slice(&out)?)
 }

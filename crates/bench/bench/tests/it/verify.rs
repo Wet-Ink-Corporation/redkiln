@@ -77,7 +77,12 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
         assert_eq!(output.status.code(), Some(0), "{output:?}");
         let envelope = envelope(&output)?;
         if file.0 == "src/payments/charge.rs" {
-            crate::support::golden(&envelope, &[dir.path(), home.path()], VERIFY_VARIES)?;
+            crate::support::golden(
+                "bench.verify-risk/1",
+                &envelope,
+                &[dir.path(), home.path()],
+                VERIFY_VARIES,
+            )?;
         }
         assert_eq!(envelope["data"]["doubt_review"], json!(true), "{envelope}");
         assert_eq!(envelope["data"]["triggers"], expected, "{envelope}");

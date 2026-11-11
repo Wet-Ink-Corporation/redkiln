@@ -259,7 +259,7 @@ fn the_plan_id_drops_current_directory_components() -> TestResult {
     Ok(())
 }
 
-/// Asserts `output` is a usage error: exit 2, nothing on stdout, one `ERROR` line naming
+/// Asserts `output` is a usage error: exit 2, nothing on stdout, one `bench: error:` line naming
 /// `names`.
 fn assert_usage_error(output: &Output, what: &str, names: &str) -> TestResult {
     let stderr = std::str::from_utf8(&output.stderr)?;
@@ -268,7 +268,7 @@ fn assert_usage_error(output: &Output, what: &str, names: &str) -> TestResult {
     assert_eq!(stderr.lines().count(), 1, "{what}: one line: {stderr}");
     assert!(
         stderr.starts_with("bench: error: ") && stderr.contains(names),
-        "{what}: an ERROR line naming {names}: {stderr}"
+        "{what}: a `bench: error:` line naming {names}: {stderr}"
     );
     Ok(())
 }
@@ -340,7 +340,7 @@ fn check_fails_when_the_ledger_path_is_a_directory() -> TestResult {
     assert_eq!(stderr.lines().count(), 1, "one line: {stderr}");
     assert!(
         stderr.starts_with("bench: error: "),
-        "an ERROR line: {stderr}"
+        "a `bench: error:` line: {stderr}"
     );
     Ok(())
 }

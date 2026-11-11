@@ -70,7 +70,9 @@ pub(crate) fn golden_path(id: &str) -> PathBuf {
         .join(format!("{}.json", id.replace('/', ".v")))
 }
 
-/// Whether this run rewrites goldens: `BENCH_BLESS`, or anneal's `ANNEAL_BLESS`, set.
+/// Whether this run rewrites goldens: `BENCH_BLESS`, or anneal's `ANNEAL_BLESS`, set. It
+/// mirrors `src/bless.rs`'s `blessing`, which is crate-private and so out of this test
+/// binary's reach; change both together.
 fn blessing() -> bool {
     std::env::var_os("BENCH_BLESS").is_some() || std::env::var_os("ANNEAL_BLESS").is_some()
 }
@@ -80,10 +82,16 @@ fn blessing() -> bool {
 /// `sha256:<hash>`, other 64- and 40-digit hex runs `<hash>` and `<sha>`, RFC 3339 times
 /// `<time>`, and the values at each pointer in `varies` (a `*` segment matches any key or
 /// index) `"<varies>"`. Writes the golden instead when blessing.
-pub(crate) fn golden(envelope: &Value, roots: &[&Path], varies: &[&str]) -> TestResult {
-    let id = envelope["schema"]
-        .as_str()
-        .ok_or("an envelope with a schema id")?;
+///
+/// `id` is the output id the caller expects, written as a literal at the call site so
+/// `cli_envelope::every_output_id_is_compared_by_a_golden_call` can see every id is compared;
+/// the envelope must be that id's.
+pub(crate) fn golden(id: &str, envelope: &Value, roots: &[&Path], varies: &[&str]) -> TestResult {
+    assert_eq!(
+        envelope["schema"].as_str(),
+        Some(id),
+        "the golden compared is the id the call names: {envelope}"
+    );
     let mut prefixes: Vec<String> = Vec::new();
     for root in roots {
         let mut spellings = vec![root.to_string_lossy().into_owned()];

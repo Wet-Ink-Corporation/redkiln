@@ -70,7 +70,12 @@ fn worktree_key(root: &Path) -> Result<Value, Box<dyn Error>> {
     let output = anneal_in(root).args(["mode", "diagnose"]).output()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[root], &["/data/worktree"])?;
+    crate::support::golden(
+        "bench.mode-diagnose/1",
+        &envelope,
+        &[root],
+        &["/data/worktree"],
+    )?;
     Ok(envelope
         .pointer("/data/worktree")
         .cloned()
@@ -87,7 +92,7 @@ fn one_error_line(output: &Output, code: i32) -> Result<String, Box<dyn Error>> 
         .lines()
         .filter(|l| l.starts_with("bench: error: "))
         .collect();
-    assert_eq!(errors.len(), 1, "one ERROR line: {stderr}");
+    assert_eq!(errors.len(), 1, "one `bench: error:` line: {stderr}");
     Ok(errors.concat())
 }
 
@@ -102,6 +107,7 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
     assert_eq!(output.status.code(), Some(0), "red recorded: {output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
     crate::support::golden(
+        "bench.repro-record/1",
         &envelope,
         &[dir.path()],
         &[
@@ -277,7 +283,7 @@ fn leftovers_lists_each_tagged_line_as_file_and_line_and_exits_1() -> TestResult
 
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let envelope: Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.repro-leftovers/1", &envelope, &[dir.path()], &[])?;
     assert_eq!(
         (&envelope["command"], &envelope["data"]["leftovers"]),
         (

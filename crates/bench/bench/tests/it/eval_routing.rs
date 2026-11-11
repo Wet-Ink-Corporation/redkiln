@@ -46,7 +46,7 @@ fn a_passing_set_exits_0_and_its_table_is_all_diagonal() -> TestResult {
 
     assert_eq!(code, Some(0), "100% rank-1: {envelope}");
     assert_eq!(stderr, "", "nothing on stderr");
-    crate::support::golden(&envelope, &[&fixtures()], &[])?;
+    crate::support::golden("bench.eval-routing/1", &envelope, &[&fixtures()], &[])?;
     assert_eq!(
         envelope["command"],
         json!("eval routing"),
@@ -150,7 +150,7 @@ fn a_missing_fixtures_dir_is_a_usage_error_with_nothing_on_stdout() -> TestResul
     assert!(
         stderr.starts_with("bench: error: eval: reading fixtures: no such path: ")
             && stderr.lines().count() == 1,
-        "one ERROR line: {stderr:?}"
+        "one `bench: error:` line: {stderr:?}"
     );
     Ok(())
 }

@@ -64,8 +64,8 @@ fn build_writes_a_brief_that_lints_clean_and_a_review_package_with_the_diff() ->
     );
     let lint = repo.envelope(&["lint", "brief", ".anneal/briefs/36.md"], 0)?;
     assert_eq!(lint["data"]["findings"], json!([]), "{lint}");
-    crate::support::golden(&envelope, &[repo.path()], &[])?;
-    crate::support::golden(&lint, &[repo.path()], &[])?;
+    crate::support::golden("bench.brief-build/1", &envelope, &[repo.path()], &[])?;
+    crate::support::golden("bench.lint-brief/1", &lint, &[repo.path()], &[])?;
     Ok(())
 }
 
@@ -214,7 +214,7 @@ fn assert_refused_through(repo: &PrRepo, link: &std::path::Path) -> TestResult {
     assert_eq!(
         String::from_utf8(output.stderr)?,
         expected,
-        "one ERROR line naming where the link leads"
+        "one `bench: error:` line naming where the link leads"
     );
     assert_eq!(
         fs::read_dir(&target)?.count(),

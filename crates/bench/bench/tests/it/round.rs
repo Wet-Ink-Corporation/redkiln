@@ -42,7 +42,7 @@ fn status_before_any_round_says_the_same_agent_starts_and_creates_no_ledger() ->
     let dir = repo()?;
 
     let envelope = round(dir.path(), &["status", "--ticket", "36"], 0)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.round-status/1", &envelope, &[dir.path()], &[])?;
 
     assert_eq!(
         (&envelope["data"]["rounds"], &envelope["data"]["next"]),
@@ -61,7 +61,7 @@ fn status_before_any_round_says_the_same_agent_starts_and_creates_no_ledger() ->
 fn the_round_count_comes_from_the_ledger_across_processes_and_parks_after_five() -> TestResult {
     let dir = repo()?;
     let first = round(dir.path(), &["start", "--ticket", "other"], 0)?;
-    crate::support::golden(&first, &[dir.path()], &[])?;
+    crate::support::golden("bench.round-start/1", &first, &[dir.path()], &[])?;
 
     let mut plans = Vec::new();
     for _ in 0..5 {

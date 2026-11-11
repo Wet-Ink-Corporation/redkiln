@@ -94,7 +94,7 @@ fn a_clean_diff_exits_0_with_no_findings() -> TestResult {
     let output = floor_guard(dir.path(), &[])?;
 
     let envelope = envelope(&output, 0)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.floor-guard/1", &envelope, &[dir.path()], &[])?;
     assert_eq!(
         (
             &envelope["ok"],

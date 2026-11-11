@@ -59,7 +59,7 @@ fn check_reads_the_suites_reports_their_coverage_and_runs_nothing() -> TestResul
 
     let envelope = envelope(&output)?;
     assert_eq!(output.status.code(), Some(0), "{envelope}");
-    crate::support::golden(&envelope, &[&fixtures()], &[])?;
+    crate::support::golden("bench.eval-uplift/1", &envelope, &[&fixtures()], &[])?;
     assert_eq!(
         (
             &envelope["command"],

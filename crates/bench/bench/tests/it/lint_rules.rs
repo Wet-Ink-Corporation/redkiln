@@ -71,7 +71,7 @@ fn rules_naming_a_real_hook_command_and_test_are_clean() -> TestResult {
     let output = lint_rules("pass.md")?;
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    crate::support::golden(&envelope(&output)?, &[], &[])?;
+    crate::support::golden("bench.lint-rules/1", &envelope(&output)?, &[], &[])?;
     let data = &envelope(&output)?["data"];
     assert_eq!(
         (&data["checked"], &data["errors"], &data["details"]),

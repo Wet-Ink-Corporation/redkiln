@@ -183,7 +183,7 @@ fn confirm_without_the_humans_words_is_a_usage_error_and_records_nothing() -> Te
         let stderr = String::from_utf8(output.stderr)?;
         assert!(
             stderr.starts_with("bench: error: ") && stderr.lines().count() == 1,
-            "{quote:?}: one ERROR line: {stderr}"
+            "{quote:?}: one `bench: error:` line: {stderr}"
         );
         assert!(
             stderr.contains("--quote"),
@@ -299,12 +299,12 @@ fn a_missing_tree_file_is_a_usage_error() -> TestResult {
     assert_eq!(
         String::from_utf8(output.stderr)?,
         "bench: error: design tree absent.json does not exist\n",
-        "one ERROR line naming the file"
+        "one `bench: error:` line naming the file"
     );
     Ok(())
 }
 
-/// Asserts a usage error: exit 2, nothing on stdout, one `ERROR` line containing `names`.
+/// Asserts a usage error: exit 2, nothing on stdout, one `bench: error:` line containing `names`.
 fn assert_usage_error(output: &Output, names: &str) -> TestResult {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(output.stdout.is_empty(), "nothing on stdout: {output:?}");
@@ -313,7 +313,7 @@ fn assert_usage_error(output: &Output, names: &str) -> TestResult {
         stderr.starts_with("bench: error: ")
             && stderr.lines().count() == 1
             && stderr.contains(names),
-        "one ERROR line naming {names:?}: {stderr}"
+        "one `bench: error:` line naming {names:?}: {stderr}"
     );
     Ok(())
 }
@@ -398,7 +398,7 @@ fn classify_with_clef_off_exits_0_and_leaves_the_tree_and_the_home_alone() -> Te
         .output()?;
 
     let envelope = envelope(&output, 0)?;
-    crate::support::golden(&envelope, &[dir.path()], &[])?;
+    crate::support::golden("bench.grill-classify/1", &envelope, &[dir.path()], &[])?;
     assert_eq!(
         [
             &envelope["command"],

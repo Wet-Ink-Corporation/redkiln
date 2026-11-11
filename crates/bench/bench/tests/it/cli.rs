@@ -64,7 +64,7 @@ fn a_usage_error_writes_exactly_one_error_line() -> TestResult {
     assert_eq!(
         String::from_utf8(output.stderr)?,
         "bench: error: unknown argument: frobnicate\n",
-        "the whole of stderr is one ERROR line, no usage dump"
+        "the whole of stderr is one `bench: error:` line, no usage dump"
     );
     Ok(())
 }

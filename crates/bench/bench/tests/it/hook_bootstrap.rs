@@ -292,7 +292,7 @@ fn a_closed_stdout_still_exits_0_with_one_error_line() -> TestResult {
     let err = String::from_utf8(output.stderr)?;
     assert!(
         err.starts_with("bench: error: writing output") && err.lines().count() == 1,
-        "one ERROR line says why: {err}"
+        "one `bench: error:` line says why: {err}"
     );
     Ok(())
 }

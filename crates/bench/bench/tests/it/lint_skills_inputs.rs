@@ -266,7 +266,12 @@ fn the_envelope_names_the_command_lint_skills() -> TestResult {
         .arg(fixture("rule-01-name/pass/skills"))
         .output()?;
     let envelope: serde_json::Value = crate::support::envelope(&output)?;
-    crate::support::golden(&envelope, &[&fixture("rule-01-name/pass/skills")], &[])?;
+    crate::support::golden(
+        "bench.lint-skills/1",
+        &envelope,
+        &[&fixture("rule-01-name/pass/skills")],
+        &[],
+    )?;
 
     assert_eq!(
         envelope["command"], "lint skills",

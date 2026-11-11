@@ -211,7 +211,12 @@ fn label_appends_an_outcome_row() -> TestResult {
         .output()?;
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    crate::support::golden(&envelope(&output)?, &[home.path()], &[])?;
+    crate::support::golden(
+        "bench.decide-label/1",
+        &envelope(&output)?,
+        &[home.path()],
+        &[],
+    )?;
     let rows = rows(&home.path().join("decisions").join("decisions.jsonl"))?;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["kind"], json!("label"));
@@ -293,7 +298,11 @@ fn a_missing_state_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr)?;
-    assert_eq!(stderr.lines().count(), 1, "one ERROR line: {stderr}");
+    assert_eq!(
+        stderr.lines().count(),
+        1,
+        "one `bench: error:` line: {stderr}"
+    );
     assert!(stderr.starts_with("bench: error: "), "{stderr}");
     Ok(())
 }
