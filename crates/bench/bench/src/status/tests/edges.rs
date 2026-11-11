@@ -9,7 +9,7 @@ use bench_contract::event::{GateBlocked, Mode, ModeSet};
 use clap::Parser;
 use serde_json::{Value, json};
 
-use super::{Fixture, append, build_mode};
+use super::{Fixture, append, build_mode, with_store};
 use crate::cli::{Cli, Command};
 use crate::context;
 use crate::test_repo::Setup;
@@ -95,20 +95,22 @@ fn outside_a_repository_only_the_ledger_wide_sections_are_read() -> Setup<()> {
     assert_eq!(code, 0, "a ledger exists: {envelope}");
     assert_eq!(
         envelope["data"],
-        json!({
-            "schema": 1,
-            "gates": [
-                {"id": "guard.rm-rf", "kind": "gate_blocked", "reason": "rm -rf /", "event": 2,
-                 "ts": "2026-10-19T10:00:02Z"},
-            ],
-            "ledger_tail": [
-                {"event": 1, "type": "mode_set", "summary": "mode_set diagnose", "actor": "cli",
-                 "ts": "2026-10-19T10:00:01Z"},
-                {"event": 2, "type": "gate_blocked", "summary": "gate_blocked point:guard.rm-rf",
-                 "actor": "cli",
-                 "ts": "2026-10-19T10:00:02Z"},
-            ],
-        }),
+        with_store(
+            &fixture,
+            json!({
+                "gates": [
+                    {"id": "guard.rm-rf", "kind": "gate_blocked", "reason": "rm -rf /", "event": 2,
+                     "ts": "2026-10-19T10:00:02Z"},
+                ],
+                "ledger_tail": [
+                    {"event": 1, "type": "mode_set", "summary": "mode_set diagnose", "actor": "cli",
+                     "ts": "2026-10-19T10:00:01Z"},
+                    {"event": 2, "type": "gate_blocked", "summary": "gate_blocked point:guard.rm-rf",
+                     "actor": "cli",
+                     "ts": "2026-10-19T10:00:02Z"},
+                ],
+            })
+        )?,
         "no worktree, so no phase, plan, tasks or verdict; no Clef or context reading"
     );
     assert_eq!(

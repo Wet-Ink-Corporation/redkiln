@@ -1,8 +1,12 @@
 //! `bench status [--json] [--fields <sections>] [--tail <n>]`: the one read model every UI
 //! renders.
 //!
-//! It folds the ledger and the anneal home's state files into one versioned document
-//! (`schema: 1`), so a UI (the future cockpit) holds no logic of its own. Each section is read by the module that owns its data, never re-implemented here:
+//! It folds the ledger and the anneal home's state files into one document, the envelope
+//! `bench.status/1` (SPEC CLI-12, `bench_contract::status`), so a UI (the cockpit mod) holds no
+//! logic of its own. CLI-12's common keys come first (`status::common`): the store, its source
+//! and schema, the repository class, the unusable events by type, `dropped` (always 0) and
+//! `health` from the findings. Each section is read by the module that owns its data, never
+//! re-implemented here:
 //!
 //! - `phase`, `plan`, `tasks`, `gates` and `ledger_tail` from the ledger (`status::ledger`):
 //!   `mode::active`, `plan::approval_record`, `hook::handoff::facts`' task count, the newest
@@ -12,16 +16,17 @@
 //!   `counts.json`, and the fresher of the snapshots `bench statusline` and the mod save
 //!   (`context::Sources`).
 //!
-//! A section whose source does not exist is absent; one whose source exists but cannot be read
-//! is absent too, with one `status/unreadable:<section>` finding saying why, and the exit code
-//! is unchanged. `context` has two sources: when one cannot be read, the other's reading is
+//! A section not asked for, or whose source does not exist, is `null`; one whose source exists
+//! but cannot be read is `null` too, with one `status/unreadable:<section>` warning saying
+//! why, and the exit code is unchanged. `context` has two sources: when one cannot be read, the other's reading is
 //! still shown beside the finding. `--fields` limits the work to the sections named:
 //! `--fields phase,plan,gates` runs no git beyond finding the ledger and the worktree. An anneal
-//! ledger not yet imported is one `ledger/old-ledger` finding; `status` never imports it
+//! ledger not yet imported is one `ledger/old-ledger` note; `status` never imports it
 //! (`legacy_import`: the cockpit polls it). A report
 //! (SPEC CLI-06): exit 0 whenever the document was written; without a ledger it carries one
 //! `status/no-store` note finding, and no ledger is created. See `docs/status.md`.
 
+mod common;
 mod head_verdict;
 mod home;
 mod ledger;
@@ -34,8 +39,11 @@ use std::path::{Path, PathBuf};
 
 use crate::legacy_import;
 use crate::store::{Store, Wait};
+use bench_contract::status::{
+    Clef, Context, Gate, HeadVerdict, Phase, Plan, Status, TailEvent, Tasks,
+};
 use clap::{Args, ValueEnum};
-use serde::Serialize;
+use redkiln_core::envelope::SPEC_VERSION;
 
 use crate::command::CommandName;
 use crate::envelope::{Envelope, Finding, Severity};
@@ -43,11 +51,9 @@ use crate::error::CliError;
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::exit_codes::{self, Code};
-use crate::paths::{self, GIT_TIMEOUT, PathError};
+use crate::paths::{self, GIT_TIMEOUT, PathError, StoreLocation};
+use common::StoreFacts;
 use unreadable::Unreadable;
-
-/// The document's schema version. Fields are only ever added within schema 1.
-pub const SCHEMA: u32 = 1;
 
 /// The most events `--tail` may ask for (H-13).
 const MAX_TAIL: u16 = 1000;
@@ -134,33 +140,24 @@ impl Wanted<'_> {
     }
 }
 
-/// The status document: `data` of the envelope. Every section is optional and absent when it
-/// has no data.
-#[derive(Debug, Default, Serialize)]
-pub(crate) struct Document {
-    schema: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    phase: Option<ledger::Phase>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    plan: Option<ledger::Plan>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tasks: Option<ledger::Tasks>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    gates: Option<Vec<ledger::Gate>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    verdict: Option<head_verdict::HeadVerdict>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    clef: Option<home::Clef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context: Option<home::Context>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ledger_tail: Option<Vec<ledger::TailEvent>>,
+/// Bench's sections as they are gathered: each `None` until read, and left `None` when not
+/// asked for or without data.
+#[derive(Debug, Default)]
+struct Sections {
+    phase: Option<Phase>,
+    plan: Option<Plan>,
+    tasks: Option<Tasks>,
+    gates: Option<Vec<Gate>>,
+    verdict: Option<HeadVerdict>,
+    clef: Option<Clef>,
+    context: Option<Context>,
+    ledger_tail: Option<Vec<TailEvent>>,
 }
 
-/// The document as it is gathered, and the findings for the sections that could not be read.
+/// The sections as they are gathered, and the findings for what could not be read.
 #[derive(Debug, Default)]
 struct Gathered {
-    document: Document,
+    document: Sections,
     findings: Vec<Finding>,
 }
 
@@ -177,15 +174,61 @@ impl Gathered {
     }
 
     fn unreadable(&mut self, what: &str, why: &str) {
-        self.findings.push(Finding::new(
-            format!("status/unreadable:{what}"),
-            format!("{what} could not be read: {why}"),
-        ));
+        self.findings.push(
+            Finding::new(
+                format!("status/unreadable:{what}"),
+                format!("{what} could not be read: {why}"),
+            )
+            .with_severity(Severity::Warning),
+        );
+    }
+
+    /// The document: CLI-12's keys for `location`, `store` and `repo_class`, with `health`
+    /// from every finding gathered, then the sections.
+    fn into_status(
+        self,
+        location: &StoreLocation,
+        store: StoreFacts,
+        repo_class: bench_contract::status::RepoClass,
+    ) -> (Status, Vec<Finding>) {
+        let Self { document, findings } = self;
+        let Sections {
+            phase,
+            plan,
+            tasks,
+            gates,
+            verdict,
+            clef,
+            context,
+            ledger_tail,
+        } = document;
+        let status = Status {
+            plugin: bench_contract::plugin::NAME.to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            spec: SPEC_VERSION.to_owned(),
+            store: Some(common::store_path(location)),
+            store_source: Some(common::store_source(location.source)),
+            store_schema: store.schema,
+            repo_class,
+            unreadable: store.unreadable,
+            // Bench records no telemetry, so it drops none (ST-09).
+            dropped: 0,
+            health: common::health(&findings),
+            phase,
+            plan,
+            tasks,
+            gates,
+            verdict,
+            clef,
+            context,
+            ledger_tail,
+        };
+        (status, findings)
     }
 }
 
-/// Runs `bench status` in `cwd`, reading environment variables through `lookup`: 0 with a
-/// ledger, 2 without one. It never creates a ledger.
+/// Runs `bench status` in `cwd`, reading environment variables through `lookup`: exit 0
+/// whenever the document was written, a missing ledger included. It never creates a ledger.
 ///
 /// # Errors
 /// [`CliError::Path`] when git cannot say where the ledger is, [`CliError::Ledger`] when a
@@ -204,17 +247,13 @@ pub(crate) fn run<O: Write>(
             LedgerError::Locate(source) => CliError::Path(source),
             LedgerError::Open(source) => CliError::Ledger(source),
         })?;
-    let mut gathered = Gathered {
-        document: Document {
-            schema: SCHEMA,
-            ..Document::default()
-        },
-        findings: Vec::new(),
-    };
+    let mut gathered = Gathered::default();
     old_ledgers(store.as_ref(), &location.old_ledgers, &mut gathered);
+    let mut facts = StoreFacts::default();
     // A report (SPEC CLI-06): it exits 0 whenever it wrote its document, a missing ledger
     // included, which is a note for the reader to judge.
     if let Some(store) = &store {
+        facts = common::store_facts(store, &mut gathered);
         from_ledger(store, cwd, args, &mut gathered);
     } else {
         gathered.findings.push(
@@ -227,18 +266,15 @@ pub(crate) fn run<O: Write>(
         );
     }
     from_home(&lookup, args.wanted(), &mut gathered);
+    let repo_class = common::repo_class(&location, cwd, &mut gathered);
+    let (document, findings) = gathered.into_status(&location, facts, repo_class);
     if args.json {
-        Envelope::new(
-            CommandName::Status,
-            None,
-            exit_codes::OK,
-            &gathered.document,
-        )
-        .with_findings(&gathered.findings)
-        .emit(out)
-        .map_err(CliError::Output)
+        Envelope::new(CommandName::Status, None, exit_codes::OK, &document)
+            .with_findings(&findings)
+            .emit(out)
+            .map_err(CliError::Output)
     } else {
-        text::write(&gathered.document, &gathered.findings, out).map_err(CliError::Output)?;
+        text::write(&document, &findings, out).map_err(CliError::Output)?;
         Ok(exit_codes::OK)
     }
 }
@@ -258,15 +294,18 @@ fn old_ledgers(store: Option<&Store>, old: &[PathBuf], gathered: &mut Gathered) 
         return;
     }
     let paths: Vec<String> = due.iter().map(|path| path.display().to_string()).collect();
-    gathered.findings.push(Finding::new(
-        "ledger/old-ledger",
-        format!(
-            "the anneal ledger {} is not imported yet, and is left as it is. fix: start a \
-             session, or run a bench command that records, such as `bench mode build`, which \
-             imports it once",
-            paths.join(", ")
-        ),
-    ));
+    gathered.findings.push(
+        Finding::new(
+            "ledger/old-ledger",
+            format!(
+                "the anneal ledger {} is not imported yet, and is left as it is. fix: start a \
+                 session, or run a bench command that records, such as `bench mode build`, \
+                 which imports it once",
+                paths.join(", ")
+            ),
+        )
+        .with_severity(Severity::Note),
+    );
 }
 
 /// The sections read from the ledger, and the worktree-bound ones once its root is known.
@@ -309,7 +348,7 @@ fn from_worktree(worktree: &ledger::Worktree<'_>, wanted: Wanted<'_>, gathered: 
             from_plan(worktree, &build, wanted, gathered);
         }
         if wanted.has(Section::Phase) {
-            gathered.document.phase = entered.map(ledger::Phase::of);
+            gathered.document.phase = entered.map(ledger::phase);
         }
     }
     if wanted.has(Section::Verdict) {

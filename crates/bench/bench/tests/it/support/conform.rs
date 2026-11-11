@@ -14,20 +14,31 @@ use serde_json::{Map, Value};
 /// A test's result, with any setup error.
 pub(crate) type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
-/// The SPEC's CLI envelope schema.
-fn schema() -> TestResult<Value> {
+/// The SPEC schema `spec/schemas/<stem>.schema.json`.
+fn schema(stem: &str) -> TestResult<Value> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../spec/schemas/cli-envelope-1.schema.json");
+        .join("../../../spec/schemas")
+        .join(format!("{stem}.schema.json"));
     Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+}
+
+/// Every way `doc` breaks the SPEC schema `stem`, as `<instance path>: <error>`.
+fn breaks(stem: &str, doc: &Value) -> TestResult<Vec<String>> {
+    let validator = jsonschema::draft202012::new(&schema(stem)?)?;
+    Ok(validator
+        .iter_errors(doc)
+        .map(|e| format!("{}: {e}", e.instance_path().as_str()))
+        .collect())
 }
 
 /// Every way `envelope` breaks the CLI envelope schema, as `<instance path>: <error>`.
 pub(crate) fn schema_errors(envelope: &Value) -> TestResult<Vec<String>> {
-    let validator = jsonschema::draft202012::new(&schema()?)?;
-    Ok(validator
-        .iter_errors(envelope)
-        .map(|e| format!("{}: {e}", e.instance_path().as_str()))
-        .collect())
+    breaks("cli-envelope-1", envelope)
+}
+
+/// Every way `data` breaks CLI-12's `status-1` schema, as `<instance path>: <error>`.
+pub(crate) fn status_errors(data: &Value) -> TestResult<Vec<String>> {
+    breaks("status-1", data)
 }
 
 /// `output`'s stdout as the one envelope CLI-01 allows: a single line ended by `\n`, `schema`

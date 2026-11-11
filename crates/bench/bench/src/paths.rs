@@ -10,6 +10,7 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::Duration;
 
 use redkiln_core::location::LocateError;
+use redkiln_core::suite::RepoClass;
 use serde::Serialize;
 
 pub use location::Notice;
@@ -228,6 +229,10 @@ pub struct StoreLocation {
     /// suite config's problems.
     #[serde(skip)]
     pub notices: Vec<Notice>,
+    /// The repository class (ST-13) of the suite config Core read while locating (steps 4 to
+    /// 6); `None` when `--store` or a variable chose before it read one.
+    #[serde(skip)]
+    pub repo_class: Option<RepoClass>,
 }
 
 /// The store for a command run in `cwd` (ST-01, through Core), in this order:

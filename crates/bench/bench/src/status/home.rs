@@ -6,7 +6,7 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use serde::Serialize;
+use bench_contract::status::{self, Clef, ClefMode, Context, DecisionPoint, PointStatus};
 
 use super::Unreadable;
 use crate::context::usage::{Level, Window, WindowSource};
@@ -16,38 +16,31 @@ use crate::decide::log::DecisionLog;
 use crate::decide::modes::Modes;
 use crate::decide::point::Point;
 
-/// `clef`: each decision point's answered decisions and its mode.
-#[derive(Debug, Serialize)]
-pub(crate) struct Clef {
-    /// Whether an account is configured; without one every point is off.
-    configured: bool,
-    /// D1 to D7, in order.
-    points: Vec<PointStatus>,
-}
-
-impl Clef {
-    /// Each point's name, answered count and effective mode, for the text form.
-    pub(super) fn points(&self) -> impl Iterator<Item = (Point, u64, Mode)> + '_ {
-        self.points
-            .iter()
-            .map(|point| (point.point, point.answered, point.mode))
+/// The point as the section names it.
+const fn point(point: Point) -> DecisionPoint {
+    match point {
+        Point::D1 => DecisionPoint::D1,
+        Point::D2 => DecisionPoint::D2,
+        Point::D3 => DecisionPoint::D3,
+        Point::D4 => DecisionPoint::D4,
+        Point::D5 => DecisionPoint::D5,
+        Point::D6 => DecisionPoint::D6,
+        Point::D7 => DecisionPoint::D7,
     }
 }
 
-/// One decision point.
-#[derive(Debug, Serialize)]
-struct PointStatus {
-    point: Point,
-    /// Answered decisions logged for it (`counts.json`).
-    answered: u64,
-    /// The mode configured (`CLAUDE_PLUGIN_OPTION_CLEF_MODE`).
-    configured_mode: Mode,
-    /// The mode in effect: `off` without an account, `shadow` while a configured `enforce`
-    /// has fewer than 50 answered decisions, else the configured one.
-    mode: Mode,
+/// The mode as the section names it.
+const fn mode(mode: Mode) -> ClefMode {
+    match mode {
+        Mode::Off => ClefMode::Off,
+        Mode::Shadow => ClefMode::Shadow,
+        Mode::Enforce => ClefMode::Enforce,
+    }
 }
 
-/// `clef`, or `None` when Clef has no account and no decision was ever answered.
+/// `clef`, or `None` when Clef has no account and no decision was ever answered. Each point's
+/// `mode` is the one in effect: `off` without an account, `shadow` while a configured
+/// `enforce` has fewer than 50 answered decisions, else the configured one.
 pub(super) fn clef(
     home: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
@@ -59,36 +52,14 @@ pub(super) fn clef(
     }
     let points = Point::ALL
         .into_iter()
-        .map(|point| PointStatus {
-            point,
-            answered: modes.answered(point),
-            configured_mode: modes.configured(point),
-            mode: modes.effective(point),
+        .map(|each| PointStatus {
+            point: point(each),
+            answered: modes.answered(each),
+            configured_mode: mode(modes.configured(each)),
+            mode: mode(modes.effective(each)),
         })
         .collect();
     Ok(Some(Clef { configured, points }))
-}
-
-/// `context`: the newest session's context usage, as the status line or the mod saved it.
-#[derive(Debug, Serialize)]
-pub(crate) struct Context {
-    /// Tokens in the context window; `None` before Claude Code reports usage.
-    used_tokens: Option<f64>,
-    /// The auto-compact window, in tokens.
-    window: u32,
-    /// Where the window came from: `env`, `model` or `default`.
-    window_source: WindowSource,
-    /// `used_tokens` as a percentage of `window`, to one decimal.
-    percent: Option<f64>,
-    /// The context monitor's threshold reached: `warn` (60%), `stop` (75%) or none.
-    level: Option<Level>,
-}
-
-impl Context {
-    /// Used tokens, window and percent, for the text form.
-    pub(super) const fn parts(&self) -> (Option<f64>, u32, Option<f64>) {
-        (self.used_tokens, self.window, self.percent)
-    }
 }
 
 /// `context` as read: the section, and why each usage file that could not be read could not.
@@ -118,11 +89,23 @@ fn section(snapshot: Snapshot) -> Context {
     let percent = snapshot
         .used_tokens
         .map(|used| (used / f64::from(snapshot.window.max(1)) * 1000.0).round() / 10.0);
+    let window_source = match snapshot.window_source {
+        WindowSource::Env => status::WindowSource::Env,
+        WindowSource::Model => status::WindowSource::Model,
+        WindowSource::Default => status::WindowSource::Default,
+    };
+    let level = snapshot
+        .used_tokens
+        .and_then(|used| window.level(used))
+        .map(|level| match level {
+            Level::Warn => status::Level::Warn,
+            Level::Stop => status::Level::Stop,
+        });
     Context {
         used_tokens: snapshot.used_tokens,
         window: snapshot.window,
-        window_source: snapshot.window_source,
+        window_source,
         percent,
-        level: snapshot.used_tokens.and_then(|used| window.level(used)),
+        level,
     }
 }

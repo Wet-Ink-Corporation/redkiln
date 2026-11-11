@@ -62,6 +62,9 @@ const CALIBRATION_FIELDS = [...BAND_FIELDS, 'clef'] as const
 const DOCK_COLUMNS = 56
 const INLINE_ROWS = 18
 
+/** The output id of the `bench status --json` envelope this cockpit reads (SPEC CLI-12). */
+export const STATUS_SCHEMA = 'bench.status/1'
+
 /** What `/anneal` answers when there is no `bench status` to run: no launcher starts, or the CLI has no such command. */
 export const NOT_BUILT = 'bench status is not built yet'
 
@@ -180,8 +183,9 @@ const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 const isNumberOrNull = (value: unknown): boolean => value === null || isNumber(value)
 const isStringOrNull = (value: unknown): boolean => value === null || isString(value)
-/** Whether `value` is absent or passes `check`. */
-const isOptional = (value: unknown, check: (value: unknown) => boolean): boolean => value === undefined || check(value)
+/** Whether `value` is absent, `null` (bench writes every unset field as `null`) or passes `check`. */
+const isOptional = (value: unknown, check: (value: unknown) => boolean): boolean =>
+  value === undefined || value === null || check(value)
 const isListOf = (value: unknown, check: (value: unknown) => boolean): boolean =>
   Array.isArray(value) && value.every(entry => check(entry))
 
@@ -197,7 +201,7 @@ const isLedgerEntry = (value: unknown): boolean =>
   isObject(value) && isNumber(value.event) && isString(value.type) && isString(value.summary) && isString(value.ts)
 
 /**
- * Each section the band and pane draw, and the shape of it they read (docs/status.md). A
+ * Each section the band and pane draw, and the shape of it they read (docs/bench/status.md). A
  * section that does not match is dropped from the reading rather than drawn from.
  */
 const STATUS_SECTIONS: readonly (readonly [keyof AnnealStatus, (value: unknown) => boolean])[] = [
@@ -250,17 +254,19 @@ const STATUS_SECTIONS: readonly (readonly [keyof AnnealStatus, (value: unknown) 
 ]
 
 /**
- * The sections of a schema 1 status document whose fields have the types the cockpit reads,
- * and the names of those present that do not (dropped, so nothing draws from them).
+ * The sections of a `bench.status/1` document's `data` whose fields have the types the cockpit
+ * reads, every other section `null`, and the names of those with data that do not (dropped, so
+ * nothing draws from them). A `null` section had no data or was not asked for.
  */
 export const readStatusDocument = (
   data: Fields,
 ): { readonly status: AnnealStatus; readonly unreadable: readonly string[] } => {
-  const kept: Record<string, unknown> = { schema: 1 }
+  const kept: Record<string, unknown> = {}
   const unreadable: string[] = []
   for (const [section, check] of STATUS_SECTIONS) {
     const value = data[section]
-    if (value === undefined) continue
+    kept[section] = null
+    if (value === undefined || value === null) continue
     if (check(value)) kept[section] = value
     else unreadable.push(section)
   }
@@ -269,7 +275,7 @@ export const readStatusDocument = (
   return { status: kept as AnnealStatus, unreadable }
 }
 
-/** The status document inside `bench status --json`'s envelope, when it is a schema 1 one. */
+/** The status document inside `bench status --json`'s envelope, when its output id is `bench.status/1`. */
 export const readEnvelope = (
   text: string,
 ): {
@@ -283,9 +289,9 @@ export const readEnvelope = (
   } catch {
     return null
   }
-  if (!isObject(parsed)) return null
+  if (!isObject(parsed) || parsed.schema !== STATUS_SCHEMA) return null
   const { data, findings } = parsed
-  if (!isObject(data) || data.schema !== 1) return null
+  if (!isObject(data)) return null
   const keys = Array.isArray(findings)
     ? findings.flatMap(finding => (isObject(finding) && isString(finding.key) ? [finding.key] : []))
     : []
@@ -409,8 +415,8 @@ const fit = (text: string, columns: number): string => {
 }
 
 /** The short form of a `sha256:` hash: its first six hex digits. */
-const shortHash = (hash: string | undefined): string | undefined =>
-  hash === undefined ? undefined : hash.replace(/^sha256:/, '').slice(0, 6)
+const shortHash = (hash: string | null | undefined): string | undefined =>
+  hash == null ? undefined : hash.replace(/^sha256:/, '').slice(0, 6)
 
 /**
  * The gates still open: the blocks recorded after the newest event of the ledger's tail that is
@@ -421,7 +427,7 @@ const shortHash = (hash: string | undefined): string | undefined =>
 export const openGates = (status: AnnealStatus): readonly AnnealGate[] => {
   const tail = status.ledger_tail
   const gates = status.gates ?? []
-  if (tail === undefined) return []
+  if (tail == null) return []
   const progressed = tail
     .filter(entry => entry.type !== 'gate_blocked' && entry.type !== 'stop_blocked')
     .reduce((newest, entry) => Math.max(newest, entry.event), 0)
@@ -432,14 +438,14 @@ export const openGates = (status: AnnealStatus): readonly AnnealGate[] => {
 /** The band's one row for a status document, and whether a gate holds it. */
 export const bandLine = (status: AnnealStatus): { readonly text: string; readonly isBlocked: boolean } => {
   const parts = ['anneal']
-  if (status.phase !== undefined) parts.push(status.phase.mode)
-  if (status.plan !== undefined) {
+  if (status.phase != null) parts.push(status.phase.mode)
+  if (status.plan != null) {
     const hash = shortHash(status.plan.approved?.hash ?? status.plan.hash)
     if (status.plan.status === 'approved') parts.push(hash === undefined ? 'plan ✓' : `plan ✓ ${hash}`)
     else if (status.plan.status === 'stale') parts.push('plan stale')
     else parts.push('plan unapproved')
   }
-  if (status.tasks !== undefined) parts.push(`task ${status.tasks.done}/${status.tasks.total}`)
+  if (status.tasks != null) parts.push(`task ${status.tasks.done}/${status.tasks.total}`)
   const open = openGates(status)
   if (open.length > 0) parts.push(`${open.length} gate${open.length === 1 ? '' : 's'} open`)
   const percent = status.context?.percent
@@ -1283,8 +1289,8 @@ export const register: Register = on => {
           {value.unreadable !== undefined &&
             row('status-unreadable', `Unreadable sections, not drawn: ${value.unreadable.join(', ')}`, true)}
           {heading('h-gates', 'Gates')}
-          {status.gates === undefined && row('gates-none', 'not read', true)}
-          {status.gates !== undefined && gates.length === 0 && row('gates-none', 'No gate has blocked.', true)}
+          {status.gates == null && row('gates-none', 'not read', true)}
+          {status.gates != null && gates.length === 0 && row('gates-none', 'No gate has blocked.', true)}
           {gates
             .slice()
             .reverse()
@@ -1304,41 +1310,41 @@ export const register: Register = on => {
             ))}
 
           {heading('h-plan', 'Plan')}
-          {plan === undefined
+          {plan == null
             ? row('plan', 'none (not in build mode)', true)
             : row(
                 'plan',
-                `${plan.id}: ${plan.status}${plan.hash === undefined ? '' : ` ${shortHash(plan.hash)}`}${
-                  plan.approved === undefined ? '' : `, approved ${plan.approved.ts}`
+                `${plan.id}: ${plan.status}${plan.hash == null ? '' : ` ${shortHash(plan.hash)}`}${
+                  plan.approved == null ? '' : `, approved ${plan.approved.ts}`
                 }`,
               )}
 
           {heading('h-tasks', 'Tasks')}
-          {tasks === undefined
+          {tasks == null
             ? row('tasks', 'none', true)
             : row(
                 'tasks',
-                `${tasks.done}/${tasks.total} done${tasks.next === undefined ? '' : `, next ${tasks.next.id} ${tasks.next.title}`}`,
+                `${tasks.done}/${tasks.total} done${tasks.next == null ? '' : `, next ${tasks.next.id} ${tasks.next.title}`}`,
               )}
 
           {heading('h-verdict', 'Verdict for HEAD')}
-          {verdict === undefined
+          {verdict == null
             ? row('verdict', 'none', true)
             : row(
                 'verdict',
-                `${verdict.outcome}${verdict.pr === undefined ? '' : ` (PR #${verdict.pr})`}${
-                  verdict.verdict === undefined ? '' : `: ${verdict.verdict.verdict}, fresh ${verdict.verdict.fresh ?? 'unknown'}`
+                `${verdict.outcome}${verdict.pr == null ? '' : ` (PR #${verdict.pr})`}${
+                  verdict.verdict == null ? '' : `: ${verdict.verdict.verdict}, fresh ${verdict.verdict.fresh ?? 'unknown'}`
                 }`,
               )}
 
           {heading('h-clef', 'Clef')}
-          {clef === undefined
+          {clef == null
             ? row('clef', 'none', true)
             : clef.points.map(point =>
                 row(
                   `clef:${point.point}`,
                   `${point.point} ${point.mode}, ${point.answered} answered${
-                    point.configured_mode === undefined || point.configured_mode === point.mode
+                    point.configured_mode == null || point.configured_mode === point.mode
                       ? ''
                       : ` (configured ${point.configured_mode})`
                   }`,

@@ -3,6 +3,11 @@
   "ok": true,
   "command": "status",
   "data": {
+    "clef": null,
+    "context": null,
+    "dropped": 0,
+    "gates": null,
+    "health": "ok",
     "ledger_tail": [
       {
         "actor": "cli",
@@ -12,9 +17,20 @@
         "type": "task_done"
       }
     ],
-    "schema": 1
+    "phase": null,
+    "plan": null,
+    "plugin": "rk-bench",
+    "repo_class": "client",
+    "spec": "1.0.0",
+    "store": "<root>/ledger.sqlite3",
+    "store_schema": "1.0",
+    "store_source": "env",
+    "tasks": null,
+    "unreadable": {},
+    "verdict": null,
+    "version": "<varies>"
   },
   "findings": [],
   "proves": "the ledger and the anneal home's state files were read and folded into the status document as they stood",
-  "does_not_prove": "that the recorded work was done or done well, or that the state is still current when it is shown: an absent section had no data, and one that could not be read is a finding"
+  "does_not_prove": "that the recorded work was done or done well, or that the state is still current when it is shown: a null section had no data or was not asked for, and one that could not be read is a finding"
 }

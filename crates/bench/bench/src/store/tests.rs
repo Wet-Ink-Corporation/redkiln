@@ -336,6 +336,35 @@ fn a_later_version_and_undecodable_data_are_skipped_and_counted() {
 
 #[test]
 #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn unusable_events_are_counted_by_their_stored_type_and_foreign_ones_not_at_all() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = ledger_path(dir.path());
+    let store = Store::open(&path).expect("opens");
+    store.append(&task_done("T1", "s1")).expect("appends");
+    for data in [r#"{"pr":7}"#, r#"{"pr":8}"#] {
+        let text = envelope_text("bench.verdict_set", 2, "bench", data);
+        append_raw(&path, "bench.verdict_set", &text, &[]);
+    }
+    let undecodable = envelope_text("bench.task_done", 1, "bench", r#"{"task":7}"#);
+    append_raw(&path, "bench.task_done", &undecodable, &[]);
+    let foreign = envelope_text("review.verdict", 2, "review", r#"{"pr":7}"#);
+    append_raw(&path, "review.verdict", &foreign, &[]);
+
+    let by_type = store.unusable_by_type().expect("reads");
+
+    assert_eq!(
+        by_type.into_iter().collect::<Vec<_>>(),
+        [
+            ("bench.task_done".to_owned(), 1),
+            ("bench.verdict_set".to_owned(), 2)
+        ],
+        "EV-10, by type; another plugin's event is not Bench's to count (EV-08)"
+    );
+    assert_eq!(store.schema(), "1.0", "the store's stamp, ST-06");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
 fn append_stored_returns_core_s_envelope_in_ev01_s_key_order() {
     let dir = tempfile::tempdir().expect("temp dir");
     let store = Store::open(&ledger_path(dir.path())).expect("opens");

@@ -30,7 +30,7 @@ mod stored;
 mod tag;
 mod wire;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -503,19 +503,50 @@ impl Store {
         filter: &Filter,
         read: fn(&Stored) -> Result<T, Skip>,
     ) -> Result<Read<T>, StoreError> {
-        let filter = filter.to_core()?;
         let mut found = Read::default();
+        self.each_stored(filter, |stored| found.take(stored, read))?;
+        Ok(found)
+    }
+
+    /// Calls `visit` on every event matching `filter`, in position order, read a page at a
+    /// time.
+    fn each_stored(
+        &self,
+        filter: &Filter,
+        mut visit: impl FnMut(&Stored),
+    ) -> Result<(), StoreError> {
+        let filter = filter.to_core()?;
         let mut after = 0;
         loop {
             let page = self.inner.read(&filter, after, PAGE)?;
             for stored in &page {
                 after = stored.position;
-                found.take(stored, read);
+                visit(stored);
             }
             if page.len() < PAGE.get() {
-                return Ok(found);
+                return Ok(());
             }
         }
+    }
+
+    /// How many stored Bench events of each type this build cannot use (EV-10), by stored
+    /// type: every Bench event read once, a page at a time. `bench status`'s `unreadable`.
+    ///
+    /// # Errors
+    /// As [`Store::query`].
+    pub(crate) fn unusable_by_type(&self) -> Result<BTreeMap<String, u64>, StoreError> {
+        let mut by_type = BTreeMap::new();
+        self.each_stored(&Filter::default(), |stored| {
+            if let Err(Skip::Unusable(_)) = wire::from_stored(stored) {
+                count(&mut by_type, &stored.event_type);
+            }
+        })?;
+        Ok(by_type)
+    }
+
+    /// The store's schema as `<major>.<minor>` (ST-06).
+    pub(crate) fn schema(&self) -> String {
+        self.inner.schema().to_string()
     }
 
     /// The usable ones among the last `n` events matching `filter`, in position order: fewer
@@ -589,6 +620,17 @@ impl Store {
             if page.len() < PAGE.get() {
                 return Ok(());
             }
+        }
+    }
+}
+
+/// Counts one more event of `event_type` in `by_type`.
+fn count(by_type: &mut BTreeMap<String, u64>, event_type: &str) {
+    match by_type.get_mut(event_type) {
+        Some(n) => *n = n.saturating_add(1),
+        // Copied once per type: the map keeps it, the stored event goes.
+        None => {
+            by_type.insert(event_type.to_owned(), 1);
         }
     }
 }
