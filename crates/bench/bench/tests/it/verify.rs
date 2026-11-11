@@ -43,9 +43,9 @@ fn risk_unreachable(cwd: &Path, home: &Path) -> Result<Output, Box<dyn Error>> {
         .output()?)
 }
 
-/// What differs on each run in `verify risk`'s envelope: Clef's decision id holds the time.
-/// The id holds a time, and the reason holds the OS's own words for the refused connection
-/// (macOS says "address not available" where Linux says "connection refused").
+/// What differs between runs of `verify risk`: Clef's decision id holds the time, and its
+/// reason the OS's own words for the refused connection (macOS "address not available", Linux
+/// "connection refused").
 const VERIFY_VARIES: &[&str] = &["/data/clef/id", "/data/clef/reason"];
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
@@ -85,6 +85,14 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
             envelope["data"]["clef"]["clef"],
             json!("no_answer"),
             "{envelope}"
+        );
+        // The golden does not compare the reason (it varies by OS), so its frame is pinned here.
+        let reason = envelope["data"]["clef"]["reason"]
+            .as_str()
+            .ok_or("a reason")?;
+        assert!(
+            reason.starts_with("Clef unreachable: connection failed (") && reason.ends_with(')'),
+            "{reason}"
         );
         assert!(
             !output.stdout.windows(12).any(|w| w == b"s3cr3t-T0KEN"),
