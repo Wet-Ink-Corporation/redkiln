@@ -11,6 +11,7 @@
 //! - [`envelope`] builds events strictly and reads them leniently (EV-01 to EV-16), and
 //!   [`store::Tag`]'s registry holds Core's tag keys (EV-11, EV-12).
 //! - [`trust`] is the `trust` object every envelope carries (TR-01).
+//! - [`approval`] is `core.approval_recorded`'s payload, the one approval record (AP-01).
 //! - [`ids`] holds the SPEC's ids and digests (ID-01 to ID-07), and [`canonical`] the canonical
 //!   JSON digest (ID-08, RFC 8785).
 //! - [`legacy`] reads an old plugin ledger (weighin 0.1.x to 1.x) from a copy, never touching
@@ -19,6 +20,7 @@
 //! Every operation is synchronous: a [`store::Store`] drives happenstance's async API on its
 //! own current-thread runtime, and refuses to run inside another runtime's context.
 
+pub mod approval;
 pub mod canonical;
 pub mod envelope;
 mod git;

@@ -19,6 +19,8 @@ mod dry_run;
 mod eval_routing;
 mod eval_routing_real;
 mod eval_uplift;
+#[cfg(test)]
+mod fixtures;
 mod floor_guard;
 mod grill;
 mod hook_bootstrap;

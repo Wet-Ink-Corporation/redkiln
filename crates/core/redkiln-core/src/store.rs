@@ -659,6 +659,27 @@ impl Store {
         };
         read_page(&self.runtime, &self.inner, filter, page)
     }
+
+    /// The last `n` events matching `filter`, in store order: fewer when fewer match. Read
+    /// backwards from the end, so a tail costs its `n`, not the store.
+    ///
+    /// # Errors
+    /// [`StoreError::InsideRuntime`]; [`StoreError::Query`] for a filter happenstance cannot
+    /// query; [`StoreError::Read`] when happenstance cannot read the store.
+    pub fn read_last(&self, filter: &Filter, n: NonZeroUsize) -> Result<Vec<Stored>, StoreError> {
+        let query = filter.to_query()?;
+        let options = ReadOptions::new().backwards().limit(n.get());
+        let events = self
+            .runtime
+            .block_on(collect(self.inner.read(&query, options)))?
+            .map_err(StoreError::Read)?;
+        // Read newest first; handed back oldest first, as every other read.
+        Ok(events
+            .into_iter()
+            .rev()
+            .map(Stored::from_sequenced)
+            .collect())
+    }
 }
 
 /// One page of a read: the events after a position, at most a limit of them.

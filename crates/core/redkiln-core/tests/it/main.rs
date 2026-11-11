@@ -3,6 +3,8 @@
 //! fixtures and schemas (`spec/fixtures/`, `spec/schemas/`).
 
 #[cfg(test)]
+mod approval;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
 mod envelope;

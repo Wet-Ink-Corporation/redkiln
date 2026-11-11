@@ -123,40 +123,6 @@ impl Payload for ItemRaised {
     const CLASS: Class = Class::Durable;
 }
 
-/// AP-01's `subject`, keys in AP-01's order.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SubjectRecord {
-    pub(crate) kind: String,
-    pub(crate) method: String,
-    pub(crate) hash: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) base: Option<String>,
-    pub(crate) locator: String,
-}
-
-/// `core.approval_recorded`'s `data` (AP-01). Core has no payload type for it until its first
-/// writer (Bench, Move 2), so the goldens are pinned through this test-local one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ApprovalRecorded {
-    pub(crate) subject: SubjectRecord,
-    pub(crate) verdict: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) scope: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) gates: Option<Vec<String>>,
-    pub(crate) decider: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) expires: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) request: Option<String>,
-}
-
-impl Payload for ApprovalRecorded {
-    const TYPE: &'static str = "core.approval_recorded";
-    const VERSION: u32 = 1;
-    const CLASS: Class = Class::Durable;
-}
-
 /// The files under `dir`, relative to it, `/`-separated.
 fn files_under(dir: &Path, prefix: &str, out: &mut BTreeSet<String>) {
     for entry in std::fs::read_dir(dir).expect("read the directory") {

@@ -4,6 +4,7 @@
 
 use std::fmt::Debug;
 
+use redkiln_core::approval::ApprovalRecorded;
 use redkiln_core::envelope::{Envelope, Field, Payload, Skip, Unusable, decode};
 use redkiln_core::journal::ImportCompleted;
 use redkiln_core::store::{CoreKey, Tag};
@@ -11,9 +12,7 @@ use redkiln_core::subject::Subject;
 use redkiln_core::trust::TrustError;
 
 use super::schema::envelope_conforms;
-use super::{
-    ApprovalRecorded, ItemDecided, ItemRaised, all, fresh_store, golden, one_line, stored_of,
-};
+use super::{ItemDecided, ItemRaised, all, fresh_store, golden, one_line, stored_of};
 
 /// The golden `rel`, decoded as `P`.
 fn decoded<P: Payload>(rel: &str) -> Envelope<P> {

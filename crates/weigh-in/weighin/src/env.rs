@@ -210,45 +210,9 @@ fn owner_from_git(dir: &Path) -> String {
     // `--get-regexp` exits 1 when neither key is set, which is the fallback, not a failure.
     git::run(dir, &["config", "--get-regexp", r"^user\.(name|email)$"])
         .ok()
-        .and_then(|listed| owner_in(&listed))
-        .unwrap_or_else(|| FALLBACK_OWNER.to_owned())
-}
-
-/// The owner `git config --get-regexp` output names: the last `user.name` as a slug, else the
-/// local part of the last `user.email`; `None` when neither gives a slug.
-fn owner_in(listed: &str) -> Option<String> {
-    let last = |key: &str| {
-        listed
-            .lines()
-            .filter_map(|l| l.split_once(' '))
-            .filter(|(k, _)| *k == key)
-            .map(|(_, v)| v)
-            .next_back()
-    };
-    last("user.name").and_then(slug).or_else(|| {
-        last("user.email")
-            .and_then(|e| e.split('@').next())
-            .and_then(slug)
-    })
-}
-
-/// `name` as lower-case ASCII words joined with `-`: any other ASCII character separates words,
-/// and characters outside ASCII are dropped. `None` when no word is left.
-fn slug(name: &str) -> Option<String> {
-    let mut out = String::new();
-    let mut gap = false;
-    for c in name.chars() {
-        if c.is_ascii_alphanumeric() {
-            if gap && !out.is_empty() {
-                out.push('-');
-            }
-            gap = false;
-            out.push(c.to_ascii_lowercase());
-        } else if c.is_ascii() {
-            gap = true;
-        }
-    }
-    (!out.is_empty()).then_some(out)
+        .and_then(|listed| Owner::from_git_config(&listed))
+        // The config stores the owner as text.
+        .map_or_else(|| FALLBACK_OWNER.to_owned(), |owner| owner.as_str().to_owned())
 }
 
 impl Default for Config {
@@ -854,55 +818,6 @@ pub(crate) fn age(ts: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_name_becomes_lower_case_ascii_words_joined_by_dashes() {
-        let slugs = [
-            "Ana Lima",
-            "  O'Brien,  Seán ",
-            "J.R.R. Tolkien",
-            "日本",
-            "--",
-        ]
-        .map(slug);
-
-        assert_eq!(
-            slugs,
-            [
-                Some("ana-lima".to_owned()),
-                Some("o-brien-sen".to_owned()),
-                Some("j-r-r-tolkien".to_owned()),
-                None,
-                None,
-            ]
-        );
-    }
-
-    #[test]
-    fn the_owner_is_the_git_user_name_else_the_email_local_part() {
-        let both = "user.email ana@example.com\nuser.name Ana Lima\n";
-        let email = "user.email j.doe@example.com\n";
-        let neither = "user.name 日本\nuser.email @example.com\n";
-
-        let owners = [both, email, neither, ""].map(owner_in);
-
-        assert_eq!(
-            owners,
-            [
-                Some("ana-lima".to_owned()),
-                Some("j-doe".to_owned()),
-                None,
-                None
-            ]
-        );
-    }
-
-    #[test]
-    fn the_last_git_user_name_wins_as_git_reads_it() {
-        let listed = "user.name Global Name\nuser.name Repo Name\n";
-
-        assert_eq!(owner_in(listed), Some("repo-name".to_owned()));
-    }
 
     /// A git repository at `<tmp>/repo` holding `docs/plan.md`. Hooks pass paths as the surface
     /// spells them (an 8.3 short name on Windows, a symlinked temp dir on macOS, `..`

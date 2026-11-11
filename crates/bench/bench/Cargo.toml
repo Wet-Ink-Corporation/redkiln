@@ -28,6 +28,8 @@ thiserror = { workspace = true }
 ureq = { workspace = true }
 
 [dev-dependencies]
+# Reads the old-ledger fixtures from copies (tests/it/fixtures.rs), as step 3's import will.
+redkiln-core = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]
