@@ -176,8 +176,8 @@ fn journal_prints_every_event_as_one_json_line() -> TestResult {
     let types: Vec<&Value> = lines.iter().map(|line| &line["type"]).collect();
     assert_eq!(
         types,
-        ["task_done", "grill_confirmed"],
-        "one envelope per line, in order"
+        ["bench.task_done", "bench.grill_confirmed"],
+        "one JR-02 line per event, in order"
     );
     Ok(())
 }
