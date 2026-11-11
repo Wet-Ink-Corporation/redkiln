@@ -44,7 +44,9 @@ fn risk_unreachable(cwd: &Path, home: &Path) -> Result<Output, Box<dyn Error>> {
 }
 
 /// What differs on each run in `verify risk`'s envelope: Clef's decision id holds the time.
-const VERIFY_VARIES: &[&str] = &["/data/clef/id"];
+/// The id holds a time, and the reason holds the OS's own words for the refused connection
+/// (macOS says "address not available" where Linux says "connection refused").
+const VERIFY_VARIES: &[&str] = &["/data/clef/id", "/data/clef/reason"];
 
 fn envelope(output: &Output) -> Result<Value, Box<dyn Error>> {
     assert!(output.stderr.is_empty(), "nothing on stderr: {output:?}");

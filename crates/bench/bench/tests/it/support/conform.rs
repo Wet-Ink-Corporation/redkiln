@@ -86,9 +86,12 @@ pub(crate) fn golden(envelope: &Value, roots: &[&Path], varies: &[&str]) -> Test
         .ok_or("an envelope with a schema id")?;
     let mut prefixes: Vec<String> = Vec::new();
     for root in roots {
-        prefixes.push(root.to_string_lossy().into_owned());
+        let mut spellings = vec![root.to_string_lossy().into_owned()];
         if let Ok(canonical) = std::fs::canonicalize(root) {
-            prefixes.push(canonical.to_string_lossy().into_owned());
+            spellings.push(canonical.to_string_lossy().into_owned());
+        }
+        for spelling in spellings {
+            prefixes.extend(root_spellings(&spelling));
         }
     }
     // Longest first, so a canonical path is not cut by a shorter prefix of it.
@@ -118,6 +121,18 @@ pub(crate) fn golden(envelope: &Value, roots: &[&Path], varies: &[&str]) -> Test
         path.display()
     );
     Ok(())
+}
+
+/// The ways the binary may write a root it was given as `path`: as given, with `/` for every
+/// `\` (Bench writes Windows paths with forward slashes), and on Windows without the `\\?\`
+/// verbatim prefix `canonicalize` adds, again in both slash forms.
+fn root_spellings(path: &str) -> Vec<String> {
+    let mut spellings = vec![path.to_owned(), path.replace('\\', "/")];
+    if let Some(plain) = path.strip_prefix(r"\\?\") {
+        spellings.push(plain.to_owned());
+        spellings.push(plain.replace('\\', "/"));
+    }
+    spellings
 }
 
 /// The envelope's keys in CLI-02's order, so a golden reads as the binary writes it.
@@ -276,6 +291,19 @@ fn normalising_replaces_roots_digests_commits_and_times() {
         ),
         "<root>/a at <sha> sha256:<hash> <time>",
         "each kind of varying text"
+    );
+}
+
+#[test]
+fn a_windows_root_is_found_in_its_forward_slash_and_unverbatim_spellings() {
+    let prefixes = root_spellings(r"\\?\C:\Users\me\Temp\.tmpA");
+    assert_eq!(
+        normal_text(
+            "C:/Users/me/Temp/.tmpA/.git/redkiln/events.sqlite3",
+            &prefixes
+        ),
+        "<root>/.git/redkiln/events.sqlite3",
+        "the binary writes the canonical root with forward slashes and no verbatim prefix"
     );
 }
 
