@@ -318,7 +318,7 @@ fn a_check_fast_that_cannot_start_is_a_note() -> TestResult {
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn a_floor_guard_that_cannot_run_is_a_note_not_a_block() -> TestResult {
     let repo = Repo::new()?;
-    // No `main` and no `origin/main`: floor-guard has no base and exits 2.
+    // No `main` and no `origin/main`: floor-guard has no base and exits 3.
     git(repo.path(), &["branch", "-m", "trunk"]);
     repo.enter_mode()?;
     repo.write(RATCHETS, &ratchets(12))?;

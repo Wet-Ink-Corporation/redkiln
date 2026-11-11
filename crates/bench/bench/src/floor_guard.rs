@@ -48,7 +48,7 @@ pub struct FloorGuardArgs {
     base: Option<String>,
 }
 
-/// Why `bench floor-guard` could not check the diff. Every variant exits 2: a check that did
+/// Why `bench floor-guard` could not check the diff. Every variant exits 3: a check that did
 /// not run never reads as 0.
 #[derive(Debug, thiserror::Error)]
 pub enum FloorError {

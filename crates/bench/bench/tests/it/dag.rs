@@ -82,10 +82,10 @@ fn check_exits_1_naming_the_cycle_in_order() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn check_exits_2_naming_each_dangling_reference() -> TestResult {
+fn check_exits_4_naming_each_dangling_reference() -> TestResult {
     let output = dag(&["check", "--dir", "dangling"])?;
 
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(output.status.code(), Some(4), "{output:?}");
     let envelope = envelope(&output)?;
     assert_eq!(
         finding_messages(&envelope),

@@ -65,7 +65,7 @@ fn check_names_the_cycle_and_each_dangling_reference_as_findings() {
 
     let (code, envelope) = emitted(|out| check(&Markdown::new(dir.path()), out));
 
-    assert_eq!(code, 2, "dangling takes precedence");
+    assert_eq!(code, 4, "dangling takes precedence");
     assert_eq!(envelope["ok"], json!(false), "not ok");
     assert_eq!(
         envelope["data"]["cycle"],
@@ -262,7 +262,7 @@ fn an_outside_blocker_github_does_not_know_is_dangling() {
 
     let (code, envelope) = emitted(|out| check(&tracker, out));
 
-    assert_eq!(code, 2, "dangling");
+    assert_eq!(code, 4, "dangling");
     assert_eq!(
         envelope["findings"][0]["message"],
         json!("50 is blocked by 404, which is not a ticket"),

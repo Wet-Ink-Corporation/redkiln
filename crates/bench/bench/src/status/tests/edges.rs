@@ -55,12 +55,12 @@ fn the_text_form_flattens_line_breaks_and_cuts_a_line_at_200_characters() -> Set
 }
 
 #[test]
-fn the_text_form_without_a_ledger_exits_2_with_the_problem_line() -> Setup<()> {
+fn the_text_form_without_a_ledger_exits_0_with_the_problem_line() -> Setup<()> {
     let fixture = Fixture::new()?;
 
     let (code, text) = fixture.status(&[])?;
 
-    assert_eq!(code, 2, "no ledger: {text}");
+    assert_eq!(code, 0, "a report exits 0 once written (CLI-06): {text}");
     assert_eq!(
         text,
         "problems: no ledger exists yet: nothing has been recorded here. fix: run an anneal \

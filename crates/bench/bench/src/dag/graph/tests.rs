@@ -92,7 +92,7 @@ fn each_dangling_reference_is_named_with_its_ticket() {
 
     let check = graph.check();
 
-    assert_eq!(check.code(), exit_codes::DAG_DANGLING, "exit 2");
+    assert_eq!(check.code(), exit_codes::DAG_DANGLING, "exit 4");
     let named: Vec<(&str, &str)> = check
         .dangling
         .iter()

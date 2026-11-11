@@ -114,5 +114,5 @@ fn a_missing_program_is_a_spawn_error_naming_it() {
         matches!(&error, TaskError::Spawn { program, .. } if program == "anneal-no-such-program-22"),
         "{error:?}"
     );
-    assert_eq!(error.code().value(), 2, "not started is exit 2");
+    assert_eq!(error.code().value(), 3, "not started is exit 3");
 }

@@ -2,7 +2,7 @@
 //!
 //! The store is [`crate::store`] over Core; this module parses the command line, resolves the
 //! store ([`paths::ledger_store`]) and writes the result in the 0.x flat form, short type names
-//! and `registry` included, until step 4. A bad event exits 2 with an envelope and nothing is
+//! and `registry` included, until step 4. A bad event exits 1 with an envelope and nothing is
 //! written; reads create no store, and skip and count a stored event this build cannot use
 //! (EV-10). `journal` prints JR-04 journal lines (D7). A `by` on
 //! `plan_approved` or `verdict_set` is a usage error (2, nothing on stdout, nothing written):
@@ -287,7 +287,7 @@ fn journal<O: Write>(location: &StoreLocation, out: &mut O) -> Result<Code, CliE
     }
 }
 
-/// The envelope for an event that does not match the schema: exit 2, one finding.
+/// The envelope for an event that does not match the schema: exit 1, one finding.
 fn schema_error<O: Write>(
     subcommand: &str,
     error: &dyn std::error::Error,

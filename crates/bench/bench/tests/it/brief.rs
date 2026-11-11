@@ -131,7 +131,7 @@ fn a_base_that_is_not_an_ancestor_of_head_is_a_bad_range_and_writes_nothing() ->
 
     let envelope = repo.envelope(
         &["brief", "build", "--ticket", "36", "--base", "sibling"],
-        2,
+        1,
     )?;
 
     assert_eq!(
@@ -150,7 +150,7 @@ fn a_base_that_names_no_commit_is_a_bad_range() -> TestResult {
 
     let envelope = repo.envelope(
         &["brief", "build", "--ticket", "36", "--base", "no-such-ref"],
-        2,
+        1,
     )?;
 
     assert_eq!(

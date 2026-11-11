@@ -73,11 +73,11 @@ fn metrics_exactly_at_every_hold_threshold_exit_1_hold() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn metrics_exactly_at_every_rollback_threshold_exit_2_rollback() -> TestResult {
+fn metrics_exactly_at_every_rollback_threshold_exit_3_rollback() -> TestResult {
     let output = decide("rollback.json")?;
     let envelope = envelope(&output)?;
 
-    assert_eq!(output.status.code(), Some(2), "{envelope}");
+    assert_eq!(output.status.code(), Some(3), "{envelope}");
     assert_eq!(
         (&envelope["ok"], &envelope["data"]["decision"]),
         (&json!(false), &json!("rollback")),

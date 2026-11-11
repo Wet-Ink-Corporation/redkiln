@@ -111,7 +111,7 @@ pub enum ReproError {
 }
 
 impl ReproError {
-    /// The documented exit code: a usage error (2) outside a worktree, 2 when the command could
+    /// The documented exit code: a usage error (2) outside a worktree, 5 when the command could
     /// not be started (nothing ran or was recorded), else 70.
     #[must_use]
     pub const fn code(&self) -> Code {

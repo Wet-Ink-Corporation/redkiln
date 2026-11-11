@@ -8,8 +8,10 @@ table. A few codes mean the same for every command. Only success exits 0: no fai
 0 ("2 never reads as 0"), and the JSON envelope's `ok` is true exactly when the code is 0.
 
 Usage errors keep clap's 2 because Claude Code reads a hook's exit 2 as "block", so a
-mis-invoked guard fails closed. A usage error writes nothing on stdout, while a command's own
-non-zero code always comes with a JSON envelope on stdout, which tells the two apart. Every
+mis-invoked guard fails closed. A usage error writes nothing on stdout. No command gives 2 a
+meaning of its own (SPEC CLI-05): the only other 2 is a guard failing closed, below. A report
+(`bench status`) exits 0 whenever it wrote its document; its findings are data for the caller
+to judge (SPEC CLI-06). Every
 error writes exactly one `bench: error: <reason>` line on stderr, the reason holding its cause
 chain joined by `: `, and every warning one `bench: warning: <message>` line (SPEC CLI-08); for a
 missing required argument it names every one missing
@@ -43,7 +45,7 @@ written it exits 2 with one `bench: error:` line on stderr, so Claude Code block
 | Code | Meaning |
 |---|---|
 | 0 | ok |
-| 2 | schema error |
+| 1 | schema error |
 
 A green result proves the ledger events read or written match the event schema. It does **not** prove that the events are true, or that the work they record was done well.
 
@@ -63,7 +65,7 @@ A green result proves the design tree is valid; for confirm, no question is open
 |---|---|
 | 0 | tests green |
 | 1 | test red |
-| 2 | the test command could not be started |
+| 3 | the test command could not be started |
 
 A green result proves the task's tests ran green. It does **not** prove that the tests cover the task's acceptance criteria.
 
@@ -99,9 +101,9 @@ A green result proves the mode was recorded for this worktree, with whether its 
 |---|---|
 | 0 | record: red, and `repro_red` recorded; leftovers: no `[DEBUG-<id>]` tag left |
 | 1 | leftovers: a `[DEBUG-<id>]` tag is left |
-| 2 | record: the command could not be started; nothing recorded |
 | 3 | record: not red, the command exited 0; nothing recorded |
 | 4 | record: timed out, killed; a hang is not a reproduction, nothing recorded |
+| 5 | record: the command could not be started; nothing recorded |
 
 A green result proves the reproduction exited non-zero and repro_red was recorded for this worktree (record), or no file git knows of holds a [DEBUG-<id>] tag (leftovers). It does **not** prove that the command fails because of the reported bug rather than for another reason (record), or that files over 1 MiB, past the 64 MiB scan budget, with a non-UTF-8 name outside unix, or ignored by git are clean (leftovers).
 
@@ -120,8 +122,8 @@ A green result proves the checked files have no error under anneal's lint rules.
 |---|---|
 | 0 | ok |
 | 1 | cycle |
-| 2 | dangling dependency |
 | 3 | check --plan: tickets disagree with the plan |
+| 4 | dangling dependency |
 
 A green result proves the task graph has no cycle and no dangling dependency; with check --plan, every plan task has a ticket of its id with the same blockers among the plan's tasks, and every ticket is a task of the plan or an outside blocker of one (a ticket that blocks a task's ticket, directly or through other such tickets). It does **not** prove that the dependencies are the right ones.
 
@@ -131,7 +133,7 @@ A green result proves the task graph has no cycle and no dangling dependency; wi
 |---|---|
 | 0 | no floor lowered |
 | 1 | a floor was lowered |
-| 2 | tool error |
+| 3 | tool error |
 
 A green result proves no quality floor (coverage, lint level, test count) was lowered. It does **not** prove that the floors are high enough.
 
@@ -151,12 +153,12 @@ A green result proves the review verdict is well-formed and backed by findings. 
 | Code | Meaning |
 |---|---|
 | 0 | green |
-| 2 | merge conflict |
 | 3 | unresolved review threads |
 | 4 | failing checks |
 | 5 | timeout |
 | 6 | gate failed |
 | 7 | query failed |
+| 8 | merge conflict |
 
 A green result proves the pull request, CI run or deploy reached green within the timeout. It does **not** prove that it stays green, or that its checks test the right things.
 
@@ -175,7 +177,7 @@ A green result proves the change meets the rule for skipping a full review. It d
 |---|---|
 | 0 | go |
 | 1 | hold |
-| 2 | rollback |
+| 3 | rollback |
 
 A green result proves the rollout metrics are within their bounds. It does **not** prove that the metrics capture what users experience.
 
@@ -203,7 +205,7 @@ A green result proves the migration step was recorded in order: a wave started o
 | Code | Meaning |
 |---|---|
 | 0 | ok |
-| 2 | bad range |
+| 1 | bad range |
 
 A green result proves the brief and its review package were written from a range rooted at the base. It does **not** prove that the brief is complete or its fields right: run bench lint brief, and read it.
 
@@ -231,7 +233,7 @@ A green result proves fan-out: the frontier has at least 3 independent tickets; 
 | Code | Meaning |
 |---|---|
 | 0 | run the doubt review |
-| 2 | the change could not be read |
+| 1 | the change could not be read |
 | 3 | skip the doubt review (D5 enforcing, no trigger) |
 
 A green result proves the whole change was read and the doubt review is due: a trigger fired, or Clef D5 did not say skip in effect enforce. It does **not** prove that the change has defects, or that a change sent past the review has none.
@@ -261,9 +263,9 @@ A green result proves the calibration run completed and was recorded. It does **
 |---|---|
 | 0 | ok |
 | 1 | below bound |
-| 2 | invalid fixtures, suites or skills |
 | 3 | incomplete: cost cap, time limit or a failed batch stopped the run short |
 | 4 | the real router could not run |
+| 5 | invalid fixtures, suites or skills |
 
 A green result proves skill routing accuracy, or each skill's behaviour uplift over its baseline, is at or above its bound on the eval set. It does **not** prove routing accuracy or behaviour on prompts outside the eval set.
 
@@ -272,7 +274,6 @@ A green result proves skill routing accuracy, or each skill's behaviour uplift o
 | Code | Meaning |
 |---|---|
 | 0 | ok |
-| 2 | no ledger exists yet; none was created |
 
 A green result proves the ledger and the anneal home's state files were read and folded into the status document as they stood. It does **not** prove that the recorded work was done or done well, or that the state is still current when it is shown: an absent section had no data, and one that could not be read is a finding.
 

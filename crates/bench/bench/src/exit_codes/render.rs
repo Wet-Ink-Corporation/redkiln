@@ -56,8 +56,10 @@ table. A few codes mean the same for every command. Only success exits 0: no fai
 0 (\"2 never reads as 0\"), and the JSON envelope's `ok` is true exactly when the code is 0.
 
 Usage errors keep clap's 2 because Claude Code reads a hook's exit 2 as \"block\", so a
-mis-invoked guard fails closed. A usage error writes nothing on stdout, while a command's own
-non-zero code always comes with a JSON envelope on stdout, which tells the two apart. Every
+mis-invoked guard fails closed. A usage error writes nothing on stdout. No command gives 2 a
+meaning of its own (SPEC CLI-05): the only other 2 is a guard failing closed, below. A report
+(`bench status`) exits 0 whenever it wrote its document; its findings are data for the caller
+to judge (SPEC CLI-06). Every
 error writes exactly one `bench: error: <reason>` line on stderr, the reason holding its cause
 chain joined by `: `, and every warning one `bench: warning: <message>` line (SPEC CLI-08); for a
 missing required argument it names every one missing
@@ -193,7 +195,7 @@ mod tests {
         let help = command_help(CommandName::Dag);
         assert!(
             help.starts_with(
-                "Exit codes (dag check|frontier):\n  0   ok\n  1   cycle\n  2   dangling dependency\n"
+                "Exit codes (dag check|frontier):\n  0   ok\n  1   cycle\n  3   check --plan: tickets disagree with the plan\n  4   dangling dependency\n"
             ),
             "got {help}"
         );

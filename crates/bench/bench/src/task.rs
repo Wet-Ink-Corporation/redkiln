@@ -7,7 +7,7 @@
 //! Only after the command has finished is the ledger opened: a run that exits 0 appends
 //! `test_run` (green) and then `task_done`; any other run (a non-zero exit, a kill by a signal,
 //! the timeout) appends only a red `test_run` and exits 1. A command that cannot be started
-//! appends nothing and exits 2 with one `ERROR` line.
+//! appends nothing and exits 3 with one `bench: error:` line.
 //!
 //! Limit: on a timeout only the command's own process is killed. A process it started (a test
 //! binary under `cargo test`) can outlive it; std has no portable process-group kill.

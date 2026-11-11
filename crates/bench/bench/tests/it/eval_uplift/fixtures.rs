@@ -129,7 +129,7 @@ fn a_fixture_that_cannot_seed_a_run_is_a_suite_problem() -> TestResult {
     assert_eq!(
         (output.status.code(), &envelope["findings"]),
         (
-            Some(2),
+            Some(5),
             &json!([{
                 "key": "eval/uplift/suite:plan/regression/seeded.json",
                 "message": "plan/regression/seeded.json: no fixture directory fixtures/crate"

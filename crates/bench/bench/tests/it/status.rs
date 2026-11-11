@@ -13,7 +13,7 @@ const STORE: &str = "ledger.sqlite3";
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn without_a_ledger_status_exits_2_and_creates_none() -> TestResult {
+fn without_a_ledger_status_exits_0_and_creates_none() -> TestResult {
     let work = tempfile::tempdir()?;
 
     let output = anneal_in(work.path())
@@ -21,9 +21,13 @@ fn without_a_ledger_status_exits_2_and_creates_none() -> TestResult {
         .env("REDKILN_STORE", STORE)
         .output()?;
 
-    assert_eq!(output.status.code(), Some(2), "no ledger");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "no ledger: a report still exits 0"
+    );
     let envelope: Value = envelope(&output)?;
-    assert_eq!(envelope["ok"], json!(false), "ok agrees with the exit code");
+    assert_eq!(envelope["ok"], json!(true), "ok agrees with the exit code");
     assert_eq!(
         envelope["data"]["schema"],
         json!(1),

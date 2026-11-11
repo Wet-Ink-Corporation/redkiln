@@ -1,5 +1,5 @@
 //! `bench verify risk` through the built binary: D5's deterministic triggers fire with Clef
-//! unreachable, and a change that cannot be read is exit 2 with one `ERROR` line.
+//! unreachable, and a change that cannot be read is exit 1 with one `bench: error:` line.
 
 use std::error::Error;
 use std::path::Path;
@@ -94,13 +94,13 @@ fn the_deterministic_triggers_fire_with_clef_unreachable() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn outside_a_repository_it_exits_2_with_one_error_line_and_nothing_on_stdout() -> TestResult {
+fn outside_a_repository_it_exits_1_with_one_error_line_and_nothing_on_stdout() -> TestResult {
     let dir = tempfile::tempdir()?;
     let home = tempfile::tempdir()?;
 
     let output = risk_unreachable(dir.path(), home.path())?;
 
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
     assert!(output.stdout.is_empty(), "{output:?}");
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "{stderr}");

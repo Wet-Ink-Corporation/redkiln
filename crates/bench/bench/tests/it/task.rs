@@ -124,12 +124,12 @@ fn a_failing_command_records_a_red_test_run_and_no_task_done() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn a_command_that_cannot_start_exits_2_and_opens_no_ledger() -> TestResult {
+fn a_command_that_cannot_start_exits_3_and_opens_no_ledger() -> TestResult {
     let dir = tempfile::tempdir()?;
 
     let output = task_done(dir.path(), &["T1", "--", "anneal-no-such-program-22"])?;
 
-    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert!(output.stdout.is_empty(), "no envelope for an error");
     let stderr = String::from_utf8(output.stderr)?;
     assert_eq!(stderr.lines().count(), 1, "one line: {stderr}");

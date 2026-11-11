@@ -77,7 +77,7 @@ fn help_lists_every_command_with_its_exit_codes() -> TestResult {
 
     assert!(output.status.success(), "--help exits 0");
     for line in [
-        "  floor-guard         0 no floor lowered · 1 a floor was lowered · 2 tool error",
+        "  floor-guard         0 no floor lowered · 1 a floor was lowered · 3 tool error",
         "  64  not implemented yet",
     ] {
         assert!(

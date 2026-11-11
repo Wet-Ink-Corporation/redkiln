@@ -110,7 +110,7 @@ fn a_failing_set_exits_1_and_the_table_shows_the_confusion() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn an_invalid_fixture_exits_2_with_an_envelope() -> TestResult {
+fn an_invalid_fixture_exits_5_with_an_envelope() -> TestResult {
     let work = tempfile::tempdir()?;
     for name in ["spec.yaml", "diagnose.yaml"] {
         std::fs::copy(fixtures().join("pass").join(name), work.path().join(name))?;
@@ -122,7 +122,7 @@ fn an_invalid_fixture_exits_2_with_an_envelope() -> TestResult {
 
     let (code, envelope, stderr) = eval_routing(&fixtures().join("skills"), work.path())?;
 
-    assert_eq!(code, Some(2), "invalid fixtures: {envelope}");
+    assert_eq!(code, Some(5), "invalid fixtures: {envelope}");
     assert_eq!(stderr, "", "a command result, not an error");
     let keys: Vec<&str> = envelope["findings"]
         .as_array()

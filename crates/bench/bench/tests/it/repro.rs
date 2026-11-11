@@ -201,12 +201,12 @@ fn a_command_that_exits_0_records_nothing_exits_3_and_opens_no_ledger() -> TestR
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn a_command_that_cannot_start_exits_2_and_records_nothing() -> TestResult {
+fn a_command_that_cannot_start_exits_5_and_records_nothing() -> TestResult {
     let dir = repo()?;
 
     let output = record(dir.path(), &[], &["anneal-no-such-program-25"])?;
 
-    let line = one_error_line(&output, 2)?;
+    let line = one_error_line(&output, 5)?;
     assert!(
         line.starts_with("bench: error: repro: could not start anneal-no-such-program-25"),
         "{line}"
