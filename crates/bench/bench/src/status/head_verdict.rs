@@ -9,8 +9,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use bench_ledger::event::{Verdict, VerdictSet, VerdictSource};
-use bench_ledger::{EventKind, Filter, LedgerEvent, Store};
+use crate::store::{EventKind, Filter, LedgerEvent, Store};
+use bench_contract::event::{Verdict, VerdictSet, VerdictSource};
 use serde::Serialize;
 
 use super::Unreadable;

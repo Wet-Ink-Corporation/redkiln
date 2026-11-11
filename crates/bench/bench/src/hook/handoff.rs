@@ -23,7 +23,7 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bench_ledger::Timestamp;
+use crate::store::Timestamp;
 use serde::Deserialize;
 
 use crate::baseline;

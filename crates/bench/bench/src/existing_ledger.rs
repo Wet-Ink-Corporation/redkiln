@@ -8,7 +8,7 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use bench_ledger::{Store, StoreError};
+use crate::store::{Store, StoreError};
 
 use crate::paths::{self, PathError};
 

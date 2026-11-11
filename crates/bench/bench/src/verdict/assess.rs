@@ -13,7 +13,7 @@
 //!   `by.actor` is `human` (one with no actor, or a model's, does not count; `via` is for audit
 //!   only).
 
-use bench_ledger::event::{Actor, By, Verdict, VerdictSet, VerdictSource};
+use bench_contract::event::{Actor, By, Verdict, VerdictSet, VerdictSource};
 use serde::Serialize;
 
 /// One `verdict_set` of the pull request and where the ledger holds it.

@@ -225,7 +225,7 @@ fn fresh_state(
 mod tests {
     use super::run;
     use crate::hook::HookEnv;
-    use bench_ledger::{EventEnvelope, Store};
+    use crate::store::{EventEnvelope, Store};
     use std::ffi::OsString;
     use std::io;
     use std::path::{Path, PathBuf};

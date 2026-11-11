@@ -6,7 +6,7 @@
 
 use std::io;
 
-use bench_ledger::{StoreError, TimestampError};
+use crate::store::{StoreError, TimestampError};
 
 use crate::baseline::BaselineError;
 use crate::brief::BriefError;

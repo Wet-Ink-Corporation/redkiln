@@ -16,8 +16,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bench_ledger::event::SubagentStatus;
-use bench_ledger::{EventEnvelope, LedgerEvent, LedgerTag, TagKey, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, LedgerTag, TagKey, Timestamp};
+use bench_contract::event::SubagentStatus;
 
 use crate::error_chain::reason;
 use crate::existing_ledger;

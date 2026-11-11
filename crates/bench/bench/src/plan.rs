@@ -21,11 +21,11 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
-use bench_ledger::event::{By, PlanApproved};
-use bench_ledger::{
+use crate::store::{
     Appended, Condition, EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store,
     TagKey, Timestamp,
 };
+use bench_contract::event::{By, PlanApproved};
 use clap::{Args, Subcommand};
 use serde::Serialize;
 

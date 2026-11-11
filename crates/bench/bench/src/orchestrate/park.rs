@@ -10,8 +10,8 @@
 use std::ffi::OsString;
 use std::io::Write;
 
-use bench_ledger::event::{BridgeUnavailable, OrchestrateRuled, WeighinParked};
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use bench_contract::event::{BridgeUnavailable, OrchestrateRuled, WeighinParked};
 use clap::Args;
 use serde::Serialize;
 

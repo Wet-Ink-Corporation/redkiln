@@ -22,8 +22,8 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use bench_ledger::event::ReproRed;
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use bench_contract::event::ReproRed;
 use clap::{Args, Subcommand};
 use serde::Serialize;
 

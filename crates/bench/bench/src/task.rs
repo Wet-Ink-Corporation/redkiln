@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use bench_ledger::event::{TaskDone, TestOutcome, TestRun};
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, TagError, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, TagError, Timestamp};
+use bench_contract::event::{TaskDone, TestOutcome, TestRun};
 use clap::{Args, Subcommand};
 use serde::Serialize;
 

@@ -1,4 +1,4 @@
-use bench_ledger::Store;
+use crate::store::Store;
 
 use super::{
     Attempt, Next, Outcome, START_ATTEMPTS, count, count_within, envelope_for, start_once,

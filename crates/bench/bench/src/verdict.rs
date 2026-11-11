@@ -31,7 +31,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
-use bench_ledger::event::{Verdict, VerdictSource};
+use bench_contract::event::{Verdict, VerdictSource};
 use clap::{Args, Subcommand, ValueEnum};
 use serde::Serialize;
 

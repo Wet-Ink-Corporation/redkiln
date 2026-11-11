@@ -3,8 +3,8 @@
 
 use std::fs;
 
-use bench_ledger::LedgerEvent;
-use bench_ledger::event::{Verdict, VerdictSet, VerdictSource};
+use crate::store::LedgerEvent;
+use bench_contract::event::{Verdict, VerdictSet, VerdictSource};
 use serde_json::{Value, json};
 
 use super::{Fixture, PLAN, append, build_mode};

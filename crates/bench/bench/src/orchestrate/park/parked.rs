@@ -6,7 +6,7 @@
 //! On a conflict it reads again: the item parked meanwhile means it is recorded already, and
 //! another item's park means it tries again, at most [`PARK_ATTEMPTS`] times.
 
-use bench_ledger::{
+use crate::store::{
     Appended, Condition, EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store,
     TagError, TagKey,
 };
@@ -104,8 +104,8 @@ fn position_of(parks: &[Recorded], item: &str) -> Option<u64> {
 mod tests {
     use std::error::Error;
 
-    use bench_ledger::event::WeighinParked;
-    use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
+    use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+    use bench_contract::event::WeighinParked;
 
     use super::{Attempt, Park, Parked, parks_of};
 

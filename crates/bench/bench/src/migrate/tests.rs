@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use bench_ledger::{Appended, EventEnvelope, Filter, LedgerTag, Store, TagKey, Timestamp};
+use crate::store::{Appended, EventEnvelope, Filter, LedgerTag, Store, TagKey, Timestamp};
 use serde_json::{Value, json};
 
 use super::waves::Step;

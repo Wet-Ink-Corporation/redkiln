@@ -1,7 +1,7 @@
 use std::error::Error;
 
-use bench_ledger::event::{ReproRed, TestOutcome, TestRun};
-use bench_ledger::{EventEnvelope, LedgerEvent, LedgerTag, Store, TagKey, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, LedgerTag, Store, TagKey, Timestamp};
+use bench_contract::event::{ReproRed, TestOutcome, TestRun};
 
 use super::{RULES, nudges};
 use crate::mode::{Active, BuildMode, Entered};

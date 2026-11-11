@@ -32,8 +32,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bench_ledger::event::StopBlocked;
-use bench_ledger::{EventEnvelope, LedgerEvent, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
+use bench_contract::event::StopBlocked;
 
 use crate::decide::clock::Clock;
 use crate::decide::transport::Transport;

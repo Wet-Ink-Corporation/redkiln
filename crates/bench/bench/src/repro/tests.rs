@@ -4,8 +4,8 @@
 
 use std::time::Duration;
 
-use bench_ledger::event::ReproRed;
-use bench_ledger::{EventEnvelope, LedgerEvent, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
+use bench_contract::event::ReproRed;
 use serde_json::Value;
 
 use super::{Attempt, finish};

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::io::Write as _;
 
-use bench_ledger::event::TokenUsage;
+use bench_contract::event::TokenUsage;
 use serde_json::{Value, json};
 
 use super::{

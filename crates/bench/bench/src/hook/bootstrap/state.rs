@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bench_ledger::{Filter, Recorded, Store, StoreError};
+use crate::store::{Filter, Recorded, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 

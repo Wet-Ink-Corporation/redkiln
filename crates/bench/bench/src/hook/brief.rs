@@ -23,8 +23,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use bench_ledger::event::GateBlocked;
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
 use crate::error_chain::reason;
@@ -131,9 +131,9 @@ enum RecordError {
     #[error(transparent)]
     Ledger(LedgerError),
     #[error("reading the clock")]
-    Clock(#[source] bench_ledger::TimestampError),
+    Clock(#[source] crate::store::TimestampError),
     #[error("appending gate_blocked")]
-    Append(#[source] bench_ledger::StoreError),
+    Append(#[source] crate::store::StoreError),
 }
 
 /// Runs the gate: reads the input from `env.stdin`, judges an Agent call, and on a denial

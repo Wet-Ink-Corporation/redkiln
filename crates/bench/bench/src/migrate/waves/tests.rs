@@ -1,5 +1,5 @@
-use bench_ledger::LedgerEvent;
-use bench_ledger::event::{MigrateContract, MigrateWave, TaskDone};
+use crate::store::LedgerEvent;
+use bench_contract::event::{MigrateContract, MigrateWave, TaskDone};
 
 use super::{Refusal, Step, Waves};
 

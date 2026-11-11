@@ -3,10 +3,10 @@
 
 use std::path::Path;
 
-use bench_ledger::event::VerdictSet;
-use bench_ledger::{
+use crate::store::{
     EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store, StoreError, TagError, TagKey,
 };
+use bench_contract::event::VerdictSet;
 
 use super::assess::{self, Assessment, Head, Record};
 use crate::pr_diff::{self, Budget, PrError};

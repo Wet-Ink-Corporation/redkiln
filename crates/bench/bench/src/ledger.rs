@@ -10,11 +10,11 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use bench_ledger::event::{PlanApproved, VerdictSet};
-use bench_ledger::{
+use crate::store::{
     EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, REGISTRY_VERSION, Recorded, Store,
     StoreError, TagError, TagKey, Timestamp,
 };
+use bench_contract::event::{PlanApproved, VerdictSet};
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -176,10 +176,10 @@ fn append<O: Write>(
 /// out. The outer `Result` is a failure to run (the clock); the inner one a schema error.
 fn parse_event(
     args: &AppendArgs,
-) -> Result<Result<EventEnvelope, bench_ledger::SchemaError>, CliError> {
+) -> Result<Result<EventEnvelope, crate::store::SchemaError>, CliError> {
     let mut value: Value = match serde_json::from_str(&args.event) {
         Ok(value) => value,
-        Err(error) => return Ok(Err(bench_ledger::SchemaError::Json(error))),
+        Err(error) => return Ok(Err(crate::store::SchemaError::Json(error))),
     };
     if let Value::Object(fields) = &mut value {
         fill(fields, "actor", || Ok(Value::from(args.actor.as_str())))?;

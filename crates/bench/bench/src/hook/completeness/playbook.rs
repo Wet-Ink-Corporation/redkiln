@@ -5,8 +5,8 @@
 //! an event that must be in the ledger, tagged with the worktree, at a position after the mode
 //! was entered. A rule that is not met is a nudge (context for the model), never a block.
 
-use bench_ledger::event::{Mode, TestOutcome, TestRun};
-use bench_ledger::{EventKind, Filter, LedgerEvent, LedgerTag, Store, StoreError};
+use crate::store::{EventKind, Filter, LedgerEvent, LedgerTag, Store, StoreError};
+use bench_contract::event::{Mode, TestOutcome, TestRun};
 
 use crate::mode::{Active, Entered};
 

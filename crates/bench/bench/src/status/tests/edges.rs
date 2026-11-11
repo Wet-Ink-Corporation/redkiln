@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use bench_ledger::LedgerEvent;
-use bench_ledger::event::{GateBlocked, Mode, ModeSet};
+use crate::store::LedgerEvent;
+use bench_contract::event::{GateBlocked, Mode, ModeSet};
 use clap::Parser;
 use serde_json::{Value, json};
 

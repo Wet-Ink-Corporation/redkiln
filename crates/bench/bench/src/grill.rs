@@ -18,10 +18,10 @@ use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use bench_ledger::event::GrillConfirmed;
-use bench_ledger::{
+use crate::store::{
     EventEnvelope, EventKind, Filter, LedgerEvent, Store, StoreError, TagError, Timestamp,
 };
+use bench_contract::event::GrillConfirmed;
 use clap::{Args, Subcommand};
 use serde::Serialize;
 

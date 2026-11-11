@@ -1,4 +1,4 @@
-use bench_ledger::event::{Actor, By, Verdict, VerdictSet, VerdictSource, Via};
+use bench_contract::event::{Actor, By, Verdict, VerdictSet, VerdictSource, Via};
 
 use super::{Fresh, Head, Invalid, Outcome, Record, assess, needs_patch_id};
 

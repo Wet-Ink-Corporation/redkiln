@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use bench_ledger::{Recorded, Store};
+use crate::store::{Recorded, Store};
 use serde::Serialize;
 
 use super::{CheckArgs, approved_hash, emit, latest, read};

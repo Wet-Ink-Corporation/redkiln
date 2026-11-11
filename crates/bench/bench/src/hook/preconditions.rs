@@ -37,11 +37,11 @@ use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use bench_ledger::event::GateBlocked;
-use bench_ledger::{
+use crate::store::{
     EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, Store, StoreError, TagKey, Timestamp,
     TimestampError,
 };
+use bench_contract::event::GateBlocked;
 
 use crate::error_chain::reason;
 use crate::existing_ledger::LedgerError;

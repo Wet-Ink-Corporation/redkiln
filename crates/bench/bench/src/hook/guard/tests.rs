@@ -6,8 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bench_ledger::event::GateBlocked;
-use bench_ledger::{EventKind, Filter, LedgerEvent, Store};
+use crate::store::{EventKind, Filter, LedgerEvent, Store};
+use bench_contract::event::GateBlocked;
 use serde_json::{Value, json};
 
 use super::{

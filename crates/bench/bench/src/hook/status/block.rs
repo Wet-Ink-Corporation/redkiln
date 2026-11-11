@@ -7,7 +7,7 @@
 //! A key is read through list markers, quote markers, emphasis (`*`) and code spans, in any
 //! letter case.
 
-use bench_ledger::event::AgentStatus;
+use bench_contract::event::AgentStatus;
 
 /// The values a `Status:` line may carry, as written, and what each records.
 pub(crate) const STATUSES: [(&str, AgentStatus); 5] = [
@@ -186,7 +186,7 @@ fn first_word(text: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use bench_ledger::event::AgentStatus;
+    use bench_contract::event::AgentStatus;
 
     use super::{Parsed, parse, section_texts};
 

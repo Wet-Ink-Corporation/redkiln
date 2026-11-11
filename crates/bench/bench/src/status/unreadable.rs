@@ -1,7 +1,7 @@
 //! Why a section of `bench status` could not be read: the error of the module that owns the
 //! section's data, kept typed until the finding is written (ERR-01).
 
-use bench_ledger::StoreError;
+use crate::store::StoreError;
 
 use crate::context::sessions::SessionsError;
 use crate::decide::config::ConfigError;

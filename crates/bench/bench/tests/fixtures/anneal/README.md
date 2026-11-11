@@ -21,6 +21,7 @@ lockfile changed.
 anneal's trees come from this repository's history (the Move 2 import keeps anneal's commits):
 
 ```sh
+mkdir -p anneal-tip anneal-0.0.1                 # tar -C needs the directories
 git archive 664aaa5 | tar -x -C anneal-tip      # imported anneal tip
 git archive 2ffa7a2 | tar -x -C anneal-0.0.1      # anneal's v0.0.1 tag
 (cd anneal-tip && CARGO_TARGET_DIR=../target-tip cargo build --locked -p anneal-cli)
@@ -43,9 +44,12 @@ update the hashes in `tests/it/fixtures.rs`.
 # Generates anneal-0.0.5.sqlite3 (frozen anneal tip 664aaa5, reports 0.0.5, registry 10) and
 # anneal-older.sqlite3 (tag v0.0.1, 2ffa7a2, registry 5). Usage: gen-anneal.sh <tip-bin> <001-bin> <out-dir>
 set -eu
-TIP=$1
-OLD=$2
-OUT=$3
+# The script cd's into its scratch repository, so every argument is made absolute first.
+abs_bin() { printf '%s/%s\n' "$(cd "$(dirname "$1")" && pwd)" "$(basename "$1")"; }
+TIP=$(abs_bin "$1")
+OLD=$(abs_bin "$2")
+mkdir -p "$3"
+OUT=$(cd "$3" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/anneal-gen.XXXXXX")
 unset ANNEAL_STORE REDKILN_STORE GITHUB_TOKEN GH_TOKEN || true
 export HOME="$WORK/home"
@@ -173,8 +177,10 @@ os._exit(0)
 # bench-ledger-hs060.sqlite3: written by the workspace's `bench` binary (bench-ledger on
 # happenstance 0.6.0) at the commit it was built from. Usage: gen-hs060.sh <bench-bin> <out-dir>
 set -eu
-B=$1
-OUT=$2
+# The script cd's into its scratch repository, so every argument is made absolute first.
+B=$(printf '%s/%s\n' "$(cd "$(dirname "$1")" && pwd)" "$(basename "$1")")
+mkdir -p "$2"
+OUT=$(cd "$2" && pwd)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/hs060-gen.XXXXXX")
 unset ANNEAL_STORE REDKILN_STORE GITHUB_TOKEN GH_TOKEN || true
 export HOME="$WORK/home"

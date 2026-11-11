@@ -3,8 +3,8 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use bench_ledger::event::{Mode, ModeSet, TaskDone};
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use bench_contract::event::{Mode, ModeSet, TaskDone};
 use serde_json::Value;
 
 use super::facts::Facts;
