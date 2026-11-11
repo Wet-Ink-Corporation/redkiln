@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::Path;
 
-use bench_ledger::{EventEnvelope, Store};
+use crate::store::{EventEnvelope, Store};
 use serde_json::Value;
 
 use super::{
@@ -170,7 +170,7 @@ fn a_conflict_is_refused_with_exit_3_and_a_conflict_key() -> Result<(), Box<dyn 
 #[test]
 fn losing_a_race_to_the_same_hash_by_another_approver_appends_after_it()
 -> Result<(), Box<dyn Error>> {
-    use bench_ledger::event::{Actor, By, Via};
+    use bench_contract::event::{Actor, By, Via};
 
     let dir = tempfile::tempdir()?;
     let (plan, store) = setup(dir.path())?;
@@ -202,7 +202,7 @@ fn losing_a_race_to_the_same_hash_by_another_approver_appends_after_it()
 #[test]
 fn losing_a_race_to_another_hash_after_an_approver_race_is_still_a_conflict()
 -> Result<(), Box<dyn Error>> {
-    use bench_ledger::event::{Actor, By, Via};
+    use bench_contract::event::{Actor, By, Via};
 
     let dir = tempfile::tempdir()?;
     let (plan, store) = setup(dir.path())?;
@@ -243,19 +243,19 @@ impl super::ApprovalLedger for AlwaysOutraced {
     fn append_if(
         &self,
         _event: &EventEnvelope,
-        _condition: &bench_ledger::Condition,
-    ) -> Result<bench_ledger::Appended, CliError> {
+        _condition: &crate::store::Condition,
+    ) -> Result<crate::store::Appended, CliError> {
         self.tries.set(self.tries.get().saturating_add(1));
-        Ok(bench_ledger::Appended::Conflict)
+        Ok(crate::store::Appended::Conflict)
     }
 
     fn latest(
         &self,
-        _approvals: &bench_ledger::Filter,
-    ) -> Result<Option<bench_ledger::Recorded>, CliError> {
+        _approvals: &crate::store::Filter,
+    ) -> Result<Option<crate::store::Recorded>, CliError> {
         let position = u64::try_from(self.tries.get()).unwrap_or(u64::MAX);
         // Each read hands back an owned event, as the store's does.
-        Ok(Some(bench_ledger::Recorded {
+        Ok(Some(crate::store::Recorded {
             position,
             event: self.winner.clone(),
         }))
@@ -265,7 +265,7 @@ impl super::ApprovalLedger for AlwaysOutraced {
 #[test]
 fn an_approval_that_keeps_losing_to_other_approvers_gives_up_as_a_conflict_after_8_races()
 -> Result<(), Box<dyn Error>> {
-    use bench_ledger::event::{Actor, By, Via};
+    use bench_contract::event::{Actor, By, Via};
 
     let dir = tempfile::tempdir()?;
     let (plan, _store) = setup(dir.path())?;

@@ -20,8 +20,8 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use bench_ledger::event::GateBlocked;
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
+use crate::store::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
+use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
 use crate::decide::clock::{Clock, SystemClock};

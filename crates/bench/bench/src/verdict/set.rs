@@ -8,8 +8,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use bench_ledger::event::VerdictSet;
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use bench_contract::event::VerdictSet;
 use serde::Serialize;
 
 use super::commit_status::{self, CommitStatus, GithubEnv, Skip, Subject};

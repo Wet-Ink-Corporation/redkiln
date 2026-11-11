@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use bench_ledger::{Filter, LedgerEvent, Store};
+use crate::store::{Filter, LedgerEvent, Store};
 use clap::Parser;
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -173,7 +173,7 @@ fn a_park_records_the_minted_item_against_the_ticket() -> TestResult {
     assert_eq!(
         world.events()?,
         [LedgerEvent::WeighinParked(
-            bench_ledger::event::WeighinParked {
+            bench_contract::event::WeighinParked {
                 item_id: "wi-e41e02".to_owned(),
                 ticket: "7".to_owned(),
                 decision: None,
@@ -224,7 +224,7 @@ fn with_weigh_in_absent_the_park_fails_open_and_records_why() -> TestResult {
     assert_eq!(
         world.events()?,
         [LedgerEvent::BridgeUnavailable(
-            bench_ledger::event::BridgeUnavailable {
+            bench_contract::event::BridgeUnavailable {
                 ticket: "7".to_owned(),
                 reason: "no weighin: WEIGHIN_BIN is unset and none is on PATH".to_owned(),
             }
@@ -338,7 +338,7 @@ fn a_ruling_records_what_why_and_cost_if_wrong() -> TestResult {
     assert_eq!(
         world.events()?,
         [LedgerEvent::OrchestrateRuled(
-            bench_ledger::event::OrchestrateRuled {
+            bench_contract::event::OrchestrateRuled {
                 ticket: "7".to_owned(),
                 what: "keep one cache per tenant".to_owned(),
                 why: "reversible in one commit".to_owned(),

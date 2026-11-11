@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use bench_ledger::Store;
+use crate::store::Store;
 
 use super::{Check, Denial, unjudged};
 use crate::content_hash::sha256;

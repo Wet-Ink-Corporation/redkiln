@@ -11,7 +11,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use bench_ledger::Store;
+use crate::store::Store;
 
 use super::Refusal;
 use crate::content_hash::sha256;

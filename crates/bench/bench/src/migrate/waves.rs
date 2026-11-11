@@ -6,8 +6,8 @@
 
 use std::collections::BTreeSet;
 
-use bench_ledger::LedgerEvent;
-use bench_ledger::event::{MigrateContract, MigrateWave};
+use crate::store::LedgerEvent;
+use bench_contract::event::{MigrateContract, MigrateWave};
 use serde::Serialize;
 
 /// A step `bench migrate` records.

@@ -18,7 +18,7 @@ use std::ffi::OsString;
 use std::thread;
 use std::time::Duration;
 
-use bench_ledger::{Filter, LedgerTag, Store, TagKey};
+use crate::store::{Filter, LedgerTag, Store, TagKey};
 use serde_json::json;
 
 use crate::decide::client::{self, Ask, Asked, Outcome, Recorded};

@@ -5,7 +5,7 @@
 //! is byte for byte the row `decide label` wrote before they existed, and claims nothing about
 //! its source. `calibrate` reads `via` as text, so a value a newer build adds still reads.
 
-use bench_ledger::event::{self, By};
+use bench_contract::event::{self, By};
 use serde::Serialize;
 
 use crate::decide::id::{DecisionId, OutcomeLabel};

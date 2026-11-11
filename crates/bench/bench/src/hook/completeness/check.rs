@@ -3,10 +3,10 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use bench_ledger::event::TestRun;
-use bench_ledger::{
+use crate::store::{
     EventKind, Filter, LedgerEvent, LedgerTag, Store, StoreError, TagKey, Timestamp,
 };
+use bench_contract::event::TestRun;
 
 use crate::error_chain::reason;
 use crate::existing_ledger;

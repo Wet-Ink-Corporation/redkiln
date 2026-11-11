@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use bench_ledger::event::{TestOutcome, TestRun};
-use bench_ledger::{Filter, LedgerEvent, Store};
+use crate::store::{Filter, LedgerEvent, Store};
+use bench_contract::event::{TestOutcome, TestRun};
 
 use super::{DEFAULT_TIMEOUT_SECS, DoneArgs, Ending, Run, TaskError, record, run_command};
 

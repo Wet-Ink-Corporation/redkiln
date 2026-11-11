@@ -10,8 +10,8 @@ use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
-use bench_ledger::Timestamp;
-use bench_ledger::event::TokenUsage;
+use crate::store::Timestamp;
+use bench_contract::event::TokenUsage;
 use serde::Deserialize;
 use serde_json::Value;
 

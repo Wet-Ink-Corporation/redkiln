@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::Path;
 
-use bench_ledger::event::{Mode, ModeSet, TaskDone};
-use bench_ledger::{EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store, TagKey};
+use crate::store::{EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store, TagKey};
+use bench_contract::event::{Mode, ModeSet, TaskDone};
 
 use crate::error_chain::reason;
 use crate::hook::completeness::check;

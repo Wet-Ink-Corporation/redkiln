@@ -48,8 +48,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use bench_ledger::event::GateBlocked;
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
+use crate::store::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
+use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
 use crate::error_chain::reason;

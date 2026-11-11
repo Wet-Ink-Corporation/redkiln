@@ -7,11 +7,11 @@ use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use bench_ledger::event::{
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+use bench_contract::event::{
     GateBlocked, Mode, ModeSet, PlanApproved, StopBlocked, TaskDone, Verdict, VerdictSet,
     VerdictSource,
 };
-use bench_ledger::{EventEnvelope, LedgerEvent, Store, Timestamp};
 use clap::Parser;
 use serde_json::{Value, json};
 use tempfile::TempDir;

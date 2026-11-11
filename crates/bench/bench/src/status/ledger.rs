@@ -4,8 +4,8 @@
 
 use std::path::Path;
 
-use bench_ledger::event::{GateBlocked, Mode, StopBlocked};
-use bench_ledger::{EventKind, Filter, LedgerEvent, Recorded, Store};
+use crate::store::{EventKind, Filter, LedgerEvent, Recorded, Store};
+use bench_contract::event::{GateBlocked, Mode, StopBlocked};
 use serde::Serialize;
 
 use super::Unreadable;

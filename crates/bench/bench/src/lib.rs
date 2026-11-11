@@ -34,7 +34,8 @@
 //! - [`task`]: `bench task done`, recording `task_done` only after a green test command.
 //! - [`floor_guard`]: `bench floor-guard`, refusing a diff that lowers a quality floor.
 //! - [`baseline`]: snapshot findings at session start, report only new ones later.
-//! - [`ledger`]: `bench ledger append|query|tail|journal` over the `bench-ledger` store.
+//! - [`ledger`]: `bench ledger append|query|tail|journal` over the ledger [`store`].
+//! - [`store`]: the ledger store's types, the one module that reaches `bench-ledger`.
 //! - [`paths`]: the ledger store (normally in the git common dir) and the anneal home
 //!   (`~/.anneal`).
 //! - [`adr`]: ADR numbering, `docs/adr/NNNN-<slug>.md` with the next free number.
@@ -120,6 +121,7 @@ pub mod ship;
 pub mod snapshot;
 pub mod status;
 pub mod statusline;
+pub mod store;
 pub mod task;
 #[cfg(test)]
 mod test_repo;

@@ -17,7 +17,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use bench_ledger::{
+use crate::store::{
     Appended, Condition, EventEnvelope, Filter, LedgerTag, Store, TagKey, Timestamp,
 };
 use clap::{Args, Subcommand};

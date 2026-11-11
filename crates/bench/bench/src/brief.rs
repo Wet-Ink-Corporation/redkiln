@@ -15,7 +15,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use bench_ledger::Timestamp;
+use crate::store::Timestamp;
 use clap::{Args, Subcommand};
 use serde::Serialize;
 

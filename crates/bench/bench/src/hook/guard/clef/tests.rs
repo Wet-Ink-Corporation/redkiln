@@ -10,8 +10,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTimeError};
 
-use bench_ledger::event::GateBlocked;
-use bench_ledger::{EventKind, Filter, LedgerEvent, Store};
+use crate::store::{EventKind, Filter, LedgerEvent, Store};
+use bench_contract::event::GateBlocked;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 

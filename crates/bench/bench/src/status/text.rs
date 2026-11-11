@@ -4,7 +4,7 @@
 
 use std::io::{self, Write};
 
-use bench_ledger::event::Verdict;
+use bench_contract::event::Verdict;
 
 use super::Document;
 use super::head_verdict::HeadVerdict;
@@ -160,7 +160,7 @@ const fn verdict_name(verdict: Verdict) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use bench_ledger::event::Verdict;
+    use bench_contract::event::Verdict;
     use serde_json::json;
 
     use super::verdict_name;

@@ -8,7 +8,7 @@ use std::io;
 use std::mem;
 use std::path::{Path, PathBuf};
 
-use bench_ledger::Store;
+use crate::store::Store;
 
 use super::{
     BUSY_TIMEOUT, Check, Denial, JUDGE_BUDGET, Ledger, RecordError, Verdict, build, mode_denial,

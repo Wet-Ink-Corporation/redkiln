@@ -22,11 +22,11 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use bench_ledger::event::{Mode, ModeSet};
-use bench_ledger::{
+use crate::store::{
     EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store, StoreError, TagKey,
     Timestamp,
 };
+use bench_contract::event::{Mode, ModeSet};
 use clap::{Args, Subcommand};
 use serde::Serialize;
 
