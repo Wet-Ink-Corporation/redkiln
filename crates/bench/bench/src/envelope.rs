@@ -1,4 +1,5 @@
-//! The JSON envelope every command writes on stdout, and the findings it carries.
+//! The JSON envelope every command writes on stdout (SPEC CLI-01, CLI-02), and the findings it
+//! carries (CLI-03).
 
 use std::io::{self, Write};
 
@@ -7,8 +8,23 @@ use serde::{Deserialize, Serialize};
 use crate::command::CommandName;
 use crate::exit_codes::Code;
 
-/// One problem a command found. The `key` is stable across runs, so a baseline can tell old
-/// findings from new ones (see [`crate::baseline`]).
+/// How much a finding matters (SPEC CLI-03).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// A problem that fails the command when it gates on its findings.
+    Error,
+    /// A problem worth fixing that does not fail the command.
+    Warning,
+    /// Information for the reader.
+    Note,
+}
+
+/// One problem a command found.
+///
+/// The `key` is stable across runs, so a baseline can tell old findings from new ones (see
+/// [`crate::baseline`]). `severity` and `at` are written only when set, so a finding without
+/// them keeps the bytes it had before SPEC CLI-03.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Finding {
@@ -17,28 +33,58 @@ pub struct Finding {
     pub key: String,
     /// One-line human description.
     pub message: String,
+    /// How much it matters, when the command says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub severity: Option<Severity>,
+    /// Where it is: a worktree-relative path with an optional `:line` or `:line:col`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
 }
 
 impl Finding {
-    /// A finding with a stable `key` and a one-line `message`.
+    /// A finding with a stable `key` and a one-line `message`, with no severity or place.
     #[must_use]
     pub fn new(key: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             key: key.into(),
             message: message.into(),
+            severity: None,
+            at: None,
+        }
+    }
+
+    /// The same finding of `severity`.
+    #[must_use]
+    pub fn with_severity(self, severity: Severity) -> Self {
+        Self {
+            severity: Some(severity),
+            ..self
+        }
+    }
+
+    /// The same finding at `at`: a worktree-relative path, optionally followed by `:line` or
+    /// `:line:col` (CLI-03); the caller builds it from a path it already holds relative.
+    #[must_use]
+    pub fn with_at(self, at: impl Into<String>) -> Self {
+        Self {
+            at: Some(at.into()),
+            ..self
         }
     }
 }
 
 /// The result of a command, serialised as one JSON object on stdout:
-/// `{"ok", "command", "data", "findings", "proves", "does_not_prove"}`.
+/// `{"schema", "ok", "command", "data", "findings", "proves", "does_not_prove"}`, `schema`
+/// first (CLI-02).
 ///
 /// `ok` is derived from the exit code, and [`Envelope::emit`] returns that same code, so the
-/// JSON and the exit status cannot disagree.
+/// JSON and the exit status cannot disagree. `schema` and `command` are built from the same
+/// command name and subcommand, so they cannot disagree either.
 #[derive(Debug, Serialize)]
 pub struct Envelope<'a, D> {
     #[serde(skip)]
     code: Code,
+    schema: String,
     ok: bool,
     command: String,
     data: D,
@@ -49,7 +95,8 @@ pub struct Envelope<'a, D> {
 
 impl<'a, D: Serialize> Envelope<'a, D> {
     /// An envelope with no findings for `name` and its `subcommand`, if any, that will exit
-    /// with `code`. The `command` field is built from both (`"dag check"`), and the proves /
+    /// with `code`. The `command` field is built from both (`"dag check"`), the `schema` id from
+    /// that (`"bench.dag-check/1"`, [`bench_contract::cli::output_id`]), and the proves /
     /// does-not-prove statements come from `name`, so they cannot disagree. `data` should
     /// serialise to a JSON object; use `serde_json::Map::new()` for `{}`.
     #[must_use]
@@ -61,6 +108,7 @@ impl<'a, D: Serialize> Envelope<'a, D> {
         };
         Self {
             code,
+            schema: bench_contract::cli::output_id(&command),
             ok: code.is_success(),
             command,
             data,
@@ -89,7 +137,7 @@ impl<'a, D: Serialize> Envelope<'a, D> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Envelope, Finding};
+    use super::{Envelope, Finding, Severity};
     use crate::command::CommandName;
     use crate::exit_codes::{DAG_CYCLE, OK};
     use serde_json::{Value, json};
@@ -119,6 +167,7 @@ mod tests {
         assert_eq!(
             value,
             json!({
+                "schema": "bench.dag-check/1",
                 "ok": false,
                 "command": "dag check",
                 "data": {"tasks": 2},
@@ -137,6 +186,58 @@ mod tests {
 
         assert_eq!(emitted(&green).1["ok"], json!(true), "0 is ok");
         assert_eq!(emitted(&red).1["ok"], json!(false), "1 is not ok");
+    }
+
+    #[test]
+    fn schema_is_the_first_key_and_names_the_command_path() {
+        let envelope = Envelope::new(CommandName::Dag, Some("check"), OK, json!({}));
+        let mut out = Vec::new();
+        envelope.emit(&mut out).expect("a Vec accepts every write");
+
+        assert!(
+            out.starts_with(br#"{"schema":"bench.dag-check/1","ok":true,"command":"dag check","#),
+            "CLI-02's order: {}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[test]
+    fn a_command_without_a_subcommand_has_the_bare_id() {
+        let envelope = Envelope::new(CommandName::FloorGuard, None, OK, json!({}));
+        assert_eq!(
+            emitted(&envelope).1["schema"],
+            json!("bench.floor-guard/1"),
+            "no subcommand part"
+        );
+    }
+
+    #[test]
+    fn a_finding_without_severity_or_place_keeps_its_bytes() {
+        let finding = Finding::new("dag/cycle:a-b", "a cycle");
+        assert_eq!(
+            serde_json::to_string(&finding).expect("serialises"),
+            r#"{"key":"dag/cycle:a-b","message":"a cycle"}"#,
+            "no new keys"
+        );
+    }
+
+    #[test]
+    fn a_findings_severity_and_place_are_written_when_set() {
+        let finding = Finding::new("lint/x", "m")
+            .with_severity(Severity::Warning)
+            .with_at("docs/plan.md:12:3");
+
+        let text = serde_json::to_string(&finding).expect("serialises");
+
+        assert_eq!(
+            text, r#"{"key":"lint/x","message":"m","severity":"warning","at":"docs/plan.md:12:3"}"#,
+            "CLI-03's keys"
+        );
+        assert_eq!(
+            serde_json::from_str::<Finding>(&text).expect("reads back"),
+            finding,
+            "round trip"
+        );
     }
 
     #[test]
