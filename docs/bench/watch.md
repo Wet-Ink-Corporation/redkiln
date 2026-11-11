@@ -22,16 +22,16 @@ anneal watch deploy <id>      [--provider github] [--repo <owner/name>] [--timeo
 | Code | Meaning |
 |---|---|
 | 0 | clear: nothing blocks and nothing is pending (for `pr`, the merge gate also allows the head) |
-| 2 | merge conflict |
 | 3 | unresolved review threads |
 | 4 | failing checks, or a failed deployment |
 | 5 | timeout: work was still pending when `--timeout` passed |
 | 6 | gate: the pull request is a draft, GitHub's branch protection refuses the merge (`mergeable_state`), or the merge gate would deny merging the head |
-| 7 | query error: the target could not be read; one `ERROR` line, nothing on stdout |
+| 7 | query error: the target could not be read; one `bench: error:` line, nothing on stdout |
+| 8 | merge conflict |
 
-With several blockers the lowest code wins (2, then 3, then 4, then 6) and every blocker is
-listed. A usage error also exits 2, but writes nothing on stdout, while a conflict always comes
-with its envelope.
+With several blockers a merge conflict wins, then the lowest code (8, then 3, then 4, then 6),
+and every blocker is listed. The conflict was 2 until SPEC CLI-05 kept 2 for usage errors; it
+still ranks first. A usage error exits 2 and writes nothing on stdout.
 
 ## Polling and the timeout
 

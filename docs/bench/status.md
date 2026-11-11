@@ -20,8 +20,9 @@ anneal status [--json] [--fields <section>,...] [--tail <n>]
   error.
 - `--tail <n>` is how many events `ledger_tail` lists: 10 by default, 0 to 1000.
 
-Exit 0 when a ledger exists; 2 when none does, still with the document (only `clef` and
-`context` can have data then) and a `status/no-ledger` finding. It never creates a ledger. The
+`status` is a report (SPEC CLI-06): it exits 0 whenever it wrote its document. When no ledger
+exists the document is still written (only `clef` and `context` can have data then), with one
+`status/no-store` finding of severity `note`. It never creates a ledger. The
 ledger is the one `anneal ledger` resolves (`$ANNEAL_STORE`, else the git common dir, else
 `.anneal/` outside git); the worktree is the one git finds from the working directory.
 

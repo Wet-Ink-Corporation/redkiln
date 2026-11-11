@@ -1,7 +1,7 @@
 # Release: rollout bands and error budgets
 
 A rollout widens in stages. Before each stage, `bench rollout decide` judges the current
-metrics against the bands: exit 0 go (widen), 1 hold (stay, investigate), 2 rollback (run the
+metrics against the bands: exit 0 go (widen), 1 hold (stay, investigate), 3 rollback (run the
 rollback plan now). The decision is the worst metric's band, and a metric with no value holds.
 
 ## Stages

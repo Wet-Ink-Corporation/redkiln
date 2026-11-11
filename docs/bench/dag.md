@@ -69,7 +69,7 @@ Read-only, through `gh api --method GET` (REST). `gh` must be installed and logg
   - **Open**: the dependant is not ready. `frontier` lists the blocker under
     `external_blockers` with the tickets it holds up.
   - **Not found or deleted** (`gh` reports HTTP 404 or 410): the reference stays **dangling**, and the command
-    exits 2.
+    exits 4.
 
   External tickets are leaves: their own blockers are not followed. They are never counted,
   checked or listed as ready, so cycle detection is unchanged.
@@ -135,11 +135,11 @@ Two runs over the same tickets print byte-identical output.
 |---|---|
 | 0 | Every reference resolves and there is no cycle. |
 | 1 | There is a cycle. One cycle is named, in order. |
-| 2 | A reference dangles: some ticket is blocked by an id that is not a ticket. Every pair is named. |
 | 3 | Only with `--plan`: the graph passes, but the tickets disagree with the plan (below). |
+| 4 | A reference dangles: some ticket is blocked by an id that is not a ticket. Every pair is named. |
 | 70 | The tickets could not be read. |
 
-**Dangling comes first.** When both problems occur, the exit code is 2, and the envelope still
+**Dangling comes first.** When both problems occur, the exit code is 4, and the envelope still
 lists both, because a cycle that runs through a missing ticket cannot be judged.
 
 The reported cycle is deterministic. A depth-first search starts from tickets in id order and
@@ -199,7 +199,7 @@ Findings, after the graph's, each in id order:
 | `dag/plan/no-task:<id>` | A ticket in scope is neither a task of the plan nor an outside blocker of one. |
 | `dag/plan/blockers:<id>` | The task's ticket waits for other plan tasks than the task's `Blocked by:` names: its blockers that are tasks, and the tasks it reaches through outside blockers (`T2` blocked by `R1`, itself blocked by `T1`, waits for `T1`). The message names both lists. |
 
-The exit code is the graph's when its check fails (2 or 1; the plan's findings are still
+The exit code is the graph's when its check fails (4 or 1; the plan's findings are still
 listed), else 3 when there is any plan finding, else 0. `data` gains
 `plan: {file, tasks, no_ticket: [ids], no_task: [ids], blockers: [{id, plan, ticket}], unread}`,
 where `file` is the plan as given and `unread` counts the `lint plan` findings above (and

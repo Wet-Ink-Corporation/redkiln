@@ -127,7 +127,7 @@ Every event is one JSON object: the event's `type` and payload, flattened beside
 Every payload field name is a persisted JSON key: renaming one is a migration. Optional fields
 read back from either `null` or a missing key, so adding one is additive. Writing is strict: an
 unregistered `type`, a missing or mistyped field, a key the type does not define, a `ts` that is
-not RFC 3339 or a tag value that is not valid is a schema error (exit 2) and nothing is written.
+not RFC 3339 or a tag value that is not valid is a schema error (exit 1) and nothing is written.
 Reading ignores keys a newer anneal added.
 
 ## Tags

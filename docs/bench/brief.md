@@ -60,9 +60,9 @@ count as content, except `repository` (the worktree root and the base) and `retu
 change you did not make. `data.empty_fields` lists the fields still to fill.
 
 The range guard is rooted at the base: the base must name a commit, `HEAD` must name one, and
-the base must be an ancestor of `HEAD`. Otherwise it exits 2 with one `brief/range` finding and
-writes nothing. A usage error (a bad ticket or field, outside a worktree) also exits 2 but with
-nothing on stdout.
+the base must be an ancestor of `HEAD`. Otherwise it exits 1 with one `brief/range` finding and
+writes nothing. A usage error (a bad ticket or field, outside a worktree) exits 2 with nothing on
+stdout.
 
 The files are written only when `.anneal/briefs` resolves to the resolved worktree root's own
 `.anneal/briefs`: a symlinked `.anneal` or `briefs` leading elsewhere exits 70 with one `ERROR`

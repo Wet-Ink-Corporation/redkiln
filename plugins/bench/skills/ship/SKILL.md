@@ -9,7 +9,7 @@ description: Use when a change needs a pull request, review verdict or depth, me
 
 Takes a change that passed `verify` through review, merge, migration and rollout, deciding each step GO or NO-GO from exit codes, not by feel.
 
-- You MUST write the rollback plan before any GO: no plan is NO-GO, and `bench rollout decide` exit 2 means run it.
+- You MUST write the rollback plan before any GO: no plan is NO-GO, and `bench rollout decide` exit 3 means run it.
 - You MUST NOT merge on green tests alone: run `bench verdict valid --pr <n>`; the `merge-gate` hook denies `gh pr merge` without the review `bench ship skip-rule` wants.
 - You MUST let `bench ship skip-rule` decide the review depth: exit 0 allows the light review, exit 1 needs the full one.
 - You MUST record every migration wave with `bench migrate start` and `bench migrate done`; `bench migrate contract` is refused while a wave is open.
