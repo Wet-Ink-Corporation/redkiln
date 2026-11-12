@@ -218,6 +218,9 @@ pub(crate) struct Hook {
     /// The harness's timeout for the hook's event, which its heartbeat records (HK-5); `None`
     /// keeps no heartbeat.
     timeout: Option<Duration>,
+    /// What `SessionStart`'s imports may spend, from `started` (HK-5): always
+    /// [`Budget::SESSION_START`] outside tests.
+    budget: Budget,
 }
 
 impl Hook {
@@ -230,7 +233,16 @@ impl Hook {
             cowork,
             started,
             timeout: None,
+            budget: Budget::SESSION_START,
         }
+    }
+
+    /// This hook, with `budget` in place of [`Budget::SESSION_START`]: a test's seam, so that
+    /// what a test pins does not hang on how fast the runner spawns git (TST-10).
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn budget(self, budget: Budget) -> Self {
+        Self { budget, ..self }
     }
 
     /// This hook, with `timeout` the harness's timeout for its event (HK-5).
@@ -371,7 +383,7 @@ impl Hook {
             }
         };
         let took = self.started.elapsed();
-        if let Some(worst) = Budget::SESSION_START.worst_case()
+        if let Some(worst) = self.budget.worst_case()
             && took > worst
         {
             self.log(
@@ -392,7 +404,7 @@ impl Hook {
     /// for its prime and tells or logs itself. An import that ran past its budget's worst case is
     /// logged, as the Stop's export is.
     fn imported(&self, failures: &mut Failures) -> Vec<String> {
-        let notes = match refs::import(&self.env, Budget::SESSION_START, self.started, "hook") {
+        let notes = match refs::import(&self.env, self.budget, self.started, "hook") {
             Ok(Imported::Ran(report)) => refs::import_notes(&report),
             // Not git or a client repository: nothing to import.
             Ok(Imported::Skipped(_)) => Vec::new(),
@@ -405,7 +417,7 @@ impl Hook {
             }
         };
         let took = self.started.elapsed();
-        if let Some(worst) = Budget::SESSION_START.worst_case()
+        if let Some(worst) = self.budget.worst_case()
             && took > worst
         {
             self.log(
