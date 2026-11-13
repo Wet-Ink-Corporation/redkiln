@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use bench_contract::status::{self, Health, RepoClass, Status, StoreSource};
@@ -32,6 +32,17 @@ fn report(output: &Output) -> TestResult<(Value, Status)> {
     // The contract reads its own copy; the envelope is returned whole for the golden.
     let data = Status::deserialize(data)?;
     Ok((envelope, data))
+}
+
+/// `work` as the binary resolves its working directory: on macOS the temporary directory sits
+/// under a symlink (`/var` to `/private/var`), so the child reads the resolved path; Windows keeps
+/// the path it was given.
+fn as_seen(work: &Path) -> TestResult<PathBuf> {
+    if cfg!(windows) {
+        Ok(work.to_path_buf())
+    } else {
+        Ok(work.canonicalize()?)
+    }
 }
 
 /// The status `bench status` reports in `work`, outside git, with the store `$REDKILN_STORE`
@@ -79,7 +90,7 @@ fn without_a_ledger_status_exits_0_and_creates_none() -> TestResult {
     assert_eq!(envelope["ok"], json!(true), "ok agrees with the exit code");
     assert_eq!(
         data,
-        located_in(work.path(), None),
+        located_in(&as_seen(work.path())?, None),
         "where the store would be, no store schema, no section: {envelope}"
     );
     assert!(
@@ -139,7 +150,7 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
     let tail = data.ledger_tail.take().ok_or("a ledger_tail")?;
     assert_eq!(
         data,
-        located_in(work.path(), Some("1.0")),
+        located_in(&as_seen(work.path())?, Some("1.0")),
         "the store's schema, and only the section asked for: {envelope}"
     );
     assert_eq!(
