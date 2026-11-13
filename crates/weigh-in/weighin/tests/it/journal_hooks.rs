@@ -5,7 +5,9 @@
 //! a budget the test gives the hook (`src/hooks/turn/tests/export.rs`, TST-10).
 
 use crate::scratch::{Repo, TestResult};
-use crate::support::{git, state_of};
+#[cfg(unix)]
+use crate::support::git;
+use crate::support::state_of;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -45,6 +47,7 @@ fn watermark(repo: &Repo) -> TestResult<PathBuf> {
 }
 
 /// The store position the watermark records.
+#[cfg(unix)]
 fn watermark_at(repo: &Repo) -> TestResult<u64> {
     let text = std::fs::read_to_string(watermark(repo)?)?;
     Ok(text.lines().next().ok_or("a position")?.parse()?)
