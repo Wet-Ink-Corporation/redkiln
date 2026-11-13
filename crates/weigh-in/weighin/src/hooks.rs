@@ -36,6 +36,8 @@ mod errors;
 mod failures;
 mod heartbeat;
 mod session_start;
+#[cfg(test)]
+mod test_support;
 mod turn;
 
 use anyhow::Result;
@@ -218,14 +220,23 @@ pub(crate) struct Hook {
     /// The harness's timeout for the hook's event, which its heartbeat records (HK-5); `None`
     /// keeps no heartbeat.
     timeout: Option<Duration>,
-    /// What `SessionStart`'s imports may spend, from `started` (HK-5): always
-    /// [`Budget::SESSION_START`] outside tests.
+    /// What the hook's journal-ref work may spend, from `started` (HK-5): the Stop's export
+    /// within [`Budget::STOP`], any other event's (`SessionStart`'s imports) within
+    /// [`Budget::SESSION_START`]; another budget only in tests ([`Hook::budget`]).
     budget: Budget,
 }
 
 impl Hook {
     /// The hook for `event` in `env`, in Cowork when `cowork`, started at `started`.
     pub(crate) fn new(event: HookEvent, env: Env, cowork: bool, started: Instant) -> Self {
+        let budget = match event {
+            HookEvent::Stop(_) => Budget::STOP,
+            HookEvent::SessionStart { .. }
+            | HookEvent::SubagentStop(_)
+            | HookEvent::PostToolUse(_)
+            | HookEvent::Other(_)
+            | HookEvent::Unnamed => Budget::SESSION_START,
+        };
         Self {
             event,
             named: None,
@@ -233,12 +244,13 @@ impl Hook {
             cowork,
             started,
             timeout: None,
-            budget: Budget::SESSION_START,
+            budget,
         }
     }
 
-    /// This hook, with `budget` in place of [`Budget::SESSION_START`]: a test's seam, so that
-    /// what a test pins does not hang on how fast the runner spawns git (TST-10).
+    /// This hook, with `budget` in place of its event's ([`Budget::STOP`] or
+    /// [`Budget::SESSION_START`]): a test's seam, so that what a test pins does not hang on how
+    /// fast the runner spawns git (TST-10).
     #[cfg(test)]
     #[must_use]
     pub(crate) fn budget(self, budget: Budget) -> Self {

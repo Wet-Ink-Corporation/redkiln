@@ -1,7 +1,11 @@
 //! The repository class (ST-12, ST-13, #17 part 5b): read from `.redkiln/suite.toml`, else from
 //! weigh-in 1.x's `.kb/_ledger/config.json` with a warning (M1-F), else `client`; a `client`
 //! repository exports no journal ref and no board for claude.ai (D8 A); `init` writes
-//! the class to suite.toml, never to config.json.
+//! the class to suite.toml, never to config.json. That an `own` repository's Stop exports its
+//! journal ref holds only when the export beats `Budget::STOP`'s 4 s deadline, which a slow
+//! runner spawning git can pass, so it is pinned in process with a budget the test gives the
+//! hook (`src/hooks/turn/tests.rs`, TST-10); a `client` repository exporting nothing holds
+//! whatever the deadline does and stays here.
 
 use crate::scratch::{Repo, TestResult};
 use crate::support::state_of;
@@ -85,10 +89,6 @@ fn config_jsons_class_below_no_suite_toml_is_used_and_said_on_stderr_and_at_sess
         "{stderr}"
     );
     assert!(message.contains(LEGACY_WARNING), "{message}");
-    assert!(
-        repo.has_ref("refs/redkiln/journal/s"),
-        "an own repository exports its journal ref"
-    );
     Ok(())
 }
 
@@ -112,7 +112,6 @@ fn a_client_repository_exports_no_journal_ref_and_no_board_and_an_own_one_does_b
         let stderr = String::from_utf8(export.stderr)?;
         let board = state_of(&repo.root).join("board-state.json");
         if class == "own" {
-            assert!(repo.has_ref("refs/redkiln/journal/s"), "own: a journal ref");
             assert!(export.status.success() && board.exists(), "own: {stderr}");
         } else {
             assert!(

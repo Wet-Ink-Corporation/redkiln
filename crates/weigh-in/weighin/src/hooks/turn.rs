@@ -9,7 +9,7 @@ use weighin_core::marker::{Door, parse_markers};
 
 use super::{Failures, Hook, HookOutput, Tool, ToolWrite, Turn, scan_text};
 use crate::env::Env;
-use crate::journal::refs::{self, Budget, Checkpointed, Marked, Scope};
+use crate::journal::refs::{self, Checkpointed, Marked, Scope};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session};
 use crate::recall;
 
@@ -58,7 +58,7 @@ impl Hook {
         failures: &mut Failures,
         result: Result<Option<String>>,
     ) -> Result<Option<String>> {
-        let budget = Budget::STOP;
+        let budget = self.budget;
         match refs::checkpoint(&self.env, budget, self.started, Scope::SinceWatermark) {
             Ok(Checkpointed::Ran(report, marked)) => {
                 for line in refs::needs_a_person(&report) {
@@ -154,6 +154,9 @@ fn scan(env: &Env, write: Option<&ToolWrite>) -> Result<()> {
     scan_text(env, &write.file, &written, "hook")?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
 
 /// A `Write`, `Edit` or `MultiEdit` to a file in this repository, for `recall`; `None` for any
 /// other tool or file. The line a `Write` touched is not known, so it carries no text.

@@ -42,6 +42,15 @@ impl Vars {
                 .map(PathBuf::from),
         }
     }
+
+    /// Only `$REDKILN_STORE`, set to `store`: a test's stand-in for a process that has it.
+    #[cfg(test)]
+    pub(crate) fn redkiln_store(store: impl Into<OsString>) -> Self {
+        Self {
+            redkiln_store: Some(store.into()),
+            ..Self::default()
+        }
+    }
 }
 
 /// The store's file and the step that chose it (ST-03).
