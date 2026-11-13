@@ -163,7 +163,7 @@ jobs:
         shell: bash
         run: |
           for manifest in dist/plugins/*/.claude-plugin/plugin.json; do
-            npx --yes @anthropic-ai/claude-code@2.1.316 plugin validate --strict "$manifest"
+            npx --yes @anthropic-ai/claude-code@2.1.323 plugin validate --strict "$manifest"
           done
       - name: Release assets
         shell: bash
@@ -259,7 +259,7 @@ jobs:
         with:
           node-version: 22
       - name: claude plugin validate --strict, the assembled marketplace
-        run: npx --yes @anthropic-ai/claude-code@2.1.316 plugin validate --strict "$RUNNER_TEMP/redkiln-plugins"
+        run: npx --yes @anthropic-ai/claude-code@2.1.323 plugin validate --strict "$RUNNER_TEMP/redkiln-plugins"
       - name: Publish the GitHub release (creates the tag on the checked commit)
         shell: bash
         env:

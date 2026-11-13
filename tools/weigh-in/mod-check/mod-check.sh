@@ -5,7 +5,7 @@
 # types in tools/weigh-in/mod-check/mod-types/. No model calls.
 #
 #   tools/weigh-in/mod-check/mod-check.sh                   # with `claude` and `tsc` on PATH
-#   CLAUDE="npx --yes @anthropic-ai/claude-code@2.1.316" TSC="npx --yes -p typescript tsc" tools/weigh-in/mod-check/mod-check.sh
+#   CLAUDE="npx --yes @anthropic-ai/claude-code@2.1.323" TSC="npx --yes -p typescript tsc" tools/weigh-in/mod-check/mod-check.sh
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 read -r -a claude <<< "${CLAUDE:-claude}"

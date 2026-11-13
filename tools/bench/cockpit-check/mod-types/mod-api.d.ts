@@ -140,6 +140,8 @@ declare module 'claude-code' {
   export type AbovePromptProps = {
     /** True while a survey holds the band; a hook leaves it alone then. */
     readonly hasSurvey: boolean
+    /** True while the person has collapsed the band. */
+    readonly isCollapsed: boolean
     readonly isWorking: boolean
     readonly maxRows: number
     /** The cells the band's tree is laid out in. */

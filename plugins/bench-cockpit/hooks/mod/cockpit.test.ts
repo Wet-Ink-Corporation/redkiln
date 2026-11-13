@@ -132,6 +132,7 @@ const ANNEAL: CommandRunInput = {
 const SCROLL = { offset: 0, bodyRows: 10 }
 const BAND_PROPS = {
   hasSurvey: false,
+  isCollapsed: false,
   isWorking: false,
   maxRows: 6,
   bodyColumns: 120,
