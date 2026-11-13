@@ -26,7 +26,7 @@ const LEDGERS: [&[&str]; 5] = [
     &["bench-ledger-hs060.sqlite3"],
 ];
 
-const TASK_DONE: &str = r#"{"type":"task_done","task":"T1"}"#;
+const TASK_DONE: &str = r#"{"type":"bench.task_done","data":{"task":"T1"}}"#;
 
 /// The committed fixture `name`.
 fn fixture(name: &str) -> PathBuf {
@@ -238,7 +238,10 @@ fn reads_and_session_start_create_no_store_beside_an_old_ledger_or_nothing() -> 
 fn the_journal_prints_one_importable_line_per_bench_event_and_no_other() -> TestResult {
     let work = tempfile::tempdir()?;
     let store = work.path().join("events.sqlite3");
-    for event in [TASK_DONE, r#"{"type":"grill_confirmed","plan":"p.md"}"#] {
+    for event in [
+        TASK_DONE,
+        r#"{"type":"bench.grill_confirmed","data":{"plan":"p.md"}}"#,
+    ] {
         let output = anneal_in(work.path())
             .args(["ledger", "--store"])
             .arg(&store)

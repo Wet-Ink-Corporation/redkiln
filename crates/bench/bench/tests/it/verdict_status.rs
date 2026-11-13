@@ -202,9 +202,9 @@ fn a_refused_status_keeps_the_verdict_and_exits_4_with_one_warning() -> TestResu
         (&json!(false), &json!("failed"), &json!("verdict/status:7")),
         "{envelope}"
     );
-    let events = repo.envelope(&["ledger", "query", "--type", "verdict_set"], 0)?;
+    let events = repo.envelope(&["ledger", "query", "--type", "bench.verdict_set"], 0)?;
     assert_eq!(
-        events["data"]["events"][0]["event"]["verdict"],
+        events["data"]["events"][0]["event"]["data"]["verdict"],
         json!("tests_verified"),
         "the verdict is recorded: {events}"
     );
@@ -360,9 +360,9 @@ fn an_unreadable_ssl_cert_file_keeps_the_verdict_and_exits_4_naming_it() -> Test
     let reason = status["reason"].as_str().unwrap_or_default();
     let named = format!("SSL_CERT_FILE ({}) cannot be read: ", bundle.display());
     assert!(reason.starts_with(&named), "{reason}");
-    let events = repo.envelope(&["ledger", "query", "--type", "verdict_set"], 0)?;
+    let events = repo.envelope(&["ledger", "query", "--type", "bench.verdict_set"], 0)?;
     assert_eq!(
-        events["data"]["events"][0]["event"]["verdict"],
+        events["data"]["events"][0]["event"]["data"]["verdict"],
         json!("tests_verified"),
         "the verdict is recorded: {events}"
     );

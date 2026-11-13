@@ -11,7 +11,7 @@ use crate::support::{anneal_in, repo_with_linked_worktree};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-const TASK_DONE: &str = r#"{"type":"task_done","task":"T1"}"#;
+const TASK_DONE: &str = r#"{"type":"bench.task_done","data":{"task":"T1"}}"#;
 
 /// Runs `bench ledger <args>` in `cwd`.
 fn ledger(cwd: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
@@ -69,12 +69,12 @@ fn an_appended_event_is_queried_back_in_the_envelope() -> TestResult {
     assert_eq!(
         (
             &event["type"],
-            &event["task"],
+            &event["data"]["task"],
             &event["actor"],
-            &event["session_id"]
+            &event["session"]
         ),
         (
-            &Value::from("task_done"),
+            &Value::from("bench.task_done"),
             &Value::from("T1"),
             &Value::from("cli"),
             &Value::from("s1")
@@ -85,6 +85,84 @@ fn an_appended_event_is_queried_back_in_the_envelope() -> TestResult {
         event["ts"].as_str().is_some_and(|ts| ts.ends_with('Z')),
         "ts filled: {event}"
     );
+    assert_eq!(
+        (
+            &event["version"],
+            &event["trust"],
+            &event["writer"]["binary"]
+        ),
+        (
+            &Value::from(1),
+            &serde_json::json!({"level": "asserted"}),
+            &Value::from("bench")
+        ),
+        "the keys Bench writes (EV-01): {event}"
+    );
+    assert_eq!(
+        &appended["data"]["event"], event,
+        "append prints the envelope as stored"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn query_and_tail_print_no_registry() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = dir.path().join("ledger.sqlite3");
+    envelope(&ledger_at(dir.path(), &store, &["append", TASK_DONE])?, 0)?;
+
+    for args in [&["query"][..], &["tail"][..]] {
+        let listed = envelope(&ledger_at(dir.path(), &store, args)?, 0)?;
+        let mut keys: Vec<&str> = listed["data"]
+            .as_object()
+            .ok_or("data is an object")?
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["events", "source", "store"],
+            "{args:?}: Core versions each type, so no 0.x registry: {listed}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn type_takes_the_stored_name_and_the_short_name_with_a_warning() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = dir.path().join("ledger.sqlite3");
+    for event in [
+        TASK_DONE,
+        r#"{"type":"bench.grill_confirmed","data":{"plan":"p.md"}}"#,
+    ] {
+        envelope(&ledger_at(dir.path(), &store, &["append", event])?, 0)?;
+    }
+
+    let stored = ledger_at(dir.path(), &store, &["query", "--type", "bench.task_done"])?;
+    let short = ledger_at(dir.path(), &store, &["query", "--type", "task_done"])?;
+    let unknown = ledger_at(
+        dir.path(),
+        &store,
+        &["query", "--type", "bench.task_started"],
+    )?;
+
+    assert_eq!(positions(&envelope(&stored, 0)?), [1], "the stored name");
+    assert!(stored.stderr.is_empty(), "no warning: {stored:?}");
+    assert_eq!(
+        positions(&envelope(&short, 0)?),
+        [1],
+        "the 0.x name still reads"
+    );
+    assert_eq!(
+        String::from_utf8(short.stderr)?,
+        "bench: warning: --type task_done is the 0.x short name; write --type bench.task_done\n",
+        "one CLI-08 warning"
+    );
+    assert_eq!(unknown.status.code(), Some(2), "a usage error: {unknown:?}");
     Ok(())
 }
 
@@ -95,10 +173,16 @@ fn a_bad_event_exits_1_with_an_envelope_and_writes_nothing() -> TestResult {
     let store = dir.path().join("ledger.sqlite3");
 
     for bad in [
-        r#"{"type":"task_started","task":"T1"}"#,
-        r#"{"type":"task_done","task":"T1","extra":1}"#,
-        r#"{"type":"task_done"}"#,
+        r#"{"type":"bench.task_started","data":{"task":"T1"}}"#,
+        r#"{"type":"bench.task_done","data":{"task":"T1","extra":1}}"#,
+        r#"{"type":"bench.task_done","data":{}}"#,
         "not json",
+        // The 0.x flat form and short name, and keys Bench writes itself.
+        r#"{"type":"task_done","task":"T1"}"#,
+        r#"{"type":"task_done","data":{"task":"T1"}}"#,
+        r#"{"type":"bench.task_done","data":{"task":"T1"},"trust":{"level":"witnessed"}}"#,
+        r#"{"type":"bench.task_done","data":{"task":"T1"},"writer":{"binary":"x"}}"#,
+        r#"{"type":"bench.task_done","version":2,"data":{"task":"T1"}}"#,
     ] {
         let output = ledger_at(dir.path(), &store, &["append", bad])?;
         let refused = envelope(&output, 1)?;
@@ -127,8 +211,11 @@ fn query_filters_and_tail_keeps_the_last_events() -> TestResult {
     let store = dir.path().join("ledger.sqlite3");
     for (event, session) in [
         (TASK_DONE, "s1"),
-        (r#"{"type":"task_done","task":"T2"}"#, "s2"),
-        (r#"{"type":"round_started","pr":7,"round":1}"#, "s2"),
+        (r#"{"type":"bench.task_done","data":{"task":"T2"}}"#, "s2"),
+        (
+            r#"{"type":"bench.round_started","data":{"pr":7,"round":1}}"#,
+            "s2",
+        ),
     ] {
         envelope(
             &ledger_at(dir.path(), &store, &["append", event, "--session", session])?,
@@ -137,7 +224,7 @@ fn query_filters_and_tail_keeps_the_last_events() -> TestResult {
     }
 
     let by_type = envelope(
-        &ledger_at(dir.path(), &store, &["query", "--type", "task_done"])?,
+        &ledger_at(dir.path(), &store, &["query", "--type", "bench.task_done"])?,
         0,
     )?;
     let by_tag = envelope(
@@ -162,7 +249,10 @@ fn query_filters_and_tail_keeps_the_last_events() -> TestResult {
 fn journal_prints_every_event_as_one_json_line() -> TestResult {
     let dir = tempfile::tempdir()?;
     let store = dir.path().join("ledger.sqlite3");
-    for event in [TASK_DONE, r#"{"type":"grill_confirmed","plan":"p.md"}"#] {
+    for event in [
+        TASK_DONE,
+        r#"{"type":"bench.grill_confirmed","data":{"plan":"p.md"}}"#,
+    ] {
         envelope(&ledger_at(dir.path(), &store, &["append", event])?, 0)?;
     }
 
@@ -225,7 +315,7 @@ fn twenty_parallel_processes_append_twenty_events() -> TestResult {
                 .arg(&store)
                 .args([
                     "append",
-                    &format!(r#"{{"type":"task_done","task":"T{n}"}}"#),
+                    &format!(r#"{{"type":"bench.task_done","data":{{"task":"T{n}"}}}}"#),
                 ])
                 .stdout(std::process::Stdio::null())
                 .spawn()
@@ -251,9 +341,9 @@ fn append_refuses_a_by_on_an_approval_or_a_verdict_as_a_usage_error() -> TestRes
     let store = dir.path().join("ledger.sqlite3");
 
     for claimed in [
-        r#"{"type":"verdict_set","pr":7,"verdict":"approved","by":{"actor":"human","via":"mod"}}"#,
-        r#"{"type":"plan_approved","plan":"p.md","hash":"sha256:00","by":{"actor":"human"}}"#,
-        r#"{"type":"verdict_set","pr":7,"verdict":"approved","by":{"via":"terminal"}}"#,
+        r#"{"type":"bench.verdict_set","data":{"pr":7,"verdict":"approved","by":{"actor":"human","via":"mod"}}}"#,
+        r#"{"type":"bench.plan_approved","data":{"plan":"p.md","hash":"sha256:00","by":{"actor":"human"}}}"#,
+        r#"{"type":"bench.verdict_set","data":{"pr":7,"verdict":"approved","by":{"via":"terminal"}}}"#,
     ] {
         let output = ledger_at(dir.path(), &store, &["append", claimed])?;
         let stderr = String::from_utf8(output.stderr)?;
@@ -281,8 +371,8 @@ fn append_still_takes_an_approval_or_a_verdict_without_a_by() -> TestResult {
     let store = dir.path().join("ledger.sqlite3");
 
     for event in [
-        r#"{"type":"verdict_set","pr":7,"verdict":"approved"}"#,
-        r#"{"type":"plan_approved","plan":"p.md","hash":"sha256:00"}"#,
+        r#"{"type":"bench.verdict_set","data":{"pr":7,"verdict":"approved"}}"#,
+        r#"{"type":"bench.plan_approved","data":{"plan":"p.md","hash":"sha256:00"}}"#,
     ] {
         envelope(&ledger_at(dir.path(), &store, &["append", event])?, 0)?;
     }

@@ -23,8 +23,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use crate::store::{
-    EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store, StoreError, TagKey,
-    Timestamp,
+    CoreEnvelope, EventEnvelope, EventKind, Filter, LedgerEvent, LedgerTag, Recorded, Store,
+    StoreError, StoredEvent, TagKey, Timestamp,
 };
 use bench_contract::event::{Mode, ModeSet};
 use clap::{Args, Subcommand};
@@ -172,13 +172,12 @@ pub(crate) fn run<O: Write>(
         });
     }
     let location = paths::ledger_store(None, lookup, cwd)?;
-    let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
+    let stored = legacy_import::open_for_command(&location)?.append_stored(&envelope)?;
     let recorded = Recording {
         mode,
         subcommand,
-        envelope: &envelope,
         location: &location,
-        position,
+        stored: &stored,
     };
     emit(&recorded, clean, out)
 }
@@ -187,30 +186,26 @@ pub(crate) fn run<O: Write>(
 struct Recording<'a> {
     mode: Mode,
     subcommand: &'static str,
-    envelope: &'a EventEnvelope,
     location: &'a StoreLocation,
-    position: u64,
+    stored: &'a StoredEvent,
 }
 
-/// `data` of `bench mode`: the event's payload (`type`, `mode`, `clean`, `plan`, `tree`),
-/// its worktree and where it was recorded.
+/// `data` of `bench mode`: the `mode_set` event as stored (its worktree, mode, clean flag,
+/// plan and tree), and where it was recorded.
 #[derive(Debug, Serialize)]
 struct ModeData<'a> {
-    #[serde(flatten)]
-    event: &'a LedgerEvent,
-    worktree: Option<&'a str>,
     store: &'a Path,
     source: StoreSource,
     position: u64,
+    event: &'a CoreEnvelope,
 }
 
 fn emit<O: Write>(recorded: &Recording<'_>, clean: bool, out: &mut O) -> Result<Code, CliError> {
     let data = ModeData {
-        event: &recorded.envelope.event,
-        worktree: recorded.envelope.worktree.as_deref(),
         store: &recorded.location.path,
         source: recorded.location.source,
-        position: recorded.position,
+        position: recorded.stored.position,
+        event: &recorded.stored.event,
     };
     let findings = if clean {
         Vec::new()

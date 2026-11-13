@@ -51,5 +51,5 @@ Takes a change that passed `verify` through review, merge, migration and rollout
 ## Verification
 
 - `bench verdict valid --pr <n>` exits 0 for the merged head.
-- `bench ledger query --tag migration:<id>` ends with `migrate.contract`.
+- `bench ledger query --tag migration:<id>` ends with `bench.migrate.contract`.
 - Every rollout stage has an `bench rollout decide` exit 0 behind it.

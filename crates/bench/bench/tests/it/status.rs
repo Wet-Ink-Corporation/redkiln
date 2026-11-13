@@ -46,7 +46,11 @@ fn without_a_ledger_status_exits_0_and_creates_none() -> TestResult {
 fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
     let work = tempfile::tempdir()?;
     let appended = anneal_in(work.path())
-        .args(["ledger", "append", r#"{"type":"task_done","task":"T1"}"#])
+        .args([
+            "ledger",
+            "append",
+            r#"{"type":"bench.task_done","data":{"task":"T1"}}"#,
+        ])
         .env("REDKILN_STORE", STORE)
         .output()?;
     assert!(appended.status.success(), "the event was appended");
@@ -58,13 +62,14 @@ fn with_a_ledger_status_exits_0_and_lists_its_events() -> TestResult {
         "bench.ledger-append/1",
         &envelope(&appended)?,
         &[work.path()],
-        &[],
+        // The writer's version is the build's, which moves with every release.
+        &["/data/event/writer/version"],
     )?;
     golden(
         "bench.ledger-tail/1",
         &envelope(&tail)?,
         &[work.path()],
-        &[],
+        &["/data/events/*/event/writer/version"],
     )?;
 
     let output = anneal_in(work.path())

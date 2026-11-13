@@ -55,7 +55,7 @@ fn envelope(output: &Output, code: i32) -> TestResult<Value> {
     crate::support::envelope(output)
 }
 
-/// The events of type `kind` in the ledger the commands in `dir` use.
+/// The payloads (`data`) of the events of type `kind` in the ledger the commands in `dir` use.
 fn events(dir: &Path, kind: &str) -> TestResult<Vec<Value>> {
     let output = anneal_in(dir)
         .env("REDKILN_STORE", dir.join("ledger.sqlite3"))
@@ -68,7 +68,7 @@ fn events(dir: &Path, kind: &str) -> TestResult<Vec<Value>> {
         .and_then(Value::as_array)
         .ok_or("events")?
         .iter()
-        .filter_map(|recorded| recorded.get("event").cloned())
+        .filter_map(|recorded| recorded.pointer("/event/data").cloned())
         .collect())
 }
 
@@ -86,7 +86,7 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
     crate::support::golden("bench.orchestrate-park/1", &parked, &[dir.path()], &[])?;
     assert!(output.stderr.is_empty(), "{output:?}");
     assert_eq!(parked["data"]["parked"], json!(false));
-    let recorded = events(dir.path(), "bridge.unavailable")?;
+    let recorded = events(dir.path(), "bench.bridge.unavailable")?;
     let [event] = recorded.as_slice() else {
         return Err(format!("one bridge.unavailable: {recorded:?}").into());
     };
@@ -96,7 +96,10 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
         reason.starts_with("WEIGHIN_BIN names no file: "),
         "{reason}"
     );
-    assert_eq!(events(dir.path(), "weighin_parked")?, Vec::<Value>::new());
+    assert_eq!(
+        events(dir.path(), "bench.weighin_parked")?,
+        Vec::<Value>::new()
+    );
     Ok(())
 }
 
@@ -129,7 +132,7 @@ fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() ->
     crate::support::golden("bench.orchestrate-fan-out/1", &fan_out, &[dir.path()], &[])?;
     let rule = envelope(&rule, 0)?;
     assert_eq!(
-        events(dir.path(), "orchestrate.ruled")?.len(),
+        events(dir.path(), "bench.orchestrate.ruled")?.len(),
         1,
         "the ruling is recorded once"
     );
@@ -190,7 +193,7 @@ fn a_park_pipes_one_batch_and_a_retry_names_the_same_item_recorded_once() -> Tes
     assert_eq!(batches[0][0]["op"], json!("raise"));
     assert_eq!(batches[0][1]["op"], json!("defer"));
     assert_eq!(batches[0][1]["id"], json!("@1"));
-    let recorded = events(dir.path(), "weighin_parked")?;
+    let recorded = events(dir.path(), "bench.weighin_parked")?;
     let parked: Vec<(&Value, &Value, Option<&Value>)> = recorded
         .iter()
         .map(|event| (&event["item_id"], &event["ticket"], event.get("decision")))

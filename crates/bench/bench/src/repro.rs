@@ -22,7 +22,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
+use crate::store::{CoreEnvelope, EventEnvelope, LedgerEvent, Timestamp};
 use bench_contract::event::ReproRed;
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -243,7 +243,7 @@ struct Appended<'a> {
     store: &'a Path,
     source: StoreSource,
     position: u64,
-    event: &'a EventEnvelope,
+    event: &'a CoreEnvelope,
 }
 
 /// Appends the attempt's envelope (stamped now) to the ledger `locate` resolves only when
@@ -264,8 +264,8 @@ fn finish<O: Write>(
         Outcome::Red => {
             envelope.ts = Timestamp::now()?;
             let location = locate()?;
-            let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
-            Some((location, position))
+            let stored = legacy_import::open_for_command(&location)?.append_stored(&envelope)?;
+            Some((location, stored))
         }
         Outcome::Green | Outcome::TimedOut => None,
     };
@@ -283,11 +283,11 @@ fn finish<O: Write>(
         duration_ms: u64::try_from(run.duration.as_millis()).unwrap_or(u64::MAX),
         timeout_secs,
         recorded: appended.is_some(),
-        ledger: appended.as_ref().map(|(location, position)| Appended {
+        ledger: appended.as_ref().map(|(location, stored)| Appended {
             store: &location.path,
             source: location.source,
-            position: *position,
-            event: &envelope,
+            position: stored.position,
+            event: &stored.event,
         }),
     };
     Envelope::new(CommandName::Repro, Some("record"), code, data)

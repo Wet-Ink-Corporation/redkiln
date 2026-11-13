@@ -86,15 +86,17 @@ impl Session {
         let off = anneal_in(self.root()).args(["mode", "off"]).output()?;
         let entered: Value = crate::support::envelope(&off)?;
         let worktree = entered
-            .pointer("/data/worktree")
+            .pointer("/data/event/worktree")
             .cloned()
             .ok_or("mode reports its worktree")?;
         let run = json!({
-            "type": "test_run",
-            "command": "cargo test",
-            "outcome": "green",
-            "exit": 0,
-            "duration_ms": duration_ms,
+            "type": "bench.test_run",
+            "data": {
+                "command": "cargo test",
+                "outcome": "green",
+                "exit": 0,
+                "duration_ms": duration_ms,
+            },
             "ts": ts,
             "worktree": worktree,
         });
@@ -552,7 +554,7 @@ fn a_block_is_recorded_as_stop_blocked_in_an_existing_ledger() -> TestResult {
     assert!(session.stop("Fixed.")?.block.is_some(), "blocked");
 
     let query = anneal_in(session.root())
-        .args(["ledger", "query", "--type", "stop_blocked"])
+        .args(["ledger", "query", "--type", "bench.stop_blocked"])
         .output()?;
     let listing: Value = crate::support::envelope(&query)?;
     let points: Vec<&str> = listing
@@ -560,7 +562,11 @@ fn a_block_is_recorded_as_stop_blocked_in_an_existing_ledger() -> TestResult {
         .and_then(Value::as_array)
         .ok_or("events")?
         .iter()
-        .filter_map(|recorded| recorded.pointer("/event/point").and_then(Value::as_str))
+        .filter_map(|recorded| {
+            recorded
+                .pointer("/event/data/point")
+                .and_then(Value::as_str)
+        })
         .collect();
     assert_eq!(points, ["completeness.claim"], "one event per hard gate");
     Ok(())

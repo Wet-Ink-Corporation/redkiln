@@ -16,12 +16,12 @@ Turns requirements the human confirmed into a spec a script can check, written i
 
 ## When to use
 
-- The requirements are confirmed (a `grill_confirmed` event is in the ledger, or the human says they are agreed) and no spec exists yet.
+- The requirements are confirmed (a `bench.grill_confirmed` event is in the ledger, or the human says they are agreed) and no spec exists yet.
 - Not when the request is still new or vague (use `grill`), nor when the spec is written and needs tasks (use `plan`).
 
 ## Process
 
-1. **Copy the template.** Copy it to `docs/specs/<topic>.md` and set its `Tree:` line to the confirmed design tree, relative to the spec; `plan approve` refuses until that tree's `grill_confirmed` matches. It's working if all seven `##` sections are there.
+1. **Copy the template.** Copy it to `docs/specs/<topic>.md` and set its `Tree:` line to the confirmed design tree, relative to the spec; `plan approve` refuses until that tree's `bench.grill_confirmed` matches. It's working if all seven `##` sections are there.
 2. **Fill from what was confirmed.** Problem, Users and Requirements in the human's words, from the design tree and the conversation, nothing else. It's working if every requirement traces to a confirmed answer.
 3. **Write the criteria.** Read the code they touch first. One list item per observable behaviour, in the EARS form that fits: `WHEN`, `WHILE`, `IF … THEN`, `WHERE`, or ubiquitous. Give each exemption and stored artifact `IF … THEN` criteria for misuse, and each artifact a criterion that one store alone holds it. It's working if each criterion could become one test.
 4. **Scope it out.** List what it will not do, and why; record each out-of-scope ruling in `.out-of-scope/`. It's working if Out of Scope is not empty.

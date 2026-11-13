@@ -1,9 +1,9 @@
-//! Bench's events: the 17 types, their payloads and the 0.x flat form the `bench ledger` CLI
-//! reads and writes.
+//! Bench's events: the 17 types, their payloads and the 0.x flat form anneal's ledger wrote.
 //!
 //! Each type is stored as `bench.<short name>` ([`EventKind::stored`]), version 1, durable
-//! (SPEC EV-03, EV-04, EV-14); the `bench` CLI still names it by its short name
-//! ([`EventKind::as_str`]) until step 4 of `docs/plan/move-2-bench.md`. Every payload field name
+//! (SPEC EV-03, EV-04, EV-14); since step 4 of `docs/plan/move-2-bench.md` the `bench ledger`
+//! CLI names it by that stored name too, and reads the short name ([`EventKind::as_str`]) only
+//! as a `--type` filter, with a warning. Every payload field name
 //! is a persisted JSON key, and every optional field is `#[serde(default)]`, so an event written
 //! before the field existed still reads; changing a payload's bytes needs a new version (EV-06).
 //!
@@ -35,9 +35,10 @@ pub use payload::{
     VerdictSource, WeighinParked,
 };
 
-/// The version of anneal's 0.x event registry, which `bench ledger` still prints (`registry`).
+/// The version of anneal's 0.x event registry, the last whose shapes the one-time import reads.
 ///
-/// Frozen at 10: Core versions each type on its own (EV-06). It was bumped when an event type
+/// Frozen at 10: Core versions each type on its own (EV-06), and `bench ledger` no longer
+/// prints it (step 4). It was bumped when an event type
 /// or a payload field was added, except `by` on `plan_approved` and `verdict_set` (#62), added
 /// at 9 without a bump. Version 10 added the `wip` status of `subagent_status`.
 pub const REGISTRY_VERSION: u32 = 10;
@@ -104,7 +105,8 @@ impl EventKind {
         Self::OrchestrateRuled,
     ];
 
-    /// The short name, as the `bench` CLI and anneal's 0.x ledger write it: snake case.
+    /// The short name, as anneal's 0.x ledger wrote it: snake case. Bench writes it only
+    /// inside its in-memory flat form and the outputs of the commands that record an event.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -152,6 +154,13 @@ impl EventKind {
         }
     }
 
+    /// The kind stored as `name` ([`EventKind::stored`], `bench.task_done`), or `None` for any
+    /// other name: another namespace's type, or a short name, which [`str::parse`] reads.
+    #[must_use]
+    pub fn from_stored(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.stored() == name)
+    }
+
     /// The key of the subject tag events of this type carry.
     #[must_use]
     pub const fn subject(self) -> SubjectKey {
@@ -193,7 +202,7 @@ pub struct UnknownEventKind {
 impl FromStr for EventKind {
     type Err = UnknownEventKind;
 
-    /// Parses a short name (the CLI's), not a stored `bench.` one.
+    /// Parses a short name (the 0.x one), not a stored `bench.` one.
     fn from_str(name: &str) -> Result<Self, Self::Err> {
         Self::ALL
             .into_iter()
@@ -261,7 +270,11 @@ impl fmt::Display for SubjectKey {
 }
 
 /// An event in the 0.x flat form: its short type (the `type` key) and its payload, flattened
-/// into one JSON object. The `bench ledger` CLI reads and writes this form until step 4.
+/// into one JSON object.
+///
+/// The form anneal's ledger records have, which the one-time import reads, and Bench's
+/// in-memory event; `bench ledger` reads and prints Core's EV-01 envelope instead (its `type`
+/// [`EventKind::stored`], this payload under `data`) since step 4.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum BenchEvent {

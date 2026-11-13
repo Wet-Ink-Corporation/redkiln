@@ -22,7 +22,8 @@ const PLAN: &str = "plan.md";
 /// The human's confirmation, as recorded in `events.jsonl`.
 const QUOTE: &str = "Yes, that's it: only notes list, compact JSON, go ahead.";
 const SESSION: &str = "dry-run";
-/// Envelope fields that differ from run to run, left out of `events.jsonl`.
+/// Envelope fields that differ from run to run, left out of `events.jsonl`; `writer.version`
+/// moves with every release, so it goes too, while the writer's `binary` and `spec` stay.
 const VOLATILE: [&str; 4] = ["ts", "worktree", "branch", "head"];
 
 fn fixture() -> PathBuf {
@@ -106,11 +107,14 @@ fn recorded_events() -> Result<Vec<Value>, Box<dyn Error>> {
         .collect::<Result<_, _>>()?)
 }
 
-/// `{position, event}` with the [`VOLATILE`] keys removed from the event.
+/// `{position, event}` with the [`VOLATILE`] keys and `writer.version` removed from the event.
 fn normalised(mut record: Value) -> Value {
     if let Some(event) = record.get_mut("event").and_then(Value::as_object_mut) {
         for key in VOLATILE {
             event.remove(key);
+        }
+        if let Some(writer) = event.get_mut("writer").and_then(Value::as_object_mut) {
+            writer.remove("version");
         }
     }
     record
@@ -136,7 +140,12 @@ fn the_design_tree_has_no_open_question_and_its_confirmation_is_appended() -> Te
     let frontier = anneal(work.path(), &["grill", "frontier", "--tree", TREE], 0)?;
     let confirmed = confirm(work.path())?;
     golden("bench.grill-frontier/1", &frontier, &[work.path()], &[])?;
-    golden("bench.grill-confirm/1", &confirmed, &[work.path()], &[])?;
+    golden(
+        "bench.grill-confirm/1",
+        &confirmed,
+        &[work.path()],
+        &["/data/event/writer/version"],
+    )?;
 
     let data = &frontier["data"];
     assert_eq!(
@@ -244,7 +253,7 @@ fn the_recorded_hashes_are_those_of_the_checked_in_tree_and_plan() -> TestResult
 
     let hashes: Vec<&Value> = recorded
         .iter()
-        .map(|record| &record["event"]["hash"])
+        .map(|record| &record["event"]["data"]["hash"])
         .collect();
 
     assert_eq!(
@@ -272,10 +281,10 @@ fn the_replayed_ledger_events_equal_the_recorded_ones() -> TestResult {
         &queried,
         &[work.path()],
         &[
+            // EV-01 leaves out the worktree, branch and head outside git, where the 0.x form
+            // wrote them as null.
             "/data/events/*/event/ts",
-            "/data/events/*/event/worktree",
-            "/data/events/*/event/branch",
-            "/data/events/*/event/head",
+            "/data/events/*/event/writer/version",
         ],
     )?;
 

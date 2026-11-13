@@ -327,7 +327,11 @@ fn dispatch<O: Write, E: Write>(
     match command {
         Command::Ledger(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-            ledger::run(args, &cwd, |var| std::env::var_os(var), out)
+            let place = ledger::Place {
+                cwd: &cwd,
+                lookup: |var: &str| std::env::var_os(var),
+            };
+            ledger::run(args, &place, out, err)
         }
         Command::Grill(args) => run_grill(args, out),
         Command::Plan(args) => {

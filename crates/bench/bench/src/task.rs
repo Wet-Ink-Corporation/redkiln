@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, TagError, Timestamp};
+use crate::store::{EventEnvelope, LedgerEvent, Store, StoredEvent, TagError, Timestamp};
 use bench_contract::event::{TaskDone, TestOutcome, TestRun};
 use clap::{Args, Subcommand};
 use serde::Serialize;
@@ -229,18 +229,12 @@ pub(crate) fn run<O: Write>(
 }
 
 #[derive(Debug, Serialize)]
-struct Recorded<'a> {
-    position: u64,
-    event: &'a EventEnvelope,
-}
-
-#[derive(Debug, Serialize)]
 struct Data<'a> {
     task: &'a str,
     command: &'a str,
     store: &'a Path,
     source: StoreSource,
-    events: Vec<Recorded<'a>>,
+    events: &'a [StoredEvent],
 }
 
 fn done<O: Write>(
@@ -286,13 +280,7 @@ fn done<O: Write>(
         command: &command,
         store: &location.path,
         source: location.source,
-        events: events
-            .iter()
-            .map(|(position, event)| Recorded {
-                position: *position,
-                event,
-            })
-            .collect(),
+        events: &events,
     };
     let (code, findings) = if run.is_green() {
         (exit_codes::TASK_GREEN, Vec::new())
@@ -364,21 +352,20 @@ fn worktree_of(cwd: &Path) -> Result<Option<String>, CliError> {
 }
 
 /// Appends `run`'s `test_run` to the ledger at `store`, then `task_done` only when the run is
-/// green, and returns each event with its position.
+/// green, and returns each as stored, read back at its position.
 fn record<'a>(
     stamp: impl Into<Stamp<'a>>,
     run: &Run,
     command: &str,
     store: &Path,
-) -> Result<Vec<(u64, EventEnvelope)>, CliError> {
+) -> Result<Vec<StoredEvent>, CliError> {
     let stamp = stamp.into();
     let store = Store::open(store)?;
     let args = stamp.args;
     let test_run = stamp.stamp(LedgerEvent::TestRun(run.event(&args.id, command)))?;
-    let mut events = vec![(store.append(&test_run)?, test_run)];
+    let mut events = vec![store.append_stored(&test_run)?];
     if run.is_green() {
-        let done = stamp.stamp(args.task_done())?;
-        events.push((store.append(&done)?, done));
+        events.push(store.append_stored(&stamp.stamp(args.task_done())?)?);
     }
     Ok(events)
 }

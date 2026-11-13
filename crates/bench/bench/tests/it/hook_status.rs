@@ -98,7 +98,7 @@ impl Repo {
     /// The recorded `subagent_status` envelopes.
     fn statuses(&self) -> Result<Vec<Value>, Box<dyn Error>> {
         let output = anneal_in(self.root())
-            .args(["ledger", "query", "--type", "subagent_status"])
+            .args(["ledger", "query", "--type", "bench.subagent_status"])
             .output()?;
         assert_eq!(output.status.code(), Some(0), "{output:?}");
         let listing: Value = crate::support::envelope(&output)?;
@@ -120,9 +120,10 @@ fn a_malformed_status_is_recorded_as_a_violation_not_a_crash() -> TestResult {
     repo.stop(Some("Status: IN_PROGRESS\nGate: red"))?;
 
     let statuses = repo.statuses()?;
-    let [event] = statuses.as_slice() else {
+    let [envelope] = statuses.as_slice() else {
         return Err(format!("one subagent_status, got {statuses:?}").into());
     };
+    let event = &envelope["data"];
     assert_eq!(event["status"], Value::Null, "no known status");
     let violation = event["violation"].as_str().ok_or("a violation")?;
     assert!(
@@ -145,9 +146,10 @@ fn temper_wip_is_recorded_as_wip_without_a_violation() -> TestResult {
     repo.stop(Some(&GOOD.replace("Status: DONE", "Status: WIP")))?;
 
     let statuses = repo.statuses()?;
-    let [event] = statuses.as_slice() else {
+    let [envelope] = statuses.as_slice() else {
         return Err(format!("one subagent_status, got {statuses:?}").into());
     };
+    let event = &envelope["data"];
     assert_eq!(
         (&event["status"], &event["violation"], &event["missing"]),
         (&json!("wip"), &Value::Null, &json!([])),
@@ -164,9 +166,10 @@ fn a_good_status_is_recorded_with_the_agent_timing_and_tokens() -> TestResult {
     repo.stop(Some(GOOD))?;
 
     let statuses = repo.statuses()?;
-    let [event] = statuses.as_slice() else {
+    let [envelope] = statuses.as_slice() else {
         return Err(format!("one subagent_status, got {statuses:?}").into());
     };
+    let event = &envelope["data"];
     assert_eq!(
         (
             &event["agent"],
@@ -175,7 +178,7 @@ fn a_good_status_is_recorded_with_the_agent_timing_and_tokens() -> TestResult {
             &event["violation"],
             &event["duration_ms"],
             &event["tokens"],
-            &event["session_id"],
+            &envelope["session"],
         ),
         (
             &json!("temper:rust-implementer"),
@@ -201,7 +204,7 @@ fn without_last_assistant_message_the_transcripts_last_message_is_read() -> Test
     let statuses = repo.statuses()?;
     let violation = statuses
         .first()
-        .and_then(|event| event["violation"].as_str())
+        .and_then(|event| event["data"]["violation"].as_str())
         .ok_or("a violation")?;
     assert!(
         violation.starts_with("no Status: line"),

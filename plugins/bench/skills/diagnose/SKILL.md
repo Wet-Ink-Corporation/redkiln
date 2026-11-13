@@ -48,5 +48,5 @@ Finds a failure's root cause from a loop that shows it on demand. In `bench mode
 
 ## Verification
 
-- `bench ledger query --type repro_red` shows the reproduction, with this worktree.
+- `bench ledger query --type bench.repro_red` shows the reproduction, with this worktree.
 - The reproduction passes and stays in the suite.

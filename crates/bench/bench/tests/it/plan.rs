@@ -77,7 +77,7 @@ fn approvals(cwd: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
             "ledger",
             "query",
             "--type",
-            "plan_approved",
+            "bench.plan_approved",
             "--store",
             STORE,
         ],
@@ -124,7 +124,7 @@ fn an_approved_plan_checks_current_until_one_byte_changes() -> TestResult {
     assert_eq!(
         events
             .first()
-            .and_then(|event| event.pointer("/event/plan")),
+            .and_then(|event| event.pointer("/event/data/plan")),
         Some(&Value::from(PLAN)),
         "the plan id is its path"
     );
@@ -409,7 +409,7 @@ fn a_model_approved_plan_records_actor_model_and_via_bash() -> TestResult {
             envelope.pointer("/data/by"),
             events
                 .iter()
-                .map(|event| event.pointer("/event/by"))
+                .map(|event| event.pointer("/event/data/by"))
                 .collect::<Vec<_>>(),
         ),
         (Some(&by), vec![Some(&by)]),
@@ -446,7 +446,7 @@ fn a_human_approving_what_a_model_approved_is_recorded_as_the_latest_approval() 
     let events = approvals(work.path())?;
     let approvers: Vec<Option<&Value>> = events
         .iter()
-        .map(|event| event.pointer("/event/by/actor"))
+        .map(|event| event.pointer("/event/data/by/actor"))
         .collect();
     assert_eq!(
         approvers,

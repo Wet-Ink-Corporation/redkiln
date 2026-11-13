@@ -51,4 +51,4 @@ Turns a spec with no open questions into tasks a fresh session can build test-fi
 
 - `bench lint plan docs/plans/<feature>.md` exits 0.
 - `bench plan check docs/plans/<feature>.md` exits 0.
-- `bench ledger query --type plan_approved` shows the plan's path and its `sha256:` hash.
+- `bench ledger query --type bench.plan_approved` shows the plan's path and its `sha256:` hash.

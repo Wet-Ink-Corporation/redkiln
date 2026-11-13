@@ -3,15 +3,30 @@
   "ok": true,
   "command": "mode build",
   "data": {
-    "clean": true,
-    "mode": "build",
-    "plan": "define/plan.md",
+    "event": {
+      "actor": "cli",
+      "data": {
+        "clean": true,
+        "mode": "build",
+        "plan": "define/plan.md",
+        "tree": "define/design-tree.json"
+      },
+      "trust": {
+        "level": "asserted"
+      },
+      "ts": "<time>",
+      "type": "bench.mode_set",
+      "version": 1,
+      "worktree": "<varies>",
+      "writer": {
+        "binary": "bench",
+        "spec": "1.0.0",
+        "version": "<varies>"
+      }
+    },
     "position": 1,
     "source": "git_common_dir",
-    "store": "<root>/.git/redkiln/events.sqlite3",
-    "tree": "define/design-tree.json",
-    "type": "mode_set",
-    "worktree": "<varies>"
+    "store": "<root>/.git/redkiln/events.sqlite3"
   },
   "findings": [],
   "proves": "the mode was recorded for this worktree, with whether its tree was clean",

@@ -5,13 +5,20 @@
   "data": {
     "event": {
       "actor": "cli",
-      "branch": null,
-      "head": null,
-      "session_id": null,
-      "task": "T1",
+      "data": {
+        "task": "T1"
+      },
+      "trust": {
+        "level": "asserted"
+      },
       "ts": "<time>",
-      "type": "task_done",
-      "worktree": null
+      "type": "bench.task_done",
+      "version": 1,
+      "writer": {
+        "binary": "bench",
+        "spec": "1.0.0",
+        "version": "<varies>"
+      }
     },
     "position": 1,
     "source": "env",
