@@ -7,7 +7,7 @@ use crate::store::LedgerEvent;
 use bench_contract::event::{Verdict, VerdictSet, VerdictSource};
 use serde_json::{Value, json};
 
-use super::{Fixture, PLAN, append, build_mode};
+use super::{Fixture, PLAN, append, build_mode, with_store};
 use crate::test_repo::Setup;
 
 /// The keys of the envelope's findings, in order.
@@ -41,7 +41,7 @@ fn an_unborn_head_has_no_verdict_section_and_no_finding() -> Setup<()> {
     assert_eq!(code, 0, "{envelope}");
     assert_eq!(
         envelope["data"],
-        json!({"schema": 1}),
+        with_store(&fixture, json!({}))?,
         "a verdict exists, but HEAD names no commit"
     );
     assert_eq!(

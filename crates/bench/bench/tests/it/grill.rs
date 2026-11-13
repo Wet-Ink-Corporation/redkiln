@@ -266,13 +266,13 @@ fn confirm_appends_one_grill_confirmed_with_the_tree_hash_and_the_quote() -> Tes
     assert_eq!(
         (
             &event["type"],
-            &event["plan"],
-            &event["hash"],
-            &event["quote"],
-            &event["session_id"]
+            &event["data"]["plan"],
+            &event["data"]["hash"],
+            &event["data"]["quote"],
+            &event["session"]
         ),
         (
-            &json!("grill_confirmed"),
+            &json!("bench.grill_confirmed"),
             &json!("tree.json"),
             &json!(sha256_hex(&bytes)?),
             &json!(quote),
@@ -282,7 +282,7 @@ fn confirm_appends_one_grill_confirmed_with_the_tree_hash_and_the_quote() -> Tes
     );
     assert_eq!(
         result["data"]["event"], *event,
-        "the envelope shows the event"
+        "confirm prints the event as the ledger stores it"
     );
     Ok(())
 }

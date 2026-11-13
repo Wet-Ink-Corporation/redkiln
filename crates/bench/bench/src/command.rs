@@ -82,8 +82,8 @@ const STATUS_PROVES: &str = "the ledger and the anneal home's state files were r
 
 /// What `status` does not prove, out of `CommandName::does_not_prove` to keep it short.
 const STATUS_DOES_NOT_PROVE: &str = "that the recorded work was done or done well, or that the \
-    state is still current when it is shown: an absent section had no data, and one that could \
-    not be read is a finding";
+    state is still current when it is shown: a null section had no data or was not asked for, \
+    and one that could not be read is a finding";
 
 /// `snapshot`'s claim, out of `CommandName::proves` to keep that function short.
 const SNAPSHOT_PROVES: &str =

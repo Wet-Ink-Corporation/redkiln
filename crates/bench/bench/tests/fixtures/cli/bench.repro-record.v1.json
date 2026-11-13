@@ -10,14 +10,23 @@
     "ledger": {
       "event": {
         "actor": "cli",
-        "branch": null,
-        "head": null,
-        "session_id": "s1",
-        "task": "bug-7",
-        "test": "git definitely-not-a-command",
+        "data": {
+          "task": "bug-7",
+          "test": "git definitely-not-a-command"
+        },
+        "session": "s1",
+        "trust": {
+          "level": "asserted"
+        },
         "ts": "<time>",
-        "type": "repro_red",
-        "worktree": "<varies>"
+        "type": "bench.repro_red",
+        "version": 1,
+        "worktree": "<varies>",
+        "writer": {
+          "binary": "bench",
+          "spec": "1.0.0",
+          "version": "<varies>"
+        }
       },
       "position": 2,
       "source": "git_common_dir",

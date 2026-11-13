@@ -189,7 +189,7 @@ impl Repo {
 
     /// The `gate_blocked` events, through `bench ledger query`.
     fn blocked(&self) -> Result<Vec<Value>, Box<dyn Error>> {
-        let envelope = self.anneal(&["ledger", "query", "--type", "gate_blocked"], 0)?;
+        let envelope = self.anneal(&["ledger", "query", "--type", "bench.gate_blocked"], 0)?;
         Ok(envelope
             .pointer("/data/events")
             .and_then(Value::as_array)
@@ -300,25 +300,30 @@ fn mode_build_records_the_mode_with_the_plan_and_tree_relative_to_the_root() -> 
         "bench.mode-build/1",
         &envelope,
         &[repo.path()],
-        &["/data/worktree"],
+        &["/data/event/worktree", "/data/event/writer/version"],
     )?;
     for (pointer, expected) in [
-        ("/data/mode", json!("build")),
-        ("/data/clean", json!(true)),
-        ("/data/plan", json!(PLAN)),
-        ("/data/tree", json!(TREE)),
+        ("/data/event/type", json!("bench.mode_set")),
+        ("/data/event/data/mode", json!("build")),
+        ("/data/event/data/clean", json!(true)),
+        ("/data/event/data/plan", json!(PLAN)),
+        ("/data/event/data/tree", json!(TREE)),
     ] {
         assert_eq!(envelope.pointer(pointer), Some(&expected), "{pointer}");
     }
-    let events = repo.anneal(&["ledger", "query", "--type", "mode_set"], 0)?;
+    let events = repo.anneal(&["ledger", "query", "--type", "bench.mode_set"], 0)?;
     let event = events
         .pointer("/data/events/0/event")
         .ok_or("one mode_set")?;
-    assert_eq!(event.get("plan"), Some(&json!(PLAN)), "{event}");
-    assert_eq!(event.get("tree"), Some(&json!(TREE)), "{event}");
+    assert_eq!(event.pointer("/data/plan"), Some(&json!(PLAN)), "{event}");
+    assert_eq!(event.pointer("/data/tree"), Some(&json!(TREE)), "{event}");
     assert!(
         event.get("worktree").and_then(Value::as_str).is_some(),
         "tagged with the worktree: {event}"
+    );
+    assert_eq!(
+        envelope["data"]["event"], *event,
+        "mode prints the event as the ledger stores it"
     );
     Ok(())
 }
@@ -332,7 +337,7 @@ fn mode_build_on_a_dirty_tree_records_clean_false_with_a_finding_and_exits_0() -
     let envelope = repo.build()?;
 
     assert_eq!(
-        envelope.pointer("/data/clean"),
+        envelope.pointer("/data/event/data/clean"),
         Some(&json!(false)),
         "recorded as not clean"
     );
@@ -574,12 +579,12 @@ fn a_denial_appends_gate_blocked_naming_the_precondition() -> TestResult {
     };
     let event = recorded.get("event").ok_or("the stored event")?;
     assert_eq!(
-        event.get("point"),
+        event.pointer("/data/point"),
         Some(&json!("preconditions.plan")),
         "{event}"
     );
     assert_eq!(event.get("actor"), Some(&json!("hook")), "{event}");
-    assert_eq!(event.get("session_id"), Some(&json!("s-it")), "{event}");
+    assert_eq!(event.get("session"), Some(&json!("s-it")), "{event}");
     Ok(())
 }
 
@@ -666,7 +671,7 @@ fn in_a_mode_a_write_of_the_anneal_config_is_denied_and_recorded() -> TestResult
         return Err(format!("one gate_blocked, got {blocked:?}").into());
     };
     assert_eq!(
-        recorded.pointer("/event/point"),
+        recorded.pointer("/event/data/point"),
         Some(&json!("preconditions.settings")),
         "{recorded}"
     );
@@ -711,7 +716,7 @@ fn mode_off_lifts_the_gate() -> TestResult {
         "bench.mode-off/1",
         &off,
         &[repo.path()],
-        &["/data/worktree"],
+        &["/data/event/worktree", "/data/event/writer/version"],
     )?;
 
     assert_allowed(&repo.write_to(SOURCE)?, "mode off");
@@ -754,10 +759,12 @@ fn build_mode_recorded_without_a_plan_denies_source_edits() -> TestResult {
     // The worktree key exactly as `bench mode` writes it, read back from a real entry.
     let entered = repo.anneal(&["mode", "diagnose"], 0)?;
     let worktree = entered
-        .pointer("/data/worktree")
+        .pointer("/data/event/worktree")
         .cloned()
         .ok_or("mode reports its worktree")?;
-    let event = json!({"type": "mode_set", "mode": "build", "clean": true, "worktree": worktree});
+    let event = json!({
+        "type": "bench.mode_set", "data": {"mode": "build", "clean": true}, "worktree": worktree,
+    });
     repo.anneal(&["ledger", "append", &event.to_string()], 0)?;
 
     let reason = denial(&repo.write_to(SOURCE)?)?;
@@ -839,7 +846,8 @@ fn only_a_repro_recorded_in_the_edited_worktree_unlocks_diagnose_mode() -> TestR
     repo.anneal(&["mode", "diagnose"], 0)?;
 
     repro_in(&sibling, &RED, 0)?;
-    let untagged = r#"{"type": "repro_red", "task": "bug-1", "test": "cargo test parse"}"#;
+    let untagged =
+        r#"{"type": "bench.repro_red", "data": {"task": "bug-1", "test": "cargo test parse"}}"#;
     repo.anneal(&["ledger", "append", untagged], 0)?;
 
     let reason = denial(&repo.write_to(SOURCE)?)?;

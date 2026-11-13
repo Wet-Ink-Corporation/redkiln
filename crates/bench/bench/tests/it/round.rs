@@ -94,15 +94,15 @@ fn the_round_count_comes_from_the_ledger_across_processes_and_parks_after_five()
         "a sixth start records nothing: {refused}"
     );
     let events = anneal_in(dir.path())
-        .args(["ledger", "query", "--type", "round_started"])
+        .args(["ledger", "query", "--type", "bench.round_started"])
         .output()?;
     let events: Value = serde_json::from_slice(&events.stdout)?;
     let ticket_rounds: Vec<&Value> = events["data"]["events"]
         .as_array()
         .ok_or("events")?
         .iter()
-        .filter(|recorded| recorded["event"]["ticket"] == json!("36"))
-        .map(|recorded| &recorded["event"]["round"])
+        .filter(|recorded| recorded["event"]["data"]["ticket"] == json!("36"))
+        .map(|recorded| &recorded["event"]["data"]["round"])
         .collect();
     assert_eq!(
         ticket_rounds,

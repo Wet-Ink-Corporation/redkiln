@@ -85,6 +85,7 @@ const VALID: &[(&str, &str)] = &[
     ("cli/valid/internal-error.json", "cli-envelope-1"),
     ("decision-request/valid/dr-02.json", "decision-request-1"),
     // Their `data` against `status-1` in `status.rs`.
+    ("status/valid/bench-ok.json", "cli-envelope-1"),
     ("status/valid/weighin-ok.json", "cli-envelope-1"),
     ("status/valid/weighin-off.json", "cli-envelope-1"),
 ];

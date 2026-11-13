@@ -8,31 +8,47 @@
       {
         "event": {
           "actor": "cli",
-          "branch": null,
-          "command": "git --version",
-          "duration_ms": "<varies>",
-          "exit": 0,
-          "head": null,
-          "outcome": "green",
-          "session_id": "s1",
-          "task": "T1",
-          "timeout_secs": null,
+          "data": {
+            "command": "git --version",
+            "duration_ms": "<varies>",
+            "exit": 0,
+            "outcome": "green",
+            "task": "T1",
+            "timeout_secs": null
+          },
+          "session": "s1",
+          "trust": {
+            "level": "asserted"
+          },
           "ts": "<time>",
-          "type": "test_run",
-          "worktree": null
+          "type": "bench.test_run",
+          "version": 1,
+          "writer": {
+            "binary": "bench",
+            "spec": "1.0.0",
+            "version": "<varies>"
+          }
         },
         "position": 1
       },
       {
         "event": {
           "actor": "cli",
-          "branch": null,
-          "head": null,
-          "session_id": "s1",
-          "task": "T1",
+          "data": {
+            "task": "T1"
+          },
+          "session": "s1",
+          "trust": {
+            "level": "asserted"
+          },
           "ts": "<time>",
-          "type": "task_done",
-          "worktree": null
+          "type": "bench.task_done",
+          "version": 1,
+          "writer": {
+            "binary": "bench",
+            "spec": "1.0.0",
+            "version": "<varies>"
+          }
         },
         "position": 2
       }

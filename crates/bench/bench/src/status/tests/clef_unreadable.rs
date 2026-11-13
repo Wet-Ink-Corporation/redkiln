@@ -5,7 +5,7 @@
 use crate::harness::claude_code::MODE_VAR;
 use serde_json::{Value, json};
 
-use super::Fixture;
+use super::{Fixture, document};
 use crate::test_repo::Setup;
 
 /// The one finding `bench status --json --fields clef` gives, with `clef` absent.
@@ -13,7 +13,11 @@ fn clef_finding(fixture: &Fixture) -> Setup<Value> {
     fixture.store()?;
     let (code, envelope) = fixture.json(&["--fields", "clef"])?;
     assert_eq!(code, 0, "an unreadable section does not fail the command");
-    assert_eq!(envelope["data"], json!({"schema": 1}), "clef is absent");
+    assert_eq!(
+        envelope["data"],
+        document(fixture, Some("1.0"), "degraded", json!({}))?,
+        "clef is null, and the warning degrades health"
+    );
     let findings = envelope["findings"].as_array().ok_or("findings")?;
     assert_eq!(findings.len(), 1, "{envelope}");
     Ok(findings.first().cloned().unwrap_or(Value::Null))

@@ -24,7 +24,7 @@ A task is done when its test command passes under Bench, not when the code looks
 bench task done T3 -- cargo test -p notes list_is_sorted
 ```
 
-It runs the command without a shell, records a `test_run` with its exit code and duration, and
-records `task_done` only on exit 0. A red or timed-out run records the red `test_run` alone and
+It runs the command without a shell, records a `bench.test_run` with its exit code and duration, and
+records `bench.task_done` only on exit 0. A red or timed-out run records the red `bench.test_run` alone and
 exits 1, so the task stays open. In a Rust repository, run `temper:gate` before it, at every task
 boundary.

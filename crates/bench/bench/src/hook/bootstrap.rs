@@ -426,9 +426,10 @@ mod tests {
     fn without_a_session_id_the_live_state_is_injected_every_time() {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let store = dir.path().join("ledger.sqlite3");
-        let event = EventEnvelope::parse(
-            br#"{"type":"task_done","task":"T1","actor":"cli","ts":"2026-10-11T09:30:00Z"}"#,
-        )
+        let event = EventEnvelope::from_ev01(&serde_json::json!({
+            "type": "bench.task_done", "data": {"task": "T1"}, "actor": "cli",
+            "ts": "2026-10-11T09:30:00Z",
+        }))
         .expect("a valid event");
         Store::open(&store)
             .and_then(|ledger| ledger.append(&event))

@@ -1,20 +1,23 @@
 //! `bench ledger`: append to, query, tail and journal Bench's events in the suite store.
 //!
 //! The store is [`crate::store`] over Core; this module parses the command line, resolves the
-//! store ([`paths::ledger_store`]) and writes the result in the 0.x flat form, short type names
-//! and `registry` included, until step 4. A bad event exits 1 with an envelope and nothing is
+//! store ([`paths::ledger_store`]) and reads and writes Core's EV-01 envelopes (`type`
+//! `bench.<name>`, the payload under `data`; since Move 2 step 4, PR 4.3). `append` takes the
+//! envelope's writable keys and fills `actor`, `session` and `ts` when they are left out; Bench
+//! writes `version`, `trust` and `writer`. A bad event exits 1 with an envelope and nothing is
 //! written; reads create no store, and skip and count a stored event this build cannot use
-//! (EV-10). `journal` prints JR-04 journal lines (D7). A `by` on
-//! `plan_approved` or `verdict_set` is a usage error (2, nothing on stdout, nothing written):
-//! `plan approve` and `verdict set` write it.
+//! (EV-10). `--type` takes the stored name, and a 0.x short name with a `bench: warning:` line.
+//! `journal` prints JR-04 journal lines (D7). A `by` on `plan_approved` or `verdict_set` is a
+//! usage error (2, nothing on stdout, nothing written): `plan approve` and `verdict set` write
+//! it.
 
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::store::{
-    EventEnvelope, EventKind, Filter, JournalError, LedgerEvent, LedgerTag, REGISTRY_VERSION, Read,
-    Recorded, Store, StoreError, TagError, TagKey, Timestamp, Wait,
+    EventEnvelope, EventKind, Filter, JournalError, LedgerEvent, LedgerTag, Read, Store,
+    StoreError, StoredEvent, TagError, TagKey, Timestamp, Wait,
 };
 use bench_contract::event::{PlanApproved, VerdictSet};
 use clap::{Args, Subcommand};
@@ -42,7 +45,7 @@ pub struct LedgerArgs {
 /// The `bench ledger` subcommands.
 #[derive(Debug, Subcommand)]
 pub enum LedgerAction {
-    /// Append one event, given as a JSON object with a registered `type`
+    /// Append one event, given as an EV-01 envelope with a `bench.*` `type` and its `data`
     Append(AppendArgs),
     /// Print the events matching the filters, oldest first
     Query(FilterArgs),
@@ -57,10 +60,10 @@ pub enum LedgerAction {
 pub struct AppendArgs {
     #[arg(
         value_name = "EVENT_JSON",
-        help = r#"The event, e.g. '{"type":"task_done","task":"T1"}'"#
+        help = r#"The event, e.g. '{"type":"bench.task_done","data":{"task":"T1"}}'"#
     )]
     event: String,
-    /// The writer, when the event names none
+    /// The actor, when the event names none
     #[arg(long, default_value = "cli")]
     actor: String,
     /// The session id, when the event names none
@@ -71,9 +74,13 @@ pub struct AppendArgs {
 /// Filters shared by `query` and `tail`: any of the types, all of the tags.
 #[derive(Debug, Args)]
 pub struct FilterArgs {
-    /// Only events of this type (repeatable: any of them)
-    #[arg(long = "type", value_name = "TYPE")]
-    types: Vec<EventKind>,
+    #[arg(
+        long = "type",
+        value_name = "TYPE",
+        value_parser = type_name,
+        help = "Only events of this type, e.g. bench.task_done (repeatable: any of them)"
+    )]
+    types: Vec<TypeName>,
     /// Only events carrying this key:value tag (repeatable: all of them)
     #[arg(long = "tag", value_name = "KEY:VALUE")]
     tags: Vec<LedgerTag>,
@@ -96,37 +103,93 @@ fn session_tag(id: &str) -> Result<LedgerTag, TagError> {
     LedgerTag::new(TagKey::Session, id)
 }
 
+/// A `--type` value: the stored name (`bench.task_done`), or the 0.x short name (`task_done`),
+/// still read for scripts written before step 4 and warned about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TypeName {
+    kind: EventKind,
+    short: bool,
+}
+
+/// A `--type` value that names none of Bench's 17 types.
+#[derive(Debug, thiserror::Error)]
+#[error("unknown event type {name:?}: a bench.* type, such as bench.task_done")]
+pub(crate) struct UnknownType {
+    name: String,
+}
+
+fn type_name(name: &str) -> Result<TypeName, UnknownType> {
+    if let Some(kind) = EventKind::from_stored(name) {
+        return Ok(TypeName { kind, short: false });
+    }
+    name.parse::<EventKind>()
+        .map(|kind| TypeName { kind, short: true })
+        .map_err(|_short_unknown_too| UnknownType {
+            name: name.to_owned(),
+        })
+}
+
 impl FilterArgs {
-    fn to_filter(&self) -> Filter {
+    /// The store's filter, after one `bench: warning:` line on `err` for each 0.x short name.
+    fn to_filter<E: Write>(&self, err: &mut E) -> Result<Filter, CliError> {
+        for name in self.types.iter().filter(|name| name.short) {
+            crate::diagnostic::warning(
+                &mut *err,
+                &format_args!(
+                    "--type {} is the 0.x short name; write --type {}",
+                    name.kind.as_str(),
+                    name.kind.stored()
+                ),
+            )
+            .map_err(CliError::Output)?;
+        }
         // The filter owns its tags; the parsed arguments stay with clap's tree.
         let tags = self.tags.iter().chain(&self.session).cloned().collect();
-        Filter {
-            types: self.types.clone(),
+        Ok(Filter {
+            types: self.types.iter().map(|name| name.kind).collect(),
             tags,
-        }
+        })
     }
 }
 
-/// Runs `bench ledger <action>` in `cwd`, reading environment variables through `lookup`.
-pub(crate) fn run<O: Write>(
+/// Where `bench ledger` runs: the working directory, and how it reads environment variables.
+pub(crate) struct Place<'a, L> {
+    /// The working directory.
+    pub(crate) cwd: &'a Path,
+    /// Reads one environment variable.
+    pub(crate) lookup: L,
+}
+
+/// Runs `bench ledger <action>` at `place`. Warnings (a 0.x `--type` name) go to `err`.
+pub(crate) fn run<L, O, E>(
     args: &LedgerArgs,
-    cwd: &Path,
-    lookup: impl Fn(&str) -> Option<OsString>,
+    place: &Place<'_, L>,
     out: &mut O,
-) -> Result<Code, CliError> {
-    let locate = || paths::ledger_store(args.store.as_deref(), &lookup, cwd);
+    err: &mut E,
+) -> Result<Code, CliError>
+where
+    L: Fn(&str) -> Option<OsString>,
+    O: Write,
+    E: Write,
+{
+    let locate = || paths::ledger_store(args.store.as_deref(), &place.lookup, place.cwd);
     match &args.action {
         LedgerAction::Append(append_args) => append(append_args, locate, out),
         LedgerAction::Query(filter) => {
-            let filter = filter.to_filter();
-            read(&locate()?, "query", |store| store.query_read(&filter), out)
+            let filter = filter.to_filter(err)?;
+            read(
+                &locate()?,
+                "query",
+                |store| store.query_stored(&filter),
+                out,
+            )
         }
         LedgerAction::Tail(tail) => {
-            let filter = tail.filter.to_filter();
+            let filter = tail.filter.to_filter(err)?;
             read(
                 &locate()?,
                 "tail",
-                |store| store.tail_read(&filter, tail.lines),
+                |store| store.tail_stored(&filter, tail.lines),
                 out,
             )
         }
@@ -139,15 +202,14 @@ struct Appended<'a> {
     store: &'a Path,
     source: StoreSource,
     position: u64,
-    event: &'a EventEnvelope,
+    event: &'a crate::store::CoreEnvelope,
 }
 
 #[derive(Serialize)]
 struct Listing<'a> {
     store: &'a Path,
     source: StoreSource,
-    registry: u32,
-    events: &'a [Recorded],
+    events: &'a [StoredEvent],
 }
 
 fn append<O: Write>(
@@ -164,16 +226,16 @@ fn append<O: Write>(
     let location = locate()?;
     // Core's own checks (the actor, a `wt-` worktree, the branch and head, EV-05) are the
     // schema's too: nothing is written.
-    let position = match legacy_import::open_for_command(&location)?.append(&event) {
-        Ok(position) => position,
+    let stored = match legacy_import::open_for_command(&location)?.append_stored(&event) {
+        Ok(stored) => stored,
         Err(refused) if refused.is_schema() => return schema_error(SUBCOMMAND, &refused, out),
         Err(other) => return Err(other.into()),
     };
     let data = Appended {
         store: &location.path,
         source: location.source,
-        position,
-        event: &event,
+        position: stored.position,
+        event: &stored.event,
     };
     emit(
         &Envelope::new(CommandName::Ledger, Some(SUBCOMMAND), exit_codes::OK, data),
@@ -181,8 +243,9 @@ fn append<O: Write>(
     )
 }
 
-/// The event in `args`, with `actor`, `session_id` and `ts` filled in where it leaves them
-/// out. The outer `Result` is a failure to run (the clock); the inner one a schema error.
+/// The EV-01 envelope in `args`, with `actor`, `session` and `ts` filled in where it leaves
+/// them out or `null`. The outer `Result` is a failure to run (the clock); the inner one a
+/// schema error.
 fn parse_event(
     args: &AppendArgs,
 ) -> Result<Result<EventEnvelope, crate::store::SchemaError>, CliError> {
@@ -193,11 +256,11 @@ fn parse_event(
     if let Value::Object(fields) = &mut value {
         fill(fields, "actor", || Ok(Value::from(args.actor.as_str())))?;
         if let Some(session) = &args.session {
-            fill(fields, "session_id", || Ok(Value::from(session.as_str())))?;
+            fill(fields, "session", || Ok(Value::from(session.as_str())))?;
         }
         fill(fields, "ts", || Ok(Value::from(Timestamp::now()?.as_str())))?;
     }
-    Ok(EventEnvelope::from_value(&value))
+    Ok(EventEnvelope::from_ev01(&value))
 }
 
 /// Refuses a `by` on `plan_approved` or `verdict_set` (#62): who gave an approval or a verdict
@@ -240,7 +303,7 @@ fn fill(
 fn read<O: Write>(
     location: &StoreLocation,
     subcommand: &str,
-    select: impl FnOnce(&Store) -> Result<Read, StoreError>,
+    select: impl FnOnce(&Store) -> Result<Read<StoredEvent>, StoreError>,
     out: &mut O,
 ) -> Result<Code, CliError> {
     let read = match Store::open_existing(&location.path, Wait::Command)? {
@@ -250,7 +313,6 @@ fn read<O: Write>(
     let data = Listing {
         store: &location.path,
         source: location.source,
-        registry: REGISTRY_VERSION,
         events: &read.events,
     };
     let findings: Vec<Finding> = (read.unusable > 0)
@@ -287,15 +349,16 @@ fn journal<O: Write>(location: &StoreLocation, out: &mut O) -> Result<Code, CliE
     }
 }
 
-/// The envelope for an event that does not match the schema: exit 1, one finding.
+/// The envelope for an event that does not match the schema: exit 1, one finding, and the
+/// types `append` takes in `data.types`.
 fn schema_error<O: Write>(
     subcommand: &str,
     error: &dyn std::error::Error,
     out: &mut O,
 ) -> Result<Code, CliError> {
     let findings = [Finding::new("ledger/schema", error_chain::reason(error))];
-    let types: Vec<&str> = EventKind::ALL.iter().map(|kind| kind.as_str()).collect();
-    let data = serde_json::json!({"registry": REGISTRY_VERSION, "types": types});
+    let types: Vec<&str> = EventKind::ALL.iter().map(|kind| kind.stored()).collect();
+    let data = serde_json::json!({ "types": types });
     let envelope = Envelope::new(
         CommandName::Ledger,
         Some(subcommand),
@@ -311,7 +374,8 @@ fn emit<D: Serialize, O: Write>(envelope: &Envelope<'_, D>, out: &mut O) -> Resu
 
 #[cfg(test)]
 mod tests {
-    use super::{AppendArgs, parse_event};
+    use super::{AppendArgs, FilterArgs, parse_event, type_name};
+    use crate::store::EventKind;
 
     fn args(event: &str, session: Option<&str>) -> AppendArgs {
         AppendArgs {
@@ -324,7 +388,7 @@ mod tests {
     #[test]
     fn append_fills_actor_session_and_ts_only_where_the_event_leaves_them_out() {
         let given = args(
-            r#"{"type":"task_done","task":"T1","actor":"hook","session_id":null}"#,
+            r#"{"type":"bench.task_done","data":{"task":"T1"},"actor":"hook","session":null}"#,
             Some("s9"),
         );
 
@@ -335,5 +399,44 @@ mod tests {
         assert_eq!(event.actor, "hook", "the event's own actor wins");
         assert_eq!(event.session_id.as_deref(), Some("s9"), "null is filled");
         assert!(event.ts.as_str().ends_with('Z'), "ts filled with now");
+    }
+
+    #[test]
+    fn type_takes_the_stored_name_and_the_short_one_with_a_warning() {
+        let filter = |names: &[&str]| FilterArgs {
+            types: names
+                .iter()
+                .map(|name| type_name(name).expect("a Bench type"))
+                .collect(),
+            tags: Vec::new(),
+            session: None,
+        };
+        let (mut stored_err, mut short_err) = (Vec::new(), Vec::new());
+
+        let stored = filter(&["bench.task_done", "bench.migrate.contract"])
+            .to_filter(&mut stored_err)
+            .expect("a Vec takes the warnings");
+        let short = filter(&["task_done"])
+            .to_filter(&mut short_err)
+            .expect("a Vec takes the warnings");
+
+        assert_eq!(
+            stored.types,
+            [EventKind::TaskDone, EventKind::MigrateContract],
+            "stored names"
+        );
+        assert!(stored_err.is_empty(), "no warning for a stored name");
+        assert_eq!(short.types, [EventKind::TaskDone], "the short name reads");
+        assert_eq!(
+            String::from_utf8(short_err).expect("UTF-8"),
+            "bench: warning: --type task_done is the 0.x short name; write --type \
+             bench.task_done\n",
+            "one CLI-08 warning naming the stored name"
+        );
+        assert!(type_name("bench.task_started").is_err(), "not a Bench type");
+        assert!(
+            type_name("weighin.item_raised").is_err(),
+            "another plugin's"
+        );
     }
 }

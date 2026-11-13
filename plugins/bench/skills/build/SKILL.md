@@ -11,7 +11,7 @@ Builds one approved task test-first with a single approval up front and hard sto
 
 - You MUST enter build mode with `bench mode build --plan <plan> --tree <tree>` on a clean tree before editing source; the `preconditions` hook denies source edits until the plan is approved and current.
 - You MUST write the failing test first and see it fail; the `preconditions` hook allows test files before source.
-- You MUST mark a task done only with `bench task done <id> -- <test command>`; it records `task_done` only when the command exits 0.
+- You MUST mark a task done only with `bench task done <id> -- <test command>`; it records `bench.task_done` only when the command exits 0.
 - You MUST NOT lower a floor in `.anneal/ratchets.json` or remove or loosen a test; the `fast-check` hook blocks the batch and `bench floor-guard` fails the diff.
 - You MUST NOT write source through Bash to get past a `preconditions` denial.
 
@@ -24,13 +24,13 @@ Builds one approved task test-first with a single approval up front and hard sto
 ## Process
 
 1. **Check the plan.** Run `bench plan check <plan>`; exit 3 (not approved) or 4 (changed) goes back to the human to approve, never you; say the task then starts with a failing test. It's working if it exits 0.
-2. **Enter build mode.** Commit or stash first, then run `bench mode build --plan <plan> --tree <tree>`. It's working if `data.clean` is true.
+2. **Enter build mode.** Commit or stash first, then run `bench mode build --plan <plan> --tree <tree>`. It's working if `data.event.data.clean` is true.
 3. **Read the task.** Its `Files:`, its `Test:` command and the spec's criteria it serves. It's working if you can say which test proves it.
 4. **Red.** Write the test, run the task's command, watch it fail for the reason the criterion names. It's working if the failure message names the missing behaviour.
 5. **Green.** Write the least code that passes. Read every `fast-check` note and block after each batch of edits. It's working if the command passes and no block is open.
 6. **Refactor.** Clean names and duplication with the tests green. It's working if the command still passes.
 7. **Gate.** In a Rust repository (a `Cargo.toml` at the root), run `temper:gate` at each task boundary. It's working if the gate is green.
-8. **Done.** Run `bench task done <id> -- <test command>` (`<id>` is the task id, or any short name with no plan), then check the work with `verify` before you report it. It's working if it exits 0 and the ledger shows `task_done`.
+8. **Done.** Run `bench task done <id> -- <test command>` (`<id>` is the task id, or any short name with no plan), then check the work with `verify` before you report it. It's working if it exits 0 and the ledger shows `bench.task_done`.
 
 ## Rationalizations
 
@@ -50,4 +50,4 @@ Builds one approved task test-first with a single approval up front and hard sto
 ## Verification
 
 - `bench floor-guard` exits 0.
-- `bench ledger query --type task_done` shows the task, after a green `test_run`.
+- `bench ledger query --type bench.task_done` shows the task, after a green `bench.test_run`.

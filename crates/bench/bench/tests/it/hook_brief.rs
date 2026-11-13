@@ -361,19 +361,23 @@ fn a_denial_is_recorded_as_gate_blocked_in_an_existing_ledger_and_creates_none()
     judge(dir.path(), &agent_call(dir.path(), "no brief", None))?;
     let created = ledger.exists();
     let appended = anneal_in(dir.path())
-        .args(["ledger", "append", r#"{"type":"task_done","task":"T1"}"#])
+        .args([
+            "ledger",
+            "append",
+            r#"{"type":"bench.task_done","data":{"task":"T1"}}"#,
+        ])
         .output()?;
     assert_eq!(appended.status.code(), Some(0), "{appended:?}");
 
     judge(dir.path(), &agent_call(dir.path(), "no brief", None))?;
 
     let blocked = anneal_in(dir.path())
-        .args(["ledger", "query", "--type", "gate_blocked"])
+        .args(["ledger", "query", "--type", "bench.gate_blocked"])
         .output()?;
     let blocked: Value = serde_json::from_slice(&blocked.stdout)?;
     assert!(!created, "the first denial created no ledger");
     assert_eq!(
-        blocked["data"]["events"][0]["event"]["point"],
+        blocked["data"]["events"][0]["event"]["data"]["point"],
         json!("brief.no-brief"),
         "{blocked}"
     );

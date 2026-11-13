@@ -50,7 +50,7 @@ fn record(cwd: &Path, flags: &[&str], command: &[&str]) -> Result<Output, Box<dy
 /// The `repro_red` events in the repository's ledger, through `bench ledger query`.
 fn repros(root: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
     let output = anneal_in(root)
-        .args(["ledger", "query", "--type", "repro_red"])
+        .args(["ledger", "query", "--type", "bench.repro_red"])
         .output()?;
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let listing: Value = crate::support::envelope(&output)?;
@@ -74,10 +74,10 @@ fn worktree_key(root: &Path) -> Result<Value, Box<dyn Error>> {
         "bench.mode-diagnose/1",
         &envelope,
         &[root],
-        &["/data/worktree"],
+        &["/data/event/worktree", "/data/event/writer/version"],
     )?;
     Ok(envelope
-        .pointer("/data/worktree")
+        .pointer("/data/event/worktree")
         .cloned()
         .ok_or("mode reports its worktree")?)
 }
@@ -114,6 +114,7 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
             "/data/worktree",
             "/data/duration_ms",
             "/data/ledger/event/worktree",
+            "/data/ledger/event/writer/version",
         ],
     )?;
     assert_eq!(
@@ -139,10 +140,10 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
     };
     assert_eq!(
         (
-            &event["task"],
-            &event["test"],
+            &event["data"]["task"],
+            &event["data"]["test"],
             &event["worktree"],
-            &event["session_id"]
+            &event["session"]
         ),
         (
             &json!("bug-7"),
@@ -151,6 +152,10 @@ fn a_failing_command_records_repro_red_tagged_with_the_worktree_and_exits_0() ->
             &json!("s1")
         ),
         "{event}"
+    );
+    assert_eq!(
+        envelope["data"]["ledger"]["event"], *event,
+        "record prints the event as the ledger stores it"
     );
     Ok(())
 }
@@ -165,7 +170,10 @@ fn the_id_defaults_to_repro() -> TestResult {
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let events = repros(dir.path())?;
     assert_eq!(
-        events.iter().map(|e| &e["task"]).collect::<Vec<_>>(),
+        events
+            .iter()
+            .map(|e| &e["data"]["task"])
+            .collect::<Vec<_>>(),
         vec![&json!("repro")],
         "{events:?}"
     );

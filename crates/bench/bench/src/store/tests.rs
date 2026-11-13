@@ -336,6 +336,123 @@ fn a_later_version_and_undecodable_data_are_skipped_and_counted() {
 
 #[test]
 #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn unusable_events_are_counted_by_their_stored_type_and_foreign_ones_not_at_all() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = ledger_path(dir.path());
+    let store = Store::open(&path).expect("opens");
+    store.append(&task_done("T1", "s1")).expect("appends");
+    for data in [r#"{"pr":7}"#, r#"{"pr":8}"#] {
+        let text = envelope_text("bench.verdict_set", 2, "bench", data);
+        append_raw(&path, "bench.verdict_set", &text, &[]);
+    }
+    let undecodable = envelope_text("bench.task_done", 1, "bench", r#"{"task":7}"#);
+    append_raw(&path, "bench.task_done", &undecodable, &[]);
+    let foreign = envelope_text("review.verdict", 2, "review", r#"{"pr":7}"#);
+    append_raw(&path, "review.verdict", &foreign, &[]);
+
+    let by_type = store.unusable_by_type().expect("reads");
+
+    assert_eq!(
+        by_type.into_iter().collect::<Vec<_>>(),
+        [
+            ("bench.task_done".to_owned(), 1),
+            ("bench.verdict_set".to_owned(), 2)
+        ],
+        "EV-10, by type; another plugin's event is not Bench's to count (EV-08)"
+    );
+    assert_eq!(store.schema(), "1.0", "the store's stamp, ST-06");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn append_stored_returns_core_s_envelope_in_ev01_s_key_order() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let store = Store::open(&ledger_path(dir.path())).expect("opens");
+
+    let appended = store
+        .append_stored(&task_done("T1", "s1"))
+        .expect("appends");
+
+    assert_eq!(appended.position, 1, "append reports its position");
+    let text = serde_json::to_string(&appended.event).expect("serialises");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&text).expect("JSON"),
+        serde_json::json!({
+            "type": "bench.task_done", "version": 1, "ts": "2026-10-11T09:30:00Z",
+            "actor": "cli", "trust": {"level": "asserted"},
+            "writer": {"binary": "bench", "version": env!("CARGO_PKG_VERSION"), "spec": "1.0.0"},
+            "session": "s1", "data": {"task": "T1"},
+        }),
+        "EV-01's envelope, absent keys left out, the payload under data"
+    );
+    assert!(
+        text.starts_with(r#"{"type":"bench.task_done","version":1,"ts":"#)
+            && text.ends_with(r#""session":"s1","data":{"task":"T1"}}"#),
+        "EV-01's key order: {text}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn the_stored_reads_print_core_s_envelope_as_stored_and_skip_what_the_gates_skip() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = ledger_path(dir.path());
+    let store = Store::open(&path).expect("opens");
+    let appended = store
+        .append_stored(&task_done("T1", "s1"))
+        .expect("appends");
+    let other = envelope_text(
+        "bench.task_done",
+        1,
+        "bench",
+        r#"{"task":"T2"},"origin":"0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:41","later":true"#,
+    );
+    append_raw(&path, "bench.task_done", &other, &[]);
+    append_raw(
+        &path,
+        "bench.verdict_set",
+        &envelope_text("bench.verdict_set", 2, "bench", r#"{"pr":7}"#),
+        &[],
+    );
+
+    let read = store.query_stored(&Filter::default()).expect("reads");
+    let tail = store.tail_stored(&Filter::default(), 2).expect("reads");
+    let printed: Vec<serde_json::Value> = read
+        .events
+        .iter()
+        .map(|stored| serde_json::to_value(stored).expect("serialises"))
+        .collect();
+
+    assert_eq!(
+        (read.events.len(), read.unusable),
+        (2, 1),
+        "the newer version is skipped and counted (EV-10)"
+    );
+    assert_eq!(
+        read.events.first().map(|stored| &stored.event),
+        Some(&appended.event),
+        "a query prints what append printed"
+    );
+    assert_eq!(
+        printed.get(1),
+        Some(&serde_json::json!({
+            "position": 2,
+            "event": serde_json::from_str::<serde_json::Value>(&other).expect("JSON"),
+        })),
+        "origin and a key a later SPEC adds are kept as stored"
+    );
+    assert_eq!(
+        (
+            tail.events.iter().map(|s| s.position).collect::<Vec<_>>(),
+            tail.unusable
+        ),
+        (vec![2], 1),
+        "a tail of two: the last usable one, the newest counted"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
 fn a_query_reads_every_page_and_a_tail_only_benchs_last_events() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = ledger_path(dir.path());
@@ -398,5 +515,75 @@ fn opening_an_existing_store_that_is_absent_leaves_nothing_behind() {
         std::fs::read_dir(dir.path()).expect("lists").count(),
         0,
         "neither the store nor its directory was created"
+    );
+}
+
+#[test]
+fn an_event_that_does_not_read_back_says_why_and_that_it_was_written() {
+    use std::error::Error as _;
+
+    let missing = super::StoreError::NotReadBack {
+        position: 7,
+        cause: super::ReadBack::Missing,
+    };
+    let skipped = super::StoreError::NotReadBack {
+        position: 7,
+        cause: super::ReadBack::Skipped(redkiln_core::envelope::Skip::Foreign),
+    };
+
+    assert_eq!(
+        [&missing, &skipped]
+            .map(|error| (error.to_string(), error.source().map(ToString::to_string))),
+        [
+            (
+                "the event was written at position 7 but did not read back; do not append it \
+                 again"
+                    .to_owned(),
+                Some("no event at that position".to_owned())
+            ),
+            (
+                "the event was written at position 7 but did not read back; do not append it \
+                 again"
+                    .to_owned(),
+                Some("the read skipped it".to_owned())
+            ),
+        ],
+        "the position, that it was written, and the cause"
+    );
+    assert_eq!(
+        skipped
+            .source()
+            .and_then(std::error::Error::source)
+            .map(ToString::to_string),
+        Some("an event of another type".to_owned()),
+        "the skip itself"
+    );
+}
+
+#[test]
+fn a_read_back_that_fails_still_says_the_event_was_written() {
+    use std::error::Error as _;
+
+    let failed = super::StoreError::NotReadBack {
+        position: 7,
+        cause: super::ReadBack::Read(Box::new(super::StoreError::UnconditionedConflict)),
+    };
+
+    assert_eq!(
+        (
+            failed.to_string(),
+            failed.source().map(ToString::to_string),
+            failed
+                .source()
+                .and_then(std::error::Error::source)
+                .map(ToString::to_string),
+        ),
+        (
+            "the event was written at position 7 but did not read back; do not append it again"
+                .to_owned(),
+            Some("the read failed".to_owned()),
+            Some("the store reported a conflict for an unconditioned write".to_owned()),
+        ),
+        "written, and why the read did not return it"
     );
 }

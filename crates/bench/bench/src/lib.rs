@@ -62,9 +62,10 @@
 //! - [`orchestrate`]: `bench orchestrate fan-out|park|rule`, the fan-out gate and one-way
 //!   calls parked in weigh-in (through the crate-private `weighin` bridge) or ruled on.
 //! - [`glob`]: repository path globs (`**`, `*`, `?`, ASCII case-insensitive).
-//! - [`status`]: `bench status`, the ledger and the anneal home folded into one versioned
-//!   document (`schema: 1`) for a UI: phase, plan, tasks, gates, verdict, Clef, context and the
-//!   ledger's tail (`docs/status.md`).
+//! - [`status`]: `bench status`, the ledger and the anneal home folded into one document for a
+//!   UI, `bench.status/1` (SPEC CLI-12, `bench_contract::status`): CLI-12's common keys, then
+//!   phase, plan, tasks, gates, verdict, Clef, context and the ledger's tail
+//!   (`docs/bench/status.md`).
 //! - [`statusline`]: `bench statusline`, Claude Code's status line, which saves each
 //!   session's context usage for the context-monitor hook.
 //! - [`snapshot`]: `bench snapshot write --json`, the TypeScript mod's context-usage

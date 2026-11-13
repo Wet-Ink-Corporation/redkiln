@@ -134,7 +134,9 @@ Records the human's explicit confirmation of the tree as one `grill_confirmed` l
 4. The event is appended to the ledger (resolved as for `anneal ledger`; `--store` overrides):
    `{"type": "grill_confirmed", "plan": "<the --tree path as given>", "hash": "sha256:<hex of
    the bytes validated>", "quote": "<the words>"}`, actor `cli`, with `session_id` from
-   `--session`.
+   `--session`. Its envelope's `data` holds `tree`, `store`, `source`, `position` and `event`,
+   the event as stored (`bench.grill_confirmed`, Core's EV-01 envelope, as `bench ledger query`
+   prints it).
 
 Nothing is appended in steps 1 to 3. The hash is of exactly the bytes that were validated, so a
 later check can tell whether the confirmed tree has changed since. Later gates (#23) read the

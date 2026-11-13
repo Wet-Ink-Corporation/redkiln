@@ -15,12 +15,18 @@ fn verdict_set_records_the_level_source_commit_patch_id_and_base() -> TestResult
     let head = repo.head()?;
 
     let envelope = repo.set_verdict("tests-verified", "local")?;
-    crate::support::golden("bench.verdict-set/1", &envelope, &[repo.path()], &[])?;
+    crate::support::golden(
+        "bench.verdict-set/1",
+        &envelope,
+        &[repo.path()],
+        &["/data/event/writer/version"],
+    )?;
 
-    let data = &envelope["data"];
+    let event = &envelope["data"]["event"];
+    let data = &event["data"];
     assert_eq!(
         (
-            &data["type"],
+            &event["type"],
             &data["pr"],
             &data["verdict"],
             &data["source"],
@@ -28,7 +34,7 @@ fn verdict_set_records_the_level_source_commit_patch_id_and_base() -> TestResult
             &data["base"],
         ),
         (
-            &json!("verdict_set"),
+            &json!("bench.verdict_set"),
             &json!(7),
             &json!("tests_verified"),
             &json!("local"),
@@ -42,6 +48,11 @@ fn verdict_set_records_the_level_source_commit_patch_id_and_base() -> TestResult
     assert!(
         repo.ledger().is_file(),
         "written to the ledger the hook reads"
+    );
+    let events = repo.envelope(&["ledger", "query", "--type", "bench.verdict_set"], 0)?;
+    assert_eq!(
+        envelope["data"]["event"], events["data"]["events"][0]["event"],
+        "set prints the event as the ledger stores it"
     );
     Ok(())
 }
@@ -158,8 +169,9 @@ fn a_latest_noise_only_verdict_exits_3() -> TestResult {
     let repo = PrRepo::new()?;
     let head = repo.head()?;
     let event = json!({
-        "type": "verdict_set", "pr": 7, "verdict": "noise_only", "source": "review_plugin",
-        "sha": head, "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
+        "type": "bench.verdict_set",
+        "data": {"pr": 7, "verdict": "noise_only", "source": "review_plugin", "sha": head},
+        "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
     })
     .to_string();
     repo.envelope(&["ledger", "append", &event], 0)?;
@@ -189,13 +201,16 @@ fn verdict_set_records_who_set_it_and_through_what_only_when_told() -> TestResul
     let untold = repo.set_verdict("tests-verified", "local")?;
 
     assert_eq!(
-        (told["data"].get("by"), untold["data"].get("by")),
+        (
+            told.pointer("/data/event/data/by"),
+            untold.pointer("/data/event/data/by")
+        ),
         (Some(&json!({"actor": "human", "via": "mod"})), None),
         "{told} {untold}"
     );
-    let events = repo.envelope(&["ledger", "query", "--type", "verdict_set"], 0)?;
+    let events = repo.envelope(&["ledger", "query", "--type", "bench.verdict_set"], 0)?;
     assert_eq!(
-        events["data"]["events"][0]["event"]["by"],
+        events["data"]["events"][0]["event"]["data"]["by"],
         json!({"actor": "human", "via": "mod"}),
         "recorded in the ledger: {events}"
     );

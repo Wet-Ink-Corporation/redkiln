@@ -501,6 +501,7 @@ fn a_hook_leaves_sources_over_its_budget_to_a_command_which_imports_them() {
         old_ledgers: vec![ledger],
         from: work.path().to_path_buf(),
         notices: Vec::new(),
+        repo_class: None,
     };
     let tight = Budget {
         max_bytes: Some(1),

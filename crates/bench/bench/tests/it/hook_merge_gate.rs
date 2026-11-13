@@ -37,14 +37,14 @@ fn assert_allowed(output: &Output) {
 
 /// The `gate_blocked` points in the ledger.
 fn blocked_points(repo: &PrRepo) -> TestResult<Vec<String>> {
-    let envelope = repo.envelope(&["ledger", "query", "--type", "gate_blocked"], 0)?;
+    let envelope = repo.envelope(&["ledger", "query", "--type", "bench.gate_blocked"], 0)?;
     let events = envelope
         .pointer("/data/events")
         .and_then(Value::as_array)
         .ok_or("an event list")?;
     Ok(events
         .iter()
-        .filter_map(|event| event.pointer("/event/point").and_then(Value::as_str))
+        .filter_map(|event| event.pointer("/event/data/point").and_then(Value::as_str))
         .map(str::to_owned)
         .collect())
 }
@@ -53,8 +53,9 @@ fn blocked_points(repo: &PrRepo) -> TestResult<Vec<String>> {
 /// through `bench ledger append` (`verdict set` records only levels).
 fn append_verdict(repo: &PrRepo, verdict: &str) -> TestResult {
     let event = serde_json::json!({
-        "type": "verdict_set", "pr": 7, "verdict": verdict, "source": "review_plugin",
-        "sha": repo.head()?, "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
+        "type": "bench.verdict_set",
+        "data": {"pr": 7, "verdict": verdict, "source": "review_plugin", "sha": repo.head()?},
+        "actor": "app:review-plugin", "ts": "2026-10-12T09:00:00Z",
     })
     .to_string();
     repo.envelope(&["ledger", "append", &event], 0)?;

@@ -19,7 +19,8 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::store::{
-    EventEnvelope, EventKind, Filter, LedgerEvent, Store, StoreError, TagError, Timestamp,
+    CoreEnvelope, EventEnvelope, EventKind, Filter, LedgerEvent, Store, StoreError, TagError,
+    Timestamp,
 };
 use bench_contract::event::GrillConfirmed;
 use clap::{Args, Subcommand};
@@ -231,7 +232,7 @@ struct Confirmed<'a> {
     store: &'a Path,
     source: StoreSource,
     position: u64,
-    event: &'a EventEnvelope,
+    event: &'a CoreEnvelope,
 }
 
 fn confirm<O: Write>(
@@ -279,13 +280,13 @@ fn confirm<O: Write>(
         });
     }
     let location = paths::ledger_store(args.store.as_deref(), lookup, cwd)?;
-    let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
+    let stored = legacy_import::open_for_command(&location)?.append_stored(&envelope)?;
     let data = Confirmed {
         tree: &args.tree,
         store: &location.path,
         source: location.source,
-        position,
-        event: &envelope,
+        position: stored.position,
+        event: &stored.event,
     };
     emit(
         &Envelope::new(CommandName::Grill, Some(SUBCOMMAND), exit_codes::OK, data),

@@ -8,7 +8,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
+use crate::store::{CoreEnvelope, EventEnvelope, LedgerEvent, StoredEvent, Timestamp};
 use bench_contract::event::VerdictSet;
 use serde::Serialize;
 
@@ -50,23 +50,21 @@ where
     report(args, &recorded, &status, (out, err))
 }
 
-/// A verdict `verdict set` appended: the envelope, the ledger it went to and its position,
-/// and the full commit it is for.
+/// A verdict `verdict set` appended: the event as stored, with its position, the ledger it
+/// went to, and the full commit it is for.
 struct Recorded {
-    envelope: EventEnvelope,
+    stored: StoredEvent,
     store: PathBuf,
-    position: u64,
     sha: String,
 }
 
-/// `data` of `verdict set`: the event's payload, where it was recorded and what became of its
-/// commit status.
+/// `data` of `verdict set`: the `verdict_set` event as stored, where it was recorded and what
+/// became of its commit status.
 #[derive(Debug, Serialize)]
 struct SetData<'a> {
-    #[serde(flatten)]
-    event: &'a LedgerEvent,
     store: &'a Path,
     position: u64,
+    event: &'a CoreEnvelope,
     commit_status: &'a CommitStatus,
 }
 
@@ -124,11 +122,10 @@ fn record(
         });
     }
     let location = paths::ledger_store(None, lookup, cwd)?;
-    let position = legacy_import::open_for_command(&location)?.append(&envelope)?;
+    let stored = legacy_import::open_for_command(&location)?.append_stored(&envelope)?;
     Ok(Recorded {
-        envelope,
+        stored,
         store: location.path,
-        position,
         sha,
     })
 }
@@ -173,9 +170,9 @@ fn report<O: Write, E: Write>(
         None => exit_codes::VERDICT_VALID,
     };
     let data = SetData {
-        event: &recorded.envelope.event,
         store: &recorded.store,
-        position: recorded.position,
+        position: recorded.stored.position,
+        event: &recorded.stored.event,
         commit_status: status,
     };
     Envelope::new(CommandName::Verdict, Some("set"), code, data)

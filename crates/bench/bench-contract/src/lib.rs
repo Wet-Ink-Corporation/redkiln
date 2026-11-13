@@ -13,5 +13,6 @@
 pub mod cli;
 pub mod event;
 pub mod plugin;
+pub mod status;
 
 pub use event::{BenchEvent, EventKind};
