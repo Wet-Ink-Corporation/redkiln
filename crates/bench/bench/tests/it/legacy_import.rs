@@ -209,6 +209,46 @@ fn the_ledger_anneal_store_names_is_imported_into_the_store_beside_it() -> TestR
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
+fn an_old_ledger_due_is_a_note_beside_the_store_git_would_hold_and_health_stays_ok() -> TestResult {
+    let (work, _old) = repository()?;
+    std::fs::create_dir_all(work.path().join(".redkiln"))?;
+    std::fs::write(
+        work.path().join(".redkiln/suite.toml"),
+        "[suite]\nrepo_class = \"own\"\n",
+    )?;
+
+    let output = bench(work.path()).args(["status", "--json"]).output()?;
+
+    let envelope = crate::support::envelope(&output)?;
+    let errors = crate::support::conform::status_errors(&envelope["data"])?;
+    assert!(errors.is_empty(), "{envelope} breaks status-1: {errors:?}");
+    let note = envelope["findings"]
+        .as_array()
+        .and_then(|findings| findings.iter().find(|f| f["key"] == "ledger/old-ledger"))
+        .ok_or("the old ledger is reported")?;
+    let data = &envelope["data"];
+    assert_eq!(
+        (
+            &note["severity"],
+            &data["health"],
+            &data["store_source"],
+            &data["store_schema"],
+            &data["repo_class"],
+        ),
+        (
+            &Value::from("note"),
+            &Value::from("ok"),
+            &Value::from("git_common_dir"),
+            &Value::Null,
+            &Value::from("own"),
+        ),
+        "a note leaves health ok; no store yet; the class suite.toml sets: {envelope}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
 fn status_reports_an_old_ledger_while_it_is_due_and_imports_nothing() -> TestResult {
     let (work, _old) = repository()?;
     let status = |work: &Path| -> Result<Value, Box<dyn Error>> {

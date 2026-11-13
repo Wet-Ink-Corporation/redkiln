@@ -275,7 +275,7 @@ A green result proves skill routing accuracy, or each skill's behaviour uplift o
 |---|---|
 | 0 | ok |
 
-A green result proves the ledger and the anneal home's state files were read and folded into the status document as they stood. It does **not** prove that the recorded work was done or done well, or that the state is still current when it is shown: an absent section had no data, and one that could not be read is a finding.
+A green result proves the ledger and the anneal home's state files were read and folded into the status document as they stood. It does **not** prove that the recorded work was done or done well, or that the state is still current when it is shown: a null section had no data or was not asked for, and one that could not be read is a finding.
 
 ## `anneal statusline`
 

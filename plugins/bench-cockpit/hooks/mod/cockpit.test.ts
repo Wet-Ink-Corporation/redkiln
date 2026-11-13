@@ -1,7 +1,8 @@
 // The cockpit's band, pane, refresh, `/anneal` and its calibration dashboard. `claude plugin
 // test plugin-cockpit` runs it; the test's own hooks stand for the host (`$.process.run`, the clock,
 // the surfaces), so nothing runs and no model is called. Fixtures are `bench status --json`
-// and `bench calibrate` envelopes as the CLI prints them (docs/status.md, docs/calibrate.md).
+// and `bench calibrate` envelopes as the CLI prints them (docs/bench/status.md, docs/calibrate.md):
+// status as `bench.status/1` (SPEC CLI-12), CLI-12's common keys beside Bench's sections.
 
 import { expect, mock, test } from 'claude-code/testing'
 import type { CommandRunInput, Hook, On, ProcessRunResult, StateRead, ValueOrDeny } from 'claude-code'
@@ -13,18 +14,51 @@ const SURFACES = ['terminal', 'desktop'] as const
 const FINDINGS_NONE = '"findings":[]'
 const PROVES = '"proves":"the ledger was read","does_not_prove":"that the work was done"'
 
+/** CLI-12's common keys of a status with a store, as `bench status --json` writes them first. */
+const COMMON = {
+  plugin: 'rk-bench',
+  version: '0.0.5',
+  spec: '1.0.0',
+  store: '/work/repo/.git/redkiln/events.sqlite3',
+  store_source: 'git_common_dir',
+  store_schema: '1.0',
+  repo_class: 'client',
+  unreadable: {},
+  dropped: 0,
+  health: 'ok',
+}
+
+/** Every section with no data: bench writes each as `null`. */
+const NO_SECTIONS = {
+  phase: null,
+  plan: null,
+  tasks: null,
+  gates: null,
+  verdict: null,
+  clef: null,
+  context: null,
+  ledger_tail: null,
+}
+
 /** No ledger yet: `bench status` exits 0 with its `status/no-store` note (SPEC CLI-06). */
 const EMPTY = {
   exitCode: 0,
   stdout:
-    '{"schema":"bench.status/1","ok":true,"command":"status","data":{"schema":1},' +
+    `{"schema":"bench.status/1","ok":true,"command":"status","data":${JSON.stringify({ ...COMMON, store_schema: null, ...NO_SECTIONS })},` +
     `"findings":[{"key":"status/no-store","message":"no ledger exists yet","severity":"note"}],${PROVES}}`,
 }
 
 /** Mid-build: an approved plan, 3 of 7 tasks done, an old block since passed, 58% context. */
 const MID_BUILD_DATA = {
-  schema: 1,
-  phase: { mode: 'build', playbook: { name: 'build', requires: ['test_run'] }, event: 1 },
+  ...COMMON,
+  phase: {
+    mode: 'build',
+    playbook: { name: 'build', requires: ['bench.test_run'] },
+    event: 1,
+    plan: 'docs/plan.md',
+    tree: 'docs/tree.json',
+    clean: true,
+  },
   plan: {
     id: 'docs/plan.md',
     status: 'approved',
@@ -35,21 +69,21 @@ const MID_BUILD_DATA = {
   gates: [
     {
       id: 'preconditions.plan',
-      kind: 'gate_blocked',
+      kind: 'bench.gate_blocked',
       reason: 'the plan is not approved',
       event: 3,
       ts: '2026-10-19T10:00:03Z',
     },
   ],
-  verdict: { pr: 7, outcome: 'no_verdict', valid: false, stale: 0 },
+  verdict: { pr: 7, head: 'a1b2c3d4', base: null, outcome: 'no_verdict', valid: false, verdict: null, stale: 0 },
   clef: {
     configured: true,
     points: [{ point: 'D1', answered: 3, configured_mode: 'enforce', mode: 'shadow' }],
   },
   context: { used_tokens: 116800, window: 200000, percent: 58.4, level: null },
   ledger_tail: [
-    { event: 3, type: 'gate_blocked', summary: 'gate_blocked point:preconditions.plan', ts: '2026-10-19T10:00:03Z' },
-    { event: 4, type: 'task_done', summary: 'task_done task:T3', ts: '2026-10-19T10:00:04Z' },
+    { event: 3, type: 'bench.gate_blocked', summary: 'gate_blocked point:preconditions.plan', ts: '2026-10-19T10:00:03Z' },
+    { event: 4, type: 'bench.task_done', summary: 'task_done task:T3', ts: '2026-10-19T10:00:04Z' },
   ],
 }
 const MID_BUILD = { exitCode: 0, stdout: envelope(MID_BUILD_DATA) }
@@ -61,7 +95,7 @@ const BLOCKED_DATA = {
     ...MID_BUILD_DATA.gates,
     {
       id: 'guard.rm',
-      kind: 'gate_blocked',
+      kind: 'bench.gate_blocked',
       reason: 'rm -rf outside the worktree',
       event: 5,
       ts: '2026-10-19T10:00:05Z',
@@ -69,13 +103,13 @@ const BLOCKED_DATA = {
   ],
   ledger_tail: [
     ...MID_BUILD_DATA.ledger_tail,
-    { event: 5, type: 'gate_blocked', summary: 'gate_blocked point:guard.rm', ts: '2026-10-19T10:00:05Z' },
+    { event: 5, type: 'bench.gate_blocked', summary: 'gate_blocked point:guard.rm', ts: '2026-10-19T10:00:05Z' },
   ],
 }
 const BLOCKED = { exitCode: 0, stdout: envelope(BLOCKED_DATA) }
 
 function envelope(data: unknown): string {
-  return `{"ok":true,"command":"status","data":${JSON.stringify(data)},${FINDINGS_NONE},${PROVES}}\n`
+  return `{"schema":"bench.status/1","ok":true,"command":"status","data":${JSON.stringify(data)},${FINDINGS_NONE},${PROVES}}\n`
 }
 
 /** What a child that exited with `exitCode` wrote. */
@@ -359,7 +393,7 @@ test('/anneal opens the pane, which then asks for its sections too', async ($, o
     expect(await ui.find({ key: 'gate-reason:5' })).toBe(undefined)
     await ui.press({ key: 'gate:5' })
     expect((await ui.find({ key: 'gate-reason:5' }))?.text).toBe('  rm -rf outside the worktree')
-    expect((await ui.find({ key: 'gate-kind:5' }))?.text).toBe('  gate_blocked at 2026-10-19T10:00:05Z')
+    expect((await ui.find({ key: 'gate-kind:5' }))?.text).toBe('  bench.gate_blocked at 2026-10-19T10:00:05Z')
     await ui.press({ key: 'gate:5' })
     expect(await ui.find({ key: 'gate-reason:5' })).toBe(undefined)
     await ui.unmount()
@@ -1123,6 +1157,47 @@ test('a status section whose fields are not the types the cockpit reads is dropp
   }
 })
 
+/** Refreshes once on `stdout` and expects the band to say the status is unavailable. */
+const unavailableOn = async ($: Engine, on: On, stdout: string): Promise<void> => {
+  const state = host(on, { exitCode: 0, stdout })
+  await refreshed($, state)
+  for (const surface of SURFACES) {
+    const ui = await band($, surface)
+    expect((await ui.find({ key: 'band' }))?.text).toBe('anneal · status unavailable')
+    await ui.unmount()
+  }
+}
+
+test('the old schema 1 document, with no output id, is no status: unavailable', async ($, on) => {
+  const old = `{"ok":true,"command":"status","data":{"schema":1,"phase":{"mode":"build"}},${FINDINGS_NONE},${PROVES}}\n`
+  await unavailableOn($, on, old)
+})
+
+test('another output id than bench.status/1 is no status: unavailable', async ($, on) => {
+  await unavailableOn($, on, envelope(MID_BUILD_DATA).replace('"bench.status/1"', '"weighin.status/1"'))
+})
+
+test('null sections are drawn as absent, beside the sections with data', async ($, on) => {
+  const state = host(on, {
+    exitCode: 0,
+    stdout: envelope({ ...COMMON, ...NO_SECTIONS, phase: MID_BUILD_DATA.phase, gates: [], ledger_tail: [] }),
+  })
+  await refreshed($, state)
+  for (const surface of SURFACES) {
+    const ui = await band($, surface)
+    expect((await ui.find({ key: 'band' }))?.text).toBe('anneal · build')
+    await ui.unmount()
+    const opened = await pane($, surface)
+    expect(await opened.find({ key: 'status-unreadable' })).toBe(undefined)
+    expect((await opened.find({ key: 'plan' }))?.text).toBe('none (not in build mode)')
+    expect((await opened.find({ key: 'tasks' }))?.text).toBe('none')
+    expect((await opened.find({ key: 'verdict' }))?.text).toBe('none')
+    expect((await opened.find({ key: 'clef' }))?.text).toBe('none')
+    expect((await opened.find({ key: 'gates-none' }))?.text).toBe('No gate has blocked.')
+    await opened.unmount()
+  }
+})
+
 test('a well-typed status names no section as unreadable', async ($, on) => {
   const state = host(on, MID_BUILD)
   await refreshed($, state)
@@ -1134,7 +1209,7 @@ test('a well-typed status names no section as unreadable', async ($, on) => {
 test('a stored reading that cannot be drawn shows status unreadable, not a blank band', async ($, on) => {
   host(on, MID_BUILD, {
     state: key =>
-      key === 'reading' ? { value: { value: { kind: 'read', status: { schema: 1, phase: null, gates: 'x' } }, version: 1 } } : undefined,
+      key === 'reading' ? { value: { value: { kind: 'read', status: { gates: 'x', ledger_tail: [] } }, version: 1 } } : undefined,
   })
   for (const surface of SURFACES) {
     const ui = await band($, surface)

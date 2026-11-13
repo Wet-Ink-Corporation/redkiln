@@ -1,12 +1,15 @@
 //! The sections `bench status` reads from the ledger: `phase`, `plan` and `tasks` of the
 //! worktree, and the ledger-wide `gates` and `ledger_tail`. Each reads through the module that
-//! owns the data; a failure is the [`Unreadable`] the caller turns into a finding.
+//! owns the data and builds its `bench_contract::status` section; a failure is the
+//! [`Unreadable`] the caller turns into a finding.
 
 use std::path::Path;
 
 use crate::store::{EventKind, Filter, LedgerEvent, Recorded, Store};
 use bench_contract::event::{GateBlocked, Mode, StopBlocked};
-use serde::Serialize;
+use bench_contract::status::{
+    Approved, Gate, NextTask, Phase, Plan, PlanStatus, Playbook, TailEvent, Tasks,
+};
 
 use super::Unreadable;
 use crate::hook::completeness::playbook::RULES;
@@ -48,120 +51,32 @@ impl<'a> BuildPlan<'a> {
     }
 }
 
-/// `phase`: the worktree's bench mode and the playbook it runs.
-#[derive(Debug, Serialize)]
-pub(crate) struct Phase {
-    /// `build` or `diagnose`.
-    mode: &'static str,
-    /// The playbook of the mode: the events its stop rules require.
-    playbook: Playbook,
-    /// The `mode_set` event's position.
-    event: u64,
-    /// Build mode's plan, relative to the worktree root.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    plan: Option<String>,
-    /// Build mode's design tree, relative to the worktree root.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tree: Option<String>,
-    /// Whether the working tree was clean when build mode was entered.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    clean: Option<bool>,
-}
-
-/// The active playbook: its name and the events its rules require since the mode was entered
-/// (`hook::completeness::playbook::RULES`).
-#[derive(Debug, Serialize)]
-struct Playbook {
-    name: &'static str,
-    requires: Vec<&'static str>,
-}
-
-impl Phase {
-    /// The phase of `entered`, which it consumes.
-    pub(super) fn of(entered: Entered) -> Self {
-        let (mode, plan, tree, clean) = match entered.mode {
-            Active::Build(BuildMode { plan, tree, clean }) => {
-                (Mode::Build, Some(plan), Some(tree), Some(clean))
-            }
-            Active::IncompleteBuild => (Mode::Build, None, None, None),
-            Active::Diagnose => (Mode::Diagnose, None, None, None),
-        };
-        let name = facts::mode_name(mode);
-        let requires = RULES
-            .iter()
-            .filter(|rule| rule.mode == mode)
-            .map(|rule| rule.event.as_str())
-            .collect();
-        Self {
-            mode: name,
-            playbook: Playbook { name, requires },
-            event: entered.position,
-            plan,
-            tree,
-            clean,
+/// `phase` of `entered`, which it consumes: the mode, and its playbook from the Stop hook's
+/// rules (`hook::completeness::playbook::RULES`).
+pub(super) fn phase(entered: Entered) -> Phase {
+    let (mode, plan, tree, clean) = match entered.mode {
+        Active::Build(BuildMode { plan, tree, clean }) => {
+            (Mode::Build, Some(plan), Some(tree), Some(clean))
         }
+        Active::IncompleteBuild => (Mode::Build, None, None, None),
+        Active::Diagnose => (Mode::Diagnose, None, None, None),
+    };
+    let requires = RULES
+        .iter()
+        .filter(|rule| rule.mode == mode)
+        .map(|rule| rule.event.stored().to_owned())
+        .collect();
+    Phase {
+        mode,
+        playbook: Playbook {
+            name: facts::mode_name(mode).to_owned(),
+            requires,
+        },
+        event: entered.position,
+        plan,
+        tree,
+        clean,
     }
-
-    /// The mode, for the text form.
-    pub(super) const fn mode(&self) -> &'static str {
-        self.mode
-    }
-
-    /// The plan, for the text form.
-    pub(super) fn plan(&self) -> Option<&str> {
-        self.plan.as_deref()
-    }
-}
-
-/// `plan`: the build plan's approval at its current bytes.
-#[derive(Debug, Serialize)]
-pub(crate) struct Plan {
-    /// The plan id: its path relative to the worktree root.
-    id: String,
-    /// `approved`, `stale` (its bytes changed since the approval) or `none`.
-    status: PlanStatus,
-    /// The `sha256:` hash of the plan's current bytes.
-    hash: String,
-    /// The latest approval, when there is one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    approved: Option<Approved>,
-}
-
-impl Plan {
-    /// The id, for the text form.
-    pub(super) fn id(&self) -> &str {
-        &self.id
-    }
-
-    /// The status, for the text form.
-    pub(super) const fn status(&self) -> &'static str {
-        match self.status {
-            PlanStatus::Approved => "approved",
-            PlanStatus::Stale => "stale",
-            PlanStatus::NotApproved => "none",
-        }
-    }
-}
-
-/// Whether the plan is approved at its current bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum PlanStatus {
-    /// The latest approval has the plan's hash.
-    Approved,
-    /// The latest approval has another hash.
-    Stale,
-    /// No approval.
-    #[serde(rename = "none")]
-    NotApproved,
-}
-
-/// The latest approval: the hash it approved, its ledger position and when.
-#[derive(Debug, Serialize)]
-struct Approved {
-    hash: String,
-    event: u64,
-    ts: String,
 }
 
 /// The plan's approval and its bytes, read once for `plan` and `tasks`.
@@ -171,36 +86,6 @@ pub(super) struct PlanRead {
     pub(super) approval: Plan,
     /// The plan's bytes.
     pub(super) bytes: Vec<u8>,
-}
-
-/// `tasks`: the build plan's tasks done since build mode was entered, and in all.
-#[derive(Debug, Serialize)]
-pub(crate) struct Tasks {
-    done: usize,
-    total: usize,
-    /// The first task not done, when there is one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    next: Option<NextTask>,
-}
-
-impl Tasks {
-    /// Done and total, for the text form.
-    pub(super) const fn counts(&self) -> (usize, usize) {
-        (self.done, self.total)
-    }
-
-    /// The next task's id, for the text form.
-    pub(super) fn next(&self) -> Option<&str> {
-        self.next.as_ref().map(|next| next.id.as_str())
-    }
-}
-
-/// The first task of the plan not done.
-#[derive(Debug, Serialize)]
-struct NextTask {
-    id: String,
-    /// Its title, cut to the handoff note's length.
-    title: String,
 }
 
 impl Worktree<'_> {
@@ -266,30 +151,8 @@ impl Worktree<'_> {
     }
 }
 
-/// One gate that blocked: a `gate_blocked` (a guard or precondition denied a tool call) or a
-/// `stop_blocked` (the Stop hook refused a stop).
-#[derive(Debug, Serialize)]
-pub(crate) struct Gate {
-    /// The gate, as its event names it (`guard.rm-rf`, `completeness.claim`).
-    id: String,
-    /// `gate_blocked` or `stop_blocked`.
-    kind: &'static str,
-    /// Why it blocked, in one line.
-    reason: String,
-    /// The event's ledger position.
-    event: u64,
-    /// When it blocked.
-    ts: String,
-}
-
-impl Gate {
-    /// The id, reason and event, for the text form.
-    pub(super) fn parts(&self) -> (&str, &str, u64) {
-        (&self.id, &self.reason, self.event)
-    }
-}
-
-/// `gates`: the newest [`GATES_SHOWN`] blocking events, oldest first.
+/// `gates`: the newest [`GATES_SHOWN`] blocking events, oldest first: `gate_blocked` (a guard
+/// or precondition denied a tool call) and `stop_blocked` (the Stop hook refused a stop).
 pub(super) fn gates(store: &Store) -> Result<Vec<Gate>, Unreadable> {
     let filter = Filter {
         types: vec![EventKind::GateBlocked, EventKind::StopBlocked],
@@ -301,7 +164,7 @@ pub(super) fn gates(store: &Store) -> Result<Vec<Gate>, Unreadable> {
 
 /// The gate a blocking event records; `None` for any other event.
 fn gate(recorded: Recorded) -> Option<Gate> {
-    let kind = recorded.event.event.kind().as_str();
+    let kind = recorded.event.event.kind().stored();
     let (LedgerEvent::GateBlocked(GateBlocked { point, reason })
     | LedgerEvent::StopBlocked(StopBlocked { point, reason })) = recorded.event.event
     else {
@@ -309,34 +172,11 @@ fn gate(recorded: Recorded) -> Option<Gate> {
     };
     Some(Gate {
         id: point,
-        kind,
+        kind: kind.to_owned(),
         reason,
         event: recorded.position,
         ts: recorded.event.ts.as_str().to_owned(),
     })
-}
-
-/// One ledger event of `ledger_tail`.
-#[derive(Debug, Serialize)]
-pub(crate) struct TailEvent {
-    /// Its ledger position.
-    event: u64,
-    /// Its registered type.
-    #[serde(rename = "type")]
-    kind: &'static str,
-    /// Its type and what it is about, one line (`task_done task:T1`).
-    summary: String,
-    /// Who wrote it.
-    actor: String,
-    /// When.
-    ts: String,
-}
-
-impl TailEvent {
-    /// The position and summary, for the text form.
-    pub(super) fn parts(&self) -> (u64, &str) {
-        (self.event, &self.summary)
-    }
 }
 
 /// `ledger_tail`: the newest `n` events, oldest first.
@@ -346,7 +186,7 @@ pub(super) fn tail(store: &Store, n: usize) -> Result<Vec<TailEvent>, Unreadable
         .into_iter()
         .map(|recorded| TailEvent {
             event: recorded.position,
-            kind: recorded.event.event.kind().as_str(),
+            kind: recorded.event.event.kind().stored().to_owned(),
             summary: facts::event_word(&recorded),
             ts: recorded.event.ts.as_str().to_owned(),
             actor: recorded.event.actor,

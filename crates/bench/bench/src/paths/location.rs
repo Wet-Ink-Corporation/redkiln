@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use redkiln_core::location::{self, GitError, LocateError, STORE_ENV, Search, Source, Workspace};
+use redkiln_core::suite::Suite;
 
 use super::{ANNEAL_STORE_VAR, PathError, StoreLocation, StoreSource};
 
@@ -141,6 +142,7 @@ pub(super) fn locate(
         old_ledgers,
         from: cwd.to_path_buf(),
         notices,
+        repo_class: located.suite.as_ref().map(Suite::repo_class),
     })
 }
 

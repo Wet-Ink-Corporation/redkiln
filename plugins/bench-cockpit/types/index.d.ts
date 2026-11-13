@@ -7,17 +7,19 @@
 // redraws without asking the CLI again and survives a hot reload. Nothing here is a source of
 // truth; the ledger is.
 //
-// The section types follow docs/status.md (`schema: 1`). Fields are only ever added within a
-// schema, so each type is open: a reader ignores what it does not know.
+// The section types follow docs/bench/status.md: the `data` of the `bench.status/1` envelope
+// (SPEC CLI-12), Bench's sections beside CLI-12's common keys. Fields are only ever added within
+// a version, so each type is open: a reader ignores what it does not know. Bench writes every
+// unset field as `null`, never leaving it out.
 
 /** `phase`: the worktree's bench mode and its playbook. */
 export type AnnealPhase = {
   readonly mode: string
   readonly playbook?: { readonly name: string; readonly requires: readonly string[] }
   readonly event?: number
-  readonly plan?: string
-  readonly tree?: string
-  readonly clean?: boolean
+  readonly plan?: string | null
+  readonly tree?: string | null
+  readonly clean?: boolean | null
 }
 
 /** `plan`: build mode's plan and whether its current bytes are the approved ones. */
@@ -25,14 +27,14 @@ export type AnnealPlan = {
   readonly id: string
   readonly status: 'approved' | 'stale' | 'none' | (string & {})
   readonly hash?: string
-  readonly approved?: { readonly hash: string; readonly event: number; readonly ts: string }
+  readonly approved?: { readonly hash: string; readonly event: number; readonly ts: string } | null
 }
 
 /** `tasks`: build mode's plan's tasks done and in all, and the first not done. */
 export type AnnealTasks = {
   readonly done: number
   readonly total: number
-  readonly next?: { readonly id: string; readonly title: string }
+  readonly next?: { readonly id: string; readonly title: string } | null
 }
 
 /** One entry of `gates`: a `gate_blocked` or `stop_blocked` event. */
@@ -48,16 +50,16 @@ export type AnnealGate = {
 export type AnnealVerdict = {
   readonly pr?: number
   readonly head?: string
-  readonly base?: string
+  readonly base?: string | null
   readonly outcome: string
   readonly valid: boolean
   readonly verdict?: {
     readonly event: number
     readonly verdict: string
-    readonly source?: string
-    readonly sha?: string
+    readonly source?: string | null
+    readonly sha?: string | null
     readonly fresh?: string
-  }
+  } | null
   readonly stale?: number
 }
 
@@ -93,18 +95,20 @@ export type AnnealLedgerEntry = {
   readonly ts: string
 }
 
-/** One reading of `bench status --json`'s `data` (#58). Every section is optional. */
+/**
+ * The sections the cockpit draws of one reading of `bench status --json`'s `data`, whose
+ * envelope's `schema` is `bench.status/1` (#58, CLI-12). A section is `null` when it had no data,
+ * was not asked for, or did not have the types the cockpit reads.
+ */
 export type AnnealStatus = {
-  /** The status document's schema version; this mod reads version 1. */
-  readonly schema: 1
-  readonly phase?: AnnealPhase
-  readonly plan?: AnnealPlan
-  readonly tasks?: AnnealTasks
-  readonly gates?: readonly AnnealGate[]
-  readonly verdict?: AnnealVerdict
-  readonly clef?: AnnealClef
-  readonly context?: AnnealContext
-  readonly ledger_tail?: readonly AnnealLedgerEntry[]
+  readonly phase: AnnealPhase | null
+  readonly plan: AnnealPlan | null
+  readonly tasks: AnnealTasks | null
+  readonly gates: readonly AnnealGate[] | null
+  readonly verdict: AnnealVerdict | null
+  readonly clef: AnnealClef | null
+  readonly context: AnnealContext | null
+  readonly ledger_tail: readonly AnnealLedgerEntry[] | null
 }
 
 /**

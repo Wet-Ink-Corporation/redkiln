@@ -13,11 +13,13 @@ use bench_contract::event::{
     VerdictSource,
 };
 use clap::Parser;
+use redkiln_core::envelope::SPEC_VERSION;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
 mod branches;
 mod clef_unreadable;
+mod cli_12;
 mod context_sources;
 mod edges;
 
@@ -121,8 +123,68 @@ impl Fixture {
     fn json(&self, args: &[&str]) -> Setup<(u8, Value)> {
         let args: Vec<&str> = ["--json"].iter().chain(args).copied().collect();
         let (code, out) = self.status(&args)?;
-        Ok((code, serde_json::from_str(&out)?))
+        Ok((code, checked(out.as_bytes())?))
     }
+}
+
+/// `out` read as the envelope, its `data` checked against CLI-12's
+/// `spec/schemas/status-1.schema.json`: every document a test here reads passes it.
+fn checked(out: &[u8]) -> Setup<Value> {
+    let envelope: Value = serde_json::from_slice(out)?;
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../spec/schemas/status-1.schema.json");
+    let schema: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let validator = jsonschema::draft202012::new(&schema)?;
+    let data = envelope.get("data").ok_or("the envelope has no data")?;
+    let errors: Vec<String> = validator
+        .iter_errors(data)
+        .map(|e| format!("{}: {e}", e.instance_path().as_str()))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "data breaks status-1: {errors:?}: {envelope}"
+    );
+    Ok(envelope)
+}
+
+/// The `data` `bench status --json` writes for `fixture` (CLI-12): the common keys, with
+/// `store_schema` and `health` as given, then every section `null` but those in `sections`.
+fn document(
+    fixture: &Fixture,
+    store_schema: Option<&str>,
+    health: &str,
+    sections: Value,
+) -> Setup<Value> {
+    let mut data = json!({
+        "plugin": "rk-bench",
+        "version": env!("CARGO_PKG_VERSION"),
+        "spec": SPEC_VERSION,
+        "store": fixture.store_path().to_string_lossy().replace('\\', "/"),
+        "store_source": "env",
+        "store_schema": store_schema,
+        "repo_class": "client",
+        "unreadable": {},
+        "dropped": 0,
+        "health": health,
+        "phase": null,
+        "plan": null,
+        "tasks": null,
+        "gates": null,
+        "verdict": null,
+        "clef": null,
+        "context": null,
+        "ledger_tail": null,
+    });
+    let (Some(fields), Value::Object(given)) = (data.as_object_mut(), sections) else {
+        return Err("the sections are an object".into());
+    };
+    fields.extend(given);
+    Ok(data)
+}
+
+/// [`document`] with a ledger (store schema 1.0) and nothing wrong.
+fn with_store(fixture: &Fixture, sections: Value) -> Setup<Value> {
+    document(fixture, Some("1.0"), "ok", sections)
 }
 
 /// Appends `event` at `ts`, tagged with `worktree` when given; returns its position.
@@ -199,7 +261,7 @@ fn mid_build(fixture: &mut Fixture) -> Setup<String> {
 }
 
 #[test]
-fn an_empty_ledger_has_schema_1_no_gates_and_an_empty_tail() -> Setup<()> {
+fn an_empty_ledger_has_cli_12_s_keys_no_gates_and_an_empty_tail() -> Setup<()> {
     let fixture = Fixture::new()?;
     fixture.store()?;
 
@@ -208,8 +270,8 @@ fn an_empty_ledger_has_schema_1_no_gates_and_an_empty_tail() -> Setup<()> {
     assert_eq!(code, 0, "a ledger exists: {envelope}");
     assert_eq!(
         envelope["data"],
-        json!({"schema": 1, "gates": [], "ledger_tail": []}),
-        "no mode, plan, verdict, Clef or context reading: those sections are absent"
+        with_store(&fixture, json!({"gates": [], "ledger_tail": []}))?,
+        "no mode, plan, verdict, Clef or context reading: those sections are null"
     );
     assert_eq!(envelope["findings"], json!([]), "nothing was unreadable");
     assert_eq!(envelope["ok"], json!(true), "ok agrees with exit 0");
@@ -228,8 +290,8 @@ fn without_a_ledger_it_exits_0_with_the_document_and_creates_none() -> Setup<()>
     );
     assert_eq!(
         envelope["data"],
-        json!({"schema": 1}),
-        "no section has data"
+        document(&fixture, None, "ok", json!({}))?,
+        "where the ledger would be, no store schema, and no section has data"
     );
     assert_eq!(
         (
@@ -258,7 +320,11 @@ fn a_mid_build_ledger_folds_into_every_section() -> Setup<()> {
         return Err("both halves are objects".into());
     };
     fields.extend(rest);
-    assert_eq!(envelope["data"], expected, "the whole document");
+    assert_eq!(
+        envelope["data"],
+        with_store(&fixture, expected)?,
+        "the whole document"
+    );
     assert_eq!(envelope["findings"], json!([]), "everything was readable");
     Ok(())
 }
@@ -266,10 +332,9 @@ fn a_mid_build_ledger_folds_into_every_section() -> Setup<()> {
 /// The mid-build document's worktree sections: phase, plan, tasks and verdict.
 fn mid_build_worktree(head: &str, hash: &str) -> Value {
     json!({
-            "schema": 1,
             "phase": {
                 "mode": "build",
-                "playbook": {"name": "build", "requires": ["test_run"]},
+                "playbook": {"name": "build", "requires": ["bench.test_run"]},
                 "event": 1,
                 "plan": PLAN,
                 "tree": "docs/tree.json",
@@ -325,13 +390,13 @@ fn mid_build_rest() -> Value {
                 "level": "warn",
             },
             "ledger_tail": [
-                {"event": 1, "type": "mode_set", "summary": "mode_set build", "actor": "cli",
+                {"event": 1, "type": "bench.mode_set", "summary": "mode_set build", "actor": "cli",
                  "ts": "2026-10-19T10:00:01Z"},
-                {"event": 2, "type": "plan_approved", "summary": "plan_approved plan:docs/plan.md",
+                {"event": 2, "type": "bench.plan_approved", "summary": "plan_approved plan:docs/plan.md",
                  "actor": "cli", "ts": "2026-10-19T10:00:02Z"},
-                {"event": 3, "type": "task_done", "summary": "task_done task:T1", "actor": "cli",
+                {"event": 3, "type": "bench.task_done", "summary": "task_done task:T1", "actor": "cli",
                  "ts": "2026-10-19T10:00:03Z"},
-                {"event": 4, "type": "verdict_set", "summary": "verdict_set pr:7", "actor": "cli",
+                {"event": 4, "type": "bench.verdict_set", "summary": "verdict_set pr:7", "actor": "cli",
                  "ts": "2026-10-19T10:00:04Z"},
             ],
     })
@@ -363,24 +428,26 @@ fn a_stale_plan_and_blocked_gates_are_shown_with_their_events() -> Setup<()> {
     assert_eq!(code, 0, "{envelope}");
     assert_eq!(
         envelope["data"],
-        json!({
-            "schema": 1,
-            "plan": {
-                "id": PLAN,
-                "status": "stale",
-                "hash": sha256(edited.as_bytes()),
-                "approved": {"hash": approved, "event": 2, "ts": "2026-10-19T10:00:02Z"},
-            },
-            "tasks": {"done": 0, "total": 2, "next": {"id": "T1", "title": "CSV writer"}},
-            "gates": [
-                {"id": "preconditions.plan", "kind": "gate_blocked",
-                 "reason": "build mode: the plan changed since it was approved", "event": 3,
-                 "ts": "2026-10-19T10:00:03Z"},
-                {"id": "completeness.claim", "kind": "stop_blocked",
-                 "reason": "a success claim with no green test run", "event": 4,
-                 "ts": "2026-10-19T10:00:04Z"},
-            ],
-        }),
+        with_store(
+            &fixture,
+            json!({
+                "plan": {
+                    "id": PLAN,
+                    "status": "stale",
+                    "hash": sha256(edited.as_bytes()),
+                    "approved": {"hash": approved, "event": 2, "ts": "2026-10-19T10:00:02Z"},
+                },
+                "tasks": {"done": 0, "total": 2, "next": {"id": "T1", "title": "CSV writer"}},
+                "gates": [
+                    {"id": "preconditions.plan", "kind": "bench.gate_blocked",
+                     "reason": "build mode: the plan changed since it was approved", "event": 3,
+                     "ts": "2026-10-19T10:00:03Z"},
+                    {"id": "completeness.claim", "kind": "bench.stop_blocked",
+                     "reason": "a success claim with no green test run", "event": 4,
+                     "ts": "2026-10-19T10:00:04Z"},
+                ],
+            })
+        )?,
         "the whole document"
     );
     let (_, text) = fixture.status(&["--fields", "plan,gates"])?;
@@ -457,6 +524,7 @@ fn a_verdict_for_other_code_is_stale_and_not_valid() -> Setup<()> {
             "base": "main",
             "outcome": "stale",
             "valid": false,
+            "verdict": null,
             "stale": 1,
         }),
         "the code changed, so no verdict is fresh"
@@ -474,12 +542,28 @@ fn fields_limit_the_document_to_the_sections_named() -> Setup<()> {
     let keys: Vec<&String> = envelope["data"]
         .as_object()
         .ok_or("data is an object")?
-        .keys()
+        .iter()
+        .filter(|(_, value)| !value.is_null())
+        .map(|(key, _)| key)
         .collect();
     assert_eq!(
         keys,
-        ["gates", "phase", "plan", "schema"],
-        "only those, and the schema"
+        [
+            "dropped",
+            "gates",
+            "health",
+            "phase",
+            "plan",
+            "plugin",
+            "repo_class",
+            "spec",
+            "store",
+            "store_schema",
+            "store_source",
+            "unreadable",
+            "version"
+        ],
+        "only those sections, and CLI-12's keys, are not null"
     );
     Ok(())
 }
@@ -518,7 +602,11 @@ fn an_unreadable_source_is_a_finding_and_its_section_is_absent() -> Setup<()> {
     let (code, envelope) = fixture.json(&["--fields", "context"])?;
 
     assert_eq!(code, 0, "an unreadable section does not fail the command");
-    assert_eq!(envelope["data"], json!({"schema": 1}), "context is absent");
+    assert_eq!(
+        envelope["data"],
+        document(&fixture, Some("1.0"), "degraded", json!({}))?,
+        "context is null, and the warning degrades health"
+    );
     assert_eq!(
         envelope["findings"][0]["key"],
         json!("status/unreadable:context"),

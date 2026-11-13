@@ -54,6 +54,7 @@ Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-
 | `cli/invalid/*.json` | CLI-02, CLI-03 | `schema.rs`, `cli.rs` |
 | `decision-request/valid/dr-02.json` | DR-02's example | `decision_request.rs`, `spec_text.rs`; `weighin-contract`'s `request` tests |
 | `decision-request/invalid/*.json` | DR-02: options, option ids, door, `default` on a one-way item, subject hash form | `schema.rs`; `weighin-contract`'s `request` tests |
+| `status/valid/bench-ok.json` | CLI-12: Bench's `status --json` mid-build, every section with data; Bench's own keys (`phase`, `plan`, `tasks`, `gates`, `verdict`, `clef`, `context`, `ledger_tail`) beside the common ones | `status.rs`, `schema.rs`; `bench-contract`'s `status` tests |
 | `status/valid/weighin-ok.json` | CLI-12: weighin's `status --json` with a located store and one finished `Stop` hook; weighin's own keys (`hook_errors`, `hooks`) beside the common ones | `status.rs`, `schema.rs`; `weighin-contract`'s `status` tests |
 | `status/valid/weighin-off.json` | CLI-12: a store that cannot be located, its keys `null` and one error finding (decision D7) | `status.rs`, `schema.rs` |
 | `status/invalid/*.json` | CLI-12 `data` only: `health` missing or unknown, `store_schema` not `<major>.<minor>` | `schema.rs` |

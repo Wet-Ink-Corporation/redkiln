@@ -8,7 +8,8 @@ use redkiln_core::envelope::Namespace;
 use super::schema::assert_valid;
 use super::{one_line, value_of};
 
-const VALID: [&str; 2] = [
+const VALID: [&str; 3] = [
+    "status/valid/bench-ok.json",
     "status/valid/weighin-ok.json",
     "status/valid/weighin-off.json",
 ];

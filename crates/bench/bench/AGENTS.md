@@ -10,7 +10,7 @@ Plugin (bench), binary `bench`. Process concerns: arguments, stdout and stderr, 
 
 ## Allowed dependencies
 - Workspace crates: `bench-contract` (with `core`: the `bench.*` events; the command list), `redkiln-core` (the suite store, its location, envelopes, ids, journals, approvals and the suite owner; since step 3 of `docs/plan/move-2-bench.md`, which removed `bench-ledger`). Bench reaches the store only through `src/store.rs` and its submodules (the 0.x envelope there is converted to and from Core's), and the location only through `src/paths/location.rs`.
-- Third-party: `clap` (the workspace entry), `serde`, `serde_json`, `thiserror`, `sha2`, `ureq` (3, `rustls` with bundled roots: Clef's transport and `verdict set`'s commit status; M2-A, used by this crate only); dev: `tempfile`, `jsonschema` (envelopes checked against `spec/schemas/cli-envelope-1.schema.json`; call C3, 2026-11-11). The old-ledger fixtures in `tests/fixtures/anneal/` are read only from copies, pinned by `tests/it/fixtures.rs`.
+- Third-party: `clap` (the workspace entry), `serde`, `serde_json`, `thiserror`, `sha2`, `ureq` (3, `rustls` with bundled roots: Clef's transport and `verdict set`'s commit status; M2-A, used by this crate only); dev: `tempfile`, `jsonschema` (envelopes checked against `spec/schemas/cli-envelope-1.schema.json`, and `status --json`'s `data` against `status-1.schema.json`; call C3, 2026-11-11). The old-ledger fixtures in `tests/fixtures/anneal/` are read only from copies, pinned by `tests/it/fixtures.rs`.
 - Never: anything that needs a network at build time.
 
 ## Names at the door (M2-B)

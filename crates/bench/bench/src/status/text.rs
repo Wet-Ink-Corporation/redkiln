@@ -5,12 +5,12 @@
 use std::io::{self, Write};
 
 use bench_contract::event::Verdict;
+use bench_contract::status::{
+    Clef, Context, Gate, HeadVerdict, Phase, Plan, Status, TailEvent, Tasks,
+};
 
-use super::Document;
-use super::head_verdict::HeadVerdict;
-use super::home::{Clef, Context};
-use super::ledger::{Gate, Phase, Plan, TailEvent, Tasks};
 use crate::envelope::Finding;
+use crate::hook::handoff::facts;
 use crate::hook::injection_scan::detect;
 
 /// The most lines the text form writes: eight sections and the findings line fit.
@@ -19,12 +19,12 @@ pub(super) const MAX_LINES: usize = 12;
 /// The most characters of one line.
 const MAX_LINE_CHARS: usize = 200;
 
-/// Writes `document` and `findings` as text to `out`.
+/// Writes `document`'s sections and `findings` as text to `out`.
 ///
 /// # Errors
 /// The I/O error when `out` cannot be written.
 pub(super) fn write<O: Write>(
-    document: &Document,
+    document: &Status,
     findings: &[Finding],
     mut out: O,
 ) -> io::Result<()> {
@@ -48,7 +48,7 @@ fn shown(c: char) -> char {
 }
 
 /// The lines, before they are cut.
-fn lines(document: &Document, findings: &[Finding]) -> Vec<String> {
+fn lines(document: &Status, findings: &[Finding]) -> Vec<String> {
     let problems = (!findings.is_empty()).then(|| {
         let problems: Vec<&str> = findings
             .iter()
@@ -73,20 +73,21 @@ fn lines(document: &Document, findings: &[Finding]) -> Vec<String> {
 }
 
 fn phase(phase: &Phase) -> String {
-    match phase.plan() {
-        Some(plan) => format!("phase: {} (plan {plan})", phase.mode()),
-        None => format!("phase: {}", phase.mode()),
+    let mode = facts::mode_name(phase.mode);
+    match &phase.plan {
+        Some(plan) => format!("phase: {mode} (plan {plan})"),
+        None => format!("phase: {mode}"),
     }
 }
 
 fn plan(plan: &Plan) -> String {
-    format!("plan: {} {}", plan.status(), plan.id())
+    format!("plan: {} {}", plan.status.as_str(), plan.id)
 }
 
 fn tasks(tasks: &Tasks) -> String {
-    let (done, total) = tasks.counts();
-    match tasks.next() {
-        Some(next) => format!("tasks: {done} of {total} done, next {next}"),
+    let Tasks { done, total, next } = tasks;
+    match next {
+        Some(next) => format!("tasks: {done} of {total} done, next {}", next.id),
         None => format!("tasks: {done} of {total} done"),
     }
 }
@@ -94,8 +95,9 @@ fn tasks(tasks: &Tasks) -> String {
 fn gates(gates: &[Gate]) -> String {
     match gates.last() {
         None => "gates: none blocked".to_owned(),
-        Some(newest) => {
-            let (id, reason, event) = newest.parts();
+        Some(Gate {
+            id, reason, event, ..
+        }) => {
             let count = gates.len();
             let blocks = if count == 1 { "block" } else { "blocks" };
             format!("gates: {count} recent {blocks}, newest {id} (#{event}): {reason}")
@@ -104,25 +106,36 @@ fn gates(gates: &[Gate]) -> String {
 }
 
 fn verdict(verdict: &HeadVerdict) -> String {
-    let (pr, outcome, level) = verdict.parts();
-    let outcome = outcome.as_str();
-    match level {
-        Some(level) => format!("verdict: pr {pr} {outcome} ({})", verdict_name(level)),
+    let pr = verdict.pr;
+    let outcome = verdict.outcome.as_str();
+    match &verdict.verdict {
+        Some(fresh) => format!(
+            "verdict: pr {pr} {outcome} ({})",
+            verdict_name(fresh.verdict)
+        ),
         None => format!("verdict: pr {pr} {outcome}"),
     }
 }
 
 fn clef(clef: &Clef) -> String {
     let points: Vec<String> = clef
-        .points()
-        .map(|(point, answered, mode)| format!("{} {answered} {}", point.as_str(), mode.as_str()))
+        .points
+        .iter()
+        .map(|point| {
+            format!(
+                "{} {} {}",
+                point.point.as_str(),
+                point.answered,
+                point.mode.as_str()
+            )
+        })
         .collect();
     format!("clef: {}", points.join(", "))
 }
 
 fn context(context: &Context) -> String {
-    let (used, window, percent) = context.parts();
-    let window = window / 1000;
+    let (used, percent) = (context.used_tokens, context.percent);
+    let window = context.window / 1000;
     match (used, percent) {
         (Some(used), Some(percent)) => {
             format!("context: {:.0}k/{window}k {percent}%", used / 1000.0)
@@ -137,10 +150,7 @@ fn ledger_tail(events: &[TailEvent]) -> String {
     }
     let shown: Vec<String> = events
         .iter()
-        .map(|event| {
-            let (position, summary) = event.parts();
-            format!("#{position} {summary}")
-        })
+        .map(|event| format!("#{} {}", event.event, event.summary))
         .collect();
     format!("ledger: {}", shown.join("; "))
 }
