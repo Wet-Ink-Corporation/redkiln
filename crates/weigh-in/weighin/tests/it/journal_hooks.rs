@@ -1,9 +1,13 @@
 //! The hooks and journal refs (SPEC JR-07, JR-08, D11, D12): the Stop hook captures, then exports
 //! the store to the journal refs inside its budget; nothing else exports, and nothing writes a
-//! committed journal any more.
+//! committed journal any more. The cases that hold only when the Stop's export beats
+//! `Budget::STOP`'s 4 s deadline, which a slow runner spawning git can pass, run in process with
+//! a budget the test gives the hook (`src/hooks/turn/tests/export.rs`, TST-10).
 
 use crate::scratch::{Repo, TestResult};
-use crate::support::{git, state_of};
+#[cfg(unix)]
+use crate::support::git;
+use crate::support::state_of;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -42,31 +46,11 @@ fn watermark(repo: &Repo) -> TestResult<PathBuf> {
     }
 }
 
-/// Sets the store position the watermark records to `position`, keeping the rest of it.
-fn set_watermark(repo: &Repo, position: impl FnOnce(u64) -> u64) -> TestResult {
-    let path = watermark(repo)?;
-    let text = std::fs::read_to_string(&path)?;
-    let (first, rest) = text.split_once('\n').unwrap_or((text.as_str(), ""));
-    let moved = position(first.trim().parse()?);
-    std::fs::write(&path, format!("{moved}\n{rest}"))?;
-    Ok(())
-}
-
 /// The store position the watermark records.
+#[cfg(unix)]
 fn watermark_at(repo: &Repo) -> TestResult<u64> {
     let text = std::fs::read_to_string(watermark(repo)?)?;
     Ok(text.lines().next().ok_or("a position")?.parse()?)
-}
-
-/// Replaces the watermark's last line, the store it was written for, with `store`.
-fn set_watermark_store(repo: &Repo, store: &str) -> TestResult {
-    let path = watermark(repo)?;
-    let text = std::fs::read_to_string(&path)?;
-    let mut lines: Vec<&str> = text.lines().collect();
-    lines.pop().ok_or("a store line")?;
-    lines.push(store);
-    std::fs::write(&path, format!("{}\n", lines.join("\n")))?;
-    Ok(())
 }
 
 /// Puts a directory where the repository's watermark is: reading it then fails with something
@@ -136,22 +120,6 @@ fn pre_receive(remote: &Path, script: &str) -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_stop_hook_exports_the_sessions_events_to_its_journal_ref() -> TestResult {
-    let (repo, remote) = Repo::with_remote(true)?;
-
-    let out = repo.hook(&repo.stop("s"))?;
-
-    exited_0(&out)?;
-    let stored = repo.printed_for("s")?.lines().count();
-    assert!(stored > 0, "the hook raised items");
-    let journal = git_out(&remote, &["show", "refs/redkiln/journal/s:s.jsonl"])?;
-    assert_eq!(journal.lines().count(), stored, "{journal}");
-    assert_eq!(logged(&repo)?, Vec::<String>::new());
-    Ok(())
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn no_hook_or_command_writes_a_committed_journal() -> TestResult {
     let repo = Repo::new(true)?;
 
@@ -205,60 +173,6 @@ fn an_appending_command_prints_no_journal_warning() -> TestResult {
 
     assert!(out.status.success());
     assert_eq!(String::from_utf8(out.stderr)?, "");
-    Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_stop_hook_whose_remote_refuses_custom_refs_pushes_an_inbox_branch() -> TestResult {
-    let (repo, remote) = Repo::with_remote(true)?;
-    pre_receive(
-        &remote,
-        "#!/bin/sh\nwhile read old new ref; do\n  case \"$ref\" in\n    refs/heads/*) ;;\n    *) echo \"push contains a ref outside refs/heads/*\" >&2; exit 1 ;;\n  esac\ndone\n",
-    )?;
-
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-
-    assert_eq!(
-        refs(&remote, "refs/heads/redkiln")?,
-        ["refs/heads/redkiln/inbox/s"]
-    );
-    assert_eq!(refs(&remote, "refs/redkiln")?, Vec::<String>::new());
-    assert_eq!(
-        logged(&repo)?,
-        Vec::<String>::new(),
-        "a relayed journal needs no one"
-    );
-    Ok(())
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_stop_hook_finding_a_broken_journal_ref_logs_it_once_and_exits_0() -> TestResult {
-    let (repo, remote) = Repo::with_remote(true)?;
-    // The repository's own commit: its tree is not exactly `s.jsonl`, so the ref breaks JR-05.
-    git(
-        &repo.root,
-        &["push", "-q", "origin", "HEAD:refs/redkiln/journal/s"],
-    );
-    let before = git_out(&remote, &["rev-parse", "refs/redkiln/journal/s"])?;
-
-    let out = repo.hook(&repo.stop("s"))?;
-
-    exited_0(&out)?;
-    let log = logged(&repo)?;
-    assert_eq!(log.len(), 1, "{log:?}");
-    assert!(
-        log.iter()
-            .all(|l| l.contains("Stop: refs/redkiln/journal/s breaks JR-05 (tree)")),
-        "{log:?}"
-    );
-    assert_eq!(
-        git_out(&remote, &["rev-parse", "refs/redkiln/journal/s"])?,
-        before,
-        "left alone"
-    );
     Ok(())
 }
 
@@ -348,83 +262,6 @@ fn a_stop_examines_only_the_journals_with_events_since_the_last_clean_export() -
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_watermark_past_the_store_head_is_ignored() -> TestResult {
-    let repo = Repo::new(true)?;
-    repo.raise("u", "Keep the cache warm?")?;
-    repo.ok("cli", &["journal", "checkpoint"], None)?;
-    set_watermark(&repo, |at| at.saturating_add(1_000))?;
-    repo.raise("t", "Keep three retries?")?;
-
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-
-    assert!(
-        repo.has_ref("refs/redkiln/journal/t"),
-        "a store behind its watermark is not the one it was written for: everything is examined"
-    );
-    Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_stop_after_a_deferred_export_examines_the_deferred_journals_again() -> TestResult {
-    let (repo, remote) = Repo::with_remote(true)?;
-    repo.raise("u", "Keep the cache warm?")?;
-    repo.ok("cli", &["journal", "checkpoint"], None)?;
-    assert!(watermark(&repo).is_ok(), "the sweep moved the watermark");
-    repo.raise("t", "Keep three retries?")?;
-    pre_receive(
-        &remote,
-        "#!/bin/sh\necho \"closed for maintenance\" >&2\nexit 1\n",
-    )?;
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-    assert_eq!(
-        refs(&remote, "refs/redkiln")?,
-        ["refs/redkiln/journal/u"],
-        "t and s deferred"
-    );
-    assert_eq!(
-        refs(&remote, "refs/heads/redkiln")?,
-        Vec::<String>::new(),
-        "deferred"
-    );
-    std::fs::remove_file(remote.join("hooks/pre-receive"))?;
-
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-
-    assert!(
-        refs(&remote, "refs/redkiln/journal")?.contains(&"refs/redkiln/journal/t".to_owned()),
-        "t's events are past no clean export, so the next Stop examines t again"
-    );
-    Ok(())
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_watermark_written_for_another_store_is_ignored() -> TestResult {
-    let repo = Repo::new(true)?;
-    repo.raise("u", "Keep the cache warm?")?;
-    repo.ok("cli", &["journal", "checkpoint"], None)?;
-    // A full scan would export u again; one scoped by the watermark does not look at it.
-    git(&repo.root, &["update-ref", "-d", "refs/redkiln/journal/u"]);
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-    assert!(
-        !repo.has_ref("refs/redkiln/journal/u"),
-        "scoped: u not examined"
-    );
-    set_watermark_store(&repo, "00000000000000000000000000000000")?;
-
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-
-    assert!(
-        repo.has_ref("refs/redkiln/journal/u"),
-        "another store's watermark: full scan"
-    );
-    Ok(())
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn a_watermark_that_cannot_be_read_is_one_warning_and_one_logged_line() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("u", "Keep the cache warm?")?;
@@ -495,68 +332,6 @@ fn with_an_unreadable_watermark_a_stop_exports_its_own_session_first() -> TestRe
         "the current session first: {pushed:?}"
     );
     assert!(pushed.len() < 9, "cut short: {pushed:?}");
-    Ok(())
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn two_repositories_on_one_store_each_keep_their_own_watermark() -> TestResult {
-    let a = Repo::new(true)?;
-    let b = Repo::new(true)?;
-    let store = a.sibling("shared")?.join("events.sqlite3");
-    let shared = store.to_string_lossy().into_owned();
-    let state = store.with_file_name("weighin");
-    exited_0(&a.hook_with(&a.stop("sa"), "REDKILN_STORE", &shared)?)?;
-    exited_0(&b.hook_with(&b.stop("sb"), "REDKILN_STORE", &shared)?)?;
-    let both = watermarks(&state)?;
-    assert_eq!(both.len(), 2, "one per repository: {both:?}");
-
-    exited_0(&a.hook_with(&a.stop("sa2"), "REDKILN_STORE", &shared)?)?;
-
-    assert!(
-        a.has_ref("refs/redkiln/journal/sa2"),
-        "a exports its session"
-    );
-    let after = watermarks(&state)?;
-    let kept = after.iter().filter(|mark| both.contains(mark)).count();
-    assert_eq!(kept, 1, "b's is untouched, a's moved on: {after:?}");
-    exited_0(&b.hook_with(&b.stop("sb2"), "REDKILN_STORE", &shared)?)?;
-    assert!(
-        b.has_ref("refs/redkiln/journal/sb2"),
-        "b exports its session"
-    );
-    let last = watermarks(&state)?;
-    assert_eq!(last.len(), 2, "{last:?}");
-    assert!(
-        last.iter()
-            .any(|mark| after.contains(mark) && !both.contains(mark)),
-        "a's moved watermark is untouched by b: {last:?}"
-    );
-    Ok(())
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn a_stop_finding_a_broken_ref_leaves_the_watermark_unchanged() -> TestResult {
-    let repo = Repo::new(true)?;
-    repo.raise("u", "Keep the cache warm?")?;
-    repo.ok("cli", &["journal", "checkpoint"], None)?;
-    let before = watermark_at(&repo)?;
-    repo.raise("t", "Keep three retries?")?;
-    // The repository's own commit: its tree is not exactly `t.jsonl`, so the ref breaks JR-05.
-    git(
-        &repo.root,
-        &["update-ref", "refs/redkiln/journal/t", "HEAD"],
-    );
-
-    exited_0(&repo.hook(&repo.stop("s"))?)?;
-
-    assert_eq!(logged(&repo)?.len(), 1, "the broken ref is logged");
-    assert_eq!(
-        watermark_at(&repo)?,
-        before,
-        "t is not settled, so nothing after it is"
-    );
     Ok(())
 }
 

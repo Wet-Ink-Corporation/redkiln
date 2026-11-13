@@ -5,110 +5,31 @@
 //! hook holds nothing back, and a hook past its deadline imports nothing and tells nobody (D12).
 //! The deadline-independent cases run the binary in `tests/it/journal_session_start.rs`.
 
-use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use redkiln_core::store::{Filter, Store, Wait};
 
-use crate::env::{Env, RepoClass, Vars};
-use crate::hooks::{Hook, HookEvent, serve};
-use crate::journal::refs::{self, Budget, Checkpointed, Scope};
-use crate::ops::{RaiseInput, Session};
+use crate::env::Env;
+use crate::hooks::test_support::{
+    checkpoint, git, logged, own_repo, past_deadline, path_str, raise, served, unhurried,
+};
+use crate::hooks::{Hook, HookEvent};
+use crate::journal::refs::Budget;
 
 /// `SessionStart`'s budget with no deadline, each git call given a command's time: the import
 /// always runs to its end, whatever the runner's speed.
-const UNHURRIED: Budget = Budget {
-    start_by: None,
-    per_call: Budget::COMMAND.per_call,
-    ..Budget::SESSION_START
-};
+const UNHURRIED: Budget = unhurried(Budget::SESSION_START);
 
 /// `SessionStart`'s budget with a deadline that has passed when the hook starts.
-const PAST_DEADLINE: Budget = Budget {
-    start_by: Some(Duration::ZERO),
-    ..Budget::SESSION_START
-};
-
-/// Run git in `dir` under a fixed identity, failing on a non-zero exit.
-fn git(dir: &Path, args: &[&str]) -> Result<()> {
-    crate::git::run_env(
-        dir,
-        args,
-        &[
-            ("GIT_AUTHOR_NAME", "t"),
-            ("GIT_AUTHOR_EMAIL", "t@t"),
-            ("GIT_COMMITTER_NAME", "t"),
-            ("GIT_COMMITTER_EMAIL", "t@t"),
-        ],
-    )
-    .map(drop)
-}
-
-/// The environment of `session` in `dir`, as the hook discovers it, with none of the process's
-/// store variables.
-fn env_of(dir: &Path, session: &str) -> Env {
-    Env::discover(
-        dir,
-        Some((session.to_owned(), "the test")),
-        None,
-        Vars::default(),
-    )
-    .with_wait(Wait::Hook)
-}
-
-/// A repository with one commit on `main` at `<scratch>/<name>`, initialised `own` when `own`
-/// is true (`weighin init --class own`).
-fn repo(scratch: &Path, name: &str, own: bool) -> Result<PathBuf> {
-    let root = scratch.join(name);
-    std::fs::create_dir_all(&root)?;
-    std::fs::write(root.join("README.md"), "# Scratch\n")?;
-    git(&root, &["init", "-q", "-b", "main"])?;
-    git(&root, &["add", "."])?;
-    git(&root, &["commit", "-q", "-m", "init"])?;
-    if own {
-        let args = crate::InitArgs {
-            class: Some(RepoClass::Own),
-            board: None,
-            board_url: None,
-            owner: None,
-            ledger: None,
-        };
-        crate::commands::init(&mut env_of(&root, "s"), args, &mut io::sink())?;
-    }
-    Ok(root)
-}
-
-/// Raise `q` in `session` of `root`, as `weighin raise --kind question` does.
-fn raise(root: &Path, session: &str, q: &str) -> Result<()> {
-    let input = RaiseInput {
-        q: q.to_owned(),
-        kind: Some("question".to_owned()),
-        ..RaiseInput::default()
-    };
-    Session::open(&env_of(root, session), "cli")?.raise(&input)?;
-    Ok(())
-}
-
-/// Export `root`'s journals, as `weighin journal checkpoint` does.
-fn checkpoint(root: &Path) -> Result<()> {
-    match refs::checkpoint(
-        &env_of(root, "s"),
-        Budget::COMMAND,
-        Instant::now(),
-        Scope::All,
-    )? {
-        Checkpointed::Ran(..) => Ok(()),
-        Checkpointed::Skipped(skip) => bail!("the checkpoint was skipped: {}", skip.as_str()),
-    }
-}
+const PAST_DEADLINE: Budget = past_deadline(Budget::SESSION_START);
 
 /// An own repository `exporter` in `scratch` whose `origin` is a bare `origin.git` beside it,
 /// holding one item raised in session `a`, exported; the exporter's and the remote's paths.
 fn exporting(scratch: &Path) -> Result<(PathBuf, PathBuf)> {
-    let exporter = repo(scratch, "exporter", true)?;
+    let exporter = own_repo(scratch, "exporter")?;
     let remote = scratch.join("origin.git");
     std::fs::create_dir_all(&remote)?;
     git(&remote, &["init", "-q", "--bare", "-b", "main"])?;
@@ -121,15 +42,9 @@ fn exporting(scratch: &Path) -> Result<(PathBuf, PathBuf)> {
 
 /// Another own repository, `reader`, in `scratch`, whose `origin` is `remote`.
 fn other_clone(scratch: &Path, remote: &Path) -> Result<PathBuf> {
-    let reader = repo(scratch, "reader", true)?;
+    let reader = own_repo(scratch, "reader")?;
     git(&reader, &["remote", "add", "origin", &path_str(remote)?])?;
     Ok(reader)
-}
-
-fn path_str(path: &Path) -> Result<String> {
-    path.to_str()
-        .map(str::to_owned)
-        .context("a UTF-8 scratch path")
 }
 
 /// What `SessionStart` says in `root` for `session` within `budget`: the message for the user,
@@ -138,8 +53,7 @@ fn started(root: &Path, session: &str, budget: Budget) -> (Option<String>, Strin
     let event = HookEvent::SessionStart {
         source: Some("startup".to_owned()),
     };
-    let hook = Hook::new(event, env_of(root, session), false, Instant::now()).budget(budget);
-    let output = serve(&hook, None);
+    let output = served(root, session, event, budget);
     (output.message, output.context.unwrap_or_default())
 }
 
@@ -149,16 +63,6 @@ fn import_records(root: &Path) -> Result<usize> {
     let filter = Filter::all().of_type("core.import_completed")?;
     let page = NonZeroUsize::new(1_000).context("a page")?;
     Ok(store.read(&filter, 0, page)?.len())
-}
-
-/// The lines of the hook error log, none when there is no log.
-fn logged(root: &Path) -> Result<Vec<String>> {
-    let log = root.join(".git/redkiln/weighin/hook-errors.log");
-    match std::fs::read_to_string(log) {
-        Ok(text) => Ok(text.lines().map(str::to_owned).collect()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(e.into()),
-    }
 }
 
 #[test]
