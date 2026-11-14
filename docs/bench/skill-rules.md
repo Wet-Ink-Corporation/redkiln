@@ -93,8 +93,9 @@ first `PATH`, line 0.
 
 ## Entry skills
 
-The model-invoked entry skills are a constant in the linter (`ENTRY_SKILLS` in
-`crates/anneal-cli/src/lint/skills/checker.rs`), taken from the blueprint's packaging decision:
+The model-invoked entry skills are a constant of Bench's contract (`ENTRY_SKILLS` in
+`crates/bench/bench-contract/src/plugin.rs`, read through the linter's profile), taken from the
+blueprint's packaging decision:
 
 `grill`, `spec`, `plan`, `build`, `diagnose`, `verify`, `ship`
 

@@ -1,8 +1,10 @@
 //! Pins `bench_contract::cli`, the subcommands and value options other crates may name (xtask's
 //! check that every subcommand a prompt names exists, M2-C), against clap's own tree, so the
-//! contract's lists cannot drift from what `bench` accepts.
+//! contract's lists cannot drift from what `bench` accepts. The first words of `COMMANDS` are
+//! pinned against `CommandName::ALL` too, since the skill linter reads command names from them.
 
 use bench::cli::Cli;
+use bench::command::CommandName;
 use bench_contract::cli;
 use clap::{Command, CommandFactory};
 
@@ -64,5 +66,21 @@ fn the_contract_names_this_binary() {
         Cli::command().get_name(),
         cli::BINARY,
         "bench_contract::cli::BINARY"
+    );
+}
+
+#[test]
+fn the_first_words_of_the_contracts_commands_are_benchs_command_names() {
+    let mut first_words: Vec<&str> = cli::COMMANDS
+        .iter()
+        .filter_map(|path| path.split(' ').next())
+        .collect();
+    first_words.dedup();
+    let mut names: Vec<&str> = CommandName::ALL.iter().map(|c| c.as_str()).collect();
+    names.sort_unstable();
+
+    assert_eq!(
+        first_words, names,
+        "bench_contract::cli::COMMANDS' first words against CommandName::ALL"
     );
 }

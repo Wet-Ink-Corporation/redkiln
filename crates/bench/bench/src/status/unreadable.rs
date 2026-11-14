@@ -9,7 +9,7 @@ use crate::decide::log::LogError;
 use crate::decide::modes::ModesError;
 use crate::error::CliError;
 use crate::error_chain::reason;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::pr_diff::DiffError;
 use crate::repo_config::GateConfigError;
 use crate::verdict::pull_request::ReadError;

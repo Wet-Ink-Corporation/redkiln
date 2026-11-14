@@ -4,8 +4,8 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
+use bench::lint::checker::Checker;
 use bench::lint::finding::{LintFinding, Severity};
-use bench::lint::skills::checker::Checker;
 use bench::lint::skills::{LintError, SkillsArgs, lint};
 
 use crate::support::copy_dir;

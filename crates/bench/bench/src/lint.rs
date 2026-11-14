@@ -9,7 +9,11 @@
 //!   checker), so it writes its own envelope `data` too.
 //! - [`plan`]: `lint plan`, a plan's spec link, sections, tasks, task fields and blockers;
 //!   its findings are [`plan::PlanFinding`]s and its `data` carries the plan as read.
-//! - [`finding`]: the finding model the skill rules use, and its envelope form.
+//! - [`finding`]: the finding model the skill rules use, and its envelope form; [`checker`]:
+//!   the checker ids those findings carry.
+//! - [`read`]: the read cap and bounded reads every target (and Bench's other readers) uses,
+//!   and [`read::LintError`]; the private `hooks` module: the hook ids that count as
+//!   enforcers, for `lint skills` and `lint rules`.
 //!
 //! - [`brief`]: `lint brief`, the nine fields of a brief (`brief::fields`), each present once
 //!   and filled; its findings are [`brief::BriefFinding`]s.
@@ -18,8 +22,11 @@
 //!   reports its own.
 
 pub mod brief;
+pub mod checker;
 pub mod finding;
+mod hooks;
 pub mod plan;
+pub mod read;
 pub mod rules;
 pub mod skills;
 pub mod spec;
@@ -37,8 +44,7 @@ use crate::error::CliError;
 use crate::exit_codes::render::command_help;
 use crate::exit_codes::{self, Code};
 use finding::{LintFinding, Severity};
-use skills::discover::{Capped, read_capped};
-use skills::{LintError, require_file};
+use read::{Capped, LintError, read_capped, require_file};
 
 /// Arguments of `bench lint`.
 #[derive(Debug, Args)]

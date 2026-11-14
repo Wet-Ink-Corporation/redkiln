@@ -18,7 +18,7 @@ pub use result::ResultError;
 
 use crate::exit_codes::{self, Code};
 use crate::json_file::JsonFileError;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::paths::PathError;
 
 /// `error` from the first batch, marked [`RouterError::SpendUnknown`] when `claude` had

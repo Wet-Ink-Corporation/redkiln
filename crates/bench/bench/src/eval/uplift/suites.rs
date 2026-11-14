@@ -12,8 +12,8 @@ use serde::Serialize;
 
 use super::case::{self, Parsed};
 use super::fixture::{self, FIXTURES_DIR, Fixture, RepoRoot};
-use crate::lint::skills::LintError;
-use crate::lint::skills::discover::{EntryKind, list_dir, read_bounded};
+use crate::lint::read::{LintError, read_bounded};
+use crate::lint::skills::discover::{EntryKind, list_dir};
 
 /// The most cases read in one run (H-13): past it the rest are a problem, not read.
 const MAX_CASES: usize = 512;

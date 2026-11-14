@@ -98,6 +98,7 @@ pub mod eval;
 mod existing_ledger;
 pub mod exit_codes;
 pub mod floor_guard;
+mod frontmatter;
 pub mod glob;
 pub mod grill;
 mod harness;

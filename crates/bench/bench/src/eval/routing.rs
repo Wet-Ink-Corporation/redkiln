@@ -21,8 +21,8 @@ pub use confusion::Confusion;
 
 use crate::exit_codes::{self, Code};
 use crate::lint::finding::LintFinding;
-use crate::lint::skills::LintError;
-use crate::lint::skills::discover::{EntryKind, list_dir, read_capped};
+use crate::lint::read::{LintError, read_capped};
+use crate::lint::skills::discover::{EntryKind, list_dir};
 use crate::lint::skills::listing::listings;
 use fixture::Fixture;
 use judge::judge;

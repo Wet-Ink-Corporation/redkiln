@@ -20,7 +20,7 @@ use crate::eval::uplift::UpliftError;
 use crate::exit_codes::{self, Code};
 use crate::floor_guard::FloorError;
 use crate::grill::GrillError;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::migrate::MigrateError;
 use crate::mode::ModeError;
 use crate::paths::PathError;

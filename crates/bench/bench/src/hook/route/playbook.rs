@@ -182,7 +182,7 @@ mod tests {
     use std::path::Path;
 
     use super::{Phase, Playbook, PlaybookError, Size};
-    use crate::lint::skills::checker::ENTRY_SKILLS;
+    use bench_contract::plugin::ENTRY_SKILLS;
 
     #[test]
     fn the_built_in_playbook_has_eight_phases_and_four_sizes() {

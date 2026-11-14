@@ -1,7 +1,7 @@
 //! The out-of-scope ruling store: one `.out-of-scope/<slug>.md` file per ruling.
 //!
 //! Each ruling opens with frontmatter in the same restricted YAML as a `SKILL.md`
-//! (`lint::skills::frontmatter`): `id`, `ruled_at` and `summary` are required, `weigh_in_ref`
+//! (`crate::frontmatter`): `id`, `ruled_at` and `summary` are required, `weigh_in_ref`
 //! is optional, and no other key is allowed. [`list`] returns every ruling sorted by id, so
 //! D6's `choice` options come out in the same order on every run. A ruling that does not read
 //! is an error naming its file, never skipped. See `docs/define.md`.
@@ -10,8 +10,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::lint::skills::discover::{Capped, read_bounded};
-use crate::lint::skills::frontmatter::{self, Field};
+use crate::frontmatter::{self, Field};
+use crate::lint::read::{Capped, read_bounded};
 
 /// The store's directory, relative to the repository root.
 pub const STORE_DIR: &str = ".out-of-scope";

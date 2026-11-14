@@ -12,7 +12,7 @@ use super::{emitted, keys, tickets};
 use crate::dag::check_with;
 use crate::dag::plan_tickets::PlanTasks;
 use crate::dag::tracker::markdown::Markdown;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 
 /// A plan with tasks `(id, blockers)`, each a well-formed task, and no spec on disk.
 fn plan_text(tasks: &[(&str, &str)]) -> String {

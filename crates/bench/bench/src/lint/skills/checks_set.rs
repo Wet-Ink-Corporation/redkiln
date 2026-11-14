@@ -4,10 +4,10 @@
 
 use std::collections::BTreeSet;
 
-use crate::lint::finding::{LintFinding, Location};
-use crate::lint::skills::checker::{
+use crate::lint::checker::{
     Checker, INDEX_MAX_WORDS, LISTING_MAX_CHARS, NOT_FOR_CLAUSE, OVERLAP_PERCENT,
 };
+use crate::lint::finding::{LintFinding, Location};
 use crate::lint::skills::document::{Skill, words};
 
 /// Words too common to signal overlap between two triggers.

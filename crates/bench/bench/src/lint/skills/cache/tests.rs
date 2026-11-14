@@ -4,7 +4,7 @@ use std::path::Path;
 
 use super::{Cache, RULE_SOURCES, content_hash, hash_with_rules};
 use crate::baseline::BaselineError;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::lint::skills::discover::{EntryKind, Surroundings};
 use crate::lint::skills::document::{test_dir, test_skill};
 

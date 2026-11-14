@@ -4,11 +4,11 @@
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 
-use crate::lint::finding::{LintFinding, Location};
-use crate::lint::skills::checker::{
+use crate::lint::checker::{
     ANATOMY, ANATOMY_EXEMPT, BODY_MAX_LINES, BODY_MAX_WORDS, COMPLETION_PHRASES, Checker,
     FILE_MAX_BYTES,
 };
+use crate::lint::finding::{LintFinding, Location};
 use crate::lint::skills::discover::EntryKind;
 use crate::lint::skills::document::Skill;
 
@@ -219,7 +219,7 @@ fn is_numbered_step(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{budget, check_references, is_numbered_step};
-    use crate::lint::skills::checker::{BODY_MAX_LINES, FILE_MAX_BYTES};
+    use crate::lint::checker::{BODY_MAX_LINES, FILE_MAX_BYTES};
     use crate::lint::skills::discover::Surroundings;
     use crate::lint::skills::document::{test_dir, test_skill};
     use std::path::Path;

@@ -3,8 +3,7 @@ use std::fs::{self, File};
 use std::path::Path;
 
 use super::{AvoidedTerm, Glossary, Skipped, TermHit, TermsArgs, lint};
-use crate::lint::skills::LintError;
-use crate::lint::skills::discover::MAX_READ_BYTES;
+use crate::lint::read::{LintError, MAX_READ_BYTES};
 
 type TestResult = Result<(), Box<dyn Error>>;
 

@@ -14,10 +14,11 @@ use std::path::{Path, PathBuf};
 use clap::{Args, CommandFactory};
 
 use crate::cli::Cli;
+use crate::lint::checker::Checker;
 use crate::lint::finding::{LintFinding, Location};
+use crate::lint::hooks::hook_ids;
+use crate::lint::read::LintError;
 use crate::lint::read_whole;
-use crate::lint::skills::checker::Checker;
-use crate::lint::skills::{LintError, hook_ids};
 use crate::lint::spec::markdown::{Document, Item, items};
 use enforcer::{Repository, Root, Unresolved};
 
@@ -66,7 +67,8 @@ pub struct Outcome {
 pub fn lint(args: &RulesArgs) -> Result<Outcome, LintError> {
     require_dir(&args.root)?;
     let root = Root::resolve(&args.root)?;
-    let (hook_ids, mut findings) = hook_ids(args.hooks.as_deref())?;
+    let (hook_ids, mut findings) =
+        hook_ids(args.hooks.as_deref(), bench_contract::plugin::HOOK_IDS)?;
     let documents = args
         .paths
         .iter()

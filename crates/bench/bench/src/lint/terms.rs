@@ -15,7 +15,7 @@ use crate::command::CommandName;
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::lint::{Contents, read_named, read_whole};
 
 /// Arguments of `bench lint terms`.

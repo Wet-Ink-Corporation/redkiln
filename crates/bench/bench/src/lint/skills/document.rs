@@ -82,7 +82,7 @@ impl<'a> Skill<'a> {
     pub(crate) fn trigger(&self) -> &str {
         let description = self.doc.value("description");
         description
-            .split_once(super::checker::NOT_FOR_CLAUSE)
+            .split_once(crate::lint::checker::NOT_FOR_CLAUSE)
             .map_or(description, |(trigger, _)| trigger)
     }
 }
