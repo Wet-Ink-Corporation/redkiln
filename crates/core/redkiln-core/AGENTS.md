@@ -13,20 +13,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 
 ## Public surface
-- `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `CoreKey`, `Filter`, `Page`, `Condition`, `Appended`, `Stored`, `TelemetryEvent`, `Recorded`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`, `StoreSchema`, `StampOutOfRange`, `TELEMETRY_WINDOW`.
-- `location`: `locate`, `Search`, `Located`, `Source`, `Workspace`, `LocateError`, `GitError`, `STORE_ENV`, `STORE_FILE`, `GIT_TIMEOUT`.
-- `suite`: `Suite`, `RepoClass`, `ClassSource`, `Owner`, `OwnerError`, `Key`, `Warning`, `Problem`, `SUITE_FILE`, `LEGACY_CONFIG`, `MAX_CONFIG_BYTES`.
-- `envelope`: `Envelope`, `Author`, `Payload`, `Class`, `Namespace`, `TypeName`, `NameError`, `Timestamp`, `Actor`, `ActorName`, `Writer`, `Field`, `FieldError`, `EnvelopeError`, `decode`, `decode_all`, `Decoded`, `Skip`, `Unusable`, `SPEC_VERSION`, `MAX_ENVELOPE_BYTES`, `MAX_TYPE_BYTES`.
-- `trust`: `Trust`, `Level`, `Via`, `TrustError`.
-- `approval`: `ApprovalRecorded` (AP-01), `ApprovalSubject`, `Verdict`, `Scope`.
-- `ids`: `parse_store_id`, `parse_event_ref`, `ContentId`, `IdPrefix`, `AtomKind`, `HexLen`, `content_input`, `SessionId`, `WorktreeId`, `Host`, `Digest`, `IdError`.
-- `canonical`: `canonical_json`, `digest`, `digest_of`, `CanonicalError`, `MAX_DEPTH`.
-- `subject`: `Subject`, `Method`, `SubjectError`, `sha256_file`, `git_commit`, `git_tree`, `patch_id`, `PatchId`, `NoPatchId`.
-- `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `import_mapped`, `Mapped`, `MappedImport`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `read_line`, `ReadLine`, `LineError`, `JournalName`, `NameError`, limits; `journal::refs`: `checkpoint_refs[_since]`, `sweep_refs_since`, `RefsScope`, `relay`, `import_refs`, `read_local`, outcomes, `RefsTarget`, `Breach`, `RefsError`, `RETRIES`, prefixes.
-- `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
-- At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
-
-Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published.
+Modules `store`, `location`, `suite`, `envelope`, `trust`, `approval`, `ids`, `canonical`, `subject`, `journal` (with `journal::refs`) and `legacy`, plus happenstance's `EventId` and `StoreId` re-exported at the root (ID-01, ID-02). The item list is [`docs/core/crates/redkiln-core.md`](../../../docs/core/crates/redkiln-core.md). Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published.
 
 ## Invariants
 - The store runs under TRUNCATE, never WAL or DELETE. Nothing here deletes a file beside the store; files are set aside by renaming (ST-05). No SQLite connection Core opens can delete or play back a stale `-journal`: it is probed through a read-only read lock and renamed aside before any read-write connection sees the file, and renamed back when a writer holds it.
