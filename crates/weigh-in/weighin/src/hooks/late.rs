@@ -36,7 +36,9 @@ pub(super) fn record(env: &Env, event: &str, what: &str) -> Result<()> {
         .append(true)
         .open(&path)
         .with_context(|| format!("opening {}", path.display()))?;
-    writeln!(log, "{} {event}: {what}", env::now())
+    // One write of the whole line, so a session start reading the log never sees half of it.
+    let line = format!("{} {event}: {what}\n", env::now());
+    log.write_all(line.as_bytes())
         .with_context(|| format!("appending to {}", path.display()))
 }
 

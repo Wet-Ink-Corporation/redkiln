@@ -52,9 +52,8 @@ impl Hook {
     /// outcome a person must act on (`needs_a_person`, D12), is logged; journals left because the
     /// budget ran out are recorded in `hook-late.log` for the next `SessionStart` to tell
     /// (wi-6ab291e7fb), not logged as errors. The result is unchanged, and the export says
-    /// nothing. The session's own journal goes first, then only the
-    /// journals with an event after the watermark, so the Stop's work grows with what is new,
-    /// not with the store's history.
+    /// nothing. The session's own journal goes first, then only the journals with an event after
+    /// the watermark, so the Stop's work grows with what is new, not with the store's history.
     pub(super) fn checkpointed(
         &self,
         failures: &mut Failures,

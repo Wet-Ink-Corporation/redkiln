@@ -99,6 +99,41 @@ fn the_next_session_start_tells_once_that_a_stop_ran_out_of_time() -> Result<()>
     Ok(())
 }
 
+#[cfg(unix)]
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git, opens SQLite through FFI and makes a symlink"
+)]
+fn a_late_record_that_cannot_be_written_is_logged_as_a_hook_error() -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let root = own_repo(scratch.path(), "repo")?;
+    raise(&root, "s", "Keep retention per series?")?;
+    let elsewhere = scratch.path().join("elsewhere");
+    std::fs::write(&elsewhere, "")?;
+    let state = root.join(".git/redkiln/weighin");
+    std::fs::create_dir_all(&state)?;
+    std::os::unix::fs::symlink(&elsewhere, state.join("hook-late.log"))?;
+
+    stopped(&root, PAST_DEADLINE);
+
+    let lines = logged(&root)?;
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.contains("recording the late journal export")
+                && line.contains("not a regular file")),
+        "{lines:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&elsewhere)?,
+        "",
+        "the link's target is left alone"
+    );
+    Ok(())
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "spawns git and opens SQLite through FFI")]
 fn config_jsons_class_below_no_suite_toml_exports_the_journal_ref_at_stop() -> Result<()> {
