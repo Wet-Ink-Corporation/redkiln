@@ -35,6 +35,7 @@
 mod errors;
 mod failures;
 mod heartbeat;
+mod late;
 mod session_start;
 #[cfg(test)]
 mod test_support;
@@ -410,14 +411,21 @@ impl Hook {
     }
 
     /// `SessionStart`'s import of the journal sources inside its budget (JR-10, D10), and what
-    /// the user should hear of it: a rewritten ref, a source that could not be read. A failed
-    /// fetch or a passed deadline says nothing, since an offline laptop is normal. An error is
-    /// logged, except a store that cannot be located or opened, which `session_start` opens again
-    /// for its prime and tells or logs itself. An import that ran past its budget's worst case is
-    /// logged, as the Stop's export is.
+    /// the user should hear of it: a rewritten ref, a source that could not be read, and a
+    /// deadline that passed before every source was read, told in this session start's own
+    /// message, the first one that can tell it (wi-6ab291e7fb). A failed fetch says nothing, since
+    /// an offline laptop is normal. An error is logged, except a store that cannot be located or
+    /// opened, which `session_start` opens again for its prime and tells or logs itself. An import
+    /// that ran past its budget's worst case is logged, as the Stop's export is.
     fn imported(&self, failures: &mut Failures) -> Vec<String> {
         let notes = match refs::import(&self.env, self.budget, self.started, "hook") {
-            Ok(Imported::Ran(report)) => refs::import_notes(&report),
+            Ok(Imported::Ran(report)) => {
+                let mut notes = refs::import_notes(&report);
+                if report.late {
+                    notes.push(LATE_IMPORT.to_owned());
+                }
+                notes
+            }
             // Not git or a client repository: nothing to import.
             Ok(Imported::Skipped(_)) => Vec::new(),
             Err(e) => {
@@ -443,6 +451,12 @@ impl Hook {
         notes
     }
 }
+
+/// What `SessionStart` tells the person when its journal import ran out of time.
+const LATE_IMPORT: &str = "Weigh-In: the session start ran out of time before it imported every \
+                           journal source, so the counts may miss items from other sessions; the \
+                           next session start imports the rest, `weighin journal import` does it \
+                           now.";
 
 /// Scan text written to `file` (or the whole file, for `weighin scan`) and raise what it finds.
 /// Returns the outcomes, one per candidate.

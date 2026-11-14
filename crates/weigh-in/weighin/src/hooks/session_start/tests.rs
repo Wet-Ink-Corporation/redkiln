@@ -2,8 +2,9 @@
 //! process with the budget the test gives the hook, so that what is pinned does not hang on how
 //! fast a runner spawns git (TST-10): another clone's items count in the prime, a rewritten ref
 //! is told to the user, an unchanged ref is not recorded again, a 1.x journal too large for the
-//! hook holds nothing back, and a hook past its deadline imports nothing and tells nobody (D12).
-//! The deadline-independent cases run the binary in `tests/it/journal_session_start.rs`.
+//! hook holds nothing back, an unreachable remote is silent, and a hook past its deadline imports
+//! nothing and says so (wi-6ab291e7fb, superseding D12's silence). The deadline-independent cases
+//! run the binary in `tests/it/journal_session_start.rs`.
 
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
@@ -77,7 +78,7 @@ fn a_hook_imports_inside_the_session_start_budget() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns git and opens SQLite through FFI")]
-fn a_session_start_past_its_deadline_imports_nothing_and_tells_nobody() -> Result<()> {
+fn a_session_start_past_its_deadline_imports_nothing_and_says_so() -> Result<()> {
     let scratch = tempfile::tempdir()?;
     let (_exporter, remote) = exporting(scratch.path())?;
     let reader = other_clone(scratch.path(), &remote)?;
@@ -88,9 +89,35 @@ fn a_session_start_past_its_deadline_imports_nothing_and_tells_nobody() -> Resul
         context.contains("0 open in repo"),
         "nothing was imported: {context}"
     );
-    assert_eq!(message, None, "a passed deadline is silent (D12)");
+    let message = message.context("a passed deadline is told (wi-6ab291e7fb)")?;
+    assert!(
+        message.starts_with(
+            "Weigh-In: the session start ran out of time before it imported every journal source"
+        ) && message.contains("`weighin journal import` does it now."),
+        "{message}"
+    );
     assert_eq!(import_records(&reader)?, 0);
-    assert_eq!(logged(&reader)?, Vec::<String>::new());
+    assert_eq!(
+        logged(&reader)?,
+        Vec::<String>::new(),
+        "a late import is no hook error"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git and opens SQLite through FFI")]
+fn session_start_with_an_unreachable_remote_primes_as_before_and_tells_nobody() -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let repo = own_repo(scratch.path(), "repo")?;
+    let gone = scratch.path().join("gone.git").join("missing");
+    git(&repo, &["remote", "add", "origin", &path_str(&gone)?])?;
+
+    let (message, context) = started(&repo, "s", UNHURRIED);
+
+    assert_eq!(message, None, "an offline laptop is normal");
+    assert!(context.contains("0 open in repo"), "{context}");
+    assert_eq!(logged(&repo)?, Vec::<String>::new());
     Ok(())
 }
 

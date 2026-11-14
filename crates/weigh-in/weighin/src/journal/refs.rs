@@ -421,9 +421,20 @@ pub(crate) fn needs_a_person(report: &RefsExported) -> Vec<String> {
     broken.chain(lasting).collect()
 }
 
+/// How many journals the checkpoint left because its deadline passed ([`Deferral::Late`]): what
+/// the Stop hook records for the next `SessionStart` to tell (wi-6ab291e7fb).
+pub(crate) fn late_journals(report: &RefsExported) -> usize {
+    report
+        .deferred
+        .iter()
+        .filter(|(_, deferral)| *deferral == Deferral::Late)
+        .count()
+}
+
 /// What the user hears of an import at `SessionStart`: the journal refs rewritten since the last
-/// import and the sources that could not be read, each clipped. A failed fetch and a passed
-/// deadline are not told: an offline laptop is normal, and the next session imports the rest.
+/// import and the sources that could not be read, each clipped. A failed fetch is not told: an
+/// offline laptop is normal. A passed deadline is not told here: the hook tells it itself
+/// (`hooks::imported`, wi-6ab291e7fb), and the next session imports the rest.
 /// A source that cannot be read is told again every session, with the command that says why,
 /// since nothing beside the ledger remembers that it was told.
 pub(crate) fn import_notes(report: &RefsImport) -> Vec<String> {
@@ -576,7 +587,8 @@ mod tests {
     use redkiln_core::store::Wait;
 
     use super::{
-        Budget, checkpoint_findings, import_findings, import_notes, needs_a_person, relay_findings,
+        Budget, checkpoint_findings, import_findings, import_notes, late_journals, needs_a_person,
+        relay_findings,
     };
     use crate::cli_envelope::{Exit, Finding, Severity};
 
@@ -680,6 +692,23 @@ mod tests {
                 "s6 deferred: too-large",
             ]
         );
+    }
+
+    #[test]
+    fn late_journals_counts_only_the_journals_the_deadline_left() {
+        let report = RefsExported {
+            broken: vec![(name("s1"), Breach::Tree)],
+            deferred: vec![
+                (name("s2"), Deferral::Late),
+                (name("s3"), Deferral::RetriesSpent),
+                (name("s4"), Deferral::Late),
+                (name("s5"), Deferral::Failed("fatal: offline".to_owned())),
+            ],
+            ..RefsExported::default()
+        };
+
+        assert_eq!(late_journals(&report), 2);
+        assert_eq!(late_journals(&RefsExported::default()), 0);
     }
 
     #[test]

@@ -1,10 +1,11 @@
 //! `SessionStart` imports journal refs before it primes (SPEC JR-10 to JR-13, D10), through the
-//! binary, in the cases that hold whether or not the import beats its 2 s deadline: an
-//! unreachable remote is silent, a `client` repository imports nothing, and a store that cannot
-//! be opened is logged once. The cases that need the import to run to its end (another clone's
-//! items in the prime, a rewritten ref, no second import record, a too-large 1.x journal) are
-//! run in process with a budget the test gives the hook, in `src/hooks/session_start/tests.rs`,
-//! since a slow runner spawning git passes the deadline (TST-10; Ryan, 2026-11-12).
+//! binary, in the cases that hold whether or not the import beats its 2 s deadline: a `client`
+//! repository imports nothing, and a store that cannot be opened is logged once. The cases that
+//! need the import to run to its end (another clone's items in the prime, a rewritten ref, no
+//! second import record, a too-large 1.x journal) and an unreachable remote's silence, which a
+//! late import now breaks (wi-6ab291e7fb), are run in process with a budget the test gives the
+//! hook, in `src/hooks/session_start/tests.rs`, since a slow runner spawning git passes the
+//! deadline (TST-10; Ryan, 2026-11-12).
 
 use std::path::{Path, PathBuf};
 
@@ -72,24 +73,6 @@ fn logged(repo: &Repo) -> TestResult<Vec<String>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(e.into()),
     }
-}
-
-#[test]
-#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
-fn session_start_with_an_unreachable_remote_primes_as_before_and_tells_nobody() -> TestResult {
-    let repo = Repo::new(true)?;
-    let gone = repo.sibling("gone.git")?.join("missing");
-    git(
-        &repo.root,
-        &["remote", "add", "origin", &gone.to_string_lossy()],
-    );
-
-    let (message, context) = started(&repo, "s")?;
-
-    assert_eq!(message, None, "an offline laptop is normal");
-    assert!(context.contains("0 open in repo"), "{context}");
-    assert_eq!(logged(&repo)?, Vec::<String>::new());
-    Ok(())
 }
 
 #[test]

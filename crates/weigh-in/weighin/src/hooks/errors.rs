@@ -1,7 +1,8 @@
 //! `hook-errors.log`: where a hook appends its failures, and what the next `SessionStart`
 //! reports of it, the lines added since the last report, each reported once. Both files are
 //! used only when they are regular files (HK-6), and at most the log's last
-//! [`MAX_REPORTED_LOG`] bytes are read (H-13).
+//! [`MAX_REPORTED_LOG`] bytes are read (H-13). [`report_since`] is that report for any such log
+//! and its record: `late` reads `hook-late.log` through it.
 
 use anyhow::{Context as _, Result};
 use std::fs::File;
@@ -104,41 +105,70 @@ pub(super) fn new_errors(env: &Env) -> Option<String> {
     // No store located is no state dir, so no log to report.
     let dir = env.state_dir().ok()?;
     let log_path = dir.join(ERRORS_LOG);
-    let mut log = match Log::open(&log_path) {
-        Ok(Some(log)) => log,
-        Ok(None) => return None,
-        Err(e) => {
-            return Some(format!(
-                "Weigh-In: hook errors can be neither logged nor reported: {}.",
-                clip(&format!("{e:#}"), 300)
-            ));
-        }
+    match report_since(&dir, ERRORS_LOG, ERRORS_SEEN) {
+        Since::Nothing => None,
+        Since::Unopened(e) => Some(format!(
+            "Weigh-In: hook errors can be neither logged nor reported: {}.",
+            clip(&format!("{e:#}"), 300)
+        )),
+        Since::Unread(e) => Some(format!(
+            "Weigh-In: hooks logged errors since the last session, so capture may be off, but \
+             the log cannot be read: {} (full log: {}).",
+            clip(&format!("{e:#}"), 300),
+            log_path.display()
+        )),
+        Since::Found { found, marked } => Some(format!(
+            "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {} (full log: {}){marked}",
+            found.count(),
+            found.last,
+            log_path.display()
+        )),
+    }
+}
+
+/// What [`report_since`] found in a log past its seen record.
+#[derive(Debug)]
+pub(super) enum Since {
+    /// No log, nothing added since the last report, or only blank lines.
+    Nothing,
+    /// Lines added since the last report, now marked seen. `marked` is the sentence that says
+    /// they could not be marked, so the report will repeat; empty when they were.
+    Found { found: Unreported, marked: String },
+    /// The log is not a regular file (HK-6), or it cannot be opened.
+    Unopened(anyhow::Error),
+    /// The log cannot be read past its record.
+    Unread(anyhow::Error),
+}
+
+/// The lines added to the log named `log` in `dir` since the record named `seen` beside it says
+/// it was last reported, recording the log's length so each line is reported once. Writes
+/// nothing when there is no log, and overwrites rather than deletes (B-01). A record that cannot
+/// be read is neither trusted nor written, so the report repeats. Reads at most the log's last
+/// [`MAX_REPORTED_LOG`] bytes (H-13).
+pub(super) fn report_since(dir: &Path, log: &str, seen: &str) -> Since {
+    let mut opened = match Log::open(&dir.join(log)) {
+        Ok(Some(opened)) => opened,
+        Ok(None) => return Since::Nothing,
+        Err(e) => return Since::Unopened(e),
     };
-    let seen_path = dir.join(ERRORS_SEEN);
+    let seen_path = dir.join(seen);
     let recorded = read_seen(&seen_path);
     // No record, or one that cannot be read, reports the whole log.
-    let seen = match &recorded {
-        Ok(Some(recorded)) => log.seen(recorded),
+    let from = match &recorded {
+        Ok(Some(recorded)) => opened.seen(recorded),
         Ok(None) | Err(_) => 0,
     };
-    if seen == log.len {
-        return None;
+    if from == opened.len {
+        return Since::Nothing;
     }
-    let tail = match log.tail(seen) {
+    let tail = match opened.tail(from) {
         Ok(tail) => tail,
-        Err(e) => {
-            return Some(format!(
-                "Weigh-In: hooks logged errors since the last session, so capture may be off, but \
-                 the log cannot be read: {} (full log: {}).",
-                clip(&format!("{e:#}"), 300),
-                log_path.display()
-            ));
-        }
+        Err(e) => return Since::Unread(e),
     };
     // Worked out before the record is written, so nothing is marked seen unreported.
     let found = tail.reported();
     let marked = match recorded {
-        Ok(_) => match std::fs::write(&seen_path, format!("{}\n{}", log.len, log.head)) {
+        Ok(_) => match std::fs::write(&seen_path, format!("{}\n{}", opened.len, opened.head)) {
             Ok(()) => String::new(),
             Err(e) => format!(" Could not mark this report as seen, so it will repeat: {e}."),
         },
@@ -147,13 +177,7 @@ pub(super) fn new_errors(env: &Env) -> Option<String> {
             clip(&format!("{e:#}"), 300)
         ),
     };
-    let found = found?;
-    Some(format!(
-        "Weigh-In: {} hook error(s) since the last session, so capture may be off. Last: {} (full log: {}){marked}",
-        found.count(),
-        found.last,
-        log_path.display()
-    ))
+    found.map_or(Since::Nothing, |found| Since::Found { found, marked })
 }
 
 /// What the next `SessionStart` would report of the log ([`new_errors`]), read only: nothing is
@@ -202,7 +226,7 @@ impl Unreported {
     }
 }
 
-/// The error log as a report reads it.
+/// A log as a report reads it.
 struct Log {
     file: File,
     /// Its length when opened: what a report reads up to and records.
@@ -305,11 +329,11 @@ impl Log {
         let from = if cut { start.saturating_sub(1) } else { start };
         self.file
             .seek(SeekFrom::Start(from))
-            .context("seeking in the error log")?;
+            .context("seeking in the log")?;
         let mut bytes = Vec::new();
         Read::take(&mut self.file, self.len.saturating_sub(from))
             .read_to_end(&mut bytes)
-            .context("reading the error log")?;
+            .context("reading the log")?;
         Ok(Tail { bytes, cut })
     }
 }

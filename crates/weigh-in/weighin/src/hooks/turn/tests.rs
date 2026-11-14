@@ -2,13 +2,14 @@
 //! the test gives the hook, so that what is pinned does not hang on how fast a runner spawns git
 //! (TST-10): an `own` repository, whether by suite.toml or by weigh-in 1.x's config.json,
 //! exports the session's journal ref at Stop, and a Stop past its deadline exports nothing and
-//! logs nothing. The cases that hold whatever the deadline does run the binary in
+//! logs no error, but the next session start says once that it ran out of time
+//! (wi-6ab291e7fb). The cases that hold whatever the deadline does run the binary in
 //! `tests/it/repo_class.rs`.
 
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 
 use crate::env::{BoardMode, Env, RepoClass};
 use crate::hooks::test_support::{
@@ -70,6 +71,65 @@ fn a_stop_past_its_deadline_exports_nothing_and_logs_nothing() -> Result<()> {
         logged(&root)?,
         Vec::<String>::new(),
         "a late journal retries unlogged (D12)"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns git and opens SQLite through FFI")]
+fn the_next_session_start_tells_once_that_a_stop_ran_out_of_time() -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let root = own_repo(scratch.path(), "repo")?;
+    raise(&root, "s", "Keep retention per series?")?;
+    stopped(&root, PAST_DEADLINE);
+    let start = || HookEvent::SessionStart {
+        source: Some("startup".to_owned()),
+    };
+
+    let told = served(&root, "t", start(), UNHURRIED).message;
+    let again = served(&root, "u", start(), UNHURRIED).message;
+
+    let told = told.context("the late Stop is told (wi-6ab291e7fb)")?;
+    assert!(
+        told.starts_with("Weigh-In: hooks ran out of time 1 time(s) since the last session")
+            && told.contains("Stop: 1 journal(s) left for the next export."),
+        "{told}"
+    );
+    assert_eq!(again, None, "told once");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "spawns git, opens SQLite through FFI and makes a symlink"
+)]
+fn a_late_record_that_cannot_be_written_is_logged_as_a_hook_error() -> Result<()> {
+    let scratch = tempfile::tempdir()?;
+    let root = own_repo(scratch.path(), "repo")?;
+    raise(&root, "s", "Keep retention per series?")?;
+    let elsewhere = scratch.path().join("elsewhere");
+    std::fs::write(&elsewhere, "")?;
+    let state = root.join(".git/redkiln/weighin");
+    std::fs::create_dir_all(&state)?;
+    std::os::unix::fs::symlink(&elsewhere, state.join("hook-late.log"))?;
+
+    stopped(&root, PAST_DEADLINE);
+
+    let lines = logged(&root)?;
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.contains("recording the late journal export")
+                && line.contains("not a regular file")),
+        "{lines:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&elsewhere)?,
+        "",
+        "the link's target is left alone"
     );
     Ok(())
 }
