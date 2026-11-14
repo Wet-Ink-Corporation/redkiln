@@ -1,6 +1,6 @@
 //! `SessionStart`: the prime for the model's context, and the one message a session start shows
 //! the person (a broken config, a store that cannot be used, what the imports found, hook errors
-//! since the last session).
+//! and hooks that ran out of time since the last session).
 
 use anyhow::Result;
 use std::fmt::Write as _;
@@ -9,6 +9,7 @@ use weighin_core::Ledger;
 use weighin_core::marker::Door;
 
 use super::errors::{new_errors, refused_given_store};
+use super::late::new_late;
 use super::{Failures, Hook, HookOutput};
 use crate::env::{self, Config, ConfigSource, Env};
 use crate::ops::{self, read_ledger};
@@ -60,6 +61,7 @@ pub(super) fn session_start(
         .chain(store_notes(env, unusable))
         .chain(journal)
         .chain(new_errors(env))
+        .chain(new_late(env))
         .collect();
     HookOutput {
         context: Some(context),

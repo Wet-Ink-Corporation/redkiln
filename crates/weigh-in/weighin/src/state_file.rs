@@ -1,5 +1,5 @@
-//! Hook state files (`hook-errors.log`, `hook-errors.seen`, `journal-watermark-*`, the Windows
-//! shell copy) are read, appended or overwritten only when they are regular files or absent
+//! Hook state files (`hook-errors.log`, `hook-errors.seen`, `hook-late.log`, `hook-late.seen`,
+//! `journal-watermark-*`, the Windows shell copy) are read, appended or overwritten only when they are regular files or absent
 //! (HK-6). A symlink, a directory or a FIFO where one should be is left alone, so a hook never
 //! writes through a link to somewhere else, nor blocks opening a pipe.
 //!

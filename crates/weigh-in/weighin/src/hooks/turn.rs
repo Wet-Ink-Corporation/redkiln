@@ -7,7 +7,7 @@ use weighin_core::Ledger;
 use weighin_core::event::Channel;
 use weighin_core::marker::{Door, parse_markers};
 
-use super::{Failures, Hook, HookOutput, Tool, ToolWrite, Turn, scan_text};
+use super::{Failures, Hook, HookOutput, Tool, ToolWrite, Turn, late, scan_text};
 use crate::env::Env;
 use crate::journal::refs::{self, Checkpointed, Marked, Scope};
 use crate::ops::{self, RaiseInput, RaiseOutcome, Session};
@@ -49,8 +49,10 @@ impl Hook {
     /// `result`, after exporting the store to the journal refs inside the Stop budget, whatever
     /// `result` is: a capture that failed part way may have raised items first, and capture
     /// runs first so this turn's items leave with it (JR-08). An export failure, and each
-    /// outcome a person must act on (`needs_a_person`, D12), is logged; the result is unchanged,
-    /// and the export says nothing. The session's own journal goes first, then only the
+    /// outcome a person must act on (`needs_a_person`, D12), is logged; journals left because the
+    /// budget ran out are recorded in `hook-late.log` for the next `SessionStart` to tell
+    /// (wi-6ab291e7fb), not logged as errors. The result is unchanged, and the export says
+    /// nothing. The session's own journal goes first, then only the
     /// journals with an event after the watermark, so the Stop's work grows with what is new,
     /// not with the store's history.
     pub(super) fn checkpointed(
@@ -63,6 +65,16 @@ impl Hook {
             Ok(Checkpointed::Ran(report, marked)) => {
                 for line in refs::needs_a_person(&report) {
                     self.log(failures, &anyhow::anyhow!("{line}"));
+                }
+                let late = refs::late_journals(&report);
+                if late > 0
+                    && let Err(e) = late::record(
+                        &self.env,
+                        self.label(),
+                        &format!("{late} journal(s) left for the next export"),
+                    )
+                {
+                    self.log(failures, &e.context("recording the late journal export"));
                 }
                 if let Marked::Failed(e) = marked {
                     self.log(failures, &e);

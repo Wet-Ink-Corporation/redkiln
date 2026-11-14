@@ -4,6 +4,13 @@ One section per release, newest first. The release workflow publishes the sectio
 tagged version as the release notes and fails when it is missing, so add it in the commit that
 bumps the version. Keep an `Unreleased` section at the top while work lands on `main`.
 
+## Unreleased
+
+- When a slow machine makes a hook run out of time before its journal work is done, you now
+  hear it once: the next session start says how many times the Stop hook left journals for a
+  later export, and a session start whose own import ran out of time says so in its message.
+  Before, both were silent. Neither counts as a hook error.
+
 ## 2.0.0 (2026-11-09)
 
 The first release from the redkiln monorepo, as `rk-weigh-in` and `rk-weigh-in-mod` in the
