@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::eval::routing::{Fault, Problem, judge, read_fixtures};
-use crate::lint::skills::discover::MAX_READ_BYTES;
+use crate::lint::read::MAX_READ_BYTES;
 use crate::lint::skills::listing::Listing;
 
 type TestResult = Result<(), Box<dyn Error>>;

@@ -1,12 +1,16 @@
 //! Frontmatter checks for one skill: spec conformance (rule 1), spec-only fields (rule 18), no
 //! `model` (rule 20), model invocation (rule 4) and the description's shape (rules 5, 6).
 
-use crate::lint::finding::LintFinding;
-use crate::lint::skills::checker::{
-    Checker, DESCRIPTION_MAX_CHARS, ENTRY_SKILLS, EXTENSION_FIELDS, NAME_MAX_CHARS,
-    RESERVED_PREFIXES, SKIP_CLAUSES, SPEC_FIELDS,
+use crate::lint::checker::{
+    Checker, DESCRIPTION_MAX_CHARS, EXTENSION_FIELDS, NAME_MAX_CHARS, RESERVED_PREFIXES,
+    SKIP_CLAUSES, SPEC_FIELDS,
 };
+use crate::lint::finding::LintFinding;
 use crate::lint::skills::document::Skill;
+use crate::lint::skills::profile::BENCH;
+
+/// The plugin's model-invoked entry skills (rule 4), from the profile.
+const ENTRY_SKILLS: &[&str] = BENCH.entry_skills;
 
 /// Every frontmatter check for `skill`.
 pub(crate) fn check(skill: &Skill<'_>) -> Vec<LintFinding> {
@@ -195,8 +199,8 @@ fn model_invocation(skill: &Skill<'_>) -> Option<LintFinding> {
 #[cfg(test)]
 mod tests {
     use super::{is_kebab_case, model_invocation, name};
+    use crate::lint::checker::Checker;
     use crate::lint::finding::{LintFinding, Severity};
-    use crate::lint::skills::checker::Checker;
     use crate::lint::skills::document::{test_dir, test_skill};
     use std::path::Path;
 

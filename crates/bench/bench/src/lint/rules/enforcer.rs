@@ -12,8 +12,7 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
-use crate::lint::skills::LintError;
-use crate::lint::skills::discover::MAX_READ_BYTES;
+use crate::lint::read::{LintError, MAX_READ_BYTES};
 
 /// One enforcer as named, borrowed from the rule's text.
 #[derive(Debug, Clone, PartialEq, Eq)]

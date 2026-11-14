@@ -2,7 +2,7 @@
 //!
 //! A ticket's id is its file stem (`003-auth.md` is `003-auth`); `README.md` (any case) is not a
 //! ticket, nor is anything that is not a regular `.md` file. The optional frontmatter is the
-//! same YAML subset `SKILL.md` uses (`lint::skills::frontmatter`), with these keys:
+//! same YAML subset `SKILL.md` uses (`crate::frontmatter`), with these keys:
 //!
 //! - `blocked_by`: ids that must be done first, as a flow list (`[001, "002"]`), a block list
 //!   (`- 001` lines) or a comma list (`001, 002`);
@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use crate::dag::ticket::{Status, Ticket, TicketId};
 use crate::dag::tracker::{MAX_TICKETS, Tracker, TrackerError};
-use crate::lint::skills::frontmatter::{self, Document};
+use crate::frontmatter::{self, Document};
 
 /// The largest ticket file read (H-13).
 pub const MAX_TICKET_BYTES: u64 = 1024 * 1024;

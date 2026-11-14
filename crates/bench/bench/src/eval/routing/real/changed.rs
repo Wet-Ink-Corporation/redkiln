@@ -13,7 +13,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::eval::real::ChangedError;
-use crate::lint::skills::discover::{EntryKind, MAX_READ_BYTES, list_dir, read_bounded};
+use crate::lint::read::{MAX_READ_BYTES, read_bounded};
+use crate::lint::skills::discover::{EntryKind, list_dir};
 use crate::lint::skills::frontmatter;
 use crate::paths::run_git_capped;
 

@@ -1,7 +1,8 @@
 //! The rule catalogue: every checker id and the design rule it enforces.
 //!
-//! It also holds the data the checks use (entry skills, allowed frontmatter fields, budgets,
-//! word lists). `docs/skill-rules.md` documents the same table; a test fails when a checker is
+//! It also holds the data the skill checks use (allowed frontmatter fields, budgets, word
+//! lists); the entry skills are the plugin's (`bench_contract::plugin::ENTRY_SKILLS`, read
+//! through `lint::skills`' profile). `docs/skill-rules.md` documents the same table; a test fails when a checker is
 //! missing from it.
 
 use std::fmt::{self, Display, Formatter};
@@ -176,12 +177,6 @@ impl Display for Checker {
         f.write_str(self.as_str())
     }
 }
-
-/// The model-invoked entry skills (blueprint "Packaging against the listing budget"). Every
-/// other skill must set `disable-model-invocation: true`.
-pub(crate) const ENTRY_SKILLS: [&str; 7] = [
-    "grill", "spec", "plan", "build", "diagnose", "verify", "ship",
-];
 
 /// Frontmatter keys from the Agent Skills spec (agentskills.io).
 pub(crate) const SPEC_FIELDS: [&str; 6] = [

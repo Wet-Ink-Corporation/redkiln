@@ -5,8 +5,6 @@
 //! cached by content hash; set-level checks (`checks_set`) run every time. A `SKILL.md` that
 //! cannot be read as UTF-8 frontmatter plus body gets one finding and no further checks.
 
-pub mod checker;
-
 mod cache;
 mod checks_body;
 mod checks_prose;
@@ -16,22 +14,25 @@ pub(crate) mod discover;
 mod document;
 pub(crate) mod frontmatter;
 pub(crate) mod listing;
+mod profile;
 
 use std::collections::BTreeSet;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use clap::Args;
-use serde::Deserialize;
 
-use crate::baseline::BaselineError;
-use crate::exit_codes::{self, Code};
-use crate::hook::HookName;
+use crate::lint::checker::Checker;
 use crate::lint::finding::{LintFinding, Location};
+use crate::lint::hooks::hook_ids;
+use crate::lint::read::{read_capped, read_text};
 use cache::{Cache, content_hash};
-use checker::Checker;
-use discover::{MAX_READ_BYTES, SkillDir, Surroundings, discover, read_capped};
+use discover::{SkillDir, Surroundings, discover};
 use document::Skill;
+use profile::BENCH;
+
+/// Why `lint skills` could not run; Bench's other lints and readers share it
+/// (`crate::lint::read`).
+pub use crate::lint::read::LintError;
 
 pub(crate) use checks_set::vocabulary;
 
@@ -65,67 +66,6 @@ pub struct Outcome {
     pub cached: usize,
 }
 
-/// Why `lint skills`, `lint terms` or `lint spec` could not run.
-#[derive(Debug, thiserror::Error)]
-pub enum LintError {
-    /// A path given on the command line does not exist.
-    #[error("no such path: {path}", path = path.display())]
-    MissingPath {
-        /// The path as given.
-        path: PathBuf,
-    },
-    /// A path given on the command line is the wrong kind (a file for a directory, or the
-    /// reverse).
-    #[error("{path} is not {expected}", path = path.display())]
-    WrongKind {
-        /// The path as given.
-        path: PathBuf,
-        /// What it should be.
-        expected: &'static str,
-    },
-    /// A file given on the command line that must be read whole (the `lint terms` glossary;
-    /// the `lint spec` spec, glossary and constitution) is larger than the read cap.
-    #[error("{path} is {size} bytes, over the {MAX_READ_BYTES}-byte read cap", path = path.display())]
-    TooLarge {
-        /// The path as given.
-        path: PathBuf,
-        /// Its size in bytes.
-        size: u64,
-    },
-    /// A file or directory could not be read.
-    #[error("reading {path}", path = path.display())]
-    Io {
-        /// The path being read.
-        path: PathBuf,
-        /// The underlying error.
-        #[source]
-        source: io::Error,
-    },
-    /// The content-hash snapshot could not be read or written.
-    #[error("lint snapshot")]
-    Cache(#[from] BaselineError),
-}
-
-impl LintError {
-    pub(crate) fn io(path: &Path, source: io::Error) -> Self {
-        Self::Io {
-            path: path.to_path_buf(),
-            source,
-        }
-    }
-
-    /// The documented exit code: a missing path is a usage error, the rest internal.
-    #[must_use]
-    pub const fn code(&self) -> Code {
-        match self {
-            Self::MissingPath { .. } | Self::WrongKind { .. } | Self::TooLarge { .. } => {
-                exit_codes::USAGE
-            }
-            Self::Io { .. } | Self::Cache(_) => exit_codes::INTERNAL,
-        }
-    }
-}
-
 /// Lints the skills under `args.paths`.
 ///
 /// # Errors
@@ -133,7 +73,7 @@ impl LintError {
 /// or written. Rule violations are findings, never errors.
 pub fn lint(args: &SkillsArgs) -> Result<Outcome, LintError> {
     let dirs = discover(&args.paths)?;
-    let (hook_ids, mut findings) = hook_ids(args.hooks.as_deref())?;
+    let (hook_ids, mut findings) = hook_ids(args.hooks.as_deref(), BENCH.hook_ids)?;
     let loaded = dirs
         .iter()
         .map(Loaded::read)
@@ -231,92 +171,6 @@ fn set_level(
     });
     findings.extend(checks_set::outside_skills(&root));
     Ok(findings)
-}
-
-/// A file named on the command line must exist and must not be a directory; either mistake is
-/// a usage error.
-pub(crate) fn require_file(path: &Path) -> Result<(), LintError> {
-    if !path.exists() {
-        return Err(LintError::MissingPath {
-            path: path.to_path_buf(),
-        });
-    }
-    if path.is_dir() {
-        return Err(LintError::WrongKind {
-            path: path.to_path_buf(),
-            expected: "a file",
-        });
-    }
-    Ok(())
-}
-
-/// Reads a text file given on the command line: its text, or `Err(size)` when it is larger
-/// than the read cap. A missing file is a usage error. Invalid UTF-8 is replaced, which only
-/// matters for word counts and JSON parse errors.
-fn read_text(path: &Path) -> Result<Result<String, u64>, LintError> {
-    require_file(path)?;
-    let capped = read_capped(path)?;
-    Ok(capped
-        .bytes
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .ok_or(capped.size))
-}
-
-/// A `--hooks` file: only the hook ids matter here.
-#[derive(Debug, Deserialize)]
-struct HooksMetadata {
-    hooks: Vec<HookEntry>,
-}
-
-#[derive(Debug, Deserialize)]
-struct HookEntry {
-    id: String,
-}
-
-/// The hook ids that count as enforcers: those of `--hooks` when given (plus a finding when it
-/// does not parse), else anneal's own. `lint skills` and `lint rules` share it.
-///
-/// # Errors
-/// [`LintError`] when `hooks` is missing, a directory or cannot be read.
-pub(crate) fn hook_ids(
-    hooks: Option<&Path>,
-) -> Result<(BTreeSet<String>, Vec<LintFinding>), LintError> {
-    match hooks {
-        Some(path) => read_hook_ids(path),
-        // Owned so the set has one type whether it comes from a file or from the table.
-        None => Ok((
-            HookName::ALL
-                .iter()
-                .map(|hook| hook.as_str().to_owned())
-                .collect(),
-            Vec::new(),
-        )),
-    }
-}
-
-/// The hook ids in the hooks metadata file at `path`, or no ids and one `enforcer` error
-/// finding when it does not parse.
-fn read_hook_ids(path: &Path) -> Result<(BTreeSet<String>, Vec<LintFinding>), LintError> {
-    let parsed = read_text(path)?
-        .map_err(|size| format!("the file is {size} bytes"))
-        .and_then(|text| {
-            serde_json::from_str::<HooksMetadata>(&text).map_err(|error| error.to_string())
-        });
-    match parsed {
-        Ok(metadata) => Ok((
-            metadata.hooks.into_iter().map(|h| h.id).collect(),
-            Vec::new(),
-        )),
-        Err(reason) => Ok((
-            BTreeSet::new(),
-            vec![LintFinding::error(
-                Checker::Enforcer,
-                Location::new(path.display().to_string(), 1),
-                format!("hooks metadata does not parse: {reason}."),
-                "fix the JSON: `{\"version\": 1, \"hooks\": [{\"id\": \"<hook-id>\", ...}]}`.",
-            )],
-        )),
-    }
 }
 
 /// A `SKILL.md` as read from disk.

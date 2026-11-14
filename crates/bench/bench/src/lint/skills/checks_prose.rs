@@ -3,12 +3,12 @@
 
 use std::collections::BTreeSet;
 
-use crate::command::CommandName;
-use crate::lint::finding::LintFinding;
-use crate::lint::skills::checker::{
+use crate::lint::checker::{
     Checker, GATE_WORDS, HARD_RULES_MAX_LINE, QUOTING_SECTIONS, THRESHOLD_ADJECTIVES,
 };
+use crate::lint::finding::LintFinding;
 use crate::lint::skills::document::{Line, Skill, code_spans, has_token, words};
+use crate::lint::skills::profile::{BENCH, Profile};
 
 /// Every prose check for `skill`. `hook_ids` are the hook ids that count as enforcers.
 pub(crate) fn check(
@@ -42,10 +42,13 @@ fn hard_rule_late(skill: &Skill<'_>, line: &Line<'_>) -> Option<LintFinding> {
     })
 }
 
-/// What a MUST line with no enforcer should do; the command form is this binary's
-/// (`bench_contract::cli::BINARY`, held equal by a test).
-const ENFORCER_FIX: &str = "name the check on the same line: `bench <command> ...` or a hook id \
-                            (`bench hook --help` lists them), in backticks; or soften the MUST.";
+/// The profile rule 10 reads: the binary and commands a `` `<binary> <command>` `` enforcer
+/// names, and the fix it suggests.
+const PROFILE: Profile = BENCH;
+
+/// What a MUST line with no enforcer should do; the command form is the profile's binary
+/// (held equal by a test).
+const ENFORCER_FIX: &str = PROFILE.enforcer_fix;
 
 /// Rule 10: a MUST line names its enforcer: `` `bench <command>` `` or a hook id in backticks.
 fn enforcer(
@@ -69,10 +72,10 @@ fn is_enforcer(span: &str, hook_ids: &BTreeSet<String>) -> bool {
         return true;
     }
     let mut parts = span.split_whitespace();
-    parts.next() == Some(bench_contract::cli::BINARY)
+    parts.next() == Some(PROFILE.binary)
         && parts
             .next()
-            .is_some_and(|command| CommandName::ALL.iter().any(|c| c.as_str() == command))
+            .is_some_and(|command| PROFILE.has_command(command))
 }
 
 /// Rule 9: an adjective standing in for a number on a gate line. Tables (the cure) and the

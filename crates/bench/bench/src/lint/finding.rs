@@ -6,7 +6,7 @@ use std::fmt::{self, Display, Formatter};
 use serde::{Deserialize, Serialize};
 
 use crate::envelope::Finding;
-use crate::lint::skills::checker::Checker;
+use crate::lint::checker::Checker;
 
 /// How much a finding matters. Only [`Severity::Error`] fails the run (exit 1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -177,7 +177,7 @@ impl LintFinding {
 mod tests {
     use super::{LintFinding, Location};
     use crate::envelope::Finding;
-    use crate::lint::skills::checker::Checker;
+    use crate::lint::checker::Checker;
 
     #[test]
     fn the_envelope_line_names_location_severity_rule_checker_and_fix() {

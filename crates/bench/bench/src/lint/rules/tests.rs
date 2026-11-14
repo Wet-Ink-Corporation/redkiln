@@ -10,8 +10,7 @@ use super::enforcer::{self, Enforcer, Repository, Root, Unresolved};
 use super::{RulesArgs, check_document, lint, named_enforcers};
 use crate::cli::Cli;
 use crate::lint::finding::LintFinding;
-use crate::lint::skills::LintError;
-use crate::lint::skills::discover::MAX_READ_BYTES;
+use crate::lint::read::{LintError, MAX_READ_BYTES};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

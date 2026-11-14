@@ -4,8 +4,9 @@
 use std::path::PathBuf;
 
 use crate::lint::finding::LintFinding;
+use crate::lint::read::LintError;
 use crate::lint::skills::document::Skill;
-use crate::lint::skills::{LintError, Loaded, discover};
+use crate::lint::skills::{Loaded, discover};
 
 /// A skill as the router lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,7 +77,7 @@ mod tests {
     use std::fs;
 
     use super::{Listing, listings};
-    use crate::lint::skills::checker::Checker;
+    use crate::lint::checker::Checker;
 
     #[test]
     fn listings_keep_the_trigger_and_flag_user_invoked_and_unparseable_skills()

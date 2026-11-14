@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 
 use crate::baseline::{BaselineError, read_snapshot_bytes, write_snapshot_json};
 use crate::lint::finding::LintFinding;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::lint::skills::discover::Surroundings;
 use crate::lint::skills::document::Skill;
 
@@ -131,7 +131,6 @@ macro_rules! rule_sources {
 }
 
 rule_sources!(
-    "checker.rs",
     "checks_body.rs",
     "checks_prose.rs",
     "checks_set.rs",
@@ -139,9 +138,15 @@ rule_sources!(
     "discover.rs",
     "document.rs",
     "frontmatter.rs",
+    "profile.rs",
+    "../checker.rs",
     "../finding.rs",
+    "../hooks.rs",
+    "../read.rs",
     "../skills.rs",
     "../../command.rs",
+    "../../../../bench-contract/src/cli.rs",
+    "../../../../bench-contract/src/plugin.rs",
 );
 
 /// The hex SHA-256 of everything the per-skill checks consume for `skill`.

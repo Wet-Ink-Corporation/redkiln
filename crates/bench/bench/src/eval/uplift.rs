@@ -42,7 +42,7 @@ use crate::eval::real::args::plugin_of;
 use crate::eval::real::claude::plugin_name;
 use crate::eval::real::{ChangedError, RouterError};
 use crate::exit_codes::Code;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 use crate::paths::PathError;
 use case::{Grader, Tool};
 use claude::{

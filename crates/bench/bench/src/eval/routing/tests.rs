@@ -3,8 +3,8 @@ use crate::eval::routing::{
     Case, CaseKind, Fault, List, Outcome, Problem, Rival, Source, Top, judge,
 };
 use crate::exit_codes;
+use crate::lint::checker::Checker;
 use crate::lint::finding::{LintFinding, Location};
-use crate::lint::skills::checker::Checker;
 use crate::lint::skills::listing::{Listing, Unparsed};
 
 fn listing(name: &str, text: &str) -> Listing {

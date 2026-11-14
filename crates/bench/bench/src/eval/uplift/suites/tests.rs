@@ -5,7 +5,7 @@ use serde_json::json;
 
 use super::{Coverage, SuiteKind, read};
 use crate::eval::uplift::case::Fault;
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

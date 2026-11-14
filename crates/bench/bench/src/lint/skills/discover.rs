@@ -1,19 +1,15 @@
-//! Finding skill directories under the given paths and reading their `SKILL.md`.
+//! Finding skill directories under the given paths and listing what surrounds their
+//! `SKILL.md`; the bounded read itself is `crate::lint::read`'s.
 
 use std::ffi::OsString;
-use std::fs::{self, File};
-use std::io::{self, Read};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::lint::skills::LintError;
+use crate::lint::read::LintError;
 
 /// The file every skill directory holds.
 pub(crate) const SKILL_FILE: &str = "SKILL.md";
-
-/// Files read whole (`SKILL.md`, a `--hooks` file, the index, the `lint terms` glossary and
-/// scanned files, rulings) larger than this are not read past it (H-13). For a skill, anything
-/// near it already breaks the 8 KB budget.
-pub(crate) const MAX_READ_BYTES: u64 = 1024 * 1024;
 
 /// A directory holding a `SKILL.md`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -83,52 +79,6 @@ fn skill_dir(dir: PathBuf) -> SkillDir {
     });
     let name = resolved.map_or_else(String::new, |n| n.to_string_lossy().into_owned());
     SkillDir { dir, name }
-}
-
-/// A file read up to [`MAX_READ_BYTES`]: its size and, when within the cap, its bytes.
-#[derive(Debug)]
-pub(crate) struct Capped {
-    /// The file's size on disk; or, for a file that grew past the cap after its size was
-    /// read, the bytes actually read (one past the cap).
-    pub size: u64,
-    /// The contents, or `None` when the file is larger than the cap.
-    pub bytes: Option<Vec<u8>>,
-}
-
-/// Reads `path` up to [`MAX_READ_BYTES`].
-///
-/// # Errors
-/// [`LintError::Io`] when the file cannot be opened or read.
-pub(crate) fn read_capped(path: &Path) -> Result<Capped, LintError> {
-    read_bounded(path).map_err(|source| LintError::io(path, source))
-}
-
-/// Reads `path` up to [`MAX_READ_BYTES`], for callers with their own error type.
-///
-/// # Errors
-/// The I/O error when the file cannot be opened or read.
-pub(crate) fn read_bounded(path: &Path) -> io::Result<Capped> {
-    let file = File::open(path)?;
-    let size = file.metadata()?.len();
-    if size > MAX_READ_BYTES {
-        return Ok(Capped { size, bytes: None });
-    }
-    let mut bytes = Vec::new();
-    // One byte past the cap tells a file that grew since its size was read: it is too large,
-    // never silently truncated.
-    file.take(MAX_READ_BYTES.saturating_add(1))
-        .read_to_end(&mut bytes)?;
-    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    if read > MAX_READ_BYTES {
-        return Ok(Capped {
-            size: read,
-            bytes: None,
-        });
-    }
-    Ok(Capped {
-        size,
-        bytes: Some(bytes),
-    })
 }
 
 /// What a directory entry is, as `DirEntry::file_type` reports it: symlinks are never followed.
@@ -214,21 +164,4 @@ pub(crate) fn list_dir(dir: &Path) -> Result<Vec<(OsString, EntryKind)>, LintErr
     }
     listed.sort();
     Ok(listed)
-}
-
-#[cfg(all(test, unix))]
-mod tests {
-    use std::path::Path;
-
-    use super::{MAX_READ_BYTES, read_bounded};
-
-    #[test]
-    fn a_file_that_reads_past_its_reported_size_is_too_large_not_truncated() {
-        // `/dev/zero` reports size 0 and never ends: the same as a file that grew after its
-        // size was read.
-        let capped = read_bounded(Path::new("/dev/zero")).expect("/dev/zero opens");
-
-        assert!(capped.bytes.is_none(), "not read as content");
-        assert_eq!(capped.size, MAX_READ_BYTES + 1, "the bytes actually read");
-    }
 }

@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use crate::decide::client::MAX_OPTIONS;
 use crate::decide::id::is_word;
-use crate::lint::skills::frontmatter;
+use crate::frontmatter;
 use crate::rulings::{self, ListLimits, RulingError};
 use crate::weighin::Decided;
 

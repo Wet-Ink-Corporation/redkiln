@@ -7,8 +7,8 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use bench::lint::checker::Checker;
 use bench::lint::finding::Severity;
-use bench::lint::skills::checker::Checker;
 use bench::lint::skills::{Outcome, SkillsArgs, lint};
 use serde_json::Value;
 

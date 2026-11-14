@@ -137,7 +137,7 @@ mod tests {
 
     /// Path of the generated copy of the index, relative to the repository root.
     const DOC_PATH: &str = "docs/bench/bootstrap-index.md";
-    use crate::lint::skills::checker::ENTRY_SKILLS;
+    use bench_contract::plugin::ENTRY_SKILLS;
     use std::path::Path;
 
     /// The skill names on the index's `- `name`: trigger` lines, in order.

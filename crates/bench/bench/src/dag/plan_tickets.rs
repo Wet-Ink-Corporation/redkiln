@@ -20,8 +20,8 @@ use serde::Serialize;
 use crate::dag::ticket::{Ticket, TicketId, id_order};
 use crate::envelope::Finding;
 use crate::lint::plan::{self as plan_lint, MAX_FINDINGS, PlanFinding, Rule, Task};
+use crate::lint::read::LintError;
 use crate::lint::read_whole_bytes;
-use crate::lint::skills::LintError;
 use crate::lint::spec::Source;
 
 /// A plan's tasks as `lint plan` reads them.
