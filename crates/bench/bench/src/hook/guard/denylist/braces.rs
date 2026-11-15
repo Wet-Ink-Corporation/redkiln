@@ -12,8 +12,8 @@ use std::borrow::Cow;
 use std::iter::Peekable;
 use std::ops::Range;
 
-use crate::hook::guard::shell::{Expansion, Shape, Word};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::shell::{Expansion, Shape, Word};
 
 /// The most words brace expansion may make of one command's arguments (H-13).
 const MAX_WORDS: usize = 256;

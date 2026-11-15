@@ -12,8 +12,8 @@ use super::wrappers::{self, Program, Run};
 use super::{
     Context, MAX_DEPTH, MAX_LEXED_BYTES, MAX_LEXED_MIB, anneal, braces, git, readings, rm,
 };
-use crate::hook::guard::shell::{self, ParseError, SimpleCommand, Word};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::shell::{self, ParseError, SimpleCommand, Word};
 
 /// Where a command is checked: what its standard input gets (when it does not redirect it),
 /// how deeply nested it is, and whether operands are appended at run time.
@@ -161,7 +161,7 @@ impl<'c> Checker<'c> {
             }
         };
         commands.iter().find_map(|command| {
-            if command.defines_function {
+            if command.defines_function() {
                 self.note_unseen(probe::DEFINITION);
             }
             self.note_mentions(command);
@@ -173,8 +173,8 @@ impl<'c> Checker<'c> {
     }
 
     fn command(&mut self, command: &SimpleCommand, scope: Scope<'_>) -> Option<Denial> {
-        let writes = self.variables.substitute(&command.writes);
-        let words = self.variables.substitute(&command.words);
+        let writes = self.variables.substitute(command.writes());
+        let words = self.variables.substitute(command.words());
         if let Some(denial) = self.note_human_actor(&words) {
             return Some(denial);
         }

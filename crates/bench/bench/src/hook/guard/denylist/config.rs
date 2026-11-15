@@ -15,8 +15,8 @@ pub(super) use paths::Cwd;
 use paths::{CONTAINERS, contains_protected, last_component, protected};
 
 use super::wrappers::{Long, is_option, skip_one};
-use crate::hook::guard::shell::{Shape, Word};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::shell::{Shape, Word};
 
 fn deny(action: &str, label: &str) -> Denial {
     Denial::new(

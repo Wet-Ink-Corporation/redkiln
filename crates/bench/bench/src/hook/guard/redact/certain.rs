@@ -49,8 +49,8 @@ mod shape;
 use std::ops::Range;
 
 use super::denylist::{self, Role};
-use super::shell::Word;
 use readings::{BodyWord, NONE, Reading, Runs, Style};
+use redkiln_guard::shell::Word;
 use shape::Shape;
 
 /// Where the words of the last wrapper the walk read end, by the layout it gave the command.

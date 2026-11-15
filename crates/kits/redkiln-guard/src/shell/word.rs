@@ -7,41 +7,41 @@ use super::{Close, Lexer, MAX_NESTING, ParseError, Quoting, Reading, is_meta};
 
 /// A shell word after quote removal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Word {
+pub struct Word {
     /// The word's text with quotes and escapes removed; an expansion keeps its source text.
-    pub(crate) text: String,
+    pub text: String,
     /// How far the text is from what the shell passes on.
-    pub(crate) shape: Shape,
+    pub shape: Shape,
     /// Whether any part of the word was quoted or escaped.
-    pub(crate) quoted: bool,
+    pub quoted: bool,
     /// Whether the word holds an unquoted `*`, `?`, `[`, `{` or a leading `~`, whatever its
     /// shape: `"$b"{-rf,/}` is [`Shape::Dynamic`] and still brace-expands.
-    pub(crate) globs: Globs,
+    pub globs: Globs,
     /// Each expansion's source text in `text` (`$x`, `${x}`, `$( )`, backticks, `<( )`).
-    pub(crate) expansions: Vec<Expansion>,
+    pub expansions: Vec<Expansion>,
     /// The byte ranges of `text` that brace expansion does not read, in order: each quoted or
     /// escaped part (empty for `''`), and a known variable value the denylist put in, which
     /// the shell expands only after braces.
-    pub(crate) quotes: Vec<Range<usize>>,
+    pub quotes: Vec<Range<usize>>,
     /// Whether it was read inside an arithmetic expression: in a command of one (see
     /// [`super::SimpleCommand::arithmetic`]), or from an unquoted `$[` up to its `]`, which the
     /// lexer splits into words as it always has.
-    pub(crate) arithmetic: bool,
+    pub arithmetic: bool,
 }
 
 /// Where an expansion's source text is in its word's text, and whether it was in double
 /// quotes (so its value is not split into words).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Expansion {
+pub struct Expansion {
     /// The byte range of the source text.
-    pub(crate) range: Range<usize>,
+    pub range: Range<usize>,
     /// Whether it was inside double quotes (or a heredoc body).
-    pub(crate) quoted: bool,
+    pub quoted: bool,
 }
 
 /// How far a word's text is from what the shell passes on, from exact to unknowable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Shape {
+pub enum Shape {
     /// No expansion: the text is the argument.
     Literal,
     /// An unquoted glob (`*`, `?`, `[`), brace or leading `~`: the text is a pattern.
@@ -53,7 +53,7 @@ pub(crate) enum Shape {
 /// Whether a word holds an unquoted pattern character (`*`, `?`, `[`, `{` or a leading `~`),
 /// which [`Shape`] does not tell once a word is also dynamic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Globs {
+pub enum Globs {
     /// None unquoted.
     Absent,
     /// At least one unquoted.
@@ -62,7 +62,8 @@ pub(crate) enum Globs {
 
 impl Globs {
     /// [`Globs::Unquoted`] when `found`.
-    pub(crate) const fn found(found: bool) -> Self {
+    #[must_use]
+    pub const fn found(found: bool) -> Self {
         if found { Self::Unquoted } else { Self::Absent }
     }
 }
@@ -94,7 +95,8 @@ impl Word {
     }
 
     /// [`Word::quotes`] for a word whose text is all quoted: one range over `text`.
-    pub(crate) fn all_quoted(text: &str) -> Vec<Range<usize>> {
+    #[must_use]
+    pub fn all_quoted(text: &str) -> Vec<Range<usize>> {
         std::iter::once(0..text.len()).collect()
     }
 
@@ -118,13 +120,15 @@ impl Word {
     }
 
     /// Whether the word holds an unquoted pattern character, whatever its shape.
-    pub(crate) fn has_pattern(&self) -> bool {
+    #[must_use]
+    pub fn has_pattern(&self) -> bool {
         self.globs == Globs::Unquoted
     }
 
     /// The word's text outside its expansions' source text, in order; `None` when an
     /// expansion's range is not in the text, which the lexer never makes.
-    pub(crate) fn outside_expansions(&self) -> Option<Vec<&str>> {
+    #[must_use]
+    pub fn outside_expansions(&self) -> Option<Vec<&str>> {
         let mut parts = Vec::with_capacity(self.expansions.len().saturating_add(1));
         let mut at = 0;
         for expansion in &self.expansions {
@@ -138,7 +142,7 @@ impl Word {
     /// [`Word::quotes`] moved to where they are once each expansion source range in `replaced`
     /// (in order, each paired with the length of the text that takes its place) is replaced. A
     /// quote that holds a replaced range grows or shrinks with it. One pass over both (H-13).
-    pub(crate) fn quotes_replacing<'r>(
+    pub fn quotes_replacing<'r>(
         &self,
         replaced: impl IntoIterator<Item = (&'r Range<usize>, usize)>,
     ) -> Vec<Range<usize>> {
@@ -162,7 +166,8 @@ impl Word {
     }
 
     /// Whether the text is exactly what runs.
-    pub(crate) fn is_literal(&self) -> bool {
+    #[must_use]
+    pub fn is_literal(&self) -> bool {
         self.shape == Shape::Literal
     }
 
@@ -180,7 +185,8 @@ impl Word {
     }
 
     /// Whether the word is one process substitution, `<( )` or `>( )`: a pipe's path.
-    pub(crate) fn is_process_substitution(&self) -> bool {
+    #[must_use]
+    pub fn is_process_substitution(&self) -> bool {
         matches!(self.expansions.as_slice(), [only] if only.range == (0..self.text.len()))
             && (self.text.starts_with("<(") || self.text.starts_with(">("))
     }

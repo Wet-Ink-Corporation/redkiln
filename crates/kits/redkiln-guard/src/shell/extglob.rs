@@ -24,7 +24,7 @@ impl Place {
 }
 
 /// The characters that open an extended glob when an unquoted `(` follows them.
-pub(crate) const OPENERS: [char; 5] = ['@', '+', '!', '?', '*'];
+pub const OPENERS: [char; 5] = ['@', '+', '!', '?', '*'];
 
 /// Whether a `(` after `word` opens an extended glob's group: the word ends with an unquoted
 /// [`OPENERS`] character, and that character is not a `!` standing alone in command position.

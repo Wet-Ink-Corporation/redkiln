@@ -13,7 +13,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use crate::hook::guard::shell::{EXTGLOB_OPENERS, Expansion, Shape, Word};
+use redkiln_guard::shell::{EXTGLOB_OPENERS, Expansion, Shape, Word};
 
 /// `word`'s readings: as written, then with its expansions empty when it has that reading.
 pub(super) fn of(word: &Word) -> impl Iterator<Item = Cow<'_, Word>> {

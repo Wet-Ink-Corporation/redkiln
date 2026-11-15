@@ -113,6 +113,7 @@ dependencies = [
  "clap",
  "jsonschema",
  "redkiln-core",
+ "redkiln-guard",
  "serde",
  "serde_json",
  "sha2",
@@ -879,6 +880,13 @@ dependencies = [
  "time",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "redkiln-guard"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]

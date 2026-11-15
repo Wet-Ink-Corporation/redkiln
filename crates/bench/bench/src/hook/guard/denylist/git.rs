@@ -6,8 +6,8 @@ mod settings;
 pub(super) use settings::settings;
 
 use super::wrappers::{Long, is_long, may_be_option, skip_one, skip_options, takes_value};
-use crate::hook::guard::shell::{Shape, Word};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::shell::{Shape, Word};
 
 /// git's global options that take the next word as their value.
 const GLOBAL_VALUES: &[&str] = &[

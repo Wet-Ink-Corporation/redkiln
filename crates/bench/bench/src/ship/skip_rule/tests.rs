@@ -2,7 +2,7 @@ use super::{
     DEFAULT_SENSITIVE, FileChange, MAX_LISTED, NumstatError, Reason, judge, parse_numstat,
     sensitive_rules,
 };
-use crate::glob::Glob;
+use redkiln_guard::glob::Glob;
 
 fn change(path: &str, lines: u64) -> FileChange {
     FileChange {

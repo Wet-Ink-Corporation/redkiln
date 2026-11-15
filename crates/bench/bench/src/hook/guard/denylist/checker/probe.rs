@@ -9,7 +9,7 @@ use crate::hook::guard::Denial;
 use crate::hook::guard::denylist::braces;
 use crate::hook::guard::denylist::gh::{self, PrMerge};
 use crate::hook::guard::denylist::wrappers;
-use crate::hook::guard::shell::{SimpleCommand, Stdin, Word};
+use redkiln_guard::shell::{SimpleCommand, Stdin, Word};
 
 /// The variables that point gh at another repository or host; the probe notes a command that
 /// sets or names one (`GH_REPO=o/x gh ...`, `env`, `export`), wherever it does.
@@ -179,10 +179,10 @@ impl Checker<'_> {
         if self.entries != Entries::PrMerge {
             return;
         }
-        for word in &command.words {
+        for word in command.words() {
             self.mentions_merge |= holds_merge(&word.text);
         }
-        if let Stdin::Text(body) = &command.stdin {
+        if let Stdin::Text(body) = command.stdin() {
             self.mentions_merge |= holds_merge(&body.text);
         }
     }

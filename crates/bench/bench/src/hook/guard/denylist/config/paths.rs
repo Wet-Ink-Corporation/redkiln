@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::iter;
 
 use crate::hook::guard::denylist::wrappers::skip_options;
-use crate::hook::guard::shell::{EXTGLOB_OPENERS, Shape, Word};
+use redkiln_guard::shell::{EXTGLOB_OPENERS, Shape, Word};
 
 /// The most components an extended glob span is read as beyond one (see `without_extglobs`).
 const MAX_SPANNED: usize = 32;

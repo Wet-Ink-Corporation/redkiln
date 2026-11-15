@@ -12,8 +12,8 @@ use std::path::Path;
 use super::wrappers::{is_long, may_be_option};
 use super::{Context, normalize, readings};
 use crate::harness::claude_code::PROJECT_DIR_VAR;
-use crate::hook::guard::shell::{Shape, Word};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::shell::{Shape, Word};
 
 /// What a denial tells the agent may be force-deleted instead; a `Display` rather than a
 /// `&str` because it names the harness's project variable.
