@@ -117,11 +117,12 @@ fn sequence_may_name_gh_variable(word: &Word) -> bool {
 
 /// A denial for a command the probe cannot read.
 fn unreadable(reason: String) -> Denial {
-    Denial::new(Rule::Unparseable, reason)
+    Denial::new(<MergeProbe as Pack>::UNREADABLE, reason)
 }
 
 /// What the probe saves for the engine to hand back: the gh calls read in full in the simple
-/// command being checked, and how many merges were found.
+/// command being checked (read by `leave_command`), and how many merges were found (read only
+/// by `reread`, which compares two readings; a mark per simple command carries it unread).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ProbeMark {
     calls: usize,
