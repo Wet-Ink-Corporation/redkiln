@@ -1,51 +1,31 @@
 //! The deterministic denylist: it denies a command or leaves it undecided, never allows.
 //!
-//! The engine lexes the command with [`shell::parse`](redkiln_guard::shell::parse) into every
-//! simple command it runs, and checks each in order ([`checker`]). Each one is unwrapped
-//! ([`wrappers`]: leading assignments and keywords, `sudo`, `env`, `command`, `exec`, `nohup`,
-//! `time`, `nice`, `timeout`, `setsid`, `stdbuf`, `ionice`, `chrt`, `taskset`, `busybox`,
-//! `flock`, `xargs`, `find`'s actions, `function`, `coproc`, path prefixes) and the strings that
-//! shells, `eval`, `env -S`, `su -c`, `script -c`, `trap`, `watch`, `alias` and git's command
-//! settings ([`git_settings`]) run are lexed and checked in turn, as is a script a shell reads
-//! from a static heredoc, here-string or `echo` pipe ([`feed`]). Brace expansion is applied to
-//! arguments ([`braces`]), the values of variables the command sets are put in
-//! ([`variables`]), a word holding both an expansion and a pattern is also judged with the
-//! expansion empty ([`readings`]), and `cd` is followed ([`cwd`]). What may not run is a rule
-//! pack's, reached through [`seam::Pack`]: the guard's ([`entries::GuardPack`]: [`git`], force
-//! push to a protected branch and `git add -f`; [`rm`], recursive force delete outside temp
-//! and scratch; [`config`], Bash writes to lint or hook config; [`anneal`], a human verdict or
-//! label, `--actor human`, from a model's Bash call) and the merge gate's probe
-//! ([`probe::MergeProbe`]). What the engine cannot model it denies. The engine and the seam
-//! name no Bench type. See `docs/guard.md`.
+//! The engine is the guard kit's ([`redkiln_guard::engine`]): it lexes the command, unwraps
+//! every simple command it runs, reads the shell text wrappers, `eval` and git's settings
+//! run, follows variables and `cd`, and denies what it cannot model. What may not run is
+//! Bench's, through the kit's [`Pack`](redkiln_guard::engine::Pack): the guard's pack
+//! ([`entries::GuardPack`]: [`git`], force push to a protected branch and `git add -f`;
+//! [`rm`], recursive force delete outside temp and scratch; [`config`], Bash writes to lint or
+//! hook config; [`anneal`], a human verdict or label, `--actor human`, from a model's Bash
+//! call) and the merge gate's probe ([`probe::MergeProbe`]). See `docs/guard.md`.
 
 mod anneal;
-mod braces;
-mod checker;
 mod config;
-mod cwd;
 mod entries;
-mod feed;
 mod gh;
 mod git;
-mod git_settings;
 mod probe;
-mod readings;
 mod rm;
-mod seam;
-mod variables;
-mod wrappers;
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
 use super::Denial;
 use crate::harness::claude_code::PROJECT_DIR_VAR;
-pub(in crate::hook::guard) use checker::MAX_LEXED_MIB;
 use entries::GuardPack;
 pub(crate) use gh::{PrMerge, Target, read_target};
 use probe::MergeProbe;
-pub(in crate::hook::guard) use seam::Denial as PackDenial;
-pub(in crate::hook::guard) use wrappers::{FindActions, Layout, Role, layout, program_name};
+use redkiln_guard::engine;
 
 /// Directories under which `rm -rf` of a literal absolute path is allowed, besides `$TMPDIR`
 /// and `$CLAUDE_PROJECT_DIR/.scratch`.
@@ -103,7 +83,7 @@ pub(crate) enum Verdict {
 
 /// Checks the Bash command `command` against the denylist: the engine with the guard's pack.
 pub(crate) fn check(command: &str, context: &Context) -> Verdict {
-    match checker::check(command, &mut GuardPack::new(context)) {
+    match engine::check(command, &mut GuardPack::new(context)) {
         Some(denial) => Verdict::Deny(denial),
         None => Verdict::Undecided,
     }
@@ -133,7 +113,7 @@ pub(crate) enum MergeScan {
 /// read.
 pub(crate) fn find_pr_merge(command: &str) -> MergeScan {
     let mut probe = MergeProbe::default();
-    if let Some(denial) = checker::check(command, &mut probe) {
+    if let Some(denial) = engine::check(command, &mut probe) {
         return MergeScan::Unreadable(denial);
     }
     let unseen = probe.unseen();

@@ -6,12 +6,10 @@
 use super::Context;
 use super::anneal;
 use super::config;
-use super::cwd::Cwd;
 use super::git;
 use super::rm;
-use super::seam::{Call, Pack};
-use super::wrappers::Program;
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::{Call, Cwd, Pack, Program};
 use redkiln_guard::shell::{SimpleCommand, Word};
 
 /// The guard's pack: the denylist's entries for one check, with the `rm` entry's safe roots.

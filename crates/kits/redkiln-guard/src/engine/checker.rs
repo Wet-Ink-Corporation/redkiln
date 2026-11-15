@@ -9,13 +9,13 @@ use super::seam::{Call, Denial, Pack};
 use super::variables::{self, Variables};
 use super::wrappers::{self, Program, Run};
 use super::{braces, readings};
-use redkiln_guard::shell::{self, ParseError, SimpleCommand, Word};
+use crate::shell::{self, ParseError, SimpleCommand, Word};
 
 /// How deep `bash -c`, `eval`, `env -S` and `find -exec` may nest before a command is refused.
-const MAX_DEPTH: usize = 8;
+pub const MAX_DEPTH: usize = 8;
 
 /// The most MiB lexed for one command, nested `bash -c` and `eval` strings included (H-13).
-pub(in crate::hook::guard) const MAX_LEXED_MIB: usize = 4;
+pub const MAX_LEXED_MIB: usize = 4;
 
 /// [`MAX_LEXED_MIB`] in bytes.
 const MAX_LEXED_BYTES: usize = MAX_LEXED_MIB * 1024 * 1024;
@@ -25,9 +25,12 @@ const MAX_LEXED_BYTES: usize = MAX_LEXED_MIB * 1024 * 1024;
 /// how deeply such reads nest.
 const MAX_ARGUMENT_COMMANDS: usize = 32;
 
-/// Checks the command `command`, as the hook receives it, against `pack`: the first denial,
-/// the pack's or the checker's own (under [`Pack::UNREADABLE`]), or `None`.
-pub(super) fn check<P: Pack>(command: &str, pack: &mut P) -> Option<Denial<P::Rule>> {
+/// Checks the Bash command `command`, as the guard receives it, against `pack`.
+///
+/// The answer is the first denial, the pack's or the engine's own (under [`Pack::UNREADABLE`]: a text the lexer cannot
+/// read, nesting past [`MAX_DEPTH`], more than [`MAX_LEXED_MIB`] lexed, a brace expansion past
+/// its cap), or `None` when nothing denies it. The engine never allows: `None` is undecided.
+pub fn check<P: Pack>(command: &str, pack: &mut P) -> Option<Denial<P::Rule>> {
     let top_level = Scope {
         feed: &Feed::Empty,
         depth: 0,

@@ -1,12 +1,15 @@
-//! Which paths are lint or hook config, matched on their components after `..` is resolved
-//! lexically, read from where the `cd` commands seen so far say relative paths start
-//! ([`Cwd`]).
+//! Protected paths, matched on their components.
+//!
+//! Whether a path a command writes or removes is one of a pack's protected paths
+//! ([`ProtectedPaths`], a table of [`Protected`] entries), matched on its components
+//! after `..` is resolved lexically, read from where the `cd` commands seen so far say
+//! relative paths start ([`Cwd`]). The table is the pack's; this module only matches.
 
 use std::borrow::Cow;
 use std::iter;
 
-use crate::hook::guard::denylist::cwd::{Cwd, is_absolute};
-use redkiln_guard::shell::{EXTGLOB_OPENERS, Shape};
+use crate::engine::{Cwd, is_absolute};
+use crate::shell::{EXTGLOB_OPENERS, Shape};
 
 /// The most components an extended glob span is read as beyond one (see `without_extglobs`).
 const MAX_SPANNED: usize = 32;
@@ -44,9 +47,10 @@ impl Name {
     }
 }
 
-/// A protected path: a component, directly under `parent` when that is set.
+/// A protected path: a component, directly under `parent` when that is set. Names are written
+/// in lower case and matched ignoring ASCII case.
 #[derive(Debug)]
-struct Protected {
+pub struct Protected {
     /// How a denial names it.
     label: &'static str,
     parent: Option<&'static str>,
@@ -54,6 +58,46 @@ struct Protected {
 }
 
 impl Protected {
+    /// A file protected wherever it is, named by its name.
+    #[must_use]
+    pub const fn file(name: &'static str) -> Self {
+        Self {
+            label: name,
+            parent: None,
+            name: Name::Exact(name),
+        }
+    }
+
+    /// The component `name`, directly under `parent` when that is set, named `label`.
+    #[must_use]
+    pub const fn exact(label: &'static str, parent: Option<&'static str>, name: &'static str) -> Self {
+        Self {
+            label,
+            parent,
+            name: Name::Exact(name),
+        }
+    }
+
+    /// Any component that starts with `prefix` and ends with `suffix`, directly under `parent`
+    /// when that is set, named `label`; a component holding a glob is tried against `samples`.
+    #[must_use]
+    pub const fn affix(
+        label: &'static str,
+        parent: Option<&'static str>,
+        (prefix, suffix): (&'static str, &'static str),
+        samples: &'static [&'static str],
+    ) -> Self {
+        Self {
+            label,
+            parent,
+            name: Name::Affix {
+                prefix,
+                suffix,
+                samples,
+            },
+        }
+    }
+
     fn matches(&self, path: &Resolved<'_>, glob: bool) -> bool {
         let components = path.components.as_slice();
         match self.parent {
@@ -75,86 +119,62 @@ impl Protected {
     }
 }
 
-/// A file protected wherever it is.
-const fn file(name: &'static str) -> Protected {
-    Protected {
-        label: name,
-        parent: None,
-        name: Name::Exact(name),
-    }
+/// A pack's protected paths: the entries, the directories that hold them (each a name and how
+/// a denial names it), and how a denial names a directory above the start, which may hold any
+/// of them.
+#[derive(Debug, Clone, Copy)]
+pub struct ProtectedPaths<'t> {
+    paths: &'t [Protected],
+    containers: &'t [(&'static str, &'static str)],
+    above: &'static str,
 }
 
-/// The protected paths.
-const PROTECTED: [Protected; 13] = [
-    Protected {
-        label: "hooks/",
-        parent: None,
-        name: Name::Exact("hooks"),
-    },
-    Protected {
-        label: ".claude/settings*.json",
-        parent: Some(".claude"),
-        name: Name::Affix {
-            prefix: "settings",
-            suffix: ".json",
-            samples: &["settings.json", "settings.local.json"],
-        },
-    },
-    Protected {
-        label: ".cargo/config*",
-        parent: Some(".cargo"),
-        name: Name::Affix {
-            prefix: "config",
-            suffix: "",
-            samples: &["config", "config.toml"],
-        },
-    },
-    Protected {
-        label: ".github/workflows/",
-        parent: Some(".github"),
-        name: Name::Exact("workflows"),
-    },
-    Protected {
-        label: ".eslintrc*",
-        parent: None,
-        name: Name::Affix {
-            prefix: ".eslintrc",
-            suffix: "",
-            samples: &[
-                ".eslintrc",
-                ".eslintrc.json",
-                ".eslintrc.js",
-                ".eslintrc.cjs",
-                ".eslintrc.yml",
-            ],
-        },
-    },
-    file("clippy.toml"),
-    file(".clippy.toml"),
-    file("rustfmt.toml"),
-    file(".rustfmt.toml"),
-    file("deny.toml"),
-    file(".pre-commit-config.yaml"),
-    file("lefthook.yml"),
-    // The gates' own settings: the orchestrate leads the brief hook trusts, the merge gate's
-    // review switch and sensitive globs, `check_fast`.
-    Protected {
-        label: ".anneal/config.json",
-        parent: Some(".anneal"),
-        name: Name::Exact("config.json"),
-    },
-];
+impl<'t> ProtectedPaths<'t> {
+    /// The table of `paths`, held in `containers` (each a directory name and its label), with
+    /// `above` naming a directory above the start.
+    #[must_use]
+    pub const fn new(
+        paths: &'t [Protected],
+        containers: &'t [(&'static str, &'static str)],
+        above: &'static str,
+    ) -> Self {
+        Self {
+            paths,
+            containers,
+            above,
+        }
+    }
 
-/// Directories that hold protected config: removing, moving or re-permissioning one changes it.
-pub(super) const CONTAINERS: [(&str, &str); 4] = [
-    (".anneal", ".anneal/"),
-    (".claude", ".claude/"),
-    (".github", ".github/"),
-    (".cargo", ".cargo/"),
-];
+    /// The label of the protected path writing `path` (seen from `cwd`) changes, if any.
+    #[must_use]
+    pub fn protected(&self, path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
+        readings(path, shape, cwd).find_map(|reading| {
+            let resolved = resolve(&reading.path, reading.anywhere);
+            self.paths
+                .iter()
+                .find(|protected| protected.matches(&resolved, reading.glob))
+                .map(|protected| protected.label)
+        })
+    }
 
-/// How a denial names a directory above the start, which may hold any of [`CONTAINERS`].
-const ABOVE: &str = "a directory above the working directory, which may hold .claude/";
+    /// The label of the protected path removing (or re-permissioning) `path` changes, if any:
+    /// a protected path, a directory holding one, or a directory above the start.
+    #[must_use]
+    pub fn contains_protected(&self, path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
+        self.protected(path, shape, cwd).or_else(|| {
+            readings(path, shape, cwd).find_map(|reading| {
+                let resolved = resolve(&reading.path, reading.anywhere);
+                let Some(last) = resolved.components.last() else {
+                    return resolved.escaped.then_some(self.above);
+                };
+                self.containers
+                    .iter()
+                    .find(|(name, _)| Name::Exact(name).matches(last, reading.glob))
+                    .map(|(_, label)| *label)
+            })
+        })
+    }
+}
 
 /// A path's components after `.` and `..` are resolved, and whether `..` climbed above where
 /// the path starts.
@@ -185,8 +205,9 @@ fn resolve(path: &str, escaped: bool) -> Resolved<'_> {
     resolved
 }
 
-/// The last component of `path` once resolved.
-pub(super) fn last_component(path: &str) -> Option<&str> {
+/// The last component of `path` once resolved (`.` dropped, `..` applied lexically).
+#[must_use]
+pub fn last_component(path: &str) -> Option<&str> {
     resolve(path, false).components.last().copied()
 }
 
@@ -242,34 +263,6 @@ impl Reading<'_> {
                 anywhere,
             }))
     }
-}
-
-/// The protected path writing `path` (seen from `cwd`) changes, if any.
-pub(super) fn protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
-    readings(path, shape, cwd).find_map(|reading| {
-        let resolved = resolve(&reading.path, reading.anywhere);
-        PROTECTED
-            .iter()
-            .find(|protected| protected.matches(&resolved, reading.glob))
-            .map(|protected| protected.label)
-    })
-}
-
-/// The protected path removing (or re-permissioning) `path` changes, if any: a protected path,
-/// a directory holding one, or a directory above the start.
-pub(super) fn contains_protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
-    protected(path, shape, cwd).or_else(|| {
-        readings(path, shape, cwd).find_map(|reading| {
-            let resolved = resolve(&reading.path, reading.anywhere);
-            let Some(last) = resolved.components.last() else {
-                return resolved.escaped.then_some(ABOVE);
-            };
-            CONTAINERS
-                .iter()
-                .find(|(name, _)| Name::Exact(name).matches(last, reading.glob))
-                .map(|(_, label)| *label)
-        })
-    })
 }
 
 /// The ways `path` may be read with its extended glob groups (`@(de)`, `!(x)`, `?(a|b)`)

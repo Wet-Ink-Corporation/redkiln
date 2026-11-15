@@ -1,30 +1,29 @@
 //! The seam between the engine and a rule pack.
 //!
-//! The engine ([`checker`](super::checker)) lexes a command, unwraps every simple command it
+//! The engine ([`check`](super::check)) lexes a command, unwraps every simple command it
 //! runs ([`wrappers`](super::wrappers)), reads the strings shells, `eval` and git's settings
 //! run, follows `cd` and the variables a command sets, and refuses what it cannot read or what
 //! passes its budgets. What a command may not do is a pack's: the engine calls a [`Pack`] at
 //! fixed points of its walk and stops at the first [`Denial`] it returns. Bench has two packs,
-//! the guard's entries (`GuardPack`) and the merge gate's probe (`MergeProbe`). Nothing here
-//! names a Bench type, so the engine and this seam can leave Bench whole.
+//! the guard's entries and the merge gate's probe; nothing here names a plugin's type.
 
 use super::cwd::Cwd;
 use super::wrappers::Program;
-use redkiln_guard::shell::{SimpleCommand, Word};
+use crate::shell::{SimpleCommand, Word};
 
 /// Why a command is denied: the pack's rule, and one line naming what was denied and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Denial<R> {
+pub struct Denial<R> {
     /// The rule that denied it: a pack's own, or the pack's [`Pack::UNREADABLE`] for a command
     /// the engine cannot read.
-    pub(crate) rule: R,
+    pub rule: R,
     /// One line naming what was denied and why.
-    pub(crate) reason: String,
+    pub reason: String,
 }
 
 impl<R> Denial<R> {
     /// The denial under `rule` for `reason`.
-    pub(crate) fn new(rule: R, reason: impl Into<String>) -> Self {
+    pub fn new(rule: R, reason: impl Into<String>) -> Self {
         Self {
             rule,
             reason: reason.into(),
@@ -35,28 +34,30 @@ impl<R> Denial<R> {
 /// One reading of a program's arguments as the engine resolved it: wrappers removed, brace
 /// groups expanded, the variables the command set put in.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Call<'a> {
+pub struct Call<'a> {
     /// The program: a name without a path or `.exe`, or a word known only at run time, against
     /// which a pack applies every entry it has.
-    pub(crate) program: Program<'a>,
+    pub program: Program<'a>,
     /// Its arguments.
-    pub(crate) args: &'a [Word],
+    pub args: &'a [Word],
     /// Whether operands are appended at run time (`xargs`, `find -exec`).
-    pub(crate) appended: bool,
+    pub appended: bool,
     /// How a wrapper of this command, or of one it nests in, changed the working directory
     /// first (`env --chdir`, `sudo --chdir`, `find -execdir`).
-    pub(crate) moved: Option<&'static str>,
+    pub moved: Option<&'static str>,
     /// Whether the call was found by reading an unknown program's arguments as a command, so
     /// that program may pass it other arguments (`parallel gh ::: pr`).
-    pub(crate) in_arguments: bool,
+    pub in_arguments: bool,
     /// Where relative paths start, as far as the `cd` commands seen so far say.
-    pub(crate) cwd: &'a Cwd,
+    pub cwd: &'a Cwd,
 }
 
-/// A rule pack: what the engine asks at each point of its walk. A hook that denies stops the
+/// A rule pack: what the engine asks at each point of its walk.
+///
+/// A hook that denies stops the
 /// check; one that returns nothing lets the walk go on. A pack never allows: what no hook
 /// denies is left undecided.
-pub(crate) trait Pack {
+pub trait Pack {
     /// The pack's rules.
     type Rule;
     /// What the pack saves of its own state per simple command and per reading, for

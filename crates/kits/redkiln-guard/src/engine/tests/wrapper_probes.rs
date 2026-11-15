@@ -2,10 +2,10 @@
 //! binaries (`probe.sh` replaces each word `W1`..`W9` with a recorder), against what the walk
 //! reads the same words to run.
 
-use crate::hook::guard::denylist::wrappers::{Program, Run, unwrap};
-use redkiln_guard::shell;
+use crate::engine::wrappers::{Program, Run, unwrap};
+use crate::shell;
 
-const PROBES: &str = include_str!("../../../../../tests/fixtures/wrappers/probes.txt");
+const PROBES: &str = include_str!("../../../tests/fixtures/wrappers/probes.txt");
 
 /// Each row the binaries ran: the word that ran, and the command.
 fn ran() -> Vec<(&'static str, &'static str)> {

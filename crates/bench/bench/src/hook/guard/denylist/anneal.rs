@@ -26,9 +26,8 @@
 //! the guard's documented limit (#128).
 
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::braces;
 use redkiln_guard::shell::Word;
-
-use super::braces;
 
 mod halves;
 

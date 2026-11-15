@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use super::wrappers::{is_assignment, is_option, skip_keywords};
-use redkiln_guard::shell::{Expansion, Globs, Shape, SimpleCommand, Word};
+use crate::shell::{Expansion, Globs, Shape, SimpleCommand, Word};
 
 /// The variables the command has set so far, in the order it runs.
 #[derive(Debug, Default)]

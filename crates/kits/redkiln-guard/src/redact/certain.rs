@@ -1,9 +1,9 @@
-//! Where the skeleton stops trusting the denylist's walk. The walk ([`denylist::layout`])
+//! Where the skeleton stops trusting the denylist's walk. The walk ([`wrappers::layout`])
 //! reads wrapper options as a union of implementations: an option it does not know is a flag,
 //! a value letter one implementation refuses still takes a value (`sudo -c x`), a value or
 //! operand is whatever word stands there, and chrt or taskset with `-p` runs the words after
 //! the priority. That is the denylist's reading, kept as the denylist reads it (see
-//! `denylist::wrappers`); where it differs from the wrapper's own, the word it places as the
+//! `engine::wrappers`); where it differs from the wrapper's own, the word it places as the
 //! program may be an option's value, or a word the wrapper never runs (`chrt -p 10 psql 4242`
 //! reads `psql` as the program). So a wrapper's words are trusted only when they read with
 //! certainty by the tables here ([`readings`]): each an exact flag (or, for a shell, a cluster
@@ -48,9 +48,9 @@ mod shape;
 
 use std::ops::Range;
 
-use super::denylist::{self, Role};
+use crate::engine::wrappers::{self, Role};
+use crate::shell::Word;
 use readings::{BodyWord, NONE, Reading, Runs, Style};
-use redkiln_guard::shell::Word;
 use shape::Shape;
 
 /// Where the words of the last wrapper the walk read end, by the layout it gave the command.
@@ -100,7 +100,7 @@ pub(super) fn first_uncertain(words: &[Word], roles: &[Role], end: End<'_>) -> O
         .collect();
     for (nth, &at) in wrappers.iter().enumerate() {
         let start = at.saturating_add(1);
-        let name = words.get(at).and_then(denylist::program_name);
+        let name = words.get(at).and_then(wrappers::program_name);
         // Where the run stops, how it must end, and the words after the body, which the
         // body's reading must also account for (none unless the run ends at a body word).
         let (stop, mode, after) = match (wrappers.get(nth.saturating_add(1)), end) {

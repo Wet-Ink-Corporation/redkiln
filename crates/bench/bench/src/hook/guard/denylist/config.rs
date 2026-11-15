@@ -2,21 +2,84 @@
 //! `ln`, `install`, `rm` and `chmod` aimed at a protected path, and hard links to one (`ln`
 //! without `-s`, `link`, `cp -l`), since writing the link writes the file.
 //!
-//! Paths are matched on their components ([`paths`]), so `docs/hooks.md` and `myhooks/x` are
-//! not `hooks/`. A component with an unquoted glob matches when it could match a protected name
+//! Paths are matched on their components by the guard kit ([`redkiln_guard::protect`]) against
+//! Bench's table ([`PROTECTED`]), so `docs/hooks.md` and `myhooks/x` are not `hooks/`. A
+//! component with an unquoted glob matches when it could match a protected name
 //! (`.cl*/settings.json`). `..` is resolved lexically; a relative path that climbs above where
 //! it starts may land under any parent, so `../settings.json` counts as `.claude/settings.json`.
 //! A relative path after a `cd` is also read from the directory the `cd` named, and from
 //! anywhere after a `cd` the guard cannot follow.
 
-mod paths;
-
-use paths::{CONTAINERS, contains_protected, last_component, protected};
-
-use super::cwd::Cwd;
-use super::wrappers::{Long, is_option, skip_one};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::Cwd;
+use redkiln_guard::engine::wrappers::{Long, is_option, skip_one};
+use redkiln_guard::protect::{Protected, ProtectedPaths, last_component};
 use redkiln_guard::shell::{Shape, Word};
+
+/// The protected paths.
+const PROTECTED: [Protected; 13] = [
+    Protected::exact("hooks/", None, "hooks"),
+    Protected::affix(
+        ".claude/settings*.json",
+        Some(".claude"),
+        ("settings", ".json"),
+        &["settings.json", "settings.local.json"],
+    ),
+    Protected::affix(
+        ".cargo/config*",
+        Some(".cargo"),
+        ("config", ""),
+        &["config", "config.toml"],
+    ),
+    Protected::exact(".github/workflows/", Some(".github"), "workflows"),
+    Protected::affix(
+        ".eslintrc*",
+        None,
+        (".eslintrc", ""),
+        &[
+            ".eslintrc",
+            ".eslintrc.json",
+            ".eslintrc.js",
+            ".eslintrc.cjs",
+            ".eslintrc.yml",
+        ],
+    ),
+    Protected::file("clippy.toml"),
+    Protected::file(".clippy.toml"),
+    Protected::file("rustfmt.toml"),
+    Protected::file(".rustfmt.toml"),
+    Protected::file("deny.toml"),
+    Protected::file(".pre-commit-config.yaml"),
+    Protected::file("lefthook.yml"),
+    // The gates' own settings: the orchestrate leads the brief hook trusts, the merge gate's
+    // review switch and sensitive globs, `check_fast`.
+    Protected::exact(".anneal/config.json", Some(".anneal"), "config.json"),
+];
+
+/// Directories that hold protected config: removing, moving or re-permissioning one changes it.
+const CONTAINERS: [(&str, &str); 4] = [
+    (".anneal", ".anneal/"),
+    (".claude", ".claude/"),
+    (".github", ".github/"),
+    (".cargo", ".cargo/"),
+];
+
+/// How a denial names a directory above the start, which may hold any of [`CONTAINERS`].
+const ABOVE: &str = "a directory above the working directory, which may hold .claude/";
+
+/// Bench's protected config, as the kit matches it.
+const CONFIG: ProtectedPaths<'static> = ProtectedPaths::new(&PROTECTED, &CONTAINERS, ABOVE);
+
+/// The protected path writing `path` (seen from `cwd`) changes, if any.
+fn protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
+    CONFIG.protected(path, shape, cwd)
+}
+
+/// The protected path removing (or re-permissioning) `path` changes, if any: a protected path,
+/// a directory holding one, or a directory above the start.
+fn contains_protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
+    CONFIG.contains_protected(path, shape, cwd)
+}
 
 fn deny(action: &str, label: &str) -> Denial {
     Denial::new(
@@ -84,7 +147,7 @@ impl<'a> SedArgs<'a> {
                 sed.in_place |= long.is("--in-place");
                 if long.is("--expression") || long.is("--file") {
                     sed.script_given = true;
-                    if long.value.is_none() {
+                    if long.value().is_none() {
                         rest = skip_one(rest);
                     }
                 }
@@ -175,13 +238,13 @@ impl<'a> CopyArgs<'a> {
             } else if let Some(long) = Long::parse(text) {
                 // `--target-directory DIR` and `--suffix SUFFIX`, abbreviated or not.
                 if long.is("--target-directory") {
-                    copy.target_dir = match long.value {
+                    copy.target_dir = match long.value() {
                         Some(dir) => Some((dir, first.shape)),
                         None => tail.first().map(|dir| (dir.text.as_str(), dir.shape)),
                     };
                 }
                 let valued = long.is("--target-directory") || long.is("--suffix");
-                if valued && long.value.is_none() {
+                if valued && long.value().is_none() {
                     rest = skip_one(rest);
                 }
                 copy.symbolic |= long.is("--symbolic") && !long.is("--suffix");

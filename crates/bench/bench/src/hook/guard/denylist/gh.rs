@@ -7,8 +7,8 @@
 //! `-d -b 5`), and the first short option in a cluster that takes a value takes the rest of
 //! the word, or the next word when it ends the cluster (`-R=o/x` drops the `=`).
 
-use super::braces::reads_as_written;
-use super::wrappers::may_be_option;
+use redkiln_guard::engine::braces::reads_as_written;
+use redkiln_guard::engine::wrappers::may_be_option;
 use redkiln_guard::shell::Word;
 
 /// Long options of `gh` and `gh pr merge` that take the next word as their value.

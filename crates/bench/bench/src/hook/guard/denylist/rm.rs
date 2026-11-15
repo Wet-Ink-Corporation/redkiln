@@ -9,10 +9,11 @@
 use std::fmt;
 use std::path::Path;
 
-use super::wrappers::{is_long, may_be_option};
-use super::{Context, normalize, readings};
+use super::{Context, normalize};
 use crate::harness::claude_code::PROJECT_DIR_VAR;
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::readings;
+use redkiln_guard::engine::wrappers::{is_long, may_be_option};
 use redkiln_guard::shell::{Shape, Word};
 
 /// What a denial tells the agent may be force-deleted instead; a `Display` rather than a

@@ -1,9 +1,6 @@
 //! The rule-pack seam: a pack of its own, with its own rules, driven through the engine.
 
-use crate::hook::guard::denylist::checker;
-use crate::hook::guard::denylist::cwd::Cwd;
-use crate::hook::guard::denylist::seam::{Call, Denial, Pack};
-use crate::hook::guard::denylist::wrappers::Program;
+use redkiln_guard::engine::{self, Call, Cwd, Denial, Pack, Program};
 use redkiln_guard::shell::{SimpleCommand, Word};
 
 /// The test pack's rules.
@@ -47,7 +44,7 @@ impl Pack for BoomPack {
 }
 
 fn rule_for(command: &str) -> Option<TestRule> {
-    checker::check(command, &mut BoomPack).map(|denial| denial.rule)
+    engine::check(command, &mut BoomPack).map(|denial| denial.rule)
 }
 
 #[test]

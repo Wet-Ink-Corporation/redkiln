@@ -150,17 +150,9 @@ fn cut_text(text: &str) -> String {
     cut_chars(text.trim(), MAX_STRING_CHARS)
 }
 
-/// `text` cut to `max` characters, at a char boundary, plus `…` when it was longer. Shared with
-/// the guard's redacted command, so both mark a cut the same way.
-pub(crate) fn cut_chars(text: &str, max: usize) -> String {
-    match text.char_indices().nth(max) {
-        Some((end, _)) => {
-            let kept = text.get(..end).unwrap_or(text);
-            format!("{kept}…")
-        }
-        None => text.to_owned(),
-    }
-}
+/// `text` cut to `max` characters, at a char boundary, plus `…` when it was longer: the guard
+/// kit's, shared with the guard's redacted command, so both mark a cut the same way.
+pub(crate) use redkiln_guard::redact::cut_chars;
 
 #[cfg(test)]
 mod tests {
@@ -168,6 +160,15 @@ mod tests {
 
     fn compact(raw: &str) -> Result<CompactState, StateError> {
         CompactState::parse(raw)
+    }
+
+    #[test]
+    fn the_guard_kit_cuts_a_redacted_command_at_the_state_s_string_cap() {
+        assert_eq!(
+            redkiln_guard::redact::MAX_COMMAND_CHARS,
+            MAX_STRING_CHARS,
+            "the compact state must not cut the guard's redacted command again"
+        );
     }
 
     #[test]

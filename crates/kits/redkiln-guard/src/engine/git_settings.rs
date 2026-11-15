@@ -1,13 +1,15 @@
-//! git's global `-c` and `--config-env` settings that run something: an alias defines a git
+//! git's global settings that run something.
+//!
+//! git's global `-c` and `--config-env` settings may run something: an alias defines a git
 //! command the guard cannot see, and keys such as `core.sshCommand` or `core.pager` run their
 //! value as a shell command. The engine reads the scripts for every pack; the guard's `git`
 //! entry refuses what it cannot follow.
 
-use crate::hook::guard::denylist::wrappers::{is_option, skip_one};
-use redkiln_guard::shell::Word;
+use crate::engine::wrappers::{is_option, skip_one};
+use crate::shell::Word;
 
 /// git's global options that take the next word as their value.
-pub(in crate::hook::guard::denylist) const GLOBAL_VALUES: &[&str] = &[
+pub const GLOBAL_VALUES: &[&str] = &[
     "-C",
     "-c",
     "--git-dir",
@@ -32,16 +34,17 @@ const COMMAND_KEYS: [&str; 9] = [
 
 /// What git's global settings do that the guard must see.
 #[derive(Debug, Default)]
-pub(in crate::hook::guard::denylist) struct Settings<'a> {
+pub struct Settings<'a> {
     /// A setting the guard cannot follow: an alias, a command whose value is in the
     /// environment, or a key known only at run time.
-    pub(in crate::hook::guard::denylist) unseen: Option<String>,
-    /// The values of settings git runs as shell commands.
-    pub(in crate::hook::guard::denylist) scripts: Vec<&'a str>,
+    pub unseen: Option<String>,
+    /// The values of settings git runs as shell commands, which the engine reads in turn.
+    pub(crate) scripts: Vec<&'a str>,
 }
 
 /// Reads the global settings of `git <args>`.
-pub(in crate::hook::guard::denylist) fn settings(args: &[Word]) -> Settings<'_> {
+#[must_use]
+pub fn settings(args: &[Word]) -> Settings<'_> {
     let mut settings = Settings::default();
     let mut rest = args;
     while let [first, tail @ ..] = rest {

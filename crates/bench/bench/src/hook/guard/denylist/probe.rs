@@ -7,13 +7,10 @@
 //! These notes are defence in depth: the gate's invariant rests on `--repo`, which gh reads
 //! before `GH_REPO`, `GH_HOST` and the working directory.
 
-use super::braces;
 use super::config;
-use super::cwd::Cwd;
 use super::gh::{self, PrMerge};
-use super::seam::{Call, Pack};
-use super::wrappers::{self, Program};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::{Call, Cwd, Pack, Program, braces, wrappers};
 use redkiln_guard::shell::{SimpleCommand, Stdin, Word};
 
 /// The variables that point gh at another repository or host; the probe notes a command that

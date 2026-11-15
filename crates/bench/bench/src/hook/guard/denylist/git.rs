@@ -1,9 +1,11 @@
 //! `git push` forcing a protected branch, `git add -f` (or `git stage -f`), and global
 //! settings that define an alias or run a command ([`settings`]).
 
-use super::git_settings::{GLOBAL_VALUES, settings};
-use super::wrappers::{Long, is_long, may_be_option, skip_one, skip_options, takes_value};
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::git_settings::{GLOBAL_VALUES, settings};
+use redkiln_guard::engine::wrappers::{
+    Long, is_long, may_be_option, skip_one, skip_options, takes_value,
+};
 use redkiln_guard::shell::{Shape, Word};
 
 /// `git push` options that take the next word as their value.

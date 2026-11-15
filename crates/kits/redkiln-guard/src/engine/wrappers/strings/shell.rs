@@ -34,10 +34,10 @@ use std::borrow::Cow;
 
 use self::options::{Phase, Read, value_ends};
 use super::script_file;
-use crate::hook::guard::denylist::braces::reads_as_written;
-use crate::hook::guard::denylist::readings::may_start_shell_options;
-use crate::hook::guard::denylist::wrappers::Run;
-use redkiln_guard::shell::Word;
+use crate::engine::braces::reads_as_written;
+use crate::engine::readings::may_start_shell_options;
+use crate::engine::wrappers::Run;
+use crate::shell::Word;
 
 /// What one reading of a shell's options has set so far: `c` (the first operand is the
 /// command string) and `s` (the script is standard input).

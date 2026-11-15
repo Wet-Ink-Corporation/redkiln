@@ -11,7 +11,7 @@
 //!   cases, not a secret scanner. The prompt hooks send prompts through it, and
 //!   `grill classify` a question and its goal.
 //!
-//! The guard's Bash command does not go through these rules: `hook::guard::redact` sends Clef
+//! The guard's Bash command does not go through these rules: `redkiln_guard::redact` sends Clef
 //! an allowlist skeleton of it, sharing only [`REDACTED`].
 
 mod prose;
@@ -21,8 +21,9 @@ mod tools;
 pub(crate) use self::prose::safe_prompt;
 use crate::decide::state::MAX_STRING_CHARS;
 
-/// What a redacted value is replaced with.
-pub(crate) const REDACTED: &str = "<redacted>";
+/// What a redacted value is replaced with: the guard kit's, so prose and the guard's command
+/// mark a redaction the same way.
+pub(crate) use redkiln_guard::redact::REDACTED;
 
 /// Most characters of prose sent to Clef; a longer text ends in `…`. The compact state's own
 /// cap, as for the guard's command, so the state does not cut it again.

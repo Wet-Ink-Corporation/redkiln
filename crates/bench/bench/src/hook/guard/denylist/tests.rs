@@ -10,13 +10,11 @@ mod forms;
 mod human_only;
 mod indirection;
 mod merge;
-mod seam;
 mod shell_option_readings;
 mod shell_options;
 mod shell_reader_merge;
 mod watch_exec;
 mod wrapper_options;
-mod wrapper_probes;
 
 use crate::harness::claude_code::PROJECT_DIR_VAR;
 use std::ffi::OsString;
