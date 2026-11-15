@@ -40,7 +40,10 @@ pub(crate) enum WaitError {
 /// one a grandchild still blocks is left to end on its own, holding only its pipe end and at
 /// most `cap` bytes, until that grandchild closes the pipe or exits, or this process exits.
 /// Only the child is killed, not its descendants: std cannot kill a process group without
-/// `unsafe`.
+/// `unsafe`. Nothing caps these threads across calls: a caller that loops, such as Bench's
+/// `watch` polling `gh` through [`crate::tracker::github::GhCli`] (16 MiB cap) for up to
+/// 1800 s, can leave one set per timed-out call, each bounded as above, until its
+/// grandchildren exit or the process does.
 pub(crate) fn wait_with_deadline(
     child: &mut Child,
     timeout: Duration,

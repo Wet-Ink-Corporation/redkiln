@@ -34,6 +34,7 @@ pub trait CheckCode {
     /// The exit code: [`exit_codes::DAG_DANGLING`] when any reference dangles (a cycle through
     /// a missing ticket cannot be judged, so dangling comes first), else
     /// [`exit_codes::DAG_CYCLE`] for a cycle, else [`exit_codes::OK`].
+    #[must_use]
     fn code(&self) -> Code;
 }
 
