@@ -129,7 +129,7 @@ Done on 2026-11-09: the rename to `redkiln-plugins`, the `release` environment (
 
 ## Done when
 
-- `rk-weigh-in` 2.0.0 is installable from the release repository and the Claude Code marketplace, and passes a sitting in Claude Code, Cowork and a desktop chat (the human surface check the anneal and temper release checklists already carry).
+- [x] `rk-weigh-in` 2.0.0 is installable from the release repository and the Claude Code marketplace, and passes a sitting in Claude Code, Cowork and a desktop chat (the human surface check the anneal and temper release checklists already carry). Released 2026-11-10; surface check passed in all three (Ryan, 2026-11-15, skill shown as `rk-weigh-in`).
 - [x] A 1.2.0 ledger and its committed journals import once, a second run adds nothing, and the sources are untouched (`crates/weigh-in/weighin/tests/it/legacy_import.rs`, over the 0.1.x, 0.2.2 and 1.2.0 fixtures).
-- `redkiln-core` passes the conformance fixtures; `cargo xtask layers` and `cargo xtask plugins` check the new crates and plugins.
+- [x] `redkiln-core` passes the conformance fixtures; `cargo xtask layers` and `cargo xtask plugins` check the new crates and plugins.
 - [x] weigh-in is archived with its redirect and its issues transferred; 1.x is marked retired in the release repository's marketplace in place of the 1.3.0 notice release (Ryan, 2026-11-14).
