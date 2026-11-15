@@ -119,10 +119,24 @@ fn nesting_past_max_depth_is_the_packs_unreadable_rule() {
 #[test]
 fn input_past_max_lexed_mib_is_the_packs_unreadable_rule() {
     let budget = MAX_LEXED_MIB * 1024 * 1024;
+    let within = format!("echo {}", "a".repeat(budget - "echo ".len()));
     let past = format!("echo {}", "a".repeat(budget));
     assert_eq!(
-        rule_for(&past),
-        Some(Rule::Unreadable),
-        "a command past the lexing budget"
+        within.len(),
+        budget,
+        "the within case is exactly the budget"
+    );
+    assert_eq!(
+        rule_for(&within),
+        None,
+        "a command of exactly the budget is read"
+    );
+    let denial = engine::check(&past, &mut TwoEntries);
+    assert!(
+        denial
+            .as_ref()
+            .is_some_and(|denial| denial.rule == Rule::Unreadable
+                && denial.reason.contains(&format!("{MAX_LEXED_MIB} MiB"))),
+        "a command past the lexing budget is refused for its size: {denial:?}"
     );
 }

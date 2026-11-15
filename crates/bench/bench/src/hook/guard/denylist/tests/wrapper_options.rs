@@ -1,7 +1,6 @@
 //! Issue #121: wrapper options read as each wrapper's getopt reads them. The forms the
-//! installed binaries take are in the guard kit's `engine::tests::wrapper_probes`; doas and the
-//! BSD `env` and `xargs`
-//! letters here are from their sources.
+//! installed binaries take are in the guard kit's `engine::tests::wrapper_probes`; doas and
+//! the BSD `env` and `xargs` letters here are from their sources.
 
 use super::{ALLOW, RM_RF, UNREADABLE, assert_table};
 

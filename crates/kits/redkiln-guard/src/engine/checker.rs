@@ -29,7 +29,8 @@ const MAX_ARGUMENT_COMMANDS: usize = 32;
 ///
 /// The answer is the first denial, the pack's or the engine's own (under
 /// [`Pack::UNREADABLE`]: a text the lexer cannot read, nesting past [`MAX_DEPTH`], more than
-/// [`MAX_LEXED_MIB`] lexed, a brace expansion past its cap), or `None` when nothing denies it. The engine never allows: `None` is undecided.
+/// [`MAX_LEXED_MIB`] lexed, a brace expansion past its cap), or `None` when nothing denies it.
+/// The engine never allows: `None` is undecided.
 pub fn check<P: Pack>(command: &str, pack: &mut P) -> Option<Denial<P::Rule>> {
     let top_level = Scope {
         feed: &Feed::Empty,
