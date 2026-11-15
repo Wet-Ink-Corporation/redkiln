@@ -30,15 +30,27 @@ fn private_dir() -> std::io::Result<tempfile::TempDir> {
 }
 
 /// `skillcheck eval uplift --skills <fixture skills> --suites <suites>` plus `args`, with its own
-/// `TMPDIR` and anneal home so a run never touches the real `~/.anneal`.
+/// `TMPDIR` and anneal home so a run never touches the real `~/.anneal`. A run that is not
+/// `--check` and names no `--bench-binary` gets a stand-in one, so it never depends on a `bench`
+/// built beside the binary.
 fn eval_uplift(suites: &Path, args: &[&str]) -> std::io::Result<Output> {
     let private = private_dir()?;
-    Command::new(env!("CARGO_BIN_EXE_skillcheck"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_skillcheck"));
+    command
         .args(["eval", "uplift", "--skills"])
         .arg(plugin_skills())
         .arg("--suites")
         .arg(suites)
-        .args(args)
+        .args(args);
+    if !args
+        .iter()
+        .any(|arg| *arg == "--check" || *arg == "--bench-binary")
+    {
+        let bench = private.path().join("bench");
+        std::fs::write(&bench, "a stand-in bench")?;
+        command.arg("--bench-binary").arg(bench);
+    }
+    command
         .env("TMPDIR", private.path())
         .env("ANNEAL_HOME", private.path())
         .output()
