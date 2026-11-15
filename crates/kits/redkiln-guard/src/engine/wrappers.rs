@@ -1,7 +1,8 @@
 //! Unwrapping a simple command down to the program that really runs.
 //!
 //! The command strings wrappers run (`bash -c`, `su -c`, `trap`, `watch`, ...) and `find`'s
-//! actions are read in [`strings`].
+//! actions are read in `strings`. Packs use the option helpers here ([`Long`], [`is_option`],
+//! [`skip_options`] and the rest) to read a program's arguments as the walk reads a wrapper's.
 
 mod grammar;
 mod slots;
@@ -13,7 +14,7 @@ use std::ops::Range;
 use std::ptr;
 
 use super::{braces, readings};
-use redkiln_guard::shell::{Shape, Word};
+use crate::shell::{Shape, Word};
 
 /// Words that may start a simple command before its program.
 const KEYWORDS: [&str; 9] = [
@@ -43,7 +44,7 @@ const TIME_VALUES: &[&str] = &["-f", "-o", "--format", "--output"];
 
 /// The program of a simple command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Program<'a> {
+pub enum Program<'a> {
     /// Its name, without a path or `.exe`.
     Named(&'a str),
     /// A word that is not a literal name (`$(echo rm)`, `"$GIT"`, a glob or a brace).
@@ -109,9 +110,9 @@ impl<'a> Run<'a> {
 }
 
 /// Where [`unwrap`] finds what a simple command runs, by word position: the view the guard's
-/// redaction (`guard::redact`) renders, so it reads wrappers exactly as the denylist does.
+/// redaction ([`crate::redact`]) renders, so it reads wrappers exactly as the denylist does.
 #[derive(Debug, PartialEq, Eq)]
-pub(in crate::hook::guard) enum Layout<'a> {
+pub(crate) enum Layout<'a> {
     /// The program is the word at this index: the words before it are keywords, assignments
     /// and wrappers with their options and values, the words after it its arguments.
     Program(usize),
@@ -127,16 +128,16 @@ pub(in crate::hook::guard) enum Layout<'a> {
 
 /// Where `find` and its actions are in a simple command, by word position.
 #[derive(Debug, PartialEq, Eq)]
-pub(in crate::hook::guard) struct FindActions {
+pub(crate) struct FindActions {
     /// The index of the word naming `find`, the last wrapper the walk reads.
-    pub(in crate::hook::guard) find: usize,
+    pub(crate) find: usize,
     /// The words of each action, by index range, in order.
-    pub(in crate::hook::guard) actions: Vec<Range<usize>>,
+    pub(crate) actions: Vec<Range<usize>>,
 }
 
 /// How the words of one simple command are laid out once wrappers are read ([`unwrap`]), and
 /// the role the walk gives each word, by index ([`roles`]).
-pub(in crate::hook::guard) fn layout(words: &[Word]) -> (Layout<'_>, Vec<Role>) {
+pub(crate) fn layout(words: &[Word]) -> (Layout<'_>, Vec<Role>) {
     let roles = roles(words);
     let layout = match unwrap(words) {
         // `unwrap` only ever drops words from the front, so the arguments end `words`.
@@ -173,7 +174,7 @@ pub(in crate::hook::guard) fn layout(words: &[Word]) -> (Layout<'_>, Vec<Role>) 
 
 /// The part a word of a simple command plays as [`unwrap`] reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::hook::guard) enum Role {
+pub(crate) enum Role {
     /// A keyword before the program (`if`, `{`, `!`).
     Keyword,
     /// `NAME=value` before the program, or after a wrapper that runs a command
@@ -233,7 +234,7 @@ fn range_in(words: &[Word], part: &[Word]) -> Option<Range<usize>> {
 
 /// The program a literal `word` names, without a path or `.exe`; `None` for a word that is
 /// not literal.
-pub(in crate::hook::guard) fn program_name(word: &Word) -> Option<&str> {
+pub(crate) fn program_name(word: &Word) -> Option<&str> {
     word.is_literal().then(|| name_of(&word.text))
 }
 
@@ -320,11 +321,13 @@ pub(super) fn chdir(words: &[Word]) -> Option<&'static str> {
     walk(words, strings::chdir)
 }
 
-/// Whether `words` define a function, an alias or a path for a command name:
-/// `function NAME ...`, `alias ...` or `hash -p PATH NAME`, under any wrapper [`unwrap`]
-/// removes (`builtin alias`, `command hash -p`), or a word that exports a function to a
+/// Whether `words` define a function, an alias or a path for a command name.
+///
+/// That is `function NAME ...`, `alias ...` or `hash -p PATH NAME`, under any wrapper the
+/// walk removes (`builtin alias`, `command hash -p`), or a word that exports a function to a
 /// child bash (`BASH_FUNC_NAME%%=...`).
-pub(super) fn defines(words: &[Word]) -> bool {
+#[must_use]
+pub fn defines(words: &[Word]) -> bool {
     if words.iter().any(|word| word.text.contains("BASH_FUNC_")) {
         return true;
     }
@@ -505,29 +508,32 @@ pub(super) fn is_assignment(word: &Word) -> bool {
 
 /// Whether `word` is an option: read as written ([`braces::reads_as_written`]: literal, or
 /// `-u` from `{sudo,-u,root,..}`), starting with `-`, and not `-` alone.
-pub(super) fn is_option(word: &Word) -> bool {
+#[must_use]
+pub fn is_option(word: &Word) -> bool {
     braces::reads_as_written(word) && may_be_option(word)
 }
 
 /// Whether `word` may be an option once expanded: it starts with `-` (not `-` alone) and
 /// holds no variable. A brace-expanded `-f` (a pattern) counts.
-pub(super) fn may_be_option(word: &Word) -> bool {
+#[must_use]
+pub fn may_be_option(word: &Word) -> bool {
     word.shape != Shape::Dynamic && word.text.starts_with('-') && word.text != "-"
 }
 
 /// A long option as written, `--name` or `--name=value`. `getopt_long` and git accept a long
 /// option's name abbreviated to any unique prefix (`--forc` is `--force`).
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Long<'a> {
+pub struct Long<'a> {
     /// The name as written, `--` included.
     name: &'a str,
     /// The value after `=`, if any.
-    pub(super) value: Option<&'a str>,
+    value: Option<&'a str>,
 }
 
 impl<'a> Long<'a> {
     /// `text` as a long option: `--` and at least one more character before any `=`.
-    pub(super) fn parse(text: &'a str) -> Option<Self> {
+    #[must_use]
+    pub fn parse(text: &'a str) -> Option<Self> {
         let (name, value) = match text.split_once('=') {
             Some((name, value)) => (name, Some(value)),
             None => (text, None),
@@ -535,23 +541,32 @@ impl<'a> Long<'a> {
         (name.len() > 2 && name.starts_with("--")).then_some(Self { name, value })
     }
 
+    /// The value after `=`, if any.
+    #[must_use]
+    pub const fn value(self) -> Option<&'a str> {
+        self.value
+    }
+
     /// Whether this may be the option `full` (`--force`), written out or abbreviated. A
     /// prefix several options share counts as each of them: the guard reads it as the one it
     /// denies, and the program refuses it anyway.
-    pub(super) fn is(self, full: &str) -> bool {
+    #[must_use]
+    pub fn is(self, full: &str) -> bool {
         full.starts_with(self.name)
     }
 }
 
 /// Whether `text` is the long option `full`, written out or abbreviated, with or without a
 /// `=value`.
-pub(super) fn is_long(text: &str, full: &str) -> bool {
+#[must_use]
+pub fn is_long(text: &str, full: &str) -> bool {
     Long::parse(text).is_some_and(|long| long.is(full))
 }
 
 /// Whether the option `text` takes the next word as its value: it is one of `with_value`
 /// (a long one possibly abbreviated) with no `=value` of its own.
-pub(super) fn takes_value(text: &str, with_value: &[&str]) -> bool {
+#[must_use]
+pub fn takes_value(text: &str, with_value: &[&str]) -> bool {
     match Long::parse(text) {
         Some(long) => long.value.is_none() && with_value.iter().any(|option| long.is(option)),
         None => with_value.contains(&text),
@@ -560,7 +575,8 @@ pub(super) fn takes_value(text: &str, with_value: &[&str]) -> bool {
 
 /// Skips options up to the first operand, and a `--` that ends them. Options in `with_value`
 /// take the next word as their value.
-pub(super) fn skip_options<'a>(words: &'a [Word], with_value: &[&str]) -> &'a [Word] {
+#[must_use]
+pub fn skip_options<'a>(words: &'a [Word], with_value: &[&str]) -> &'a [Word] {
     let mut rest = words;
     while let [first, tail @ ..] = rest {
         if first.text == "--" {
@@ -579,7 +595,8 @@ pub(super) fn skip_options<'a>(words: &'a [Word], with_value: &[&str]) -> &'a [W
 }
 
 /// `words` without its first word.
-pub(super) fn skip_one(words: &[Word]) -> &[Word] {
+#[must_use]
+pub fn skip_one(words: &[Word]) -> &[Word] {
     words.split_first().map_or(words, |(_, rest)| rest)
 }
 

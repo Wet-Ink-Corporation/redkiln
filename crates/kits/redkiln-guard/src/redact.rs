@@ -1,8 +1,10 @@
-//! The Bash command as Clef D1 and the decision log see it: a skeleton of programs, flags and
-//! separators, where every argument value is [`REDACTED`] unless an allowlist ([`allow`])
-//! names it. It is built from the guard's own lexer ([`shell::parse`]) and the denylist's
-//! wrapper table ([`denylist::layout`]), the view the denylist judges, so redaction never reads
-//! bash differently from the guard: no argument text reaches Clef unless a fixed table names it.
+//! A Bash command as a model or a log may see it: an allowlist skeleton.
+//!
+//! The skeleton keeps programs, flags and separators, and every argument value is
+//! [`REDACTED`] unless an allowlist (`allow`) names it. It is built from the guard's own lexer
+//! ([`shell::parse`]) and the denylist's wrapper table (`engine::wrappers::layout`), the view
+//! the denylist judges, so redaction never reads bash differently from the guard: no argument
+//! text reaches the model unless a fixed table names it.
 //!
 //! Each simple command the lexer lists (those of `$( )`, backticks, subshells and process
 //! substitutions come out as their own, before the command holding them) is rendered in order:
@@ -12,7 +14,7 @@
 //!   (an assignment still shows its name): their operands only look like programs and
 //!   arguments. A `$( )` or backtick inside one is a command and rendered as one.
 //! - **Words before the program**, each by the role the denylist's walk gives it
-//!   ([`denylist::layout`]), never by its text alone: keywords (`if`, `{`, `!`) as written;
+//!   (`wrappers::layout`), never by its text alone: keywords (`if`, `{`, `!`) as written;
 //!   assignments as `NAME=<redacted>` (a name over 64 characters is hidden too); the words
 //!   standing in the place of a program that the walk reads as wrappers (`sudo`, `env`,
 //!   `nohup`, `timeout`, `nice`, `exec`, `command`, `xargs`, a shell, `source`, `find`, ...) by
@@ -22,7 +24,7 @@
 //!   `find /a/env`) is hidden like any other.
 //! - **Uncertain wrappers**: the walk is the denylist's, unchanged by redaction, and reads
 //!   some wrapper options more loosely than the wrapper does, so a wrapper's words are trusted
-//!   only when they read with certainty by [`certain`]'s tables (exact flags, a shell's
+//!   only when they read with certainty by `certain`'s tables (exact flags, a shell's
 //!   cluster of flags ending in `c`, exact value options and their values, `--`, fixed
 //!   operands, each value and operand of its slot's shape; `find`'s words before its
 //!   actions). From the first word that does not (a cluster such as `-iu`, an option the
@@ -39,9 +41,9 @@
 //!   `function NAME` and `coproc`, which may not run), every word of the simple command is an
 //!   argument of no known program: `sudo -iu postgres psql` is
 //!   `sudo -<redacted> <redacted> <redacted>`.
-//! - **The program word**: its name without a path or `.exe` ([`denylist::program_name`]:
+//! - **The program word**: its name without a path or `.exe` (`wrappers::program_name`:
 //!   `/usr/bin/rm` is `rm`), kept when the word is literal and the name 1 to 64 of
-//!   `[A-Za-z0-9._+-]` ([`allow::is_program`]); otherwise hidden. Wrappers are shown the same
+//!   `[A-Za-z0-9._+-]` (`allow::is_program`); otherwise hidden. Wrappers are shown the same
 //!   way.
 //! - **Options**: `--` and `-` kept; a long option's name kept when it is 1 to 64 of
 //!   `[A-Za-z0-9._-]`, its `=value` hidden (`--token=<redacted>`); a short option kept when it
@@ -57,7 +59,7 @@
 //!   shown as `>`), `< <redacted>` for a file read, `<<< <redacted>` for a heredoc or
 //!   here-string; the target hidden unless it is a sensitive target. Comments are dropped.
 //! - **Bodies**: a `bash -c`, `eval`, `su -c`, `script -c`, `flock -c` or `watch` (without
-//!   `-x`) body (the denylist's [`denylist::Layout::Script`]) that is literal is lexed and
+//!   `-x`) body (the denylist's `Layout::Script`) that is literal is lexed and
 //!   rendered in turn, in `'…'`, at most [`MAX_NESTING`] deep and within the denylist's lexing
 //!   budget; any other body, `trap`'s action and `alias`'s value among them, is hidden.
 //!   `find`'s actions are rendered as commands, and its own words by its tables wherever the
@@ -76,34 +78,50 @@ use std::ptr;
 
 use certain::End;
 
-use super::denylist::{self, FindActions, Layout, Role};
-use crate::decide::redact::REDACTED;
-use crate::decide::state::cut_chars;
-use redkiln_guard::shell::{self, MAX_NESTING, ParseError, Shape, Stdin, Word};
+use crate::engine::MAX_LEXED_MIB;
+use crate::engine::wrappers::{self, FindActions, Layout, Role};
+use crate::shell::{self, MAX_NESTING, ParseError, Shape, Stdin, Word};
 
-/// Most characters of the command kept, after redaction; a longer one ends in `…`. The same as
-/// `decide::state::MAX_STRING_CHARS`, so the compact state does not cut it again.
-pub(crate) const MAX_COMMAND_CHARS: usize = crate::decide::state::MAX_STRING_CHARS;
+/// What a redacted value is replaced with.
+pub const REDACTED: &str = "<redacted>";
+
+/// Most characters of the command kept, after redaction; a longer one ends in `…`. Bench keeps
+/// it equal to its compact state's string cap, so the state does not cut it again.
+pub const MAX_COMMAND_CHARS: usize = 1024;
 
 /// What a command the guard's lexer cannot read becomes, whole.
-pub(crate) const UNPARSED: &str = "<unparsed>";
+pub const UNPARSED: &str = "<unparsed>";
 
 /// Most bytes rendered for one text before the rest is dropped (H-13): enough for the cut of
 /// [`MAX_COMMAND_CHARS`] characters, each at most 4 bytes.
 const MAX_RENDERED_BYTES: usize = MAX_COMMAND_CHARS * 4 + 64;
 
 /// Most bytes lexed for one command, nested bodies included: the denylist's budget.
-const MAX_LEXED_BYTES: usize = denylist::MAX_LEXED_MIB * 1024 * 1024;
+const MAX_LEXED_BYTES: usize = MAX_LEXED_MIB * 1024 * 1024;
 
 /// `command` as its skeleton, trimmed and cut to [`MAX_COMMAND_CHARS`]; [`UNPARSED`] when the
 /// guard's lexer cannot read it.
-pub(crate) fn redact(command: &str) -> String {
+#[must_use]
+pub fn redact(command: &str) -> String {
     let mut skeleton = Skeleton {
         lexed: command.len(),
         depth: 0,
     };
     let rendered = or_unparsed(skeleton.render(command));
     cut_chars(rendered.trim(), MAX_COMMAND_CHARS)
+}
+
+/// `text` cut to `max` characters, at a char boundary, plus `…` when it was longer, so every
+/// cut text is marked the same way.
+#[must_use]
+pub fn cut_chars(text: &str, max: usize) -> String {
+    match text.char_indices().nth(max) {
+        Some((end, _)) => {
+            let kept = text.get(..end).unwrap_or(text);
+            format!("{kept}…")
+        }
+        None => text.to_owned(),
+    }
 }
 
 /// The skeleton rendered, or [`UNPARSED`] for a text the lexer refused, whatever the reason.
@@ -220,7 +238,7 @@ impl Skeleton {
     /// word whose place the layout does not give with certainty ([`certain`]); from there
     /// every word is an argument.
     fn words(&mut self, words: &[Word], line: &mut Line) {
-        let (layout, roles) = denylist::layout(words);
+        let (layout, roles) = wrappers::layout(words);
         let all = Lead {
             words,
             roles: &roles,
@@ -294,7 +312,7 @@ impl Skeleton {
 }
 
 /// Words outside a program's arguments, and the role the denylist's walk gives each (as
-/// `denylist::layout` returns them), index for index.
+/// `wrappers::layout` returns them), index for index.
 #[derive(Debug, Clone, Copy)]
 struct Lead<'w> {
     words: &'w [Word],
@@ -476,10 +494,10 @@ impl Options {
 }
 
 /// The name a program or wrapper word runs, without a path or `.exe`
-/// ([`denylist::program_name`]), for the tables: `None` when the word is not literal or is
+/// ([`wrappers::program_name`]), for the tables: `None` when the word is not literal or is
 /// part of an arithmetic expression (`$[ ]`).
 fn named(word: &Word) -> Option<&str> {
-    denylist::program_name(word).filter(|_| !word.arithmetic)
+    wrappers::program_name(word).filter(|_| !word.arithmetic)
 }
 
 /// A program or wrapper word: its [`named`] name, when of [`allow::is_program`]'s shape.

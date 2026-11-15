@@ -24,7 +24,8 @@ clap = { workspace = true }
 # The suite store, its location, envelopes, ids and journal lines (Move 2 step 3): bench never
 # opens SQLite itself.
 redkiln-core = { workspace = true }
-# The guard kit: the shell lexer the guard reads Bash with, and the repository path globs.
+# The guard kit: the shell lexer, the denylist engine Bench's rule packs plug into,
+# protected-path matching, redaction and the repository path globs.
 redkiln-guard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

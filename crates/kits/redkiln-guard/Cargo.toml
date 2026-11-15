@@ -1,6 +1,6 @@
 [package]
 name = "redkiln-guard"
-description = "The Redkiln guard kit: a hand-written shell lexer that lists every simple command a Bash call runs, and repository path globs."
+description = "The Redkiln guard kit: a hand-written shell lexer, the denylist engine and its rule-pack seam, protected-path matching, redaction and repository path globs."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -63,7 +63,7 @@ impl Halves {
 /// Whether `word` is a literal `--actor`, or assigns one (`a[2]=--actor`); `assigned` is
 /// [`assigned`] of `word`.
 fn is_actor_flag(word: &Word, assigned: Option<&Assigned<'_>>) -> bool {
-    (braces::reads_as_written(word) && word.text == ACTOR)
+    (braces::reads_as_written(word) && word.text() == ACTOR)
         || assigned.is_some_and(|value| value.whole && value.written == ACTOR)
 }
 
@@ -103,7 +103,7 @@ impl Assigned<'_> {
 /// The value `word` assigns, when it is shaped as an assignment: a name (a letter or `_`, then
 /// letters, digits and `_`), an optional `[subscript]`, then `=` or `+=`.
 fn assigned(word: &Word) -> Option<Assigned<'_>> {
-    let text = word.text.as_str();
+    let text = word.text();
     let name_end = text
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .filter(|&at| at > 0 && !text.starts_with(|c: char| c.is_ascii_digit()))?;
@@ -115,7 +115,7 @@ fn assigned(word: &Word) -> Option<Assigned<'_>> {
     let value = rest.strip_prefix("+=").or_else(|| rest.strip_prefix('='))?;
     let from = text.len().saturating_sub(value.len());
     let end = word
-        .expansions
+        .expansions()
         .iter()
         .map(|expansion| expansion.range.start)
         .filter(|&start| start >= from)

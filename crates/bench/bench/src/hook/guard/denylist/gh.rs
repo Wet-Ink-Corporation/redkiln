@@ -7,8 +7,8 @@
 //! `-d -b 5`), and the first short option in a cluster that takes a value takes the rest of
 //! the word, or the next word when it ends the cluster (`-R=o/x` drops the `=`).
 
-use super::braces::reads_as_written;
-use super::wrappers::may_be_option;
+use redkiln_guard::engine::braces::reads_as_written;
+use redkiln_guard::engine::wrappers::may_be_option;
 use redkiln_guard::shell::Word;
 
 /// Long options of `gh` and `gh pr merge` that take the next word as their value.
@@ -117,14 +117,14 @@ pub(super) fn calls_api(args: &[Word]) -> bool {
     parse(args)
         .operands
         .first()
-        .is_some_and(|word| reads_as_written(word) && word.text == "api")
+        .is_some_and(|word| reads_as_written(word) && word.text() == "api")
 }
 
 /// The target of `operands` when they run `pr merge`: they begin with `pr merge`, or with words
 /// known only at run time that may be or hide it.
 fn target(operands: &[&Word]) -> Option<(Target, Option<String>)> {
-    let is = |word: &Word, text: &str| reads_as_written(word) && word.text == text;
-    let may_be = |word: &Word, text: &str| !reads_as_written(word) || word.text == text;
+    let is = |word: &Word, text: &str| reads_as_written(word) && word.text() == text;
+    let may_be = |word: &Word, text: &str| !reads_as_written(word) || word.text() == text;
     match operands {
         [group, command, rest @ ..] if is(group, "pr") && is(command, "merge") => Some(
             rest.first()
@@ -152,7 +152,7 @@ fn parse(words: &[Word]) -> Parsed<'_> {
     let mut rest = words;
     while let [first, tail @ ..] = rest {
         rest = tail;
-        if first.text == "--" {
+        if first.text() == "--" {
             parsed.operands.extend(tail);
             break;
         }
@@ -160,7 +160,7 @@ fn parse(words: &[Word]) -> Parsed<'_> {
             parsed.operands.push(first);
             continue;
         }
-        let (name, taken) = read_option(&first.text);
+        let (name, taken) = read_option(first.text());
         let value = match taken {
             Taken::Flag => None,
             Taken::Attached(value) => Some(value),
@@ -169,7 +169,7 @@ fn parse(words: &[Word]) -> Parsed<'_> {
                     break;
                 };
                 rest = after;
-                Some(value.text.as_str())
+                Some(value.text())
             }
         };
         match (name, value) {
@@ -216,7 +216,7 @@ fn target_of(operand: &Word) -> (Target, Option<String>) {
     if !reads_as_written(operand) {
         return (Target::Unnumbered, None);
     }
-    read_target(&operand.text)
+    read_target(operand.text())
 }
 
 /// The pull request the literal operand `text` names (`42`, `#42` or a pull request URL), and

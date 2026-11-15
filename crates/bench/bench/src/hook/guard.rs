@@ -1,18 +1,17 @@
 //! `bench hook guard`: the `PreToolUse` guard on Bash. It fails closed.
 //!
-//! It reads Claude Code's `PreToolUse` input on stdin, lexes the Bash command with the guard
-//! kit's lexer (`redkiln_guard::shell`) and checks it against the deterministic denylist
-//! (`denylist`). A denied command gets Claude Code's deny decision on stdout, whose reason is
-//! one `ERROR <reason>` line, and a `gate_blocked` event in the ledger. An allowed one gets no output. Whatever the guard cannot
-//! read (input that is not `PreToolUse` JSON, over 1 MiB, a command with an unclosed quote) is
-//! denied; a failed write of the decision exits 2 (`cli` fails it closed). A Bash command the
-//! denylist leaves undecided gets `Fallback`'s answer unless Clef D1 (`clef`, #30), enforced,
-//! denies or asks; its command is redacted (`redact`) before Clef or the log see it. See
-//! `docs/guard.md`.
+//! It reads Claude Code's `PreToolUse` input on stdin and checks the Bash command against the
+//! deterministic denylist (`denylist`: the guard kit's engine, `redkiln_guard::engine`, with
+//! Bench's rule pack). A denied command gets Claude Code's deny decision on stdout, whose
+//! reason is one `ERROR <reason>` line, and a `gate_blocked` event in the ledger. An allowed
+//! one gets no output. Whatever the guard cannot read (input that is not `PreToolUse` JSON,
+//! over 1 MiB, a command with an unclosed quote) is denied; a failed write of the decision
+//! exits 2 (`cli` fails it closed). A Bash command the denylist leaves undecided gets
+//! `Fallback`'s answer unless Clef D1 (`clef`, #30), enforced, denies or asks; its command is
+//! redacted (`redkiln_guard::redact`) before Clef or the log see it. See `docs/guard.md`.
 
 mod clef;
 mod denylist;
-pub(crate) mod redact;
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -108,7 +107,7 @@ impl Rule {
 
 /// Why a command is denied: the [`Rule`] that denied it and one line naming what and why. The
 /// denylist's engine returns this type for the guard's packs, whose rules are [`Rule`]s.
-pub(crate) type Denial = denylist::PackDenial<Rule>;
+pub(crate) type Denial = redkiln_guard::engine::Denial<Rule>;
 
 /// The guard's answer to a tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,11 +2,11 @@
 //! `popd`, and hands packs the result.
 
 use super::wrappers::skip_options;
-use redkiln_guard::shell::{Shape, Word};
+use crate::shell::{Shape, Word};
 
 /// Where relative paths start, as far as the `cd` commands seen so far say.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Cwd {
+pub enum Cwd {
     /// No `cd` yet: the hook's working directory.
     Start,
     /// A directory a `cd` named (relative to the start, or absolute), and its shape.

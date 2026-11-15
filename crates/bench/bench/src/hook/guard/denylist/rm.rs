@@ -9,10 +9,11 @@
 use std::fmt;
 use std::path::Path;
 
-use super::wrappers::{is_long, may_be_option};
-use super::{Context, normalize, readings};
+use super::{Context, normalize};
 use crate::harness::claude_code::PROJECT_DIR_VAR;
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::engine::readings;
+use redkiln_guard::engine::wrappers::{is_long, may_be_option};
 use redkiln_guard::shell::{Shape, Word};
 
 /// What a denial tells the agent may be force-deleted instead; a `Display` rather than a
@@ -37,7 +38,7 @@ pub(super) fn check(args: &[Word], context: &Context, appended: bool) -> Option<
     // How many operands came before `--`: after it none is an option, so none hides the flags.
     let mut before_dashes = None;
     for word in args {
-        let text = word.text.as_str();
+        let text = word.text();
         if !(options && may_be_option(word)) {
             targets.push(word);
             continue;
@@ -77,23 +78,25 @@ pub(super) fn check(args: &[Word], context: &Context, appended: bool) -> Option<
         match flags {
             Some(flags) => deny(format!(
                 "rm {} {}: {} may be -rf, and {why}; {Allowed}",
-                flags.text, target.text, flags.text
+                flags.text(),
+                target.text(),
+                flags.text()
             )),
-            None => deny(format!("rm -rf {}: {why}; {Allowed}", target.text)),
+            None => deny(format!("rm -rf {}: {why}; {Allowed}", target.text())),
         }
     })
 }
 
 /// Why `target` may not be force-deleted, or `None` when it may.
 fn unsafe_target(target: &Word, context: &Context) -> Option<&'static str> {
-    match target.shape {
+    match target.shape() {
         Shape::Dynamic => {
             return Some("it holds a variable or substitution known only at run time");
         }
         Shape::Pattern => return Some("it holds a glob, a brace or ~"),
         Shape::Literal => {}
     }
-    let path = Path::new(&target.text);
+    let path = Path::new(target.text());
     if !path.has_root() {
         return Some("it is not an absolute path");
     }

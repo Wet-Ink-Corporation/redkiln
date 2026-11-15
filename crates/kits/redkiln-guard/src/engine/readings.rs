@@ -1,11 +1,13 @@
-//! The readings of a word the denylist judges: the word as written and, when it holds an
-//! expansion, the word with its expansions empty (`"$b"{-rf,/}` is `{-rf,/}`, `"$d".clau*` is
+//! The readings of a word the denylist judges.
+//!
+//! They are the word as written and, when it holds an expansion, the word with its expansions
+//! empty (`"$b"{-rf,/}` is `{-rf,/}`, `"$d".clau*` is
 //! `.clau*` and `"$d".claude/settings.json` is `.claude/settings.json` when the variable is
 //! empty; #115, #125). A word is denied when either reading is, so it is judged at least as
 //! strictly as the value it has with every expansion empty.
 //!
 //! Every place that judges a word reads it through here: a command's arguments
-//! ([`arguments`]) and a redirection's target ([`of`]). Whether a word's values may be an option
+//! (`arguments`) and a redirection's target (`of`). Whether a word's values may be an option
 //! cluster, whatever its variables hold and its globs match, is [`may_start_option_cluster`]; it
 //! judges each word as one word, so word splitting of an unquoted expansion and `"$@"` (which
 //! may make a separate `-rf` word) is a documented limit (#128).
@@ -13,7 +15,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use redkiln_guard::shell::{EXTGLOB_OPENERS, Expansion, Shape, Word};
+use crate::shell::{EXTGLOB_OPENERS, Expansion, Shape, Word};
 
 /// `word`'s readings: as written, then with its expansions empty when it has that reading.
 pub(super) fn of(word: &Word) -> impl Iterator<Item = Cow<'_, Word>> {
@@ -69,7 +71,9 @@ fn emptied(word: &Word) -> Option<Word> {
     })
 }
 
-/// Whether one of `word`'s values may be an option cluster (`-rf`): its first part may be a `-`
+/// Whether one of `word`'s values may be an option cluster (`-rf`).
+///
+/// It may when its first part may be a `-`
 /// (an expansion, which may hold one; an unquoted `?`, `*` or bracket expression, which may
 /// match a file named `-rf`; an extended glob group, `@(-rf)`, `+(-)`, `!(x)`, `?( )` or `*( )`,
 /// which may match any text; or a written `-`), and every later written character is an ASCII
@@ -82,7 +86,8 @@ fn emptied(word: &Word) -> Option<Word> {
 /// Each expansion is taken as text inside this one word, as a quoted one is. An unquoted
 /// expansion, `"$@"` or `"${a[@]}"` may split into several words, one of them `-rf` (`x$b` with
 /// `b=' -rf'`, `x"$@"`): that word splitting is not judged, a documented limit (#128).
-pub(super) fn may_start_option_cluster(word: &Word) -> bool {
+#[must_use]
+pub fn may_start_option_cluster(word: &Word) -> bool {
     may_start_cluster(word, &['-'])
 }
 

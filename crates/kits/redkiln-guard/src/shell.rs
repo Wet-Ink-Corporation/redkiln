@@ -8,7 +8,7 @@
 //! them. Expansions are not performed: a word that has one is marked [`Shape::Dynamic`], one
 //! with an unquoted glob, brace or leading `~` [`Shape::Pattern`]. A word keeps only its
 //! highest shape, so whether it holds an unquoted pattern character is its own flag,
-//! [`Word::globs`], set whatever the shape (`"$b"{-rf,/}` is dynamic and a pattern). An
+//! [`Word::has_pattern`], set whatever the shape (`"$b"{-rf,/}` is dynamic and a pattern). An
 //! extended glob's group (`@(a|b)`) is part of its pattern word.
 //!
 //! Commands are read here; words (quotes, escapes, `$`) in `word`, extended globs in
@@ -37,7 +37,7 @@ const RESERVED: [&str; 10] = [
 /// A simple command: its words, the files its redirections write, and its standard input.
 ///
 /// Only [`parse`] makes one; its parts are read through the accessors below.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SimpleCommand {
     /// The words, program first.
     words: Vec<Word>,
@@ -54,6 +54,18 @@ pub struct SimpleCommand {
 }
 
 impl SimpleCommand {
+    /// A command with no words yet, which the lexer fills.
+    const fn empty() -> Self {
+        Self {
+            words: Vec::new(),
+            writes: Vec::new(),
+            stdin: Stdin::Inherited,
+            defines_function: false,
+            arithmetic: false,
+            heredoc: None,
+        }
+    }
+
     /// The words, program first.
     #[must_use]
     pub fn words(&self) -> &[Word] {
@@ -335,7 +347,7 @@ impl Lexer {
             pipe: self.pipe,
             cases: self.cases,
         };
-        let mut command = SimpleCommand::default();
+        let mut command = SimpleCommand::empty();
         loop {
             self.skip_blanks();
             let Some(c) = self.peek() else {
@@ -450,7 +462,8 @@ impl Lexer {
         // A nested list restores `reading` before it returns, so this is the list's own.
         command.arithmetic = self.reading == Reading::Arithmetic;
         let index = self.commands.len();
-        self.commands.push(mem::take(command));
+        self.commands
+            .push(mem::replace(command, SimpleCommand::empty()));
         Some(index)
     }
 
@@ -471,7 +484,8 @@ impl Lexer {
         for command in &mut self.commands {
             if let Some(number) = command.heredoc.take() {
                 let body = self.bodies.get_mut(number).and_then(Option::take);
-                command.stdin = Stdin::Text(body.unwrap_or_else(|| Word::quoted(String::new())));
+                command.stdin =
+                    Stdin::Text(body.unwrap_or_else(|| Word::quoted_text(String::new())));
             }
         }
         self.commands

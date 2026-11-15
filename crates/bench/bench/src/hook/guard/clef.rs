@@ -2,7 +2,7 @@
 //! left undecided, asked in process through `decide` (`decide::in_process`, then
 //! `client::ask_recording`), so it shares the command's thresholds, modes, shadow count and log.
 //!
-//! The command is redacted first (`redact`): the state Clef gets is
+//! The command is redacted first (`redkiln_guard::redact`): the state Clef gets is
 //! `{"tool": "Bash", "input": {"command": <redacted>}}` and the row keeps the same command as
 //! `input`. What the answer does depends on the mode in effect for D1:
 //!
@@ -27,7 +27,6 @@ use std::ffi::OsString;
 
 use serde_json::json;
 
-use super::redact::redact;
 use super::{Decision, Denial, Rule};
 use crate::decide::client::{self, Ask, AskError, Decision as Answered, Outcome, Recorded};
 use crate::decide::clock::Clock;
@@ -37,6 +36,7 @@ use crate::decide::point::{Point, Question};
 use crate::decide::state::{CompactState, StateError};
 use crate::decide::transport::Transport;
 use crate::error_chain::reason;
+use redkiln_guard::redact::redact;
 
 /// The thresholds' action and fallback that ask the human.
 const ASK: &str = "ask";

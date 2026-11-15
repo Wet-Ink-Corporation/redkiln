@@ -14,7 +14,7 @@
 //! of its long options as a cluster, as BSD getopt does.
 
 use super::{is_option, skip_one};
-use redkiln_guard::shell::Word;
+use crate::shell::Word;
 
 /// What an option takes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -283,7 +283,7 @@ impl Grammar {
 #[cfg(test)]
 mod tests {
     use super::{Arg, Grammar, Name, Order, Read};
-    use redkiln_guard::shell::{self, Word};
+    use crate::shell::{self, Word};
 
     const STOP: Grammar = Grammar {
         short: "ab:c::",

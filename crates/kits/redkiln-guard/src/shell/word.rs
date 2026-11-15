@@ -5,28 +5,30 @@ use std::ops::Range;
 use super::extglob::Place;
 use super::{Close, Lexer, MAX_NESTING, ParseError, Quoting, Reading, is_meta};
 
-/// A shell word after quote removal.
+/// A shell word after quote removal. Only the lexer and the engine build or change one; a
+/// rule pack reads it through [`Word::text`], [`Word::shape`], [`Word::quoted`] and
+/// [`Word::expansions`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Word {
     /// The word's text with quotes and escapes removed; an expansion keeps its source text.
-    pub text: String,
+    pub(crate) text: String,
     /// How far the text is from what the shell passes on.
-    pub shape: Shape,
+    pub(crate) shape: Shape,
     /// Whether any part of the word was quoted or escaped.
-    pub quoted: bool,
+    pub(crate) quoted: bool,
     /// Whether the word holds an unquoted `*`, `?`, `[`, `{` or a leading `~`, whatever its
     /// shape: `"$b"{-rf,/}` is [`Shape::Dynamic`] and still brace-expands.
-    pub globs: Globs,
+    pub(crate) globs: Globs,
     /// Each expansion's source text in `text` (`$x`, `${x}`, `$( )`, backticks, `<( )`).
-    pub expansions: Vec<Expansion>,
+    pub(crate) expansions: Vec<Expansion>,
     /// The byte ranges of `text` that brace expansion does not read, in order: each quoted or
     /// escaped part (empty for `''`), and a known variable value the denylist put in, which
     /// the shell expands only after braces.
-    pub quotes: Vec<Range<usize>>,
+    pub(crate) quotes: Vec<Range<usize>>,
     /// Whether it was read inside an arithmetic expression: in a command of one (see
     /// [`super::SimpleCommand::arithmetic`]), or from an unquoted `$[` up to its `]`, which the
     /// lexer splits into words as it always has.
-    pub arithmetic: bool,
+    pub(crate) arithmetic: bool,
 }
 
 /// Where an expansion's source text is in its word's text, and whether it was in double
@@ -81,8 +83,33 @@ impl Word {
         }
     }
 
+    /// The word's text with quotes and escapes removed; an expansion keeps its source text.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// How far the text is from what the shell passes on.
+    #[must_use]
+    pub const fn shape(&self) -> Shape {
+        self.shape
+    }
+
+    /// Whether any part of the word was quoted or escaped.
+    #[must_use]
+    pub const fn quoted(&self) -> bool {
+        self.quoted
+    }
+
+    /// Where each expansion's source text is in [`Word::text`] (`$x`, `${x}`, `$( )`,
+    /// backticks, `<( )`), in order.
+    #[must_use]
+    pub fn expansions(&self) -> &[Expansion] {
+        &self.expansions
+    }
+
     /// A quoted word whose text is exactly `text`.
-    pub(super) fn quoted(text: String) -> Self {
+    pub(super) fn quoted_text(text: String) -> Self {
         Self {
             quotes: Self::all_quoted(&text),
             text,
@@ -96,7 +123,7 @@ impl Word {
 
     /// [`Word::quotes`] for a word whose text is all quoted: one range over `text`.
     #[must_use]
-    pub fn all_quoted(text: &str) -> Vec<Range<usize>> {
+    pub(crate) fn all_quoted(text: &str) -> Vec<Range<usize>> {
         std::iter::once(0..text.len()).collect()
     }
 
@@ -142,7 +169,8 @@ impl Word {
     /// [`Word::quotes`] moved to where they are once each expansion source range in `replaced`
     /// (in order, each paired with the length of the text that takes its place) is replaced. A
     /// quote that holds a replaced range grows or shrinks with it. One pass over both (H-13).
-    pub fn quotes_replacing<'r>(
+    #[must_use]
+    pub(crate) fn quotes_replacing<'r>(
         &self,
         replaced: impl IntoIterator<Item = (&'r Range<usize>, usize)>,
     ) -> Vec<Range<usize>> {

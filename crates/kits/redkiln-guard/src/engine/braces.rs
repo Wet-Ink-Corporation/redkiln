@@ -1,18 +1,18 @@
 //! Brace expansion (`{a,b}`), which the shell applies before anything else, so `rm {-rf,/}`
 //! is `rm -rf /`, and `rm "$b"{-rf,/}` is `rm "$b"-rf "$b"/`.
 //!
-//! A word is expanded when it holds an unquoted pattern character ([`Word::globs`]), whatever
-//! its shape. As in bash, a `{`, `,` or `}` that was quoted or escaped ([`Word::quotes`]) is no
-//! part of a group, so `bash {-c,'echo ,; rm -rf /'}` is `bash -c 'echo ,; rm -rf /'`; nor are
-//! the braces of `${x}`, the text of `$( )` or a variable's known value. A product with no text
-//! that nothing quoted went into is no word (`bash {,}` is `bash`), while `''{,}` is two empty
-//! words. Sequences (`{1..3}`) are not expanded.
+//! A word is expanded when it holds an unquoted pattern character ([`Word::has_pattern`]),
+//! whatever its shape. As in bash, a `{`, `,` or `}` that was quoted or escaped
+//! (`Word::quotes`) is no part of a group, so `bash {-c,'echo ,; rm -rf /'}` is
+//! `bash -c 'echo ,; rm -rf /'`; nor are the braces of `${x}`, the text of `$( )` or a
+//! variable's known value. A product with no text that nothing quoted went into is no word
+//! (`bash {,}` is `bash`), while `''{,}` is two empty words. Sequences (`{1..3}`) are not expanded.
 
 use std::borrow::Cow;
 use std::iter::Peekable;
 use std::ops::Range;
 
-use redkiln_guard::shell::{Expansion, Shape, Word};
+use crate::shell::{Expansion, Shape, Word};
 
 /// The most words brace expansion may make of one command's arguments (H-13).
 const MAX_WORDS: usize = 256;
@@ -21,10 +21,11 @@ const MAX_WORDS: usize = 256;
 /// makes more than [`MAX_WORDS`] words.
 const MAX_GROUPS: usize = 8;
 
-/// More words than [`MAX_WORDS`]; its message is the reason the engine refuses the command.
+/// More words than brace expansion may make (256); its message is the reason the engine
+/// refuses the command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("brace expansion makes more than {MAX_WORDS} words")]
-pub(super) struct TooMany;
+pub struct TooMany;
 
 /// A word's text and where its expansions and quoted parts are in it, in order, borrowed.
 #[derive(Debug, Clone, Copy)]
@@ -93,17 +94,19 @@ pub(super) fn has_group(word: &Word) -> bool {
     word.has_pattern() && group(Source::from(word)).is_some()
 }
 
-/// Whether `word`'s text is what the shell passes on: a literal word, or one brace expansion
-/// made that holds no other pattern character (`-c` and `rm -rf /` from
-/// `{bash,-c,'rm -rf /'}`): no expansion, glob, extended glob group, brace or leading `~`, and
-/// not read inside `$[ ]`. Only brace expansion makes such a pattern, since the lexer keeps
-/// every pattern character it reads in the text, so a word as the lexer read it is this only
-/// when literal.
+/// Whether `word`'s text is what the shell passes on.
+///
+/// That is a literal word, or one brace expansion made that holds no other pattern character
+/// (`-c` and `rm -rf /` from `{bash,-c,'rm -rf /'}`): no expansion, glob, extended glob group,
+/// brace or leading `~`, and not read inside `$[ ]`. Only brace expansion makes such a
+/// pattern, since the lexer keeps every pattern character it reads in the text, so a word as
+/// the lexer read it is this only when literal.
 /// A quoted pattern character counts too (`'*'` from `{x,'*'}`), so such a word stays a
 /// pattern, as an unquoted variable value with one does.
 /// Programs, wrappers and shells read their names and options through this; the entries still
 /// see such a word as a pattern, so `rm -rf /tmp/{a,b}` stays denied.
-pub(super) fn reads_as_written(word: &Word) -> bool {
+#[must_use]
+pub fn reads_as_written(word: &Word) -> bool {
     word.is_literal()
         || (word.shape == Shape::Pattern
             && word.expansions.is_empty()
@@ -112,14 +115,16 @@ pub(super) fn reads_as_written(word: &Word) -> bool {
             && !word.text.contains(['*', '?', '[', '{', '(']))
 }
 
-/// `args` with their brace groups expanded ([`product`] says what each new word is), a product
-/// with no text that nothing quoted or expanded went into dropped, as bash drops it.
+/// `args` with their brace groups expanded.
+///
+/// A product with no text that nothing quoted or expanded went into is dropped, as bash drops
+/// it (`product` says what each new word is).
 ///
 /// # Errors
-/// [`TooMany`] when the expansion makes more than [`MAX_WORDS`] words (the words it makes; the
+/// [`TooMany`] when the expansion makes more than 256 words (the words it makes; the
 /// others are not counted, as before the program was expanded too); the engine refuses such a
 /// command as unreadable.
-pub(super) fn expand(args: &[Word]) -> Result<Cow<'_, [Word]>, TooMany> {
+pub fn expand(args: &[Word]) -> Result<Cow<'_, [Word]>, TooMany> {
     if !args.iter().any(has_group) {
         return Ok(Cow::Borrowed(args));
     }
