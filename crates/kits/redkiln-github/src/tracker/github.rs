@@ -26,8 +26,8 @@ use std::str::FromStr;
 use serde::Deserialize;
 use serde::de::{DeserializeOwned, IgnoredAny};
 
-use crate::dag::ticket::{Status, Ticket, TicketId};
-use crate::dag::tracker::{Tickets, Tracker, TrackerError};
+use crate::ticket::{Status, Ticket, TicketId};
+use crate::tracker::{Tickets, Tracker};
 pub use gh::{Field, GH_TIMEOUT, GhApi, GhCli, GhError, GhGraphql, MAX_GH_OUTPUT};
 
 /// Issues asked for per page (GitHub's maximum).
@@ -123,15 +123,17 @@ impl<G> GitHub<G> {
 }
 
 impl<G: GhApi> Tracker for GitHub<G> {
+    type Error = GitHubError;
+
     fn name(&self) -> &'static str {
         "github"
     }
 
-    fn read(&self) -> Result<Vec<Ticket>, TrackerError> {
-        Ok(self.read_issues()?)
+    fn read(&self) -> Result<Vec<Ticket>, GitHubError> {
+        self.read_issues()
     }
 
-    fn read_with_external(&self) -> Result<Tickets, TrackerError> {
+    fn read_with_external(&self) -> Result<Tickets, GitHubError> {
         let in_scope = self.read_issues()?;
         let external = self.read_external(&in_scope)?;
         Ok(Tickets { in_scope, external })

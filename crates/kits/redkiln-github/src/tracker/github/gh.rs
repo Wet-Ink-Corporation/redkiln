@@ -46,7 +46,7 @@ pub enum GhError {
     /// still held its output pipes at the deadline.
     ///
     /// The limit is shown cut to whole milliseconds as `Duration` debugs it (`500ms`, `30s`,
-    /// `1.5s`), as [`crate::paths::PathError::GitTimeout`] shows git's.
+    /// `1.5s`), as [`crate::diff::GitError::Timeout`] shows git's.
     #[error("gh api {endpoint} did not answer within {:?}", process::whole_millis(*timeout))]
     Timeout {
         /// The endpoint asked for.

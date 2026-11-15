@@ -42,7 +42,6 @@ use clap::{Args, Subcommand, ValueEnum};
 use serde::Serialize;
 
 use crate::command::CommandName;
-use crate::dag::tracker::github::{GhApi, GhCli, GhError, GhGraphql, Repo};
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::render::command_help;
@@ -51,6 +50,7 @@ use deploy::{DeployWatch, GitHubDeployments};
 use gate::{HeadGate, LedgerGate};
 use github::{CommitWatch, PullRequestWatch, RepoRef};
 use poll::{Clock, DEFAULT_TIMEOUT_SECS, Schedule, SystemClock, Watched};
+use redkiln_github::tracker::github::{GhApi, GhCli, GhError, GhGraphql, Repo};
 use snapshot::{Blocker, Pending};
 
 /// `bench watch`.

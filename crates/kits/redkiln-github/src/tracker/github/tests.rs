@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{GhApi, GhCli, GhError, GitHub, GitHubError, MAX_PAGES, PER_PAGE, Repo, blocked_by};
-use crate::dag::ticket::{Status, Ticket, TicketId};
-use crate::dag::tracker::{Tracker, TrackerError};
+use crate::ticket::{Status, Ticket, TicketId};
+use crate::tracker::Tracker;
 
 mod cli;
 mod external;
@@ -19,13 +19,9 @@ impl<F: Fn(&str) -> Result<Vec<u8>, GhError>> GhApi for FakeGh<F> {
 }
 
 fn fixture(name: &str) -> Vec<u8> {
-    let path: PathBuf = [
-        env!("CARGO_MANIFEST_DIR"),
-        "tests/fixtures/dag/github",
-        name,
-    ]
-    .iter()
-    .collect();
+    let path: PathBuf = [env!("CARGO_MANIFEST_DIR"), "tests/fixtures/github", name]
+        .iter()
+        .collect();
     fs::read(&path).expect("fixture exists")
 }
 
@@ -84,7 +80,7 @@ fn blocked_by_reads_plain_bold_and_listed_references() {
 }
 
 #[test]
-fn the_sub_issues_of_a_parent_become_tickets_from_the_recorded_fixture() -> Result<(), TrackerError>
+fn the_sub_issues_of_a_parent_become_tickets_from_the_recorded_fixture() -> Result<(), GitHubError>
 {
     let gh = FakeGh(|endpoint: &str| {
         if endpoint == "repos/octo/tickets/issues/1/sub_issues?per_page=100&page=1" {
@@ -113,7 +109,7 @@ fn the_sub_issues_of_a_parent_become_tickets_from_the_recorded_fixture() -> Resu
 }
 
 #[test]
-fn without_a_parent_every_issue_but_pull_requests_is_a_ticket() -> Result<(), TrackerError> {
+fn without_a_parent_every_issue_but_pull_requests_is_a_ticket() -> Result<(), GitHubError> {
     let gh = FakeGh(|endpoint: &str| {
         if endpoint == "repos/octo/tickets/issues?state=all&per_page=100&page=1" {
             Ok(fixture("repo-issues.json"))
@@ -177,7 +173,7 @@ fn past_the_page_cap_the_read_fails_instead_of_truncating() {
     let result = GitHub::new(gh, repo(), None).read();
 
     assert!(
-        matches!(&result, Err(TrackerError::GitHub(GitHubError::TooMany))),
+        matches!(&result, Err(GitHubError::TooMany)),
         "got {result:?}"
     );
 }
@@ -193,15 +189,12 @@ fn a_gh_failure_and_unexpected_json_are_errors() {
     .read();
 
     assert!(
-        matches!(&failing, Err(TrackerError::GitHub(GitHubError::Gh(GhError::Failed { endpoint, .. })))
+        matches!(&failing, Err(GitHubError::Gh(GhError::Failed { endpoint, .. }))
             if endpoint.starts_with("repos/octo/tickets/issues/9/sub_issues")),
         "got {failing:?}"
     );
     assert!(
-        matches!(
-            &garbled,
-            Err(TrackerError::GitHub(GitHubError::Json { .. }))
-        ),
+        matches!(&garbled, Err(GitHubError::Json { .. })),
         "got {garbled:?}"
     );
 }

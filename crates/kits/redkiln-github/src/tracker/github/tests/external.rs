@@ -2,10 +2,10 @@
 //! blocking, missing ones left dangling.
 
 use super::{FakeGh, fixture, repo, summary};
-use crate::dag::ticket::Status;
-use crate::dag::tracker::github::gh::failure;
-use crate::dag::tracker::github::{GhApi, GhError, GitHub, GitHubError, MAX_EXTERNAL};
-use crate::dag::tracker::{Tracker, TrackerError};
+use crate::ticket::Status;
+use crate::tracker::Tracker;
+use crate::tracker::github::gh::failure;
+use crate::tracker::github::{GhApi, GhError, GitHub, GitHubError, MAX_EXTERNAL};
 
 /// The sub-issues of #4 (#40 by closed #11, #41 by open #12, #43 by merged pull request #30),
 /// those three outside issues, and "Not Found" for anything else.
@@ -49,7 +49,7 @@ fn forbidden(endpoint: &str) -> GhError {
 }
 
 #[test]
-fn outside_blockers_are_fetched_as_external_leaves_with_their_state() -> Result<(), TrackerError> {
+fn outside_blockers_are_fetched_as_external_leaves_with_their_state() -> Result<(), GitHubError> {
     let tickets = GitHub::new(recorded(), repo(), Some(4)).read_with_external()?;
 
     assert_eq!(
@@ -74,7 +74,7 @@ fn outside_blockers_are_fetched_as_external_leaves_with_their_state() -> Result<
 }
 
 #[test]
-fn read_alone_stays_within_the_set() -> Result<(), TrackerError> {
+fn read_alone_stays_within_the_set() -> Result<(), GitHubError> {
     let tickets = GitHub::new(recorded(), repo(), Some(4)).read()?;
 
     assert_eq!(tickets.len(), 3, "only the sub-issues");
@@ -82,7 +82,7 @@ fn read_alone_stays_within_the_set() -> Result<(), TrackerError> {
 }
 
 #[test]
-fn an_outside_issue_that_is_not_found_is_left_dangling() -> Result<(), TrackerError> {
+fn an_outside_issue_that_is_not_found_is_left_dangling() -> Result<(), GitHubError> {
     let tickets = GitHub::new(one_issue("Blocked by #404", not_found), repo(), Some(5))
         .read_with_external()?;
 
@@ -103,7 +103,7 @@ fn any_other_failure_fetching_an_outside_issue_is_an_error() {
     assert!(
         matches!(
             &result,
-            Err(TrackerError::GitHub(GitHubError::Gh(GhError::Failed { endpoint, .. })))
+            Err(GitHubError::Gh(GhError::Failed { endpoint, .. }))
                 if endpoint == "repos/octo/tickets/issues/7"
         ),
         "got {result:?}"
@@ -122,7 +122,7 @@ fn more_outside_references_than_the_cap_fail_before_any_is_fetched() {
     assert!(
         matches!(
             &result,
-            Err(TrackerError::GitHub(GitHubError::TooManyExternal { count }))
+            Err(GitHubError::TooManyExternal { count })
                 if *count == MAX_EXTERNAL + 1
         ),
         "got {result:?}"

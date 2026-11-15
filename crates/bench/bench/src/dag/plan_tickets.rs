@@ -12,17 +12,38 @@
 //! them); and a plan that names an outside blocker itself is one `lint plan` reports, so it
 //! counts as unread.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use serde::Serialize;
 
-use crate::dag::ticket::{Ticket, TicketId, id_order};
 use crate::envelope::Finding;
 use crate::lint::plan::{self as plan_lint, MAX_FINDINGS, PlanFinding, Rule, Task};
 use crate::lint::read::LintError;
 use crate::lint::read_whole_bytes;
 use crate::lint::spec::Source;
+use redkiln_github::ticket::{Ticket, TicketId};
+
+/// The order of two ids as written, the one [`TicketId`]'s `Ord` uses: digits-only ids that
+/// fit a `u64` first by value, then every other id by bytes; ties by bytes. A copy of the
+/// kit's crate-private `id_order`, so plan ids sort without building a `TicketId` each;
+/// `tests::id_order_agrees_with_ticket_id_order` keeps the two equal.
+fn id_order(left: &str, right: &str) -> Ordering {
+    let by_bytes = || left.as_bytes().cmp(right.as_bytes());
+    match (number(left), number(right)) {
+        (Some(left), Some(right)) => left.cmp(&right).then_with(by_bytes),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => by_bytes(),
+    }
+}
+
+/// The id's value when it is digits only and fits a `u64`.
+fn number(id: &str) -> Option<u64> {
+    let digits = !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit());
+    digits.then(|| id.parse().ok()).flatten()
+}
 
 /// A plan's tasks as `lint plan` reads them.
 #[derive(Debug, Clone, PartialEq, Eq)]

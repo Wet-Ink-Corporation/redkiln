@@ -13,7 +13,7 @@ use super::WatchError;
 use super::github::{RepoRef, non_empty};
 use super::poll::Source;
 use super::snapshot::{Blocker, Pending, Snapshot};
-use crate::dag::tracker::github::{GhApi, GhError};
+use redkiln_github::tracker::github::{GhApi, GhError};
 
 /// Where a deployment stands.
 #[derive(Debug, Clone, PartialEq, Eq)]

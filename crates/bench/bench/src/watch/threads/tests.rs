@@ -107,7 +107,7 @@ fn when_both_fail_the_graphql_failure_is_reported() {
         matches!(
             &result,
             Err(WatchError::Threads {
-                graphql: crate::dag::tracker::github::GhError::Failed { endpoint, .. },
+                graphql: redkiln_github::tracker::github::GhError::Failed { endpoint, .. },
                 ..
             }) if endpoint == "graphql"
         ),

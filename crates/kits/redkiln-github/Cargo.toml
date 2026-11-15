@@ -1,0 +1,21 @@
+[package]
+name = "redkiln-github"
+description = "The Redkiln GitHub kit: tickets and the tracker port with its GitHub Issues adapter, the ticket graph and estimate, and bounded git reads of a pull request's diff."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# Scratch directories: git fixture repositories for `diff`, ticket roots for `estimate`.
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 use super::{Blockers, Mismatches, compare};
-use crate::dag::ticket::{Status, Ticket, TicketId};
 use crate::lint::plan::Task;
+use redkiln_github::ticket::{Status, Ticket, TicketId};
 
 fn task(id: &str, blocked_by: &[&str]) -> Task {
     Task {

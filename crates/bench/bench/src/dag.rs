@@ -1,18 +1,18 @@
 //! `bench dag check|frontier`: the ticket graph a tracker holds.
 //!
-//! - [`ticket`]: [`ticket::Ticket`] and the id order every listing uses.
-//! - [`tracker`]: the [`tracker::Tracker`] port and its adapters (`markdown`, `github`).
-//! - [`graph`]: the graph, its check (dangling references, then cycles) and its frontier.
-//! - [`estimate`]: the per-ticket token estimate.
+//! Tickets, the GitHub tracker, the graph and the estimate are the GitHub kit's
+//! ([`redkiln_github`]); this module is the command layer over them:
+//!
+//! - [`tracker`]: Bench's trackers (the kit's GitHub adapter and Bench's `markdown`) behind
+//!   [`tracker::AnyTracker`].
+//! - [`check`]: the graph check's exit code ([`check::CheckCode`]).
 //!
 //! `check` exits 0, 1 on a cycle or 2 on a dangling reference (which wins when both occur);
 //! `frontier` runs the same check first and lists no ticket when it fails. A tracker that
 //! cannot be read is an error (exit 70). Formats and heuristics: `docs/dag.md`.
 
-pub mod estimate;
-pub mod graph;
+pub mod check;
 mod plan_tickets;
-pub mod ticket;
 pub mod tracker;
 
 use std::io::Write;
@@ -26,13 +26,15 @@ use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::render::command_help;
 use crate::exit_codes::{self, Code};
-use estimate::{DEFAULT_BUDGET, Estimate};
-use graph::{Check, Dangling, ExternalBlocker, Graph, GraphError};
+use check::CheckCode;
 use plan_tickets::{Agreement, PlanTasks};
-use ticket::{Status, TicketId};
-use tracker::github::{GhCli, GitHub, Repo};
+use redkiln_github::estimate::{self, DEFAULT_BUDGET, Estimate};
+use redkiln_github::graph::{Check, Dangling, ExternalBlocker, Graph, GraphError};
+use redkiln_github::ticket::{Status, TicketId};
+use redkiln_github::tracker::Tracker;
+use redkiln_github::tracker::github::{GhCli, GitHub, Repo};
 use tracker::markdown::Markdown;
-use tracker::{Tracker, TrackerError};
+use tracker::{AnyTracker, TrackerError};
 
 /// Arguments of `bench dag`.
 #[derive(Debug, Args)]
@@ -138,18 +140,18 @@ pub fn run<O: Write>(args: &DagArgs, cwd: &Path, out: &mut O) -> Result<Code, Cl
                 .map(|file| PlanTasks::read(file, cwd))
                 .transpose()
                 .map_err(CliError::Plan)?;
-            check_with(tracker.as_ref(), plan.as_ref(), out)
+            check_with(&tracker, plan.as_ref(), out)
         }
         DagAction::Frontier(frontier_args) => {
             let tracker = tracker(&frontier_args.source, cwd)?;
-            frontier(tracker.as_ref(), cwd, frontier_args.budget, out)
+            frontier(&tracker, cwd, frontier_args.budget, out)
         }
     }
 }
 
 /// The tracker `source` selects; flags of the other tracker are a usage error. `orchestrate
 /// fan-out` reads the same tickets.
-pub(crate) fn tracker(source: &Source, cwd: &Path) -> Result<Box<dyn Tracker>, CliError> {
+pub(crate) fn tracker(source: &Source, cwd: &Path) -> Result<AnyTracker, CliError> {
     let usage = |reason: &str| CliError::Usage {
         reason: reason.to_owned(),
     };
@@ -162,7 +164,7 @@ pub(crate) fn tracker(source: &Source, cwd: &Path) -> Result<Box<dyn Tracker>, C
                 .dir
                 .as_deref()
                 .unwrap_or_else(|| Path::new(DEFAULT_DIR));
-            Ok(Box::new(Markdown::new(cwd.join(dir))))
+            Ok(AnyTracker::Markdown(Markdown::new(cwd.join(dir))))
         }
         TrackerKind::Github => {
             if source.dir.is_some() {
@@ -173,18 +175,26 @@ pub(crate) fn tracker(source: &Source, cwd: &Path) -> Result<Box<dyn Tracker>, C
                 .repo
                 .clone()
                 .ok_or_else(|| usage("--tracker github needs --repo owner/name"))?;
-            Ok(Box::new(GitHub::new(GhCli::new(), repo, source.issue)))
+            Ok(AnyTracker::GitHub(GitHub::new(
+                GhCli::new(),
+                repo,
+                source.issue,
+            )))
         }
     }
 }
 
 /// Reads `tracker`, with the external tickets its blockers name, into a graph.
-pub(crate) fn read_graph(tracker: &dyn Tracker) -> Result<Graph, DagError> {
+pub(crate) fn read_graph<T>(tracker: &T) -> Result<Graph, DagError>
+where
+    T: Tracker,
+    TrackerError: From<T::Error>,
+{
     let tickets = tracker
         .read_with_external()
         .map_err(|source| DagError::Tracker {
             tracker: tracker.name(),
-            source,
+            source: source.into(),
         })?;
     Ok(Graph::with_external(tickets.in_scope, tickets.external)?)
 }
@@ -211,18 +221,24 @@ struct DanglingRef<'g> {
 
 /// `dag check` without a plan, as the tests written before `--plan` call it.
 #[cfg(test)]
-fn check<O: Write>(tracker: &dyn Tracker, out: &mut O) -> Result<Code, CliError> {
+fn check<T, O>(tracker: &T, out: &mut O) -> Result<Code, CliError>
+where
+    T: Tracker,
+    TrackerError: From<T::Error>,
+    O: Write,
+{
     check_with(tracker, None, out)
 }
 
 /// `dag check`, also against `plan` when given: writes the envelope and returns its code, the
 /// graph's when its check fails, else [`exit_codes::DAG_PLAN_MISMATCH`] when the tickets
 /// disagree with the plan.
-fn check_with<O: Write>(
-    tracker: &dyn Tracker,
-    plan: Option<&PlanTasks>,
-    out: &mut O,
-) -> Result<Code, CliError> {
+fn check_with<T, O>(tracker: &T, plan: Option<&PlanTasks>, out: &mut O) -> Result<Code, CliError>
+where
+    T: Tracker,
+    TrackerError: From<T::Error>,
+    O: Write,
+{
     let graph = read_graph(tracker)?;
     let verdict = graph.check();
     let agreement = plan.map(|plan| plan.against(graph.tickets()));
@@ -307,12 +323,12 @@ struct Ready<'g> {
 
 /// `dag frontier`: writes the envelope and returns its code. Named files are sized under
 /// `root`.
-fn frontier<O: Write>(
-    tracker: &dyn Tracker,
-    root: &Path,
-    budget: u64,
-    out: &mut O,
-) -> Result<Code, CliError> {
+fn frontier<T, O>(tracker: &T, root: &Path, budget: u64, out: &mut O) -> Result<Code, CliError>
+where
+    T: Tracker,
+    TrackerError: From<T::Error>,
+    O: Write,
+{
     let graph = read_graph(tracker)?;
     let verdict = graph.check();
     let code = verdict.code();

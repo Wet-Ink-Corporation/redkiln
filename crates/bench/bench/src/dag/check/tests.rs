@@ -1,6 +1,7 @@
-use super::{Dangling, Graph, GraphError};
-use crate::dag::ticket::{Status, Ticket, TicketId};
+use super::CheckCode;
 use crate::exit_codes;
+use redkiln_github::graph::{Dangling, Graph, GraphError};
+use redkiln_github::ticket::{Status, Ticket, TicketId};
 
 fn ticket(id: &str, blocked_by: &[&str], status: Status) -> Ticket {
     Ticket {
