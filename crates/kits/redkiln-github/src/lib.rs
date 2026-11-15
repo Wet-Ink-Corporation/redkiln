@@ -10,6 +10,9 @@
 //! - [`estimate`]: the per-ticket token estimate.
 //! - [`diff`]: `git diff <base>...<head>` read through bounded git calls: commits, the default
 //!   base, ancestry, patch id, numstat and text, within a [`diff::Budget`].
+//! - [`watch`]: the long poll of a pull request, a commit's checks or a deployment until it
+//!   settles, with what blocks it and what is pending; the caller's merge gate sits behind
+//!   [`watch::HeadGate`].
 //!
 //! Every call out of the process has a timeout and an output cap (H-13); every list read from
 //! outside is capped and fails rather than truncating.
@@ -23,3 +26,4 @@ mod process;
 mod test_repo;
 pub mod ticket;
 pub mod tracker;
+pub mod watch;

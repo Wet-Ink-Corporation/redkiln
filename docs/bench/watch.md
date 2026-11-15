@@ -167,4 +167,4 @@ interrupted this way; it still ends at `--timeout`, plus the poll in progress.
   cannot close it.
 - Pagination is not followed: more than 100 check runs, statuses or threads exit 7.
 - Only GitHub Deployments is a deployment provider so far; another one implements
-  `watch::deploy::DeployProvider` and gets its own `--provider` value.
+  the GitHub kit's `redkiln_github::watch::DeployProvider` and gets its own `--provider` value.

@@ -30,6 +30,7 @@ use crate::snapshot::SnapshotError;
 use crate::task::TaskError;
 use crate::verify::VerifyError;
 use crate::watch::WatchError;
+use crate::watch::code;
 
 /// Why `anneal` could not produce a result.
 #[derive(Debug, thiserror::Error)]
@@ -187,7 +188,7 @@ impl CliError {
             Self::Verify(error) => error.code(),
             Self::Decide(error) => error.code(),
             Self::Calibrate(error) => error.code(),
-            Self::Watch(error) => error.code(),
+            Self::Watch(error) => code::exit_code(error),
             Self::Rollout(error) => error.code(),
             Self::Perf(error) => error.code(),
             Self::Migrate(error) => error.code(),

@@ -1,124 +1,55 @@
-//! What one poll saw: the blockers, and the work still pending.
+//! What a watch's blockers and pending work mean to Bench: their exit codes and findings.
 //!
-//! A blocker settles the watch at once; pending work makes it poll again. A blocked watch
-//! exits with the code of its first blocker in this order: conflict 8, threads 3, checks and
-//! deployments 4, draft, merge state and the merge gate 6; every blocker is listed.
+//! A blocked watch exits with the code of its first blocker in this order: conflict 8, threads
+//! 3, checks and deployments 4, draft, merge state and the merge gate 6; every blocker is
+//! listed. The kit's [`Snapshot`], [`Blocker`] and [`Pending`] carry no code; Bench maps
+//! them here.
 
 use std::collections::HashSet;
 
-use serde::Serialize;
+use redkiln_github::watch::{Blocker, Pending, Snapshot};
 
 use crate::envelope::Finding;
 use crate::exit_codes::{self, Code};
 
-/// One poll's view of the target.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct Snapshot {
-    /// The commit the checks were read for, when the target has one.
-    pub(crate) head: Option<String>,
-    /// What stops the target, each named.
-    pub(crate) blockers: Vec<Blocker>,
-    /// What has not finished yet, each named.
-    pub(crate) pending: Vec<Pending>,
+/// Which blocker's code a blocked watch exits with, lowest first: a merge conflict, then
+/// review threads, then failing checks and deployments, then the draft, merge state and gate.
+/// The conflict ranks first although its code (8) is the highest: SPEC CLI-05 moved it off 2,
+/// and nothing else about the watch moved with it.
+const fn rank(blocker: &Blocker) -> u8 {
+    match blocker {
+        Blocker::Conflict { .. } => 0,
+        Blocker::Thread { .. } => 1,
+        Blocker::Check { .. } | Blocker::Deployment { .. } => 2,
+        Blocker::Draft { .. } | Blocker::MergeState { .. } | Blocker::Gate { .. } => 3,
+    }
 }
 
-impl Snapshot {
-    /// True when polling again cannot change the answer: something blocks, or nothing is
-    /// pending.
-    pub(crate) fn settled(&self) -> bool {
-        !self.blockers.is_empty() || self.pending.is_empty()
-    }
+/// The exit code of a snapshot's blockers.
+pub(crate) trait SnapshotCode {
+    /// The exit code of the blocker that ranks first; `None` when nothing blocks.
+    fn blocker_code(&self) -> Option<Code>;
+}
 
-    /// The exit code of the blocker that ranks first ([`Blocker::rank`]); `None` when nothing
-    /// blocks.
-    pub(crate) fn blocker_code(&self) -> Option<Code> {
+impl SnapshotCode for Snapshot {
+    fn blocker_code(&self) -> Option<Code> {
         self.blockers
             .iter()
-            .min_by_key(|blocker| blocker.rank())
+            .min_by_key(|blocker| rank(blocker))
             .map(Blocker::code)
     }
 }
 
-/// Something that stops the target from being clear.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum Blocker {
-    /// The pull request conflicts with its base.
-    Conflict {
-        /// The pull request number.
-        pr: u64,
-        /// Its web address.
-        url: String,
-    },
-    /// An unresolved review thread.
-    Thread {
-        /// The thread's first comment.
-        url: Option<String>,
-        /// The file the thread is on.
-        path: Option<String>,
-    },
-    /// A check run or commit status that did not pass.
-    Check {
-        /// The check's name (a check run's name, or a status's context).
-        name: String,
-        /// How it ended, in GitHub's words lower-cased (`failure`, `timed_out`, `error`).
-        conclusion: String,
-        /// Its details page.
-        url: Option<String>,
-    },
-    /// A deployment whose latest status is not a success.
-    Deployment {
-        /// The deployment id.
-        id: String,
-        /// Its latest state (`failure`, `error`, `inactive`).
-        state: String,
-        /// Its log or target page.
-        url: Option<String>,
-    },
-    /// The pull request is a draft, which GitHub does not merge.
-    Draft {
-        /// The pull request number.
-        pr: u64,
-        /// Its web address.
-        url: String,
-    },
-    /// GitHub refuses the merge for a reason the checks and threads read do not show: branch
-    /// protection still `blocked` once every check passed and every thread is resolved, and
-    /// again on a second read of the pull request (a required review, or a required check
-    /// that never reported), `behind`, or a state this version does not know.
-    MergeState {
-        /// The pull request number.
-        pr: u64,
-        /// GitHub's `mergeable_state`.
-        state: String,
-        /// Its web address.
-        url: String,
-    },
-    /// The merge gate would deny a merge of the head.
-    Gate {
-        /// The gate's check id (`no-verdict`, `stale`, `review`, ...).
-        check: &'static str,
-        /// The gate's one-line reason, naming the command that clears it.
-        reason: String,
-    },
+/// A blocker's exit code and finding.
+pub(crate) trait BlockerCode {
+    /// The exit code this blocker means.
+    fn code(&self) -> Code;
+    /// The finding that names this blocker, with a stable key.
+    fn finding(&self) -> Finding;
 }
 
-impl Blocker {
-    /// Which blocker's code a blocked watch exits with, lowest first: a merge conflict, then
-    /// review threads, then failing checks and deployments, then the draft, merge state and
-    /// gate. The conflict ranks first although its code (8) is the highest: SPEC CLI-05 moved
-    /// it off 2, and nothing else about the watch moved with it.
-    const fn rank(&self) -> u8 {
-        match self {
-            Self::Conflict { .. } => 0,
-            Self::Thread { .. } => 1,
-            Self::Check { .. } | Self::Deployment { .. } => 2,
-            Self::Draft { .. } | Self::MergeState { .. } | Self::Gate { .. } => 3,
-        }
-    }
-
-    /// The exit code this blocker means.
-    pub(crate) const fn code(&self) -> Code {
+impl BlockerCode for Blocker {
+    fn code(&self) -> Code {
         match self {
             Self::Conflict { .. } => exit_codes::WATCH_CONFLICT,
             Self::Thread { .. } => exit_codes::WATCH_THREADS,
@@ -129,8 +60,7 @@ impl Blocker {
         }
     }
 
-    /// The finding that names this blocker, with a stable key.
-    pub(crate) fn finding(&self) -> Finding {
+    fn finding(&self) -> Finding {
         match self {
             Self::Conflict { pr, url } => Finding::new(
                 format!("watch/conflict:{pr}"),
@@ -180,39 +110,14 @@ impl Blocker {
     }
 }
 
-/// Work that has not finished, so the watch polls again.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub(crate) enum Pending {
-    /// A check run or commit status still running or queued.
-    Check {
-        /// The check's name.
-        name: String,
-        /// Its state, lower-cased (`queued`, `in_progress`, `pending`, `expected`).
-        status: String,
-    },
-    /// No check has reported on the commit yet.
-    NoChecks,
-    /// GitHub has not computed whether the pull request merges cleanly.
-    Mergeable,
-    /// GitHub does not yet allow the merge (`mergeable_state` `blocked` while checks still run
-    /// or until a second read confirms it, or `unstable`).
-    MergeState {
-        /// GitHub's `mergeable_state`.
-        state: String,
-    },
-    /// A deployment not yet finished, or with no status yet.
-    Deployment {
-        /// The deployment id.
-        id: String,
-        /// Its latest state, or `none`.
-        state: String,
-    },
+/// A pending item's finding.
+pub(crate) trait PendingFinding {
+    /// The finding that names this pending item when the watch times out.
+    fn finding(&self) -> Finding;
 }
 
-impl Pending {
-    /// The finding that names this pending item when the watch times out.
-    pub(crate) fn finding(&self) -> Finding {
+impl PendingFinding for Pending {
+    fn finding(&self) -> Finding {
         match self {
             Self::Check { name, status } => Finding::new(
                 format!("watch/pending:check:{name}"),
@@ -265,9 +170,10 @@ pub(crate) fn unique_keys(findings: &mut [Finding]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Blocker, Pending, Snapshot, unique_keys};
+    use super::{SnapshotCode, unique_keys};
     use crate::envelope::Finding;
     use crate::exit_codes::Code;
+    use redkiln_github::watch::{Blocker, Snapshot};
 
     fn check(name: &str) -> Blocker {
         Blocker::Check {
@@ -349,25 +255,5 @@ mod tests {
                 "watch/check:lint:3"
             ]
         );
-    }
-
-    #[test]
-    fn a_snapshot_settles_on_a_blocker_or_when_nothing_is_pending() {
-        let pending = Snapshot {
-            pending: vec![Pending::NoChecks],
-            ..Snapshot::default()
-        };
-        let blocked = Snapshot {
-            blockers: vec![check("lint")],
-            ..pending.clone()
-        };
-
-        let settled = [
-            Snapshot::default().settled(),
-            pending.settled(),
-            blocked.settled(),
-        ];
-
-        assert_eq!(settled, [true, false, true], "clear, pending, blocked");
     }
 }

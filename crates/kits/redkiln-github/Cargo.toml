@@ -1,6 +1,6 @@
 [package]
 name = "redkiln-github"
-description = "The Redkiln GitHub kit: tickets and the tracker port with its GitHub Issues adapter, the ticket graph and estimate, and bounded git reads of a pull request's diff."
+description = "The Redkiln GitHub kit: tickets and the tracker port with its GitHub Issues adapter, the ticket graph and estimate, bounded git reads of a pull request's diff, and the watch that waits for a pull request, commit or deployment to settle."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
