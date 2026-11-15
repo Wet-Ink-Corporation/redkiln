@@ -115,7 +115,7 @@ pub(super) fn unread_path(args: &[Word]) -> Option<&[Word]> {
             if !braces::reads_as_written(second)
                 && TARGETS
                     .iter()
-                    .any(|target| matches!(target.path, [head, _] if head == first.text)) =>
+                    .any(|target| matches!(target.path, [head, _] if head == first.text())) =>
         {
             Some(rest)
         }
@@ -141,7 +141,7 @@ fn several_after_path(args: &[Word]) -> bool {
         && braces::reads_as_written(sub)
         && TARGETS
             .iter()
-            .any(|target| target.path == [command.text.as_str(), sub.text.as_str()]);
+            .any(|target| target.path == [command.text(), sub.text()]);
     path_read
         && rest
             .iter()
@@ -185,14 +185,14 @@ impl Seen {
 /// ([`is_anneal`]), or is not known before the command runs.
 pub(super) fn may_name_anneal(word: &Word) -> bool {
     let start = word
-        .text
+        .text()
         .rfind(['/', '\\'])
         .map_or(0, |at| at.saturating_add(1));
-    let Some(tail) = word.text.get(start..) else {
+    let Some(tail) = word.text().get(start..) else {
         return true;
     };
     let unknown = word
-        .expansions
+        .expansions()
         .iter()
         .any(|expansion| expansion.range.end > start)
         || (!braces::reads_as_written(word) && tail.contains(PATTERN));
@@ -227,7 +227,7 @@ fn claims_human(target: &Target, args: &[Word], appended: bool) -> bool {
             count.unread(word, unsure);
             continue;
         }
-        let text = word.text.as_str();
+        let text = word.text();
         if text == "--" {
             count.operands = count.operands.saturating_add(words.count());
             break;
@@ -246,7 +246,7 @@ fn claims_human(target: &Target, args: &[Word], appended: bool) -> bool {
             count.operands = count.operands.saturating_add(1);
         } else if target.values.contains(&text)
             && next.is_some_and(|value| {
-                !(braces::reads_as_written(value) && value.text.starts_with('-'))
+                !(braces::reads_as_written(value) && value.text().starts_with('-'))
             })
         {
             // Its value, which clap never reads as an option.
@@ -302,10 +302,10 @@ impl Count {
 /// operands, and in [`Halves`] it is no value on its own, except right after a literal
 /// `--actor`, where any word that may be `human` is the value.
 fn may_be_several(word: &Word) -> bool {
-    word.expansions.iter().any(|expansion| {
+    word.expansions().iter().any(|expansion| {
         !expansion.quoted
             || word
-                .text
+                .text()
                 .get(expansion.range.clone())
                 .is_none_or(|source| source.contains('@'))
     })
@@ -319,7 +319,7 @@ const PATTERN: [char; 9] = ['*', '?', '[', '{', '(', '~', '@', '+', '!'];
 /// pattern character.
 fn may_be(word: &Word, text: &str) -> bool {
     if braces::reads_as_written(word) {
-        return word.text == text;
+        return word.text() == text;
     }
     text.starts_with(written_start(word))
 }
@@ -329,15 +329,16 @@ fn may_be(word: &Word, text: &str) -> bool {
 /// may be any text). A quoted pattern character is cut at too: the written start is then
 /// shorter, which only lets the word be more texts.
 fn written_start(word: &Word) -> &str {
+    let text = word.text();
     if braces::reads_as_written(word) {
-        return &word.text;
+        return text;
     }
     let end = word
-        .expansions
+        .expansions()
         .iter()
         .map(|expansion| expansion.range.start)
-        .chain(word.text.find(PATTERN))
+        .chain(text.find(PATTERN))
         .min()
-        .unwrap_or(word.text.len());
-    word.text.get(..end).unwrap_or_default()
+        .unwrap_or(text.len());
+    text.get(..end).unwrap_or_default()
 }

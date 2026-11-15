@@ -93,9 +93,9 @@ fn deny(action: &str, label: &str) -> Denial {
 
 /// A redirection writing `target`, from `cwd`.
 pub(super) fn redirect(target: &Word, cwd: &Cwd) -> Option<Denial> {
-    let label = protected(&target.text, target.shape, cwd)?;
+    let label = protected(target.text(), target.shape(), cwd)?;
     Some(deny(
-        &format!("a redirection writes {}", target.text),
+        &format!("a redirection writes {}", target.text()),
         label,
     ))
 }
@@ -104,13 +104,13 @@ pub(super) fn redirect(target: &Word, cwd: &Cwd) -> Option<Denial> {
 pub(super) fn check(program: &str, args: &[Word], cwd: &Cwd) -> Option<Denial> {
     match program {
         "tee" | "truncate" => args.iter().find_map(|arg| {
-            let label = protected(&arg.text, arg.shape, cwd)?;
-            Some(deny(&format!("{program} writes {}", arg.text), label))
+            let label = protected(arg.text(), arg.shape(), cwd)?;
+            Some(deny(&format!("{program} writes {}", arg.text()), label))
         }),
         "rm" | "unlink" | "rmdir" | "shred" | "chmod" | "chown" | "chgrp" => {
             args.iter().find_map(|arg| {
-                let label = contains_protected(&arg.text, arg.shape, cwd)?;
-                Some(deny(&format!("{program} changes {}", arg.text), label))
+                let label = contains_protected(arg.text(), arg.shape(), cwd)?;
+                Some(deny(&format!("{program} changes {}", arg.text()), label))
             })
         }
         "sed" => sed(args, cwd),
@@ -135,7 +135,7 @@ impl<'a> SedArgs<'a> {
         let mut rest = args;
         while let [first, tail @ ..] = rest {
             rest = tail;
-            let text = first.text.as_str();
+            let text = first.text();
             if text == "--" {
                 sed.operands.extend(tail);
                 break;
@@ -193,8 +193,8 @@ fn sed(args: &[Word], cwd: &Cwd) -> Option<Denial> {
             .map_or(&[][..], |(_, files)| files)
     };
     files.iter().find_map(|file| {
-        let label = protected(&file.text, file.shape, cwd)?;
-        Some(deny(&format!("sed -i edits {}", file.text), label))
+        let label = protected(file.text(), file.shape(), cwd)?;
+        Some(deny(&format!("sed -i edits {}", file.text()), label))
     })
 }
 
@@ -228,7 +228,7 @@ impl<'a> CopyArgs<'a> {
         let mut rest = args;
         while let [first, tail @ ..] = rest {
             rest = tail;
-            let text = first.text.as_str();
+            let text = first.text();
             if text == "--" {
                 copy.operands.extend(tail);
                 break;
@@ -239,8 +239,8 @@ impl<'a> CopyArgs<'a> {
                 // `--target-directory DIR` and `--suffix SUFFIX`, abbreviated or not.
                 if long.is("--target-directory") {
                     copy.target_dir = match long.value() {
-                        Some(dir) => Some((dir, first.shape)),
-                        None => tail.first().map(|dir| (dir.text.as_str(), dir.shape)),
+                        Some(dir) => Some((dir, first.shape())),
+                        None => tail.first().map(|dir| (dir.text(), dir.shape())),
                     };
                 }
                 let valued = long.is("--target-directory") || long.is("--suffix");
@@ -252,10 +252,10 @@ impl<'a> CopyArgs<'a> {
             } else if text.starts_with("--") {
             } else if let Some((_, dir)) = copy.cluster(text) {
                 if dir.is_empty() {
-                    copy.target_dir = tail.first().map(|dir| (dir.text.as_str(), dir.shape));
+                    copy.target_dir = tail.first().map(|dir| (dir.text(), dir.shape()));
                     rest = skip_one(rest);
                 } else {
-                    copy.target_dir = Some((dir, first.shape));
+                    copy.target_dir = Some((dir, first.shape()));
                 }
             } else if text.ends_with(COPY_VALUES) {
                 rest = skip_one(rest);
@@ -299,10 +299,13 @@ impl<'a> CopyArgs<'a> {
 /// (a source that is the working directory or the root may hold one, for `cp -al`).
 fn hard_link(program: &str, copy: &CopyArgs<'_>, cwd: &Cwd) -> Option<Denial> {
     copy.sources().iter().find_map(|source| {
-        let label = contains_protected(&source.text, source.shape, cwd)
-            .or_else(|| last_component(&source.text).is_none().then_some(WHOLE_TREE))?;
+        let label = contains_protected(source.text(), source.shape(), cwd).or_else(|| {
+            last_component(source.text())
+                .is_none()
+                .then_some(WHOLE_TREE)
+        })?;
         Some(deny(
-            &format!("{program} hard-links {}", source.text),
+            &format!("{program} hard-links {}", source.text()),
             label,
         ))
     })
@@ -330,13 +333,13 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
         (dir, &copy.operands[..], true)
     } else {
         let (last, sources) = copy.operands.split_last()?;
-        let named_dir = last.text.ends_with(['/', '\\'])
-            || last_component(&last.text).is_some_and(|name| {
+        let named_dir = last.text().ends_with(['/', '\\'])
+            || last_component(last.text()).is_some_and(|name| {
                 CONTAINERS
                     .iter()
                     .any(|(dir, _)| dir.eq_ignore_ascii_case(name))
             });
-        ((last.text.as_str(), last.shape), sources, named_dir)
+        ((last.text(), last.shape()), sources, named_dir)
     };
     if sources.is_empty() {
         return None;
@@ -345,11 +348,11 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
         return Some(deny(&format!("{program} writes {dest}"), label));
     }
     sources.iter().find_map(|source| {
-        if moves && let Some(label) = contains_protected(&source.text, source.shape, cwd) {
-            return Some(deny(&format!("{program} moves {}", source.text), label));
+        if moves && let Some(label) = contains_protected(source.text(), source.shape(), cwd) {
+            return Some(deny(&format!("{program} moves {}", source.text()), label));
         }
-        let joined = format!("{dest}/{}", basename(&source.text));
-        let label = protected(&joined, dest_shape.max(source.shape), cwd).filter(|_| into_dir)?;
+        let joined = format!("{dest}/{}", basename(source.text()));
+        let label = protected(&joined, dest_shape.max(source.shape()), cwd).filter(|_| into_dir)?;
         Some(deny(&format!("{program} writes {joined}"), label))
     })
 }

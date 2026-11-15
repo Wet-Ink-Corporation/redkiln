@@ -1,12 +1,12 @@
 //! Brace expansion (`{a,b}`), which the shell applies before anything else, so `rm {-rf,/}`
 //! is `rm -rf /`, and `rm "$b"{-rf,/}` is `rm "$b"-rf "$b"/`.
 //!
-//! A word is expanded when it holds an unquoted pattern character ([`Word::globs`]), whatever
-//! its shape. As in bash, a `{`, `,` or `}` that was quoted or escaped ([`Word::quotes`]) is no
-//! part of a group, so `bash {-c,'echo ,; rm -rf /'}` is `bash -c 'echo ,; rm -rf /'`; nor are
-//! the braces of `${x}`, the text of `$( )` or a variable's known value. A product with no text
-//! that nothing quoted went into is no word (`bash {,}` is `bash`), while `''{,}` is two empty
-//! words. Sequences (`{1..3}`) are not expanded.
+//! A word is expanded when it holds an unquoted pattern character ([`Word::has_pattern`]),
+//! whatever its shape. As in bash, a `{`, `,` or `}` that was quoted or escaped
+//! (`Word::quotes`) is no part of a group, so `bash {-c,'echo ,; rm -rf /'}` is
+//! `bash -c 'echo ,; rm -rf /'`; nor are the braces of `${x}`, the text of `$( )` or a
+//! variable's known value. A product with no text that nothing quoted went into is no word
+//! (`bash {,}` is `bash`), while `''{,}` is two empty words. Sequences (`{1..3}`) are not expanded.
 
 use std::borrow::Cow;
 use std::iter::Peekable;
@@ -21,7 +21,8 @@ const MAX_WORDS: usize = 256;
 /// makes more than [`MAX_WORDS`] words.
 const MAX_GROUPS: usize = 8;
 
-/// More words than brace expansion may make (256); its message is the reason the engine refuses the command.
+/// More words than brace expansion may make (256); its message is the reason the engine
+/// refuses the command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("brace expansion makes more than {MAX_WORDS} words")]
 pub struct TooMany;
@@ -95,11 +96,11 @@ pub(super) fn has_group(word: &Word) -> bool {
 
 /// Whether `word`'s text is what the shell passes on.
 ///
-/// That is a literal word, or one brace expansion made that holds no other pattern character (`-c` and `rm -rf /` from
-/// `{bash,-c,'rm -rf /'}`): no expansion, glob, extended glob group, brace or leading `~`, and
-/// not read inside `$[ ]`. Only brace expansion makes such a pattern, since the lexer keeps
-/// every pattern character it reads in the text, so a word as the lexer read it is this only
-/// when literal.
+/// That is a literal word, or one brace expansion made that holds no other pattern character
+/// (`-c` and `rm -rf /` from `{bash,-c,'rm -rf /'}`): no expansion, glob, extended glob group,
+/// brace or leading `~`, and not read inside `$[ ]`. Only brace expansion makes such a
+/// pattern, since the lexer keeps every pattern character it reads in the text, so a word as
+/// the lexer read it is this only when literal.
 /// A quoted pattern character counts too (`'*'` from `{x,'*'}`), so such a word stays a
 /// pattern, as an unquoted variable value with one does.
 /// Programs, wrappers and shells read their names and options through this; the entries still

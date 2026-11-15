@@ -28,7 +28,7 @@ pub(super) fn check(args: &[Word]) -> Option<Denial> {
     if !subcommand.is_literal() {
         return push(rest).or_else(|| add(rest));
     }
-    match subcommand.text.as_str() {
+    match subcommand.text() {
         "push" => push(rest),
         "add" | "stage" => add(rest),
         _ => None,
@@ -52,7 +52,7 @@ impl<'a> Push<'a> {
         let mut rest = args;
         while let [first, tail @ ..] = rest {
             rest = tail;
-            let text = first.text.as_str();
+            let text = first.text();
             if text == "--" {
                 push.operands.extend(tail);
                 break;
@@ -120,10 +120,11 @@ enum Destination<'a> {
 
 /// The destination of `refspec`.
 fn destination(refspec: &Word) -> Destination<'_> {
-    if refspec.shape == Shape::Dynamic {
+    if refspec.shape() == Shape::Dynamic {
         return Destination::Implicit;
     }
-    let spec = refspec.text.strip_prefix('+').unwrap_or(&refspec.text);
+    let text = refspec.text();
+    let spec = text.strip_prefix('+').unwrap_or(text);
     let target = spec.split_once(':').map_or(spec, |(_, target)| target);
     let implicit = target.is_empty()
         || target == "HEAD"
@@ -150,7 +151,9 @@ fn push(args: &[Word]) -> Option<Denial> {
         .operands
         .split_first()
         .map_or(&[][..], |(_, refspecs)| refspecs);
-    let plus = refspecs.iter().any(|refspec| refspec.text.starts_with('+'));
+    let plus = refspecs
+        .iter()
+        .any(|refspec| refspec.text().starts_with('+'));
     if push.force.is_none() && !plus {
         return None;
     }
@@ -169,7 +172,7 @@ fn push(args: &[Word]) -> Option<Denial> {
     }
     let forced = refspecs
         .iter()
-        .filter(|refspec| push.force.is_some() || refspec.text.starts_with('+'));
+        .filter(|refspec| push.force.is_some() || refspec.text().starts_with('+'));
     for refspec in forced {
         match destination(refspec) {
             Destination::Protected(branch) => {
@@ -182,7 +185,7 @@ fn push(args: &[Word]) -> Option<Denial> {
                 return deny(format!(
                     "force push of {} has no explicit destination, which may be a protected \
                      branch; name it, as in HEAD:my-branch",
-                    refspec.text
+                    refspec.text()
                 ));
             }
             Destination::Other => {}
@@ -195,7 +198,7 @@ fn add(args: &[Word]) -> Option<Denial> {
     let mut rest = args;
     while let [first, tail @ ..] = rest {
         rest = tail;
-        let text = first.text.as_str();
+        let text = first.text();
         if text == "--" {
             break;
         }

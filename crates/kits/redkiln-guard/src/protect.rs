@@ -70,7 +70,11 @@ impl Protected {
 
     /// The component `name`, directly under `parent` when that is set, named `label`.
     #[must_use]
-    pub const fn exact(label: &'static str, parent: Option<&'static str>, name: &'static str) -> Self {
+    pub const fn exact(
+        label: &'static str,
+        parent: Option<&'static str>,
+        name: &'static str,
+    ) -> Self {
         Self {
             label,
             parent,

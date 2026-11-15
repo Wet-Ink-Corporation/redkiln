@@ -26,8 +26,8 @@ mod variables;
 pub mod wrappers;
 
 pub use checker::{MAX_DEPTH, MAX_LEXED_MIB, check};
-pub(crate) use cwd::is_absolute;
 pub use cwd::Cwd;
+pub(crate) use cwd::is_absolute;
 pub use seam::{Call, Denial, Pack};
 pub use wrappers::Program;
 

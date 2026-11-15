@@ -12,13 +12,13 @@ impl Lexer {
             let body = self.heredoc_body(&heredoc);
             let word = if heredoc.expands {
                 let mut lexer = Self::new(&body, self.extglob);
-                let mut word = Word::quoted(String::new());
+                let mut word = Word::quoted_text(String::new());
                 lexer.quoted_body(&mut word, None, depth.saturating_add(1))?;
                 word.quotes = Word::all_quoted(&word.text);
                 self.adopt(lexer.into_commands());
                 word
             } else {
-                Word::quoted(body)
+                Word::quoted_text(body)
             };
             while self.bodies.len() <= heredoc.number {
                 self.bodies.push(None);

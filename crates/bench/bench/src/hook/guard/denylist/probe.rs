@@ -97,7 +97,7 @@ fn sequence_may_name_gh_variable(word: &Word) -> bool {
     if !word.has_pattern() {
         return false;
     }
-    let text = word.text.as_str();
+    let text = word.text();
     let Some((prefix, group)) = text.split_once('{') else {
         return false;
     };
@@ -200,14 +200,14 @@ impl MergeProbe {
             if sequence_may_name_gh_variable(word) {
                 return Some(unreadable(format!(
                     "{} may build a gh variable's name by a brace sequence; write the name out",
-                    word.text
+                    word.text()
                 )));
             }
             let expanded = match braces::expand(std::slice::from_ref(word)) {
                 Ok(expanded) => expanded,
                 Err(error) => return Some(unreadable(error.to_string())),
             };
-            self.gh_env = expanded.iter().find_map(|word| gh_target(&word.text));
+            self.gh_env = expanded.iter().find_map(|word| gh_target(word.text()));
             if self.gh_env.is_some() {
                 break;
             }
@@ -220,10 +220,10 @@ impl MergeProbe {
     /// `bash -c` strings are lexed into commands of their own, so their words are noted too.
     fn note_mentions(&mut self, command: &SimpleCommand) {
         for word in command.words() {
-            self.mentions_merge |= holds_merge(&word.text);
+            self.mentions_merge |= holds_merge(word.text());
         }
         if let Stdin::Text(body) = command.stdin() {
-            self.mentions_merge |= holds_merge(&body.text);
+            self.mentions_merge |= holds_merge(body.text());
         }
     }
 
@@ -291,7 +291,7 @@ impl Pack for MergeProbe {
     /// (`$G pr view 1` with `G=gh` is a call; `xargs gh` is not), and restores the count
     /// `outer` of the command it nests in.
     fn leave_command(&mut self, words: &[Word], outer: ProbeMark) {
-        let named = words.iter().filter(|word| names_gh(&word.text)).count();
+        let named = words.iter().filter(|word| names_gh(word.text())).count();
         if named > self.gh_calls_here {
             self.gh_hides = self.gh_hides.max(GhHides::UnreadWord);
         }
