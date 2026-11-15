@@ -1,11 +1,10 @@
 //! `find_pr_merge`: the merge gate's probe for `gh pr merge`, through the guard's checker.
 
-use super::context;
 use crate::hook::guard::Rule;
 use crate::hook::guard::denylist::{MergeScan, PrMerge, Target, find_pr_merge};
 
 fn merges(command: &str) -> Vec<PrMerge> {
-    match find_pr_merge(command, &context()) {
+    match find_pr_merge(command) {
         MergeScan::Read { merges, .. } => merges,
         MergeScan::Unreadable(denial) => panic!("{command:?} read as unreadable: {denial:?}"),
     }
@@ -317,7 +316,7 @@ fn a_gh_repository_or_host_set_through_brace_expansion_is_noted() {
         assert_eq!(names, [Some(name)], "{command}");
     }
     // `env` takes a word with a brace for its program, which the checker cannot read.
-    let scan = find_pr_merge("env GH_{HOST,X}=ghe.example gh pr merge 5", &context());
+    let scan = find_pr_merge("env GH_{HOST,X}=ghe.example gh pr merge 5");
     assert!(matches!(scan, MergeScan::Unreadable(_)), "{scan:?}");
 }
 
@@ -388,7 +387,7 @@ fn a_gh_variable_built_by_a_brace_sequence_is_unreadable() {
     ];
 
     for command in rows {
-        let scan = find_pr_merge(command, &context());
+        let scan = find_pr_merge(command);
         assert!(
             matches!(scan, MergeScan::Unreadable(ref denial) if denial.rule == Rule::Unparseable),
             "{command}: {scan:?}"
@@ -409,7 +408,7 @@ fn a_gh_variable_built_by_a_brace_sequence_beside_an_expansion_is_unreadable() {
     ];
 
     for command in rows {
-        let scan = find_pr_merge(command, &context());
+        let scan = find_pr_merge(command);
         assert!(
             matches!(scan, MergeScan::Unreadable(ref denial) if denial.rule == Rule::Unparseable),
             "{command}: {scan:?}"
@@ -470,7 +469,7 @@ fn a_call_the_probe_cannot_read_is_unseen_when_the_command_may_merge() {
 
 /// How `command`, which runs no merge the probe reads, may run one it cannot read.
 fn unseen(command: &str) -> Option<&'static str> {
-    match find_pr_merge(command, &context()) {
+    match find_pr_merge(command) {
         MergeScan::Read { merges, unseen } if merges.is_empty() => unseen,
         other => panic!("{command}: {other:?}"),
     }
@@ -578,7 +577,7 @@ fn an_env_short_cluster_before_a_merge_is_read_as_env_reads_it() {
 
 #[test]
 fn a_command_the_guard_cannot_read_is_unreadable_here_too() {
-    let scan = find_pr_merge("gh pr merge 'unclosed", &context());
+    let scan = find_pr_merge("gh pr merge 'unclosed");
 
     assert!(
         matches!(scan, MergeScan::Unreadable(ref denial) if denial.rule == Rule::Unparseable),

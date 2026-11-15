@@ -1,11 +1,12 @@
 //! Which paths are lint or hook config, matched on their components after `..` is resolved
-//! lexically, and where relative paths start once a `cd` has run.
+//! lexically, read from where the `cd` commands seen so far say relative paths start
+//! ([`Cwd`]).
 
 use std::borrow::Cow;
 use std::iter;
 
-use crate::hook::guard::denylist::wrappers::skip_options;
-use redkiln_guard::shell::{EXTGLOB_OPENERS, Shape, Word};
+use crate::hook::guard::denylist::cwd::{Cwd, is_absolute};
+use redkiln_guard::shell::{EXTGLOB_OPENERS, Shape};
 
 /// The most components an extended glob span is read as beyond one (see `without_extglobs`).
 const MAX_SPANNED: usize = 32;
@@ -155,48 +156,12 @@ pub(super) const CONTAINERS: [(&str, &str); 4] = [
 /// How a denial names a directory above the start, which may hold any of [`CONTAINERS`].
 const ABOVE: &str = "a directory above the working directory, which may hold .claude/";
 
-/// Where relative paths start, as far as the `cd` commands seen so far say.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Cwd {
-    /// No `cd` yet: the hook's working directory.
-    Start,
-    /// A directory a `cd` named (relative to the start, or absolute), and its shape.
-    Dir(String, Shape),
-    /// A `cd` to a variable or to `-` (the previous directory): anywhere.
-    Unknown,
-}
-
-impl Cwd {
-    /// Follows `cd <args>` (or `pushd`); with no directory it goes home, `~`. The directory is
-    /// copied: it outlives the command.
-    pub(crate) fn change(&mut self, args: &[Word]) {
-        let Some(dir) = skip_options(args, &[]).first() else {
-            *self = Self::Dir("~".to_owned(), Shape::Pattern);
-            return;
-        };
-        // An unquoted leading `~` is the home directory, which is absolute.
-        let rooted = is_absolute(&dir.text) || (dir.text.starts_with('~') && !dir.is_literal());
-        *self = match &*self {
-            _ if dir.shape == Shape::Dynamic || dir.text == "-" => Self::Unknown,
-            Self::Dir(base, shape) if !rooted => {
-                Self::Dir(format!("{base}/{}", dir.text), dir.shape.max(*shape))
-            }
-            Self::Unknown if !rooted => Self::Unknown,
-            Self::Start | Self::Dir(..) | Self::Unknown => Self::Dir(dir.text.clone(), dir.shape),
-        };
-    }
-}
-
 /// A path's components after `.` and `..` are resolved, and whether `..` climbed above where
 /// the path starts.
 #[derive(Debug)]
 struct Resolved<'a> {
     components: Vec<&'a str>,
     escaped: bool,
-}
-
-fn is_absolute(path: &str) -> bool {
-    path.starts_with(['/', '\\']) || path.get(1..2) == Some(":")
 }
 
 /// `path` resolved lexically; `escaped` from the start when relative paths may be anywhere.
