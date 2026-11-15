@@ -3,7 +3,7 @@
 //! the body's words are no program. (`trap` and `alias`, which may never run their body, are
 //! not read here: their [`super::readings::Runs`] cuts at the body.)
 
-use crate::hook::guard::shell::Word;
+use redkiln_guard::shell::Word;
 
 /// What may follow the word or words a wrapper's body comes from, for the wrapper to run that
 /// body. Every rule refuses a word that starts with `-` or may expand into one: `su` and

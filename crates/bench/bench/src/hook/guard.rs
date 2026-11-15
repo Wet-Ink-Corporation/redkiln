@@ -13,7 +13,6 @@
 mod clef;
 mod denylist;
 pub(crate) mod redact;
-mod shell;
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};

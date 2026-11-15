@@ -32,8 +32,8 @@ use crate::error_chain::reason;
 use crate::exit_codes::{self, Code};
 use crate::floor_guard::FloorError;
 use crate::floor_guard::change::{self, WorkingChange};
-use crate::glob::GlobError;
 use clef::ClefReport;
+use redkiln_guard::glob::GlobError;
 use triggers::{Trigger, Triggers};
 
 /// `bench verify`.

@@ -61,7 +61,6 @@
 //!   ledger.
 //! - [`orchestrate`]: `bench orchestrate fan-out|park|rule`, the fan-out gate and one-way
 //!   calls parked in weigh-in (through the crate-private `weighin` bridge) or ruled on.
-//! - [`glob`]: repository path globs (`**`, `*`, `?`, ASCII case-insensitive).
 //! - [`status`]: `bench status`, the ledger and the anneal home folded into one document for a
 //!   UI, `bench.status/1` (SPEC CLI-12, `bench_contract::status`): CLI-12's common keys, then
 //!   phase, plan, tasks, gates, verdict, Clef, context and the ledger's tail
@@ -99,7 +98,6 @@ mod existing_ledger;
 pub mod exit_codes;
 pub mod floor_guard;
 mod frontmatter;
-pub mod glob;
 pub mod grill;
 mod harness;
 pub mod hook;

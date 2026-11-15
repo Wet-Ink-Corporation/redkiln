@@ -1,7 +1,7 @@
 //! The two halves of `--actor human` that the words of one call may hold, wherever each stands,
 //! for an anneal call the guard cannot read ([`super::Seen`]).
 
-use crate::hook::guard::shell::Word;
+use redkiln_guard::shell::Word;
 
 use super::{ACTOR, HUMAN, PATTERN, braces, may_be, may_be_several, written_start};
 

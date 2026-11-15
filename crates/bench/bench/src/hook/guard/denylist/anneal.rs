@@ -25,8 +25,8 @@
 //! as one word: word splitting of an unquoted expansion into `--actor human` (`--sha $x`) is
 //! the guard's documented limit (#128).
 
-use crate::hook::guard::shell::Word;
 use crate::hook::guard::{Denial, Rule};
+use redkiln_guard::shell::Word;
 
 use super::braces;
 

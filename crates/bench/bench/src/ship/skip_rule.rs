@@ -9,7 +9,7 @@ use std::num::ParseIntError;
 
 use serde::Serialize;
 
-use crate::glob::{Glob, GlobError};
+use redkiln_guard::glob::{Glob, GlobError};
 
 /// The most files a change may touch and skip full review.
 pub(crate) const MAX_FILES: usize = 2;

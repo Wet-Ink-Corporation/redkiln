@@ -21,13 +21,13 @@ mod word;
 
 use std::mem;
 
-pub(crate) use extglob::OPENERS as EXTGLOB_OPENERS;
+pub use extglob::OPENERS as EXTGLOB_OPENERS;
 use extglob::Place;
 use redirect::Heredoc;
-pub(crate) use word::{Expansion, Globs, Shape, Word};
+pub use word::{Expansion, Globs, Shape, Word};
 
 /// How deep `$( )`, backticks, `( )` and `${ }` may nest before a command is refused (H-13).
-pub(crate) const MAX_NESTING: usize = 32;
+pub const MAX_NESTING: usize = 32;
 
 /// Words that may come before a reserved word such as `esac` in command position.
 const RESERVED: [&str; 10] = [
@@ -36,28 +36,28 @@ const RESERVED: [&str; 10] = [
 
 /// A simple command: its words, the files its redirections write, and its standard input.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct SimpleCommand {
+pub struct SimpleCommand {
     /// The words, program first.
-    pub(crate) words: Vec<Word>,
+    pub words: Vec<Word>,
     /// The targets of `>`, `>>`, `>|`, `&>`, `<>` and `>&file`.
-    pub(crate) writes: Vec<Word>,
+    pub writes: Vec<Word>,
     /// Where its standard input comes from.
-    pub(crate) stdin: Stdin,
+    pub stdin: Stdin,
     /// Whether a `(` follows its words, as in a function definition (`name()`, `function
     /// name()`). One after keywords alone (`if (`), after `case ... in` or after an array
     /// assignment (`a=(`) does not count.
-    pub(crate) defines_function: bool,
+    pub defines_function: bool,
     /// Whether it was read inside an arithmetic expression (`$(( ))`, `(( ))`, or a `( )`
     /// group inside one or inside `$[ ]`): its words are operands and operators, not a program
     /// and its arguments. It is listed as any other command, so the denylist reads it as before.
-    pub(crate) arithmetic: bool,
+    pub arithmetic: bool,
     /// The heredoc it reads, by number, until the body is read.
     heredoc: Option<usize>,
 }
 
 /// Where a simple command's standard input comes from.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) enum Stdin {
+pub enum Stdin {
     /// The standard input of the whole command.
     #[default]
     Inherited,
@@ -72,7 +72,7 @@ pub(crate) enum Stdin {
 
 /// Why a command could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum ParseError {
+pub enum ParseError {
     /// A quote or substitution is never closed.
     #[error("an unclosed {what}")]
     Unclosed {
@@ -108,7 +108,7 @@ pub(crate) enum ParseError {
 /// # Errors
 /// [`ParseError`] when a quote or substitution is not closed, nesting is too deep, or a
 /// redirection has no target: the shell would refuse it or read it differently.
-pub(crate) fn parse(text: &str) -> Result<Vec<SimpleCommand>, ParseError> {
+pub fn parse(text: &str) -> Result<Vec<SimpleCommand>, ParseError> {
     parse_with(text, Extglob::Read)
 }
 
@@ -118,7 +118,7 @@ pub(crate) fn parse(text: &str) -> Result<Vec<SimpleCommand>, ParseError> {
 ///
 /// # Errors
 /// As [`parse`].
-pub(crate) fn parse_without_extglob(text: &str) -> Result<Vec<SimpleCommand>, ParseError> {
+pub fn parse_without_extglob(text: &str) -> Result<Vec<SimpleCommand>, ParseError> {
     parse_with(text, Extglob::Ignored)
 }
 

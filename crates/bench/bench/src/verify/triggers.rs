@@ -6,8 +6,8 @@
 use serde::Serialize;
 
 use crate::floor_guard::change::Touched;
-use crate::glob::{Glob, GlobError};
 use crate::ship::skip_rule::{DEFAULT_SENSITIVE, MAX_LISTED};
+use redkiln_guard::glob::{Glob, GlobError};
 
 /// A change with more changed lines than this (added plus removed) is reviewed.
 pub(crate) const LINE_TRIGGER: u64 = 400;

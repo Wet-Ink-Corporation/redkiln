@@ -3,7 +3,7 @@
 //! reads the same words to run.
 
 use crate::hook::guard::denylist::wrappers::{Program, Run, unwrap};
-use crate::hook::guard::shell;
+use redkiln_guard::shell;
 
 const PROBES: &str = include_str!("../../../../../tests/fixtures/wrappers/probes.txt");
 

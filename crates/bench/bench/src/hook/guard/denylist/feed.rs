@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 
 use super::wrappers::{self, Program, Run};
-use crate::hook::guard::shell::{SimpleCommand, Stdin};
+use redkiln_guard::shell::{SimpleCommand, Stdin};
 
 /// What a command reading its standard input gets.
 #[derive(Debug)]

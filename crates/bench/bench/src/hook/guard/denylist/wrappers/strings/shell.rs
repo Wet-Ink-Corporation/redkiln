@@ -37,7 +37,7 @@ use super::script_file;
 use crate::hook::guard::denylist::braces::reads_as_written;
 use crate::hook::guard::denylist::readings::may_start_shell_options;
 use crate::hook::guard::denylist::wrappers::Run;
-use crate::hook::guard::shell::Word;
+use redkiln_guard::shell::Word;
 
 /// What one reading of a shell's options has set so far: `c` (the first operand is the
 /// command string) and `s` (the script is standard input).

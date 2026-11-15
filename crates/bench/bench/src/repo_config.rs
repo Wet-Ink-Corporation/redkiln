@@ -24,7 +24,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use crate::glob::{Glob, GlobError};
+use redkiln_guard::glob::{Glob, GlobError};
 
 /// The config file, relative to the worktree root.
 pub(crate) const CONFIG_PATH: &str = ".anneal/config.json";
