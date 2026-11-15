@@ -1,14 +1,12 @@
-# Redkiln Rust 2.0 runbook: temper (draft)
+# Redkiln Rust 2.0 runbook: temper
 
 temper becomes Redkiln Rust, `rk-rust` 2.0. It differs from the other moves: temper is a released product (1.x, Node), so it keeps shipping 1.x from its own repository until 2.0 cuts over, and its Rust port is finished here rather than imported finished. temper finished its move preparation on 2026-11-08 and has been frozen by Ryan since then.
 
-temper wrote what only it knows in its import manifest, temper `docs/plans/redkiln-move.md`: where each path goes, what stays behind, what this root must provide, the state imported once and its issue triage. This runbook does not repeat it. It adds what this repository decides: when the import happens, what the import PR must solve here, and the calls still open. It is a **draft**, re-checked when the import is next.
+temper wrote what only it knows in its import manifest, temper `docs/plans/redkiln-move.md`: where each path goes, what stays behind, what this root must provide, the state imported once and its issue triage. This runbook does not repeat it. It adds what this repository decides: when the import happens, what the import PR must solve here, and the calls for Ryan before it. The end state is `references/docs/rust.md`, the formats are `spec/`, the rules are `AGENTS.md`, and the template is [move-2-bench.md](move-2-bench.md).
 
-Facts below were checked on 2026-11-08 against temper `main` at `ab78a31` (1.6.0 released; `2.0.0-alpha.2` built from the port) and redkiln `main` at `d80e7fb`.
+Facts below were re-checked on 2026-11-15 against temper `main` at `5e6690f` (1.6.0 released; `2.0.0-alpha.2` built from the port; nothing merged since 2026-11-08) and redkiln `main` at `eb08dff`. They rest on a trial placement: temper's tree copied into a scratch checkout of redkiln by the manifest's table, with the four crates as workspace members and the root given the dependencies the crates need, then this repository's checks run over it (see Trial placement). Nothing from the trial was committed.
 
 ## Decided (Ryan, 2026-11-08, temper's Weigh-In sitting)
-
-The open flag from the merge briefing (the port was being built in temper's repository, not here as the migration plan said) is settled:
 
 | Call | Decision | Record |
 | --- | --- | --- |
@@ -18,37 +16,103 @@ The open flag from the merge briefing (the port was being built in temper's repo
 | Install (D1, D13, D14, D17) | npm retired; builds in `libexec/<target>/` behind the shared launcher | temper wi-02195d, wi-12d8ef |
 | crates.io (D2) | Not published; names kept | temper wi-0eea27 |
 | MSRV (D4) | 1.98.1 from the import | temper wi-a2240a |
-| Dependencies (D10) | The suite's set (`redkiln-core`, `clap`, `time`) from the import. The `toml` and `sha2` version splits are settled separately: the root steps up before Move 2 (Ryan, 2026-11-08) | temper wi-fa59d1; the version splits: redkiln `docs/decisions.md`, 2026-11-08 |
+| Dependencies (D10) | The suite's set (`redkiln-core`, `clap`, `time`) from the import. The `toml` and `sha2` version splits were settled by the root stepping up before Move 2 (#77) | temper wi-fa59d1; `docs/decisions.md`, 2026-11-08 |
 | Old state (Invariant 3) | 2.0 reads 1.x state until it imports it once into the shared log | temper wi-f4c3ac |
+| The telemetry branch | Retired for new adoptions; existing adoptions keep it until the cutover; the branch is not imported | temper wi-b1bfb5 |
+| temper #193 (a GHCR artifact for assay's pinned gates) | Closed as superseded: Review pins temper inside this repository; a packaging need is reopened here | temper wi-39f19a |
+| #172, #173 (the `check` subcommands, `gate --base --findings-out`) | Contracts only in 1.x (`docs/contracts/`); the Rust engine builds them here | temper wi-0924e6 |
+| Timing | Imported right after Move 2 (Core 1.0), before Move 3 | `docs/decisions.md`, 2026-11-08 |
+| claude.ai | Left on temper 1.5.0 until 2.0; no plugin folder inside another plugin's root (R-7) | `docs/decisions.md`, 2026-11-14 (wi-0dd1c27515) |
+
+The last three temper questions (wi-b1bfb5, wi-39f19a, wi-0924e6) were decided by Ryan on 2026-11-08 (temper #215, its `docs/history/decisions.md`); this runbook's earlier draft still listed them as open.
 
 These amend the migration plan's "Not here: any Rust code for 2.0. The port starts in the monorepo" and "the Node 1.x is not imported as code": the whole of temper `main` is imported, and the Node engine lands at `tools/rust/engine-1x/` as the parity oracle until the cutover deletes it (D11).
 
-## When
+## Preconditions
 
-The import's gate is Core 1.0, which freezes at Move 2. **Decided (Ryan, 2026-11-08): the import comes right after Move 2, before Move 3** (`docs/decisions.md`). Even so, Rust's move has a long middle: the import (steps 1 to 6) is quick, then Phases 4 to 8 are built here, and only the cutover releases `rk-rust` 2.0.0, transfers the issues and archives temper (steps 7 and 8). "One product in motion" applies to the import itself; the port's phases run beside the next move, as the migration plan always intended ("the port runs alongside moves 3 and 4").
+| # | Precondition | State | Evidence |
+| --- | --- | --- | --- |
+| P1 | Move 2 closed: Core 1.0 and SPEC 1.0.0 cut (M2-G) | Open | Move 2 step 5 (the cuts) is in progress; steps 6 to 8 follow ([move-2-bench.md](move-2-bench.md)) |
+| P2 | temper frozen, nothing half-finished | **Met** | No merge since 2026-11-08. Open: issues #21, #101, #103, #172, #173, #190 (all "keep, transfer" in the manifest) and one Dependabot PR (#203, actions; workflows are not imported, so it closes at the archive). Branches: `main` and that Dependabot branch |
+| P3 | The root's `toml` 1.1 and `sha2` 0.11 | **Met** | #77 (2026-11-10) |
+| P4 | The root's vendored temper at the latest 1.x | **Met** | #78 (1.6.0, 2026-11-10). The trial's `baseline --check` over the four crates found 0 findings, so the import adds no baseline entries |
+| P5 | `crates/rust/` is a listed plugin folder | **Met** | `tools/xtask/src/layers.rs` lists `rust`; `cargo xtask layers` passed in the trial with the four crates as members |
+| P6 | The libexec-in-Cowork spike (the premise of wi-02195d) | Open | Gates the 2.0.0 release, not the import |
+| P7 | Calls R2-A to R2-E decided | Open | Below |
+
+## What is different about this move
+
+- **Two engines for a while.** The 1.x Node engine stays the product users run (from temper's repository) and the parity oracle here, until the cutover. The 2.0 binary answers every hook but `stop` and `subagent-stop` today (`RUST_READY` in temper's `scripts/launch.mjs`), and of the commands only `scan`, `status` and `--version`; `gate`, `baseline`, `report`, `setup` and `stats` are Phase 4 work.
+- **Nothing ships from here before 2.0.0.** `plugins/rust/` and `plugins/rust-lens/` are not installed anywhere until the cutover: Ryan keeps temper 1.x (Rust call E, R-7). So the plugin's skills and agents may keep naming `node ${CLAUDE_PLUGIN_ROOT}/scripts/temper.mjs` until each command graduates, and the cutover rewrites them to `libexec/temper`; only `hooks/hooks.json` must change at the door, because `cargo xtask plugins` checks it.
+- **This repository's own gate is temper.** The root runs the vendored 1.6.0 at `.claude/temper/`, which the import does not touch. Switching the root gate to `rk-rust` is the last step of the cutover, not of the import.
+- **The import is the short part.** Steps 1 to 3 below are quick; Phases 4 to 8 then run beside Moves 3 and 4, as the migration plan intended.
+
+## Calls before the import
+
+Each is put to Ryan by decision card before the import PR is built. The recommendation is what the trial was run against.
+
+| # | Call | Door | Recommendation |
+| --- | --- | --- | --- |
+| R2-A | **Names at the door.** The blueprint names Rust's crates `rust-craft-domain`, `-app` and `-cli` (`references/docs/blueprint.md`, crate table); temper's manifest keeps `temper-domain`, `-app`, `-host`, `-cli` and the binary `temper`, and Rust call E renames the stored contracts (`temper_*` keys, `.claude/temper*`, `TEMPER_*`, `.git/temper/`) at the cutover | H-16 (crate names) | **Keep the four crate names and the binary `temper` through the import; rename both at the cutover with call E's contracts,** so the parity harness, Review's pin and the 1.x oracle name one binary until then. The install ids `rk-rust` and `rk-rust-lens` and the folders `plugins/rust/`, `plugins/rust-lens/` and `crates/rust/` come in the door commit. Alternative: rename crates and binary at the door, as Bench did (M2-B), and teach the parity harness both names |
+| R2-B | **Where `temper`'s command list lives.** `cargo xtask plugins` check (a) refuses a launcher copy without a command list (`NoCommandList`), and `tools/xtask` reaches only Core, kits and contract crates. temper has no contract crate, and `temper-cli` parses its own arguments (no `clap`, D10) | H-16 (crate boundary) | **A `rust-contract` crate** at `crates/rust/rust-contract/` (depends on nothing but Core, if anything), born in the import PR with `cli::{BINARY, COMMANDS, VALUE_OPTIONS}` for the ported commands (`hook`, `scan`, `status`, `--version`), pinned against `temper-cli`'s parser by a test there, as M2-C did for Bench. Later the `rust.*` event types (temper `docs/contracts/rust-events.md`) and the `check` JSON contracts (#172, #173) Review reads. Alternative: the list in `tools/xtask`, pinned by a test in `temper-cli` |
+| R2-C | **Hook protocol at the import.** Check (b) (SPEC CLI-13) refuses Claude Code's payload and response keys outside the binary's `src/harness` adapter. In the trial it refused 89 lines in 21 files: 8 production files (`temper-app/src/hooks/{pre_bash, pre_edit, pre_edit/edited, pre_handback, skill, subagent_stop}.rs`, `temper-cli/src/wire.rs` with its `CLAUDE_*` variables, and `temper-domain/src/hooks/outcome.rs`, which builds the `hookSpecificOutput`, `systemMessage` and `additionalContext` objects) and 13 out-of-line test files. Unlike M2-D this is not only a move: the response is rendered in the domain crate, and the charter keeps harness protocol out of domain and application crates | Code in the import PR, or H-05 (a check) | **An adapter commit in the import PR**: `temper-cli/src/harness/claude_code.rs` reads the payload keys into typed inputs and renders the response from a harness-neutral outcome the domain returns; the app takes the typed inputs; the 13 test files name the keys through the adapter's constants, so no assertion changes. Hook output must stay byte for byte as 1.x prints it: the hook parity cases (`tools/rust/parity/hooks.test.mjs`) run in the PR as the proof. Alternative: a named, temporary exemption for `crates/rust/` in check (b), removed by a tracked step before Phase 4 graduates `stop` and `subagent-stop`; that weakens a check, so it is Ryan's under H-05 |
+| R2-D | **Templates.** The manifest puts `templates/` (`workspace/`, `crate/`, `example-workspace/`) under `plugins/rust/templates/`. There the `plugins/` allowlist refuses all 78 files (CLI first: no policy data in a plugin), and wherever they sit, their seven `AGENTS.md` files (template content, not this repository's charters) count as charters for `tools/charters/check.sh`: in the trial their chains came to 26,086 to 39,206 bytes against the 24,576-byte budget | H-05 (a check) for the charters; two-way for the folder | **The templates move into the CLI that serves them**, `crates/rust/temper-cli/templates/` (as anneal's playbooks did, D2), embedded or read by `temper setup` when it is ported; the root's `exclude` gains that folder so cargo leaves the example workspace alone. **`check.sh` leaves out that one named folder**, as it leaves out `references/`, with a test. The cost: an agent working inside a template folder loads a chain over Codex's 32 KiB (the deepest template charter is cut first). Alternative: store the template charters as `AGENTS.md.tmpl` and have setup rename them on install, which changes setup's behaviour, the example workspace's own gate and its `CLAUDE.md` imports |
+| R2-E | **The root's dependency rows** (manifest, "What the redkiln root must provide"). Still missing at `eb08dff`: `regex` 1.13 (`std`, `perf`, `unicode`; already in the lockfile through `jsonschema`, so no crate is added), `wait-timeout` 0.2.1 (new crate), `proptest` 1.12 as a dev-dependency (`std` only; adds `proptest`, `rand`, `rand_core`, `rand_xorshift`, `chacha20`, `core_detect`, `unarray`), `toml`'s `preserve_order` feature and `serde_json`'s `float_roundtrip` feature. Cargo unifies features, so the last two change `toml` and `serde_json` for every crate | H-16 | **Approve all five as temper has them (D10, wi-b03273, 2b)**, each row in `[workspace.dependencies]` with its reason, and `regex`, `wait-timeout` and `proptest` added to `.claude/temper.json`'s pre-approved list. The trial ran the whole workspace with both features on: 5,093 tests, and every failure was one the trial itself explains (see Trial placement); `cargo deny check` stayed clean. Alternative: none that keeps the port's parity cases, which depend on `float_roundtrip` |
+
+Two-way defaults, taken unless Ryan reopens them:
+
+- **Placement** as temper's manifest lists it, with these changes the checks force: `CONTRIBUTING.md` and `SECURITY.md` to `docs/rust/` (the `plugins/` allowlist has no place for them); the templates per R2-D; the lens's `hooks/lens/register.tsx` to `hooks/mod/lens.tsx` and `tests/lens.test.ts` to `hooks/mod/lens.test.ts`, the mod plugin layout `rk-bench-cockpit` uses; `docs/troubleshooting.md` to `docs/rust/` with the README's links repointed (a link is not data the plugin needs).
+- **The lens** gets a `libexec/temper` launcher copy (as `rk-weigh-in-mod`, M1-C) and its argv moves from `node ${root}/scripts/temper.mjs` to `${root}/libexec/temper`. `status --json` is ported; `stats --json` is not, so the lens's stats view stays empty until Phase 4, which nobody sees, since the lens is not installed from here before 2.0.0.
+- **Atoms.** temper's 88 atoms in `.kb/_intake/decisions/` go straight to `.kb/decision/` (Knowledge calls B and C, as Bench's did). In the trial `cargo xtask ids` passed with them (159 knowledge-base files).
+- **Crate charters.** `temper-domain`'s `AGENTS.md` is 32,093 bytes, `temper-app`'s 24,275 and `temper-cli`'s 9,708; with the root's 14,942 their chains are 47,035, 39,217 and 24,650 bytes, over the budget (`temper-host`'s is 20,187). Each keeps its rules and module map and moves the rest to `docs/rust/crates/<crate>.md`, as Move 2 step 5.0 did for weighin's.
+- **Tests that read repository data** are retargeted, with no assertion changed: `temper-domain/src/manifest/tests/parse.rs` (two `include_str!` of the template manifests) and `temper-cli/tests/it/hooks.rs` (the rust-craft `SKILL.md` and `hooks/hooks.json`). The trial found no other. Each is listed for Ryan (H-12).
+- **`xtask/`** is not placed: `check-licenses` becomes a `cargo xtask` task here (each crate keeps its licence copies), `versions` is replaced by this repository's per-package version check, and `check-npm-lock` and `npm-pack` go with npm (wi-02195d).
+- **1.x fixes after the import** (R-3 below) land in temper and, in the same sitting, in `tools/rust/engine-1x/`.
+
+## Trial placement (2026-11-15)
+
+temper `5e6690f` copied into a scratch checkout of redkiln `eb08dff` by the manifest's table, with the four crates as members (`crates/rust/*`), the five R2-E rows added to the root, and the R2-D template folder.
+
+| Check | Result |
+| --- | --- |
+| `cargo build --workspace --all-targets` | Green once the two test files above were retargeted |
+| The four crates' tests | 1,000 passed (372, 17, 84, 448, 28 and 51 across their targets) |
+| `cargo nextest run --workspace` | 5,093 passed, 4 failed, 2 skipped. Two failures are the plugins and harness checks' own repository tests (the R2-C and layout refusals below); two are Bench's `eval_uplift::work_dir` tests, which assume the workspace is not under `/tmp`, where the scratch tree was |
+| `node .claude/temper/temper.mjs baseline --check` | PASS, 0 findings: the port's crates already meet the root's lint tables and temper 1.6.0's scan |
+| `[workspace.lints]`, `clippy.toml` | Identical to temper's; the root's `deny.toml` is temper's plus the M2-A and jsonschema exceptions |
+| `cargo deny check` | ok (the duplicate warnings are the same four as on `main`) |
+| `cargo xtask layers` | ok, 13 members |
+| `cargo xtask ids` | ok with the 88 atoms in `.kb/decision/` |
+| `cargo xtask plugins` | 180 refusals: 89 harness lines (R2-C); 9 hooks running `node` (R-1); the 78 template files and `CONTRIBUTING.md`, `SECURITY.md` (R2-D, placement); the lens's `register.tsx` and `lens.test.ts` (placement) |
+| `sh tools/charters/check.sh` | Three crate chains and seven template chains over budget (R2-D, crate charters) |
 
 ## What the import PR must solve here
 
 | # | Item | Default (two-way unless marked) |
 | --- | --- | --- |
-| R-1 | **Hooks fail `cargo xtask plugins`.** temper's `hooks/hooks.json` runs `node ${CLAUDE_PLUGIN_ROOT}/scripts/temper.mjs hook <event>`, and the manifest places `scripts/` at `tools/rust/engine-1x/`. At `plugins/rust/` that is a hook the check refuses and a path that does not exist | The door commit points every hook at `${CLAUDE_PLUGIN_ROOT}/libexec/temper hook <event>` with a launcher copy. Nothing ships `rk-rust` before 2.0, and with no build the launcher fails open. The port's binary answers every hook but `stop` and `subagent-stop` today (`RUST_READY` in temper's `scripts/launch.mjs`; both graduate in Phase 4) |
-| R-2 | **Root dependency gaps** (manifest, "What the redkiln root must provide"): `toml` 1.1 against 0.9.12, `sha2` 0.11 against 0.10, no `regex`, `wait-timeout` or `proptest`, `serde_json`'s `float_roundtrip` (which Cargo unifies for every crate) | One-way (H-16). The version splits are settled: the root steps up to `toml` 1.1 and `sha2` 0.11 before Move 2 (Ryan, 2026-11-08). The rest are rows in the import PR |
+| R-1 | **Hooks fail `cargo xtask plugins`.** temper's `hooks/hooks.json` runs `node ${CLAUDE_PLUGIN_ROOT}/scripts/temper.mjs hook <event>` (nine hooks), and `scripts/` goes to `tools/rust/engine-1x/` | The door commit points every hook at `${CLAUDE_PLUGIN_ROOT}/libexec/temper hook <event>` with a launcher copy. Nothing ships `rk-rust` before 2.0, and with no build the launcher fails open |
+| R-2 | **Root dependency gaps** | R2-E |
 | R-3 | **1.x after the import.** temper keeps shipping 1.x, but its tree is now also here as the oracle | From the import on, 1.x takes fixes only; each fix lands in temper and, in the same sitting, in `tools/rust/engine-1x/`, so the oracle never lags the release users run |
-| R-4 | **The root's vendored gate.** This repository runs temper 1.4.0 at `.claude/temper/`; temper is at 1.6.0 | **Decided (Ryan, 2026-11-08):** bump the root copy to the latest 1.x in its own PR, after Move 1 closes and before Move 2's re-baseline, so Bench is baselined once under the newer engine |
-| R-5 | **Kits.** `redkiln-guard` is first cut at Move 2 (from anneal); `redkiln-craft` is born with Rust | The kit-bound modules move out after the import is green, one PR per kit, never in the import |
-| R-6 | **Lens plugin.** `plugins/temper-lens/` becomes `plugins/rust-lens/`, a mod plugin with its own launcher copy (as `rk-weigh-in-mod`) | As the manifest says |
-| R-7 | **No plugin inside a plugin.** claude.ai's sync refuses a plugin root that holds another `.claude-plugin/plugin.json`: temper's root plugin (`source: "./"`) has held `plugins/temper-lens/` since 2026-10-31 (temper d27882d), so every sync since skips temper and claude.ai still serves 1.5.0 | `rk-rust` and `rust-lens` ship as sibling folders in the release repository, never nested. Ryan chose on 2026-11-14 to leave claude.ai on temper 1.5.0 until then rather than serve 1.6.0 from `redkiln-plugins` |
+| R-4 | **The root's vendored gate** | Done: 1.6.0 (#78). Unchanged by the import |
+| R-5 | **Kits.** `redkiln-guard` exists since Move 2 step 5 (anneal's lexer and globs); `redkiln-craft` is born with Rust | The kit-bound modules move out after the import is green, one PR per kit, never in the import. temper's shell reader and `redkiln-guard`'s lexer are two readers of one language; which one the kit keeps is decided at that PR, with both test suites run against the survivor |
+| R-6 | **Lens plugin.** `plugins/temper-lens/` becomes `plugins/rust-lens/`, a mod plugin with its own launcher copy | As the two-way defaults above |
+| R-7 | **No plugin inside a plugin.** claude.ai's sync refuses a plugin root that holds another `.claude-plugin/plugin.json` (temper d27882d), which is why claude.ai still serves 1.5.0 | `rk-rust` and `rk-rust-lens` ship as sibling folders in the release repository, never nested. `plugins/rust/` and `plugins/rust-lens/` are already siblings here, and the release task copies each folder on its own |
+| R-8 | **CI.** temper's checks run in its own `ci.yml` today | New jobs under `ok`, selected by path in `changes`: the engine's Node tests (`tools/rust/engine-1x/`), the parity cases (`tools/rust/parity/`) against the built binary, the Python standard checks (`tools/rust/*.py`: registry, lint claims, rule map, doc examples, lens allowlist, contracts), and the lens's type check and plugin tests. The four crates join the existing `rust`, `rust-windows` and `rust-macos` jobs (wi-e85ef8). The paid `smoke.sh` and `claude plugin eval` stay manual, with Ryan's go-ahead each time |
 
-## Open questions temper left (Weigh-In, temper repository)
+## Rename at the door
 
-temper is frozen, so these are answered at the import, each through Weigh-In:
+The second commit changes names and paths only, with what makes the imported tree pass this repository's checks: install ids `rk-rust` and `rk-rust-lens` (R2-A), the folders, workspace members, the R2-E rows, `hooks/hooks.json` (R-1), the lens's argv and launcher copy, `exclude` for the templates (R2-D), the CI jobs (R-8), the retargeted test paths and `AGENTS.md` Layout and crate-map rows. The binary, crate names, stored contracts and `TEMPER_*` variables keep their names until the cutover (R2-A, Rust call E). Tags: `rk-rust--v<version>`, first used at 2.0.0; temper's `v1.*` and `v2.0.0-alpha.2` are not imported.
 
-| Id | Question | Bears on |
-| --- | --- | --- |
-| wi-b1bfb5 | What replaces the `temper-telemetry` branch? The plan's answer is SPEC journals; the open part is whether 1.x's branch is kept anywhere | Rust's events |
-| wi-39f19a | temper #193: a GHCR artifact for assay's pinned gates, or Review pins temper inside the monorepo | Move 3, code work step 4 |
-| wi-0924e6 | temper #172 and #173 (the `check` subcommands and `gate --base --findings-out` Review calls): built in 1.x, or in 2.0 | Review's temper adapter, which re-implements them today |
+## Code work, in order (sketch)
+
+Each line is a PR or a small group of PRs, under the temper gate and a fresh-context review.
+
+1. **Import** (placement merge, door rename, R2-C's adapter commit, R2-B's contract crate, R2-D's check change, the charter trims). The gate must be green with the code as imported, the hook parity cases byte for byte included.
+2. **The kits** (R-5): `redkiln-craft` from the completion gate, verdict validation, fingerprint, baseline ratchet and gate cache; temper's shell reader and protected globs into `redkiln-guard`. Each kit's dependencies are rows here; the crate boundaries are decided (wi-59cb6e).
+3. **Phases 4 to 8 on Core** (temper `docs/plans/temper-2-rust-port.md`, as amended): `stop` and `subagent-stop` graduate; `gate`, `baseline`, `report`, `setup` (with the templates and D15's migration) and `stats` are ported; facts become `rust.*` events in the Core store, and 1.x state under `<git-common-dir>/temper/` imports once (ST-15, wi-f4c3ac); the `check` subcommands of #172 and #173 are built for Review, whose temper adapter shrinks to a runner (Rust call D).
+4. **Cutover.** Stored contracts, crates and the binary renamed (Rust call E, R2-A); skills, agents and the lens run `libexec/temper`; `rk-rust` 2.0.0 and `rk-rust-lens` ship from `redkiln-plugins` as siblings (R-7); the root gate switches from the vendored temper to `rk-rust`; `tools/rust/engine-1x/` and `tools/rust/parity/` are deleted; the last 1.x release prints a SessionStart notice naming `rk-rust`.
+5. **Owner steps and archive.** Transfer the six keepers (#21, #101, #103, #172, #173, #190; labels from the suite manifest first), archive temper with a last commit pointing its README here. Each gets a paste block when its turn comes.
 
 ## Done when
 
-As the migration plan: at parity, `rk-rust` 2.0.0 ships from this repository, the root gate switches from the vendored temper to it, the Node oracle and `tools/rust/parity/` are deleted, the last 1.x release prints a SessionStart notice naming `rk-rust`, and temper is archived with its keepers transferred.
+As the migration plan: at parity, `rk-rust` 2.0.0 ships from this repository, the root gate switches from the vendored temper to it, the Node oracle and `tools/rust/parity/` are deleted, the last 1.x release prints a SessionStart notice naming `rk-rust`, and temper is archived with its keepers transferred. The import alone is done when temper's tip is in `main`'s history and the crates and both plugins pass this repository's gate, `cargo xtask layers`, `cargo xtask plugins`, `cargo xtask ids` and the charter check.
