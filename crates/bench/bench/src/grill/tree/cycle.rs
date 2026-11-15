@@ -1,5 +1,5 @@
 //! Cycle detection over `depends_on`, through the crate's shared detector
-//! ([`crate::cycle::find_cycle`]), which `dag` uses too.
+//! ([`crate::cycle::find_cycle`]), which the GitHub kit's graph copies for `dag`.
 
 use super::Node;
 use crate::cycle;

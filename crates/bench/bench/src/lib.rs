@@ -22,7 +22,8 @@
 //!   schemas, the route playbook and Clef's thresholds table).
 //! - [`mode`]: `bench mode build|diagnose|off`, the worktree's bench mode that the
 //!   `PreToolUse` preconditions hook (`hook preconditions`, on file edits) enforces.
-//! - [`dag`]: `bench dag check|frontier` over the tickets a tracker holds (markdown, GitHub).
+//! - [`dag`]: `bench dag check|frontier` over the tickets a tracker holds (markdown, GitHub);
+//!   tickets, the GitHub tracker, the graph and the estimate are the GitHub kit's.
 //! - [`decide`]: `bench decide`, one Clef question per decision point with its thresholds
 //!   applied and a row in `~/.anneal/decisions/decisions.jsonl`, and `decide label`.
 //! - [`calibrate`]: `bench calibrate`, each decision point scored against its labelled
@@ -49,7 +50,7 @@
 //!   or a deployment that exits with one code per blocker.
 //! - [`pr_diff`]: the bounded git reads of a pull request's diff (commits, base, patch id,
 //!   numstat, ancestry, the diff's text) that `verdict`, `ship`, `brief` and the merge gate
-//!   share.
+//!   share, from the GitHub kit (`redkiln_github::diff`), and their [`pr_diff::PrError`].
 //! - [`repo_config`]: `.anneal/config.json`, read within a size cap (`check_fast`,
 //!   `review.require_plugin`, `ship.sensitive_globs`, `orchestrate.leads`).
 //! - [`brief`]: `bench brief build`, a subagent's nine-field brief and its review package
