@@ -18,7 +18,7 @@
 //!
 //! The engine is the GitHub kit's `redkiln_github::watch` (the loop, the `Clock` and `Source`
 //! ports, the snapshot, the pull request, commit, review thread and deployment readers, and
-//! the `HeadGate` port; moved there in Move 2 step 5, PR 5.3b). Bench keeps:
+//! the `HeadGate` port). Bench keeps:
 //!
 //! - `blocker`: the exit codes and findings of a snapshot's blockers and pending work.
 //! - `code`: the exit code of the kit's `WatchError` (7).

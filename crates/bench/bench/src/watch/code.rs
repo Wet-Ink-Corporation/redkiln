@@ -19,8 +19,7 @@ pub(crate) const fn exit_code(error: &WatchError) -> Code {
     }
 }
 
-/// [`WatchError`]'s exit code as a method, as it was before the error moved to the kit, so the
-/// tests that assert it read unchanged.
+/// [`WatchError`]'s exit code as a method, for the tests that assert it.
 #[cfg(test)]
 pub(crate) trait WatchCode {
     /// The exit code ([`exit_code`]).

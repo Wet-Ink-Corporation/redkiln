@@ -1,5 +1,5 @@
-//! The two watch engine tests that assert Bench's exit code, moved here from the kit's
-//! `watch::threads::tests` and `watch::github::tests` with their assertions unchanged.
+//! The watch engine tests that assert Bench's exit code: a review-thread read whose two routes
+//! both fail, and a refused empty or dot ref.
 
 use super::WatchCode;
 use crate::watch::fake::FakeGh;

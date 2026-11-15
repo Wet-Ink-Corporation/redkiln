@@ -2,8 +2,8 @@
 //!
 //! A blocked watch exits with the code of its first blocker in this order: conflict 8, threads
 //! 3, checks and deployments 4, draft, merge state and the merge gate 6; every blocker is
-//! listed. The kit's [`Snapshot`], [`Blocker`] and [`Pending`] carry no code; this is the
-//! mapping `watch` had before they moved (Move 2 step 5, PR 5.3b).
+//! listed. The kit's [`Snapshot`], [`Blocker`] and [`Pending`] carry no code; Bench maps
+//! them here.
 
 use std::collections::HashSet;
 
