@@ -39,6 +39,7 @@ jobs:
       labels: ${{ steps.paths.outputs.labels }}
       weigh-in: ${{ steps.paths.outputs.weigh-in }}
       bench: ${{ steps.paths.outputs.bench }}
+      skillcheck: ${{ steps.paths.outputs.skillcheck }}
       charters: ${{ steps.paths.outputs.charters }}
       kb: ${{ steps.paths.outputs.kb }}
       has-plugins: ${{ steps.paths.outputs.has-plugins }}
@@ -88,6 +89,7 @@ jobs:
           area kb '^(\.kb/|crates/knowledge/|tools/xtask/)'
           area weigh-in '^(plugins/weigh-in(-mod)?/|tools/weigh-in/|tools/launcher/weighin-)'
           area bench '^(plugins/bench(-cockpit)?/|tools/bench/|tools/launcher/bench-)'
+          area skillcheck '^(plugins/[^/]+/skills/|evals/|tools/skillcheck/|crates/bench/bench-contract/|spec/schemas/cli-envelope-1\.schema\.json$|Cargo\.(toml|lock)$)'
 
   rust:
     needs: changes
@@ -347,9 +349,9 @@ jobs:
         run: bash tools/weigh-in/mod-check/mod-check.sh
 
   # Bench's own checks, imported with it (Move 2): the cockpit mod's manifest, plugin tests and
-  # strict tsc (anneal's cockpit job). No model calls. The Rust legs, `lint skills` (a cargo test,
-  # repo_gates) and the launcher smoke test of tools/launcher/bench-test-launcher.sh, which needs
-  # a built bench, join when bench's crates join the workspace (docs/plan/move-2-bench.md, step 1).
+  # strict tsc (anneal's cockpit job). No model calls. Bench's Rust runs in the rust jobs; skill
+  # QA is skillcheck's job below (Move 2 step 5). The launcher smoke test of
+  # tools/launcher/bench-test-launcher.sh, which needs a built bench, is not wired yet.
   bench:
     needs: changes
     if: needs.changes.outputs.bench == 'true'
@@ -368,8 +370,28 @@ jobs:
           TSC: npx --yes -p typescript@6.0.2 tsc
         run: bash tools/bench/cockpit-check/cockpit-check.sh
 
+  # Skill QA for every plugin's skills (tools/skillcheck, Move 2 step 5): Tier 0/1 lint and the
+  # Tier 3 --check tests, so a skill-only change runs them. No model calls.
+  skillcheck:
+    needs: changes
+    if: needs.changes.outputs.skillcheck == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+        with:
+          tool: cargo-nextest
+      - run: cargo nextest run -p skillcheck --locked --no-tests=fail
+
   ok:
-    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, bench, charters, kb]
+    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, bench, skillcheck, charters, kb]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:

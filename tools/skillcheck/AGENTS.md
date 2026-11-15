@@ -20,3 +20,14 @@ Workspace-internal; nothing is published (API-14). `cli::run`; `lint::{SkillsArg
 
 ## Test strategy
 Unit tests beside the code; integration tests in `tests/it/` run the built binary and go through `tests/it/support/conform.rs` (the SPEC schema, an id in `OUTPUTS`, one golden per id in `tests/fixtures/cli/`, `SKILLCHECK_BLESS=1` rewrites them). `tests/it/repo_gates.rs` holds the Tier 0, 1 and 3 `--check` bars over `plugins/bench/skills` and `evals/bench/`, and `bootstrap_index.rs` Bench's committed index. Run with `cargo nextest run -p skillcheck`.
+
+## Errors
+`CliError` maps each failure to `exit_codes`: usage errors 2 (bad arguments, an unknown `--plugin`, a `--changed-since` base that names no commit, a missing suites or skills directory, a `--skill` with no suites, an unreadable `--baseline` manifest, gated tools without `--allow-gated-tools`, fixtures without `--allow-scaffolds`), internal errors 70 (a path that cannot be read, the evaluation workspace, a `--baseline` that cannot be copied), a write failure on stdout or stderr 74. `eval` exits 4 when the real router cannot run its first batch and 5 for invalid fixtures, suites or skills. Findings and a result below its bound (exit 1) and a run stopped short (exit 3) are outcomes with an envelope, not errors.
+
+## Do not
+- Depend on a plugin's internal crates; what skillcheck knows of a plugin comes from its contract crate through a `Profile`.
+- Ship it: no launcher copy, no build under `plugins/`, and no skill, hook or prompt names it.
+- Change an envelope's `data` or a code's meaning without a decisions row; the goldens and `conform.rs` pin both.
+
+## Decisions
+Rows in `docs/decisions.md`: the move out of Bench and its test rewrites as a class (Move 2 step 5, D3), the `skillcheck.*` SPEC namespace, `--bench-binary` with the sibling lookup for `eval uplift`, and the `skillcheck` CI job (D4).

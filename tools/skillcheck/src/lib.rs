@@ -1,6 +1,5 @@
 //! `skillcheck` as a library: the binary in `main.rs` only hands it the process's arguments and
-//! streams. Skill QA for Redkiln plugins, moved out of Bench (Move 2 step 5, PR 5.1b); a dev
-//! tool, never shipped.
+//! streams. Skill QA for Redkiln plugins: a dev tool, never shipped.
 //!
 //! This library is internal to the binary and its tests (`publish = false`); its items are not
 //! a stable API (API-14).

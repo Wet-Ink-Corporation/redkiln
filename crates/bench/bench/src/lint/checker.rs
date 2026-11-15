@@ -1,8 +1,7 @@
 //! The one checker `bench lint rules` reports: design rule 10's `enforcer`.
 //!
-//! The full catalogue of skill checkers moved with `lint skills` to `tools/skillcheck` (Move 2
-//! step 5, PR 5.1b); this enum keeps the id and rule number `lint rules` findings carry, so
-//! their envelope bytes are unchanged.
+//! The full catalogue of skill checkers is `tools/skillcheck`'s, with `lint skills`; this enum
+//! holds only the id and rule number that `lint rules` findings carry.
 
 use std::fmt::{self, Display, Formatter};
 

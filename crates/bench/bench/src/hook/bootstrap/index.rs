@@ -1,10 +1,10 @@
 //! The bootstrap index: the stable part of what the `SessionStart` hook injects.
 //!
 //! It is what anneal is, the entry skills with their triggers, and the commands only the human
-//! runs, in 200 words or fewer (skill rule 4). The entry skills are the linter's
-//! `ENTRY_SKILLS`, in its order (a test holds them equal), so `lint skills` and the bootstrap
-//! agree on them. The same text is committed as `docs/bench/bootstrap-index.md`, which
-//! `bench lint skills --index` checks.
+//! runs, in 200 words or fewer (skill rule 4). The entry skills are `bench-contract`'s
+//! `ENTRY_SKILLS`, in its order (a test holds them equal), so `skillcheck lint skills` and the
+//! bootstrap agree on them. The same text is committed as `docs/bench/bootstrap-index.md`,
+//! which `skillcheck lint skills --index` checks.
 
 use std::fmt::{self, Display, Formatter};
 

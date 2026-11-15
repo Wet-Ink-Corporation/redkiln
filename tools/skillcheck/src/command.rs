@@ -1,7 +1,7 @@
 //! The closed set of top-level `skillcheck` commands and what a green result from each claims.
 //!
-//! The claims are Bench's own for `lint` and `eval`, word for word, so an envelope reads as it
-//! did under `bench` but for its `schema` id (Move 2 step 5, PR 5.1b).
+//! The claims are word for word those Bench gave for `lint` and `eval`, so an envelope differs
+//! from Bench's only in its `schema` id.
 
 use std::fmt::{self, Display, Formatter};
 

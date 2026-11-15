@@ -1,7 +1,7 @@
 //! The command tree and the entry point that turns arguments into an exit code.
 //!
-//! `skillcheck lint skills` and `skillcheck eval routing|uplift` keep the arguments, exit codes
-//! and stderr lines they had under `bench` (Move 2 step 5, PR 5.1b).
+//! `skillcheck lint skills` and `skillcheck eval routing|uplift` take Bench's former arguments
+//! and give its exit codes and stderr lines, with `skillcheck` as the prefix.
 
 use std::ffi::OsString;
 use std::io::Write;
