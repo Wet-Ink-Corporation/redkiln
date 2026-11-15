@@ -11,9 +11,9 @@
 
 mod paths;
 
-pub(super) use paths::Cwd;
 use paths::{CONTAINERS, contains_protected, last_component, protected};
 
+use super::cwd::Cwd;
 use super::wrappers::{Long, is_option, skip_one};
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::shell::{Shape, Word};

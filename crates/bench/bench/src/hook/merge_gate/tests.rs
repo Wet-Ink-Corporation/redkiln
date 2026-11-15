@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use super::pull::{Pull, check_repo, origin_repo, pull};
 use super::{Check, Screen, run, screen};
 use crate::hook::HookEnv;
-use crate::hook::guard::{Context, PrMerge, Target};
+use crate::hook::guard::{PrMerge, Target};
 
 fn merge(target: Target, repo: Option<&str>, match_head: Option<&str>) -> PrMerge {
     PrMerge {
@@ -22,7 +22,7 @@ fn merge(target: Target, repo: Option<&str>, match_head: Option<&str>) -> PrMerg
 /// How the gate screens `command` before reading git: `Some(check)` when it denies, `None`
 /// when it judges the command's merge.
 fn screened(command: &str) -> Option<Check> {
-    match screen(command, &Context::new(|_: &str| None)) {
+    match screen(command) {
         Screen::Deny(denial) => Some(denial.check),
         Screen::Judge(_) => None,
         Screen::NoMerge => panic!("{command}: no merge found"),
@@ -152,7 +152,7 @@ fn a_repository_named_as_host_owner_and_repository_passes_to_the_gate() {
 fn a_merge_whose_repository_may_differ_at_run_time_is_denied() {
     let command = r#"r=github.com/owner/repo; gh pr merge 7 --match-head-commit abc --repo "$r""#;
 
-    let Screen::Deny(denial) = screen(command, &Context::new(|_: &str| None)) else {
+    let Screen::Deny(denial) = screen(command) else {
         panic!("{command}: not denied");
     };
 
@@ -435,7 +435,7 @@ fn a_command_naming_merge_and_gh_or_a_definition_is_denied() {
 #[test]
 fn a_git_merge_naming_no_gh_word_is_allowed() {
     for command in ["git merge gh-pages", "git merge --no-ff feature"] {
-        let screened = screen(command, &Context::new(|_: &str| None));
+        let screened = screen(command);
 
         assert_eq!(screened, Screen::NoMerge, "{command}");
     }
@@ -443,7 +443,7 @@ fn a_git_merge_naming_no_gh_word_is_allowed() {
 
 #[test]
 fn a_gh_api_call_naming_no_merge_is_allowed() {
-    let screened = screen("gh api repos/o/r/pulls/7", &Context::new(|_: &str| None));
+    let screened = screen("gh api repos/o/r/pulls/7");
 
     assert_eq!(screened, Screen::NoMerge);
 }
@@ -451,7 +451,7 @@ fn a_gh_api_call_naming_no_merge_is_allowed() {
 #[test]
 fn a_run_time_program_or_a_definition_without_merge_in_the_command_is_allowed() {
     for command in ["$EDITOR x", "f(){ :; }; f", "alias ll='ls -l'"] {
-        let screened = screen(command, &Context::new(|_: &str| None));
+        let screened = screen(command);
 
         assert_eq!(screened, Screen::NoMerge, "{command}");
     }

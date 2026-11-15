@@ -1,24 +1,10 @@
 //! `git push` forcing a protected branch, `git add -f` (or `git stage -f`), and global
 //! settings that define an alias or run a command ([`settings`]).
 
-mod settings;
-
-pub(super) use settings::settings;
-
+use super::git_settings::{GLOBAL_VALUES, settings};
 use super::wrappers::{Long, is_long, may_be_option, skip_one, skip_options, takes_value};
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::shell::{Shape, Word};
-
-/// git's global options that take the next word as their value.
-const GLOBAL_VALUES: &[&str] = &[
-    "-C",
-    "-c",
-    "--git-dir",
-    "--work-tree",
-    "--namespace",
-    "--config-env",
-    "--super-prefix",
-];
 
 /// `git push` options that take the next word as their value.
 const PUSH_VALUES: &[&str] = &["--repo", "--receive-pack", "--exec", "--push-option"];

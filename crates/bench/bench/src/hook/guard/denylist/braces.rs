@@ -12,7 +12,6 @@ use std::borrow::Cow;
 use std::iter::Peekable;
 use std::ops::Range;
 
-use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::shell::{Expansion, Shape, Word};
 
 /// The most words brace expansion may make of one command's arguments (H-13).
@@ -22,9 +21,10 @@ const MAX_WORDS: usize = 256;
 /// makes more than [`MAX_WORDS`] words.
 const MAX_GROUPS: usize = 8;
 
-/// More words than [`MAX_WORDS`].
-#[derive(Debug)]
-struct TooMany;
+/// More words than [`MAX_WORDS`]; its message is the reason the engine refuses the command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("brace expansion makes more than {MAX_WORDS} words")]
+pub(super) struct TooMany;
 
 /// A word's text and where its expansions and quoted parts are in it, in order, borrowed.
 #[derive(Debug, Clone, Copy)]
@@ -116,18 +116,13 @@ pub(super) fn reads_as_written(word: &Word) -> bool {
 /// with no text that nothing quoted or expanded went into dropped, as bash drops it.
 ///
 /// # Errors
-/// An unparseable-command [`Denial`] when the expansion makes more than [`MAX_WORDS`] words
-/// (the words it makes; the others are not counted, as before the program was expanded too).
-pub(super) fn expand(args: &[Word]) -> Result<Cow<'_, [Word]>, Denial> {
+/// [`TooMany`] when the expansion makes more than [`MAX_WORDS`] words (the words it makes; the
+/// others are not counted, as before the program was expanded too); the engine refuses such a
+/// command as unreadable.
+pub(super) fn expand(args: &[Word]) -> Result<Cow<'_, [Word]>, TooMany> {
     if !args.iter().any(has_group) {
         return Ok(Cow::Borrowed(args));
     }
-    let too_many = |TooMany| {
-        Denial::new(
-            Rule::Unparseable,
-            format!("brace expansion makes more than {MAX_WORDS} words"),
-        )
-    };
     let mut expanded = Vec::new();
     let mut made: usize = 0;
     for arg in args {
@@ -138,7 +133,7 @@ pub(super) fn expand(args: &[Word]) -> Result<Cow<'_, [Word]>, Denial> {
             continue;
         }
         let mut pieces = Vec::new();
-        expand_text(Source::from(arg), &mut pieces, 0).map_err(too_many)?;
+        expand_text(Source::from(arg), &mut pieces, 0)?;
         let before = expanded.len();
         expanded.extend(
             pieces
@@ -148,7 +143,7 @@ pub(super) fn expand(args: &[Word]) -> Result<Cow<'_, [Word]>, Denial> {
         );
         made = made.saturating_add(expanded.len().saturating_sub(before));
         if made > MAX_WORDS {
-            return Err(too_many(TooMany));
+            return Err(TooMany);
         }
     }
     Ok(Cow::Owned(expanded))

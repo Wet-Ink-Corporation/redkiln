@@ -106,23 +106,9 @@ impl Rule {
     }
 }
 
-/// Why a command is denied.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Denial {
-    /// The entry that denied it.
-    pub(crate) rule: Rule,
-    /// One line naming what was denied and why.
-    pub(crate) reason: String,
-}
-
-impl Denial {
-    pub(crate) fn new(rule: Rule, reason: impl Into<String>) -> Self {
-        Self {
-            rule,
-            reason: reason.into(),
-        }
-    }
-}
+/// Why a command is denied: the [`Rule`] that denied it and one line naming what and why. The
+/// denylist's engine returns this type for the guard's packs, whose rules are [`Rule`]s.
+pub(crate) type Denial = denylist::PackDenial<Rule>;
 
 /// The guard's answer to a tool call.
 #[derive(Debug, Clone, PartialEq, Eq)]

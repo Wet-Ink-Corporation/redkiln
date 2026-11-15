@@ -1,10 +1,21 @@
 //! git's global `-c` and `--config-env` settings that run something: an alias defines a git
 //! command the guard cannot see, and keys such as `core.sshCommand` or `core.pager` run their
-//! value as a shell command.
+//! value as a shell command. The engine reads the scripts for every pack; the guard's `git`
+//! entry refuses what it cannot follow.
 
-use super::GLOBAL_VALUES;
 use crate::hook::guard::denylist::wrappers::{is_option, skip_one};
 use redkiln_guard::shell::Word;
+
+/// git's global options that take the next word as their value.
+pub(in crate::hook::guard::denylist) const GLOBAL_VALUES: &[&str] = &[
+    "-C",
+    "-c",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--config-env",
+    "--super-prefix",
+];
 
 /// Keys whose value git runs as a shell command (lower case).
 const COMMAND_KEYS: [&str; 9] = [

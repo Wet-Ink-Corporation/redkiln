@@ -431,8 +431,8 @@ it cannot model instead of modelling every shell feature, and it does not try to
 
 These are left undecided and go to Clef D1 (below).
 
-The merge gate (`docs/verdict.md`) reads commands with this checker in a probe mode
-(`Entries::PrMerge`) that collects `gh pr merge` calls and notes `GH_REPO`/`GH_HOST`
+The merge gate (`docs/verdict.md`) reads commands with this checker under another rule pack,
+the probe (`MergeProbe`, `denylist/probe.rs`), that collects `gh pr merge` calls and notes `GH_REPO`/`GH_HOST`
 assignments and directory changes (`cd`, `pushd`, `popd` anywhere; `env -C`, `sudo -D`,
 `sudo -i`, `su -`/`-l`, `find -execdir`). Those notes are defence in depth with the same
 limits as above (a gh run from a git pager, a name built at run time; an `env` short cluster
@@ -698,6 +698,9 @@ labelling is a follow-up.
 
 ## Adding a denylist entry
 
-Adding a denylist entry means a module under `hook/guard/denylist/`, an arm in `Checker::program` (`denylist/checker.rs`), a
+The checker (the engine) knows no entry: it walks the command and asks a rule pack at fixed
+points through the `Pack` trait (`denylist/seam.rs`), and stops at the first denial. The
+guard's pack is `GuardPack` (`denylist/entries.rs`). Adding a denylist entry means a module
+under `hook/guard/denylist/`, an arm in `GuardPack::command` (`denylist/entries.rs`), a
 `guard::Rule` with an id, a table test with near misses, and a row in `BASES` of
 `denylist/tests/forms.rs`, which checks it in every wrapping form.

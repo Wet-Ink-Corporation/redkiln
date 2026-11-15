@@ -5,7 +5,6 @@
 //! argument-command budget once, not once per reading.
 
 use super::{ALLOW, RM_RF, UNREADABLE, assert_table};
-use crate::hook::guard::denylist::tests::context;
 use crate::hook::guard::denylist::{MergeScan, Target, find_pr_merge};
 
 #[test]
@@ -65,7 +64,7 @@ fn a_merge_only_the_emptied_reading_shows_is_kept_with_its_number() {
     // As written, `"$x"gh` names no program the probe reads among an unknown program's
     // arguments; with `x` empty it is `gh`, so `caffeinate` runs `gh pr merge 7`.
     let command = "caffeinate \"$x\"gh pr merge 7";
-    let MergeScan::Read { merges, .. } = find_pr_merge(command, &context()) else {
+    let MergeScan::Read { merges, .. } = find_pr_merge(command) else {
         panic!("{command} read as unreadable");
     };
     let targets: Vec<Target> = merges.into_iter().map(|merge| merge.target).collect();

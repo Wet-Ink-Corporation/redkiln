@@ -10,6 +10,7 @@ mod forms;
 mod human_only;
 mod indirection;
 mod merge;
+mod seam;
 mod shell_option_readings;
 mod shell_options;
 mod shell_reader_merge;

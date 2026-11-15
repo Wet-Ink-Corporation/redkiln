@@ -57,9 +57,7 @@ use serde::Deserialize;
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::harness::claude_code::ToolUse;
-use crate::hook::guard::{
-    Context, GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge,
-};
+use crate::hook::guard::{GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge};
 use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
 use crate::paths::{self, PathError};
 use crate::pr_diff::Budget;
@@ -309,7 +307,7 @@ fn judge(
         );
         return Some((denial, open_existing(&cwd, lookup, budget)));
     };
-    let merge = match screen(&command, &Context::new(&lookup)) {
+    let merge = match screen(&command) {
         Screen::NoMerge => return None,
         Screen::Deny(denial) => return Some((denial, open_existing(&cwd, lookup, budget))),
         Screen::Judge(merge) => merge,
@@ -338,11 +336,11 @@ enum Screen {
 /// probe's tripwire fires (`MergeScan::Read`'s `unseen`). A merge found elsewhere is denied
 /// with the probe's most specific reason (`GH_REPO` set, a directory change, no pull request
 /// number), else as not the accepted command (`shape`).
-fn screen(command: &str, context: &Context) -> Screen {
+fn screen(command: &str) -> Screen {
     if let Some(merge) = canonical::read(command) {
         return Screen::Judge(merge);
     }
-    match find_pr_merge(command, context) {
+    match find_pr_merge(command) {
         MergeScan::Read { merges, unseen } => {
             let found = merges.iter().find_map(|merge| pull::pull(merge).err());
             match (found, merges.is_empty(), unseen) {

@@ -1,29 +1,37 @@
 //! The deterministic denylist: it denies a command or leaves it undecided, never allows.
 //!
-//! The command is lexed by [`shell::parse`](super::shell::parse) into every simple command it
-//! runs, and each is checked in order ([`checker`]). Each one is unwrapped ([`wrappers`]:
-//! leading assignments and keywords, `sudo`, `env`, `command`, `exec`, `nohup`, `time`, `nice`,
-//! `timeout`, `setsid`, `stdbuf`, `ionice`, `chrt`, `taskset`, `busybox`, `flock`, `xargs`,
-//! `find`'s actions, `function`, `coproc`, path prefixes) and the strings that shells, `eval`,
-//! `env -S`, `su -c`, `script -c`, `trap`, `watch`, `alias` and git's command settings run are
-//! lexed and checked in turn, as is a script a shell reads from a static heredoc, here-string
-//! or `echo` pipe ([`feed`]). Brace expansion is applied to arguments ([`braces`]), the values
-//! of variables the command sets are put in ([`variables`]), and a word holding both an
-//! expansion and a pattern is also judged with the expansion empty ([`readings`]). Then the
-//! entries: [`git`] (force push to a protected branch, `git add -f`), [`rm`] (recursive force
-//! delete outside temp and scratch), [`config`] (Bash writes to lint or hook config) and
-//! [`anneal`] (a human verdict or label, `--actor human`, from a model's Bash call). What the
-//! guard cannot model it denies. See `docs/guard.md`.
+//! The engine lexes the command with [`shell::parse`](redkiln_guard::shell::parse) into every
+//! simple command it runs, and checks each in order ([`checker`]). Each one is unwrapped
+//! ([`wrappers`]: leading assignments and keywords, `sudo`, `env`, `command`, `exec`, `nohup`,
+//! `time`, `nice`, `timeout`, `setsid`, `stdbuf`, `ionice`, `chrt`, `taskset`, `busybox`,
+//! `flock`, `xargs`, `find`'s actions, `function`, `coproc`, path prefixes) and the strings that
+//! shells, `eval`, `env -S`, `su -c`, `script -c`, `trap`, `watch`, `alias` and git's command
+//! settings ([`git_settings`]) run are lexed and checked in turn, as is a script a shell reads
+//! from a static heredoc, here-string or `echo` pipe ([`feed`]). Brace expansion is applied to
+//! arguments ([`braces`]), the values of variables the command sets are put in
+//! ([`variables`]), a word holding both an expansion and a pattern is also judged with the
+//! expansion empty ([`readings`]), and `cd` is followed ([`cwd`]). What may not run is a rule
+//! pack's, reached through [`seam::Pack`]: the guard's ([`entries::GuardPack`]: [`git`], force
+//! push to a protected branch and `git add -f`; [`rm`], recursive force delete outside temp
+//! and scratch; [`config`], Bash writes to lint or hook config; [`anneal`], a human verdict or
+//! label, `--actor human`, from a model's Bash call) and the merge gate's probe
+//! ([`probe::MergeProbe`]). What the engine cannot model it denies. The engine and the seam
+//! name no Bench type. See `docs/guard.md`.
 
 mod anneal;
 mod braces;
 mod checker;
 mod config;
+mod cwd;
+mod entries;
 mod feed;
 mod gh;
 mod git;
+mod git_settings;
+mod probe;
 mod readings;
 mod rm;
+mod seam;
 mod variables;
 mod wrappers;
 
@@ -32,19 +40,12 @@ use std::path::{Component, Path, PathBuf};
 
 use super::Denial;
 use crate::harness::claude_code::PROJECT_DIR_VAR;
-use checker::{Checker, Entries, Scope};
-use feed::Feed;
+pub(in crate::hook::guard) use checker::MAX_LEXED_MIB;
+use entries::GuardPack;
 pub(crate) use gh::{PrMerge, Target, read_target};
+use probe::MergeProbe;
+pub(in crate::hook::guard) use seam::Denial as PackDenial;
 pub(in crate::hook::guard) use wrappers::{FindActions, Layout, Role, layout, program_name};
-
-/// How deep `bash -c`, `eval`, `env -S` and `find -exec` may nest before a command is refused.
-pub(crate) const MAX_DEPTH: usize = 8;
-
-/// The most MiB lexed for one command, nested `bash -c` and `eval` strings included (H-13).
-pub(crate) const MAX_LEXED_MIB: usize = 4;
-
-/// [`MAX_LEXED_MIB`] in bytes.
-const MAX_LEXED_BYTES: usize = MAX_LEXED_MIB * 1024 * 1024;
 
 /// Directories under which `rm -rf` of a literal absolute path is allowed, besides `$TMPDIR`
 /// and `$CLAUDE_PROJECT_DIR/.scratch`.
@@ -58,7 +59,7 @@ const TEMP_ROOTS: [&str; 4] = [
 /// The project's scratch directory, under `$CLAUDE_PROJECT_DIR`.
 const SCRATCH_DIR: &str = ".scratch";
 
-/// What the rules need from the hook's environment.
+/// What the guard's entries need from the hook's environment.
 #[derive(Debug)]
 pub(crate) struct Context {
     /// Directories whose contents `rm -rf` may delete, normalized.
@@ -100,9 +101,9 @@ pub(crate) enum Verdict {
     Undecided,
 }
 
-/// Checks the Bash command `command` against the denylist.
+/// Checks the Bash command `command` against the denylist: the engine with the guard's pack.
 pub(crate) fn check(command: &str, context: &Context) -> Verdict {
-    match Checker::new(context, Entries::Denylist).text(command, top_level()) {
+    match checker::check(command, &mut GuardPack::new(context)) {
         Some(denial) => Verdict::Deny(denial),
         None => Verdict::Undecided,
     }
@@ -127,27 +128,18 @@ pub(crate) enum MergeScan {
 }
 
 /// Every `gh pr merge` the Bash command `command` runs, read as the guard reads commands
-/// (wrappers, `bash -c`, `eval`, scripts on stdin, variables), without the denylist's entries,
-/// and how it may run one the probe cannot read.
-pub(crate) fn find_pr_merge(command: &str, context: &Context) -> MergeScan {
-    let mut checker = Checker::new(context, Entries::PrMerge);
-    if let Some(denial) = checker.text(command, top_level()) {
+/// (wrappers, `bash -c`, `eval`, scripts on stdin, variables): the engine with the merge
+/// gate's probe in place of the denylist's entries, and how it may run one the probe cannot
+/// read.
+pub(crate) fn find_pr_merge(command: &str) -> MergeScan {
+    let mut probe = MergeProbe::default();
+    if let Some(denial) = checker::check(command, &mut probe) {
         return MergeScan::Unreadable(denial);
     }
-    let unseen = checker.unseen();
+    let unseen = probe.unseen();
     MergeScan::Read {
-        merges: checker.into_merges(),
+        merges: probe.into_merges(),
         unseen,
-    }
-}
-
-/// The scope of a command as the hook receives it.
-const fn top_level() -> Scope<'static> {
-    Scope {
-        feed: &Feed::Empty,
-        depth: 0,
-        appended: false,
-        moved: None,
     }
 }
 

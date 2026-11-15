@@ -457,11 +457,6 @@ fn is_checked(name: &str) -> bool {
     CHECKED.contains(&name) || !matches!(peel(name, &[]), Peel::Program)
 }
 
-/// Whether `word` names the program `name` (by path or with `.exe` too).
-pub(super) fn names_program(word: &Word, name: &str) -> bool {
-    program(word) == Program::Named(name)
-}
-
 /// Whether `word` names a program whose name (its last path component, a lowercase `.exe`
 /// removed) `matches`.
 pub(super) fn names_program_where(word: &Word, matches: impl FnOnce(&str) -> bool) -> bool {
