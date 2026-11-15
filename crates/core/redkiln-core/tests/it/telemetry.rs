@@ -621,8 +621,11 @@ fn telemetry_is_written_while_another_writer_holds_the_logs_lock() {
 
     let started = Instant::now();
     assert_eq!(write(&mut store, timing(1)), Recorded::At(1));
+    // Recorded while the log's lock is held throughout: the write never needed it. The bound is
+    // the open's busy wait, what a write that waited on a lock would have spent; a slow runner
+    // took 2.65 s creating the side store, past the 2 s of `Wait::Hook` it was held to before.
     assert!(
-        started.elapsed() < Wait::Hook.timeout(),
+        started.elapsed() < Wait::Command.timeout(),
         "{:?}",
         started.elapsed()
     );

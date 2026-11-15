@@ -14,6 +14,8 @@
 
 mod compaction;
 mod env_file;
+#[cfg(test)]
+mod import_tests;
 pub(crate) mod index;
 mod state;
 
@@ -78,7 +80,20 @@ where
     L: Fn(&str) -> Option<OsString>,
     W: Write,
 {
-    let context = context(read_input(env.stdin), env.current_dir, env.lookup);
+    serve(env, out, Budget::hook)
+}
+
+/// [`run`], with the import's budget `budget(started)` for a hook started at `started`:
+/// [`Budget::hook`], or another only in tests, so that what a test pins does not hang on how
+/// fast the runner spawns git (TST-10).
+fn serve<R, D, L, W>(env: HookEnv<R, D, L>, out: W, budget: fn(Instant) -> Budget) -> io::Result<()>
+where
+    R: Read,
+    D: FnOnce() -> io::Result<PathBuf>,
+    L: Fn(&str) -> Option<OsString>,
+    W: Write,
+{
+    let context = context(read_input(env.stdin), env.current_dir, env.lookup, budget);
     claude_code::write_session_start(out, &context)
 }
 
@@ -100,9 +115,10 @@ fn context(
     input: Result<Input, InputError>,
     current_dir: impl FnOnce() -> io::Result<PathBuf>,
     lookup: impl Fn(&str) -> Option<OsString>,
+    budget: fn(Instant) -> Budget,
 ) -> String {
     // The import's budget runs from here, before git or a store is asked anything.
-    let started = Instant::now();
+    let budget = budget(Instant::now());
     let (input, input_note) = match input {
         Ok(input) => (input, None),
         Err(error) => (
@@ -126,7 +142,7 @@ fn context(
     let path_note = env_file::export_libexec(&lookup);
     let (mut text, index_note) = plugin_index(&lookup);
     let (state, state_note, notices) = match &cwd {
-        Ok(cwd) => fresh_state(input.session_id.as_deref(), cwd, lookup, started),
+        Ok(cwd) => fresh_state(input.session_id.as_deref(), cwd, lookup, budget),
         Err(error) => (
             None,
             Some(format!(
@@ -189,13 +205,13 @@ fn plugin_index(lookup: impl Fn(&str) -> Option<OsString>) -> (String, Option<St
 /// The live state section for the ledger seen from `cwd`, unless `session` was already given
 /// exactly this state; a note when what the session was given could not be recorded; and what
 /// locating the store noticed (`$ANNEAL_STORE`, the suite config), one note each, then what
-/// the one-time import of an anneal ledger did, within the hook's budget from `started`. The
-/// import runs first, so the live state shows what it imported.
+/// the one-time import of an anneal ledger did, within the hook's `budget`. The import runs
+/// first, so the live state shows what it imported.
 fn fresh_state(
     session: Option<&str>,
     cwd: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
-    started: Instant,
+    budget: Budget,
 ) -> (Option<String>, Option<String>, Vec<String>) {
     let location = match paths::ledger_store_within(None, lookup, cwd, GIT_TIMEOUT) {
         Ok(location) => location,
@@ -208,15 +224,15 @@ fn fresh_state(
         .filter(|notice| !matches!(notice, Notice::OldLedger { .. }))
         .map(|notice| format!("bench: {notice}"))
         .collect();
-    notices.extend(import_notes(&location, started));
+    notices.extend(import_notes(&location, budget));
     let (state, note) = session_state(session, &location.path);
     (state, note, notices)
 }
 
-/// The one-time import of the anneal ledgers `location` found, within a hook's budget, as
+/// The one-time import of the anneal ledgers `location` found, within the hook's `budget`, as
 /// notes: none when nothing is due (then no store is opened or created).
-fn import_notes(location: &StoreLocation, started: Instant) -> Vec<String> {
-    match legacy_import::at_session_start(location, Budget::hook(started), GIT_TIMEOUT) {
+fn import_notes(location: &StoreLocation, budget: Budget) -> Vec<String> {
+    match legacy_import::at_session_start(location, budget, GIT_TIMEOUT) {
         Ok(None) => Vec::new(),
         Ok(Some(run)) => legacy_import::lines(&run)
             .into_iter()

@@ -1,13 +1,12 @@
 //! The one-time import of anneal ledgers, through the binary (Move 2 step 3.5, plan test list 32,
-//! 33, 40 and 42): `SessionStart` and a recording command import an old ledger once and leave
-//! it as it was; `$ANNEAL_STORE`'s ledger goes into the store beside it; `bench status` reports
+//! 33, 40 and 42): a recording command imports an old ledger once and leaves it as it was
+//! (`SessionStart`'s import is pinned in process, `src/hook/bootstrap/import_tests.rs`); `$ANNEAL_STORE`'s ledger goes into the store beside it; `bench status` reports
 //! what is due and imports nothing.
 
 use std::error::Error;
-use std::io::Write as _;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 
 use redkiln_core::store::{Filter, Store, Wait};
 use serde_json::Value;
@@ -84,72 +83,35 @@ fn counts(types: &[String]) -> (usize, usize) {
     )
 }
 
-/// `bench hook bootstrap` in `cwd` with a `SessionStart` input naming it: its context.
-fn session_start(cwd: &Path) -> Result<String, Box<dyn Error>> {
-    let mut child = bench(cwd)
-        .args(["hook", "bootstrap"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    let input = serde_json::json!({
-        "session_id": "s1", "transcript_path": "/dev/null", "cwd": cwd,
-        "hook_event_name": "SessionStart", "source": "startup",
-    });
-    let mut stdin = child.stdin.take().ok_or("stdin is piped")?;
-    stdin.write_all(&serde_json::to_vec(&input)?)?;
-    drop(stdin);
-    let output = child.wait_with_output()?;
-    assert_eq!(output.status.code(), Some(0), "fails open: {output:?}");
-    let json: Value = serde_json::from_slice(&output.stdout)?;
-    Ok(json
-        .pointer("/hookSpecificOutput/additionalContext")
-        .and_then(Value::as_str)
-        .ok_or("additionalContext")?
-        .to_owned())
-}
-
 /// `bench ledger append` of [`TASK_DONE`] in `cwd`.
 fn append(cwd: &Path) -> Result<Output, Box<dyn Error>> {
     Ok(bench(cwd).args(["ledger", "append", TASK_DONE]).output()?)
 }
 
+/// What remains here of `session_start_imports_an_old_ledger_once_and_a_later_run_appends_nothing`:
+/// a later command says nothing and appends only its own event. The `SessionStart` half runs in
+/// process (`src/hook/bootstrap/import_tests.rs`), since the binary's 2 s deadline passed before
+/// the import on slow Windows runners (TST-10); here a command imports, with no deadline.
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn session_start_imports_an_old_ledger_once_and_a_later_run_appends_nothing() -> TestResult {
+fn a_command_after_the_import_says_nothing_and_appends_only_its_own_event() -> TestResult {
     let (work, old) = repository()?;
     let before = snapshot(&old)?;
     let store = work.path().join(".git/redkiln/events.sqlite3");
+    assert_eq!(append(work.path())?.status.code(), Some(0), "the import");
+    assert_eq!(counts(&types(&store)?), (23, 1), "imported, then appended");
 
-    let said = session_start(work.path())?;
-
-    assert!(
-        said.contains("is left as it is: its events are imported into the suite store, once")
-            && said.contains("22 imported, 0 already there, 1 skipped"),
-        "SessionStart says what it imported: {said}"
-    );
-    assert!(
-        said.contains("actor \"test\""),
-        "and the refused actor: {said}"
-    );
-    assert_eq!(counts(&types(&store)?), (22, 1), "22 events, one record");
-    assert_eq!(snapshot(&old)?, before, "the ledger is left as it was");
-
-    let again = session_start(work.path())?;
     let appended = append(work.path())?;
 
-    assert!(
-        !again.contains("anneal ledger"),
-        "nothing due, nothing said: {again}"
-    );
+    assert_eq!(appended.status.code(), Some(0), "{appended:?}");
     let stderr = String::from_utf8(appended.stderr)?;
     assert!(
         !stderr.contains("anneal ledger"),
-        "nor by a command: {stderr}"
+        "nothing due, nothing said: {stderr}"
     );
     assert_eq!(
         counts(&types(&store)?),
-        (23, 1),
+        (24, 1),
         "only the command's own event"
     );
     assert_eq!(snapshot(&old)?, before, "still as it was");

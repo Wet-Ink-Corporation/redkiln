@@ -102,7 +102,7 @@ Not in this move: `bench activity show|check` and the catalog (Move 4), Bench ca
 | M2-G | Cut SPEC 1.0.0 and Core 1.0 (the OW items freeze) | One-way | Step 6, once Bench conforms |
 | M2-H | Whether `weighin`'s and Bench's hook adapters become a kit, and its name | H-16 | Step 5, if the shared code is measured |
 | M2-I | Bench calls A to F that are still open (A: retire anneal's templates for the catalog's; B, C, D, F two-way) | As each says | A with the catalog (Move 4); the others proceed on their recommendations |
-| M2-J | Which older optional anneal calls to take (a nextest slow-timeout, a typed `DoneTasks` error, an injectable git ledger-lookup budget for the Windows `preconditions` flake) | Two-way | When the Windows legs first run in this repository's CI |
+| M2-J | Decided 2026-11-15 (Ryan, A): none of the three older anneal calls is taken; the Windows CI timing flakes they aimed at are fixed here instead (`docs/decisions.md`, 2026-11-15) | Two-way | Done |
 
 ## Done when
 
