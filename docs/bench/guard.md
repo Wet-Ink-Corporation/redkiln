@@ -521,7 +521,7 @@ so `&&`, `||`, `&` and newlines all show as `; `.
   unclosed `$[` (bash refuses it) marks the rest of its list, which only hides more.
 
 - **Words before the program**, each by the role the denylist's walk gives it
-  (as `denylist::layout` returns them), never by its text alone: keywords (`if`, `then`, `{`, `!`) as written;
+  (as the kit's `engine::wrappers::layout` returns them), never by its text alone: keywords (`if`, `then`, `{`, `!`) as written;
   an assignment the denylist reads as one (before the program, or after a wrapper that runs a command:
   `TOKEN=x deploy`, `sudo K=v run`, `env -i A=b cmd`) as `NAME=<redacted>`, a name over 64
   characters hidden too; a word standing in the place of a program that the walk reads as a
@@ -702,7 +702,7 @@ labelling is a follow-up.
 ## Adding a denylist entry
 
 The checker (the engine) knows no entry: it walks the command and asks a rule pack at fixed
-points through the `Pack` trait (`denylist/seam.rs`), and stops at the first denial. The
+points through the kit's `redkiln_guard::engine::Pack` trait (`crates/kits/redkiln-guard/src/engine/seam.rs`), and stops at the first denial. The
 guard's pack is `GuardPack` (`denylist/entries.rs`). Adding a denylist entry means a module
 under `hook/guard/denylist/`, an arm in `GuardPack::command` (`denylist/entries.rs`), a
 `guard::Rule` with an id, a table test with near misses, and a row in `BASES` of
