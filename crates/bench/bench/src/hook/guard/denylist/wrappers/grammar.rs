@@ -302,7 +302,7 @@ mod tests {
 
     fn words(command: &str) -> Vec<Word> {
         let mut commands = shell::parse(command).expect("the command parses");
-        commands.remove(0).words
+        commands.remove(0).into_words()
     }
 
     /// Each option as its name and value, and the texts of the words left.

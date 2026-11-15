@@ -528,7 +528,13 @@ mod tests {
                 let words: Vec<Vec<String>> = shell::parse_without_extglob(&read)
                     .expect("the string lexes")
                     .into_iter()
-                    .map(|command| command.words.into_iter().map(|word| word.text).collect())
+                    .map(|command| {
+                        command
+                            .into_words()
+                            .into_iter()
+                            .map(|word| word.text)
+                            .collect()
+                    })
                     .collect();
                 (words != [expected.to_vec()]).then(|| format!("{string:?} lexed as {words:?}"))
             })

@@ -171,20 +171,20 @@ impl Skeleton {
                 break;
             }
             if index > 0 {
-                let piped = command.stdin == Stdin::Pipe(index.checked_sub(1));
+                let piped = *command.stdin() == Stdin::Pipe(index.checked_sub(1));
                 line.separator(if piped { " | " } else { "; " });
             }
-            if command.arithmetic {
+            if command.arithmetic() {
                 // Operands and operators of `$(( ))` or `(( ))`, not a program and arguments.
                 line.word(REDACTED);
                 continue;
             }
-            self.words(&command.words, &mut line);
-            for target in &command.writes {
+            self.words(command.words(), &mut line);
+            for target in command.writes() {
                 line.word(">");
                 line.word(&shown_target(target));
             }
-            match command.stdin {
+            match command.stdin() {
                 Stdin::File => line.word("< <redacted>"),
                 Stdin::Text(_) => line.word("<<< <redacted>"),
                 Stdin::Inherited | Stdin::Pipe(_) => {}

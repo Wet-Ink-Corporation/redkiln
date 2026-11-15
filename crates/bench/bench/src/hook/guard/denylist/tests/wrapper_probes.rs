@@ -29,7 +29,7 @@ fn walk_runs(command: &str, observed: &str) -> Result<(), String> {
     let commands = shell::parse(command).map_err(|error| format!("{error:?}"))?;
     let mut rows = commands.iter().filter(|simple| {
         simple
-            .words
+            .words()
             .iter()
             .find(|word| !word.text.contains('='))
             .is_some_and(|word| word.text == wrapper)
@@ -37,7 +37,7 @@ fn walk_runs(command: &str, observed: &str) -> Result<(), String> {
     let (Some(simple), None) = (rows.next(), rows.next()) else {
         return Err(format!("not one simple command runs {wrapper}"));
     };
-    let run = unwrap(&simple.words);
+    let run = unwrap(simple.words());
     runs(&run, observed)
         .then_some(())
         .ok_or_else(|| format!("the walk runs {run:?}"))
@@ -56,12 +56,12 @@ fn runs(run: &Run<'_>, observed: &str) -> bool {
         Run::Script(text) => shell::parse(text).is_ok_and(|commands| {
             commands
                 .iter()
-                .any(|simple| runs(&unwrap(&simple.words), observed))
+                .any(|simple| runs(&unwrap(simple.words()), observed))
         }),
         Run::Split(text) => shell::parse_without_extglob(text).is_ok_and(|commands| {
             commands
                 .iter()
-                .any(|simple| runs(&unwrap(&simple.words), observed))
+                .any(|simple| runs(&unwrap(simple.words()), observed))
         }),
         Run::Either(readings) => readings.iter().any(|reading| runs(reading, observed)),
         _ => false,

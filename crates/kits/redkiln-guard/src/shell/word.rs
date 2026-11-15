@@ -62,6 +62,7 @@ pub enum Globs {
 
 impl Globs {
     /// [`Globs::Unquoted`] when `found`.
+    #[must_use]
     pub const fn found(found: bool) -> Self {
         if found { Self::Unquoted } else { Self::Absent }
     }
@@ -94,6 +95,7 @@ impl Word {
     }
 
     /// [`Word::quotes`] for a word whose text is all quoted: one range over `text`.
+    #[must_use]
     pub fn all_quoted(text: &str) -> Vec<Range<usize>> {
         std::iter::once(0..text.len()).collect()
     }
@@ -118,12 +120,14 @@ impl Word {
     }
 
     /// Whether the word holds an unquoted pattern character, whatever its shape.
+    #[must_use]
     pub fn has_pattern(&self) -> bool {
         self.globs == Globs::Unquoted
     }
 
     /// The word's text outside its expansions' source text, in order; `None` when an
     /// expansion's range is not in the text, which the lexer never makes.
+    #[must_use]
     pub fn outside_expansions(&self) -> Option<Vec<&str>> {
         let mut parts = Vec::with_capacity(self.expansions.len().saturating_add(1));
         let mut at = 0;
@@ -162,6 +166,7 @@ impl Word {
     }
 
     /// Whether the text is exactly what runs.
+    #[must_use]
     pub fn is_literal(&self) -> bool {
         self.shape == Shape::Literal
     }
@@ -180,6 +185,7 @@ impl Word {
     }
 
     /// Whether the word is one process substitution, `<( )` or `>( )`: a pipe's path.
+    #[must_use]
     pub fn is_process_substitution(&self) -> bool {
         matches!(self.expansions.as_slice(), [only] if only.range == (0..self.text.len()))
             && (self.text.starts_with("<(") || self.text.starts_with(">("))

@@ -11,8 +11,8 @@
 //! [`Word::globs`], set whatever the shape (`"$b"{-rf,/}` is dynamic and a pattern). An
 //! extended glob's group (`@(a|b)`) is part of its pattern word.
 //!
-//! Commands are read here; words (quotes, escapes, `$`) in [`word`], extended globs in
-//! [`extglob`], redirections in [`redirect`], heredoc bodies in [`heredoc`].
+//! Commands are read here; words (quotes, escapes, `$`) in `word`, extended globs in
+//! `extglob`, redirections in `redirect`, heredoc bodies in `heredoc` (private modules).
 
 mod extglob;
 mod heredoc;
@@ -35,24 +35,64 @@ const RESERVED: [&str; 10] = [
 ];
 
 /// A simple command: its words, the files its redirections write, and its standard input.
+///
+/// Only [`parse`] makes one; its parts are read through the accessors below.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct SimpleCommand {
     /// The words, program first.
-    pub words: Vec<Word>,
+    words: Vec<Word>,
     /// The targets of `>`, `>>`, `>|`, `&>`, `<>` and `>&file`.
-    pub writes: Vec<Word>,
+    writes: Vec<Word>,
     /// Where its standard input comes from.
-    pub stdin: Stdin,
+    stdin: Stdin,
+    /// Whether a `(` follows its words, as in a function definition.
+    defines_function: bool,
+    /// Whether it was read inside an arithmetic expression.
+    arithmetic: bool,
+    /// The heredoc it reads, by number, until the body is read.
+    heredoc: Option<usize>,
+}
+
+impl SimpleCommand {
+    /// The words, program first.
+    #[must_use]
+    pub fn words(&self) -> &[Word] {
+        &self.words
+    }
+
+    /// The words, program first, taken out of the command.
+    #[must_use]
+    pub fn into_words(self) -> Vec<Word> {
+        self.words
+    }
+
+    /// The targets of `>`, `>>`, `>|`, `&>`, `<>` and `>&file`.
+    #[must_use]
+    pub fn writes(&self) -> &[Word] {
+        &self.writes
+    }
+
+    /// Where its standard input comes from.
+    #[must_use]
+    pub const fn stdin(&self) -> &Stdin {
+        &self.stdin
+    }
+
     /// Whether a `(` follows its words, as in a function definition (`name()`, `function
     /// name()`). One after keywords alone (`if (`), after `case ... in` or after an array
     /// assignment (`a=(`) does not count.
-    pub defines_function: bool,
+    #[must_use]
+    pub const fn defines_function(&self) -> bool {
+        self.defines_function
+    }
+
     /// Whether it was read inside an arithmetic expression (`$(( ))`, `(( ))`, or a `( )`
     /// group inside one or inside `$[ ]`): its words are operands and operators, not a program
-    /// and its arguments. It is listed as any other command, so the denylist reads it as before.
-    pub arithmetic: bool,
-    /// The heredoc it reads, by number, until the body is read.
-    heredoc: Option<usize>,
+    /// and its arguments. It is listed as any other command, so a guard reads it as before.
+    #[must_use]
+    pub const fn arithmetic(&self) -> bool {
+        self.arithmetic
+    }
 }
 
 /// Where a simple command's standard input comes from.
@@ -112,9 +152,10 @@ pub fn parse(text: &str) -> Result<Vec<SimpleCommand>, ParseError> {
     parse_with(text, Extglob::Read)
 }
 
-/// Lexes `text` as [`parse`] does, but with no extended glob group read: for a string split
-/// by a program that is no shell (`env -S`), which knows no `@( )`, so reading one as a word
-/// would join words it keeps apart.
+/// Lexes `text` as [`parse`] does, but with no extended glob group read.
+///
+/// For a string split by a program that is no shell (`env -S`), which knows no `@( )`, so
+/// reading one as a word would join words it keeps apart.
 ///
 /// # Errors
 /// As [`parse`].

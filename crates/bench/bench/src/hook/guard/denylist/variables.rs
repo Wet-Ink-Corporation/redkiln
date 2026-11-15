@@ -23,7 +23,7 @@ pub(super) struct Variables {
 impl Variables {
     /// Records the variables `command` sets.
     pub(super) fn record(&mut self, command: &SimpleCommand) {
-        let words = skip_keywords(&command.words);
+        let words = skip_keywords(command.words());
         let Some(at) = words.iter().position(|word| !is_assignment(word)) else {
             for word in words {
                 self.assign(word);

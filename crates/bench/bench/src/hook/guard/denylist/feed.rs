@@ -25,7 +25,7 @@ pub(super) fn own_feed<'a>(
     command: &'a SimpleCommand,
     commands: &'a [SimpleCommand],
 ) -> Option<Feed<'a>> {
-    Some(match &command.stdin {
+    Some(match command.stdin() {
         Stdin::Inherited => return None,
         Stdin::File => Feed::File,
         Stdin::Text(text) if text.is_literal() => Feed::Static(Cow::Borrowed(&text.text)),
@@ -44,7 +44,7 @@ fn printed(writer: &SimpleCommand) -> Option<Cow<'_, str>> {
         program: Program::Named(name @ ("echo" | "printf")),
         args,
         ..
-    } = wrappers::unwrap(&writer.words)
+    } = wrappers::unwrap(writer.words())
     else {
         return None;
     };

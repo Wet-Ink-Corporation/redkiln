@@ -161,7 +161,7 @@ impl<'c> Checker<'c> {
             }
         };
         commands.iter().find_map(|command| {
-            if command.defines_function {
+            if command.defines_function() {
                 self.note_unseen(probe::DEFINITION);
             }
             self.note_mentions(command);
@@ -173,8 +173,8 @@ impl<'c> Checker<'c> {
     }
 
     fn command(&mut self, command: &SimpleCommand, scope: Scope<'_>) -> Option<Denial> {
-        let writes = self.variables.substitute(&command.writes);
-        let words = self.variables.substitute(&command.words);
+        let writes = self.variables.substitute(command.writes());
+        let words = self.variables.substitute(command.words());
         if let Some(denial) = self.note_human_actor(&words) {
             return Some(denial);
         }

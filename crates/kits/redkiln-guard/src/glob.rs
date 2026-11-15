@@ -7,7 +7,7 @@
 //! depth.
 
 /// The longest pattern accepted, in bytes (H-13).
-pub const MAX_GLOB_BYTES: usize = 256;
+pub(crate) const MAX_GLOB_BYTES: usize = 256;
 
 /// Why a pattern was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -74,12 +74,14 @@ impl Glob {
     }
 
     /// The pattern as written.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.pattern
     }
 
     /// Whether `path` (relative to the repository root, `/`-separated) matches the whole
     /// pattern.
+    #[must_use]
     pub fn matches(&self, path: &str) -> bool {
         let parts: Vec<Vec<char>> = path
             .split('/')

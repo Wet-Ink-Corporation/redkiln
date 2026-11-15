@@ -179,10 +179,10 @@ impl Checker<'_> {
         if self.entries != Entries::PrMerge {
             return;
         }
-        for word in &command.words {
+        for word in command.words() {
             self.mentions_merge |= holds_merge(&word.text);
         }
-        if let Stdin::Text(body) = &command.stdin {
+        if let Stdin::Text(body) = command.stdin() {
             self.mentions_merge |= holds_merge(&body.text);
         }
     }

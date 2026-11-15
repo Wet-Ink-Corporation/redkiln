@@ -1,9 +1,9 @@
 //! `bench hook guard`: the `PreToolUse` guard on Bash. It fails closed.
 //!
-//! It reads Claude Code's `PreToolUse` input on stdin, lexes the Bash command (`shell`) and
-//! checks it against the deterministic denylist (`denylist`). A denied command gets Claude
-//! Code's deny decision on stdout, whose reason is one `ERROR <reason>` line, and a
-//! `gate_blocked` event in the ledger. An allowed one gets no output. Whatever the guard cannot
+//! It reads Claude Code's `PreToolUse` input on stdin, lexes the Bash command with the guard
+//! kit's lexer (`redkiln_guard::shell`) and checks it against the deterministic denylist
+//! (`denylist`). A denied command gets Claude Code's deny decision on stdout, whose reason is
+//! one `ERROR <reason>` line, and a `gate_blocked` event in the ledger. An allowed one gets no output. Whatever the guard cannot
 //! read (input that is not `PreToolUse` JSON, over 1 MiB, a command with an unclosed quote) is
 //! denied; a failed write of the decision exits 2 (`cli` fails it closed). A Bash command the
 //! denylist leaves undecided gets `Fallback`'s answer unless Clef D1 (`clef`, #30), enforced,
