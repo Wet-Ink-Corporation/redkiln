@@ -9,7 +9,7 @@
 
 use super::braces::reads_as_written;
 use super::wrappers::may_be_option;
-use crate::hook::guard::shell::Word;
+use redkiln_guard::shell::Word;
 
 /// Long options of `gh` and `gh pr merge` that take the next word as their value.
 const VALUE_LONGS: &[&str] = &[

@@ -17,11 +17,11 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 use crate::exit_codes::{self, Code};
-use crate::glob::GlobError;
 use crate::paths::{self, PathError};
 use crate::process::{self, WaitError};
 use crate::repo_config::{FileError, GateConfigError};
 use crate::ship::skip_rule::NumstatError;
+use redkiln_guard::glob::GlobError;
 
 /// The base refs tried, in order, when none is given (as `floor-guard` does).
 pub(crate) const DEFAULT_BASES: [&str; 2] = ["origin/main", "main"];

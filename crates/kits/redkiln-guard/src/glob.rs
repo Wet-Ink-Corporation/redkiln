@@ -47,7 +47,7 @@ impl Glob {
     ///
     /// # Errors
     /// The [`GlobError`] naming why the pattern was refused.
-    pub(crate) fn new(pattern: &str) -> Result<Self, GlobError> {
+    pub fn new(pattern: &str) -> Result<Self, GlobError> {
         if pattern.is_empty() {
             return Err(GlobError::Empty);
         }
@@ -74,13 +74,15 @@ impl Glob {
     }
 
     /// The pattern as written.
-    pub(crate) fn as_str(&self) -> &str {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
         &self.pattern
     }
 
     /// Whether `path` (relative to the repository root, `/`-separated) matches the whole
     /// pattern.
-    pub(crate) fn matches(&self, path: &str) -> bool {
+    #[must_use]
+    pub fn matches(&self, path: &str) -> bool {
         let parts: Vec<Vec<char>> = path
             .split('/')
             .map(|part| part.chars().map(|c| c.to_ascii_lowercase()).collect())

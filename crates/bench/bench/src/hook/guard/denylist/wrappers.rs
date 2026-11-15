@@ -13,7 +13,7 @@ use std::ops::Range;
 use std::ptr;
 
 use super::{braces, readings};
-use crate::hook::guard::shell::{Shape, Word};
+use redkiln_guard::shell::{Shape, Word};
 
 /// Words that may start a simple command before its program.
 const KEYWORDS: [&str; 9] = [

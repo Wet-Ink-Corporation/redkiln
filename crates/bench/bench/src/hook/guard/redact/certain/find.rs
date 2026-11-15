@@ -15,7 +15,7 @@ use std::ops::Range;
 
 use super::holds;
 use super::shape::Shape;
-use crate::hook::guard::shell::{Shape as WordShape, Word};
+use redkiln_guard::shell::{Shape as WordShape, Word};
 
 /// Options before the paths that take no value; `-D` takes one, `-O` its level attached.
 const LEADING: &str = "-H -L -P";

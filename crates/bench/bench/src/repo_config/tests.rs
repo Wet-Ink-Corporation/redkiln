@@ -2,7 +2,7 @@ use super::{
     CONFIG_PATH, DEFAULT_LEADS, FileError, GateConfigError, LeadsError, MAX_LEAD_BYTES, MAX_LEADS,
     MAX_SENSITIVE_GLOBS, gate, gate_from_text, leads_from_text, orchestrate_leads,
 };
-use crate::glob::Glob;
+use redkiln_guard::glob::Glob;
 
 #[test]
 fn with_no_config_only_the_orchestrate_lead_may_spawn_from_a_subagent() {

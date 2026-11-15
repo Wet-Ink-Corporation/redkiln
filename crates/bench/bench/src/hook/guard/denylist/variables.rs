@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use super::wrappers::{is_assignment, is_option, skip_keywords};
-use crate::hook::guard::shell::{Expansion, Globs, Shape, SimpleCommand, Word};
+use redkiln_guard::shell::{Expansion, Globs, Shape, SimpleCommand, Word};
 
 /// The variables the command has set so far, in the order it runs.
 #[derive(Debug, Default)]
@@ -23,7 +23,7 @@ pub(super) struct Variables {
 impl Variables {
     /// Records the variables `command` sets.
     pub(super) fn record(&mut self, command: &SimpleCommand) {
-        let words = skip_keywords(&command.words);
+        let words = skip_keywords(command.words());
         let Some(at) = words.iter().position(|word| !is_assignment(word)) else {
             for word in words {
                 self.assign(word);

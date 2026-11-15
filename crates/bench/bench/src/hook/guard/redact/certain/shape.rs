@@ -6,7 +6,7 @@
 //! [`MAX_DIGITS`] digits (`find -maxdepth 99999999999` is out of range), no count of 0 where
 //! one is needed (`xargs -n 0`), no empty word (`env -C ''`).
 
-use crate::hook::guard::shell::Word;
+use redkiln_guard::shell::Word;
 
 /// Most digits in a number a shape takes: nine digits fit every wrapper's integer (an `int`
 /// at least), so none refuses one as out of range.

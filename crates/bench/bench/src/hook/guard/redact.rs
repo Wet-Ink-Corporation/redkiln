@@ -77,9 +77,9 @@ use std::ptr;
 use certain::End;
 
 use super::denylist::{self, FindActions, Layout, Role};
-use super::shell::{self, MAX_NESTING, ParseError, Shape, Stdin, Word};
 use crate::decide::redact::REDACTED;
 use crate::decide::state::cut_chars;
+use redkiln_guard::shell::{self, MAX_NESTING, ParseError, Shape, Stdin, Word};
 
 /// Most characters of the command kept, after redaction; a longer one ends in `…`. The same as
 /// `decide::state::MAX_STRING_CHARS`, so the compact state does not cut it again.
@@ -171,20 +171,20 @@ impl Skeleton {
                 break;
             }
             if index > 0 {
-                let piped = command.stdin == Stdin::Pipe(index.checked_sub(1));
+                let piped = *command.stdin() == Stdin::Pipe(index.checked_sub(1));
                 line.separator(if piped { " | " } else { "; " });
             }
-            if command.arithmetic {
+            if command.arithmetic() {
                 // Operands and operators of `$(( ))` or `(( ))`, not a program and arguments.
                 line.word(REDACTED);
                 continue;
             }
-            self.words(&command.words, &mut line);
-            for target in &command.writes {
+            self.words(command.words(), &mut line);
+            for target in command.writes() {
                 line.word(">");
                 line.word(&shown_target(target));
             }
-            match command.stdin {
+            match command.stdin() {
                 Stdin::File => line.word("< <redacted>"),
                 Stdin::Text(_) => line.word("<<< <redacted>"),
                 Stdin::Inherited | Stdin::Pipe(_) => {}

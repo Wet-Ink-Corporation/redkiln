@@ -4,7 +4,7 @@
 
 use super::GLOBAL_VALUES;
 use crate::hook::guard::denylist::wrappers::{is_option, skip_one};
-use crate::hook::guard::shell::Word;
+use redkiln_guard::shell::Word;
 
 /// Keys whose value git runs as a shell command (lower case).
 const COMMAND_KEYS: [&str; 9] = [

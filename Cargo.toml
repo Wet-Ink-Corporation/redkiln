@@ -14,7 +14,7 @@ resolver = "3"
 # sits in one of these places and that its edges point the allowed way. Cargo refuses a glob that
 # matches nothing or a folder without a manifest, so the first crate of each layer adds its
 # `crates/<layer>/*` glob here, and tools are listed one by one (tools/ also holds scripts).
-members = ["crates/bench/*", "crates/core/*", "crates/knowledge/*", "crates/weigh-in/*", "tools/xtask"]
+members = ["crates/bench/*", "crates/core/*", "crates/kits/*", "crates/knowledge/*", "crates/weigh-in/*", "tools/xtask"]
 
 [workspace.package]
 edition = "2024"
@@ -47,6 +47,9 @@ happenstance-sqlite = { version = "=0.6.0", features = ["sync"] }
 # `.redkiln/suite.toml` (ST-12): parse only, with serde; bounded nesting kept (no `unbounded`).
 # Approved 2026-11-02 (docs/decisions.md).
 toml = { version = "1.1", default-features = false, features = ["std", "parse", "serde"] }
+
+# Kits (crates/kits/): the guard kit, Move 2 step 5 (D4, Ryan 2026-11-14).
+redkiln-guard = { path = "crates/kits/redkiln-guard" }
 
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
 # 1.2.0's requirements; tokio, sha2, clap and time are M1-B.

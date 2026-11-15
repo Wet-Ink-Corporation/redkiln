@@ -11,7 +11,7 @@ use super::grammar::{Grammar, Name, Parsed, Read};
 use super::tables::{ENV, FLOCK, SCRIPT, SU, SU_TO_USER, SUDO, WATCH};
 use super::{Long, Peel, Run, is_option, join, skip_one, skip_options};
 use crate::hook::guard::denylist::braces::reads_as_written;
-use crate::hook::guard::shell::{Shape, Word};
+use redkiln_guard::shell::{Shape, Word};
 
 /// The `find` actions that run a command on each match.
 const FIND_EXEC: [&str; 4] = ["-exec", "-execdir", "-ok", "-okdir"];
@@ -496,7 +496,7 @@ pub(super) fn find(words: &[Word]) -> Peel<'_> {
 #[cfg(test)]
 mod tests {
     use super::split_by_env;
-    use crate::hook::guard::shell;
+    use redkiln_guard::shell;
 
     /// Each string lexes, once `split_by_env` has read it, into the words GNU coreutils 9.4's
     /// `env -S` split it into (observed with `env -S "printf <%q>\_ <string>"`).
@@ -528,7 +528,13 @@ mod tests {
                 let words: Vec<Vec<String>> = shell::parse_without_extglob(&read)
                     .expect("the string lexes")
                     .into_iter()
-                    .map(|command| command.words.into_iter().map(|word| word.text).collect())
+                    .map(|command| {
+                        command
+                            .into_words()
+                            .into_iter()
+                            .map(|word| word.text)
+                            .collect()
+                    })
                     .collect();
                 (words != [expected.to_vec()]).then(|| format!("{string:?} lexed as {words:?}"))
             })
