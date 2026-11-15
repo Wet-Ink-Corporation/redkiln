@@ -2,7 +2,7 @@
 
 temper becomes Redkiln Rust, `rk-rust` 2.0. It differs from the other moves: temper is a released product (1.x, Node), so it keeps shipping 1.x from its own repository until 2.0 cuts over, and its Rust port is finished here rather than imported finished. temper finished its move preparation on 2026-11-08 and has been frozen by Ryan since then.
 
-temper wrote what only it knows in its import manifest, temper `docs/plans/redkiln-move.md`: where each path goes, what stays behind, what this root must provide, the state imported once and its issue triage. This runbook does not repeat it. It adds what this repository decides: when the import happens, what the import PR must solve here, and the calls for Ryan before it. The end state is `references/docs/rust.md`, the formats are `spec/`, the rules are `AGENTS.md`, and the template is [move-2-bench.md](move-2-bench.md).
+temper wrote what only it knows in its import manifest, temper `docs/plans/redkiln-move.md`: where each path goes, what stays behind, what this root must provide, the state imported once and its issue triage. This runbook does not repeat it. It adds what this repository decides: when the import happens, what the import PR must solve here, and the calls Ryan decided before it (R2-A to R2-E). The end state is `references/docs/rust.md`, the formats are `spec/`, the rules are `AGENTS.md`, and the template is [move-2-bench.md](move-2-bench.md).
 
 Facts below were re-checked on 2026-11-15 against temper `main` at `5e6690f` (1.6.0 released; `2.0.0-alpha.2` built from the port; nothing merged since 2026-11-08) and redkiln `main` at `eb08dff`. They rest on a trial placement: temper's tree copied into a scratch checkout of redkiln by the manifest's table, with the four crates as workspace members and the root given the dependencies the crates need, then this repository's checks run over it (see Trial placement). Nothing from the trial was committed.
 
@@ -38,7 +38,7 @@ These amend the migration plan's "Not here: any Rust code for 2.0. The port star
 | P4 | The root's vendored temper at the latest 1.x | **Met** | #78 (1.6.0, 2026-11-10). The trial's `baseline --check` over the four crates found 0 findings, so the import adds no baseline entries |
 | P5 | `crates/rust/` is a listed plugin folder | **Met** | `tools/xtask/src/layers.rs` lists `rust`; `cargo xtask layers` passed in the trial with the four crates as members |
 | P6 | The libexec-in-Cowork spike (the premise of wi-02195d) | Open | Gates the 2.0.0 release, not the import |
-| P7 | Calls R2-A to R2-E decided | Open | Below |
+| P7 | Calls R2-A to R2-E decided | **Met** | Ryan, 2026-11-15, each as recommended (below) |
 
 ## What is different about this move
 
@@ -49,9 +49,9 @@ These amend the migration plan's "Not here: any Rust code for 2.0. The port star
 
 ## Calls before the import
 
-Each is put to Ryan by decision card before the import PR is built. The recommendation is what the trial was run against.
+Ryan decided all five on 2026-11-15 by decision card in the thread "Prepare temper import for Rust 2.0", each as recommended (option A; Weigh-In wi-9c60e87901, wi-486a802fea, wi-6758a9449a, wi-590fef3454, wi-6456e0b074, atoms in `.kb/decision/`). The recommendation column is the decision; the alternatives are kept for the record.
 
-| # | Call | Door | Recommendation |
+| # | Call | Door | Decision (as recommended) |
 | --- | --- | --- | --- |
 | R2-A | **Names at the door.** The blueprint names Rust's crates `rust-craft-domain`, `-app` and `-cli` (`references/docs/blueprint.md`, crate table); temper's manifest keeps `temper-domain`, `-app`, `-host`, `-cli` and the binary `temper`, and Rust call E renames the stored contracts (`temper_*` keys, `.claude/temper*`, `TEMPER_*`, `.git/temper/`) at the cutover | H-16 (crate names) | **Keep the four crate names and the binary `temper` through the import; rename both at the cutover with call E's contracts,** so the parity harness, Review's pin and the 1.x oracle name one binary until then. The install ids `rk-rust` and `rk-rust-lens` and the folders `plugins/rust/`, `plugins/rust-lens/` and `crates/rust/` come in the door commit. Alternative: rename crates and binary at the door, as Bench did (M2-B), and teach the parity harness both names |
 | R2-B | **Where `temper`'s command list lives.** `cargo xtask plugins` check (a) refuses a launcher copy without a command list (`NoCommandList`), and `tools/xtask` reaches only Core, kits and contract crates. temper has no contract crate, and `temper-cli` parses its own arguments (no `clap`, D10) | H-16 (crate boundary) | **A `rust-contract` crate** at `crates/rust/rust-contract/` (depends on nothing but Core, if anything), born in the import PR with `cli::{BINARY, COMMANDS, VALUE_OPTIONS}` for the ported commands (`hook`, `scan`, `status`, `--version`), pinned against `temper-cli`'s parser by a test there, as M2-C did for Bench. Later the `rust.*` event types (temper `docs/contracts/rust-events.md`) and the `check` JSON contracts (#172, #173) Review reads. Alternative: the list in `tools/xtask`, pinned by a test in `temper-cli` |
