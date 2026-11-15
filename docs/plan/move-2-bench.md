@@ -17,7 +17,7 @@ Facts below were checked on 2026-11-09 against anneal `main` at `664aaa5` and re
 | P5 | Plugin data out of `plugins/` (CLI first) | **Met** | `playbooks/` moved into the CLI behind `anneal playbook show` (anneal #235), and the hook metadata into a code table (#237). Four files are only relocated at the import (manifest, Plugin layout) |
 | P6 | Harness protocol in one module | **Not met for this repository's check** | anneal #238 put every `CLAUDE_*` name production code reads in `crates/anneal-cli/src/harness.rs`, and anneal's own test skips every test module. This repository's check (b) is stricter: it skips only inline `#[cfg(test)] mod` blocks, not out-of-line `tests.rs` files. Run over the placed crates on 2026-11-09, it refuses tokens in 40 files: 29 under `src/hook/`, plus `src/hook.rs`, `src/release_check.rs` and 9 out-of-line test files (`calibrate/tests.rs`, `calibrate/tests/dashboard.rs`, `decide/tests.rs`, `decide/in_process/tests.rs`, `grill/classify/tests.rs`, `snapshot/tests.rs`, `status/tests.rs`, `status/tests/clef_unreadable.rs`, `statusline/tests.rs`) that spell `CLAUDE_*` literals. See M2-D |
 | P7 | Bench's status hook accepts temper's `Status: WIP` | **Met** | anneal #236 (registry 10). Core's one Status grammar replaces it at the SPEC freeze (code work, step 6) |
-| P8 | Move 1 closed (2.0.0 released, #16) | Open | One product in motion at a time. The release workflow, owner setup and cutover (#25 to #27) and #48 are in progress |
+| P8 | Move 1 closed (2.0.0 released, #16) | **Met** | 2.0.0 released 2026-11-10; Move 1's Done when held on 2026-11-15 (surface check by Ryan), and #16 closed (`docs/plan/README.md`) |
 | P9 | The root steps up to `toml` 1.1 and `sha2` 0.11 (#50), then the root's vendored temper to the latest 1.x (#52) | Open | Both decided by Ryan on 2026-11-08 for before Move 2; #52 runs after Move 1 closes, so Bench is baselined once under the newer engine. anneal has no baseline (its vendored temper is 1.3.0, as strict as `-D warnings`), so the re-baseline should add nothing |
 | P10 | R-SQLITE ran, so ST-05 can freeze | **Met** | #61, `spikes/r-sqlite/FINDINGS.md`. It leaves two Core items for this move (code work, step 2) |
 
@@ -102,7 +102,7 @@ Not in this move: `bench activity show|check` and the catalog (Move 4), Bench ca
 | M2-G | Cut SPEC 1.0.0 and Core 1.0 (the OW items freeze) | One-way | Step 6, once Bench conforms |
 | M2-H | Whether `weighin`'s and Bench's hook adapters become a kit, and its name | H-16 | Step 5, if the shared code is measured |
 | M2-I | Bench calls A to F that are still open (A: retire anneal's templates for the catalog's; B, C, D, F two-way) | As each says | A with the catalog (Move 4); the others proceed on their recommendations |
-| M2-J | Decided 2026-11-15 (Ryan, A): none of the three older anneal calls is taken; the Windows CI timing flakes they aimed at are fixed here instead (`docs/decisions.md`, 2026-11-15) | Two-way | Done |
+| M2-J | Which older optional anneal calls to take (a nextest slow-timeout, a typed `DoneTasks` error, an injectable git ledger-lookup budget for the Windows `preconditions` flake) | Two-way | **Decided 2026-11-15** (Ryan, card A): none of the three, since the `preconditions` flake never appeared here. The Windows failures that did (9 of 24 pushes to `main` from 2026-11-10 to 2026-11-14, all hook-budget timing tests in Weigh-In, Bench and Core) are fixed as one class in their own thread, the way #90 and #92 did |
 
 ## Done when
 
