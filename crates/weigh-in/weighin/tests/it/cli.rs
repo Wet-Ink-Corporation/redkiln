@@ -5,8 +5,8 @@ use crate::support::{
     LAUNCHER_LIMIT, MESSAGE, Run, annotate_scanned_and_rescan, bin, capture_both_markers,
     context_pack_for, folder_store, hook, in_a_folder_with_no_ledger, isolated_launcher,
     items_seen_from_a_worktree, launcher_target, reopen_default_from_the_board, run_within,
-    scan_one, scan_written_plan, settle_crlf_question, setup, sit_and_decide, state_of, weighin,
-    weighin_env, wrote_in,
+    scan_one, scan_written_plan, session_context, settle_crlf_question, setup, sit_and_decide,
+    state_of, weighin, weighin_env, wrote_in,
 };
 use serde_json::{Value, json};
 use std::io::Write as _;
@@ -389,18 +389,6 @@ fn session_start_on_windows_names_a_copy_the_shell_can_run() {
         String::from_utf8_lossy(&version.stdout).contains(env!("CARGO_PKG_VERSION")),
         "{copy}"
     );
-}
-
-/// What `SessionStart` gave Claude: its whole output, or `additionalContext` when it also has a
-/// `systemMessage` for the user and so prints JSON; `None` for JSON without it.
-fn session_context(out: &str) -> Option<String> {
-    match serde_json::from_str::<Value>(out) {
-        Ok(json) => json
-            .pointer("/hookSpecificOutput/additionalContext")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        Err(_) => Some(out.to_owned()),
-    }
 }
 
 /// A config's `store` (a 2.x fallback) is a warning for the user, so `SessionStart` prints JSON

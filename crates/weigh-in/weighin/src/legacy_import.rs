@@ -46,13 +46,19 @@ pub(crate) use notes::{command_notes, notes, place, problem_lines};
 pub(crate) enum Mode {
     /// `SessionStart`: sources up to [`MAX_HOOK_SOURCE_BYTES`] together (a journal no run reads
     /// counting nothing), and no batch, nor page of the store's events, read after
-    /// `started + HOOK_START_BY`.
-    Hook { started: Instant },
+    /// `started + start_by`: the `start_by` of the hook's budget, 2 s (`None`, no deadline, only
+    /// in tests).
+    Hook {
+        started: Instant,
+        start_by: Option<Duration>,
+    },
     /// A command: no deadline; Core's and this module's caps only.
     Command,
 }
 
-/// How long after the hook started a batch may still start.
+/// How long after the hook started a batch may still start: the `start_by` of `SessionStart`'s
+/// budget (`Budget::SESSION_START`), which the hook passes; tests pin the two equal.
+#[cfg(test)]
 pub(crate) const HOOK_START_BY: Duration = Duration::from_secs(2);
 /// The most source bytes `SessionStart` imports; more waits for a command.
 pub(crate) const MAX_HOOK_SOURCE_BYTES: u64 = 8 * 1024 * 1024;
@@ -207,7 +213,7 @@ pub(crate) fn import_due(env: &Env, mode: Mode, actor: &str) -> Result<Legacy> {
         ts: Timestamp::from_system_time(SystemTime::now()).context("the import's time")?,
         author: store.author(actor)?,
         deadline: match mode {
-            Mode::Hook { started } => started.checked_add(HOOK_START_BY),
+            Mode::Hook { started, start_by } => start_by.and_then(|by| started.checked_add(by)),
             Mode::Command => None,
         },
     };
