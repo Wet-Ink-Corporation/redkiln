@@ -1,4 +1,4 @@
-//! The lint finding model shared by every `bench lint` target: severity, location, message and
+//! The lint finding model `lint skills` reports: severity, location, message and
 //! the fix string, and its conversion to the envelope's [`Finding`].
 
 use std::fmt::{self, Display, Formatter};
