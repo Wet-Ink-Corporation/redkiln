@@ -5,8 +5,8 @@
 //! reported cycle) come out in the same order on every run.
 //!
 //! ```
-//! use bench::dag::graph::Graph;
-//! use bench::dag::ticket::{Status, Ticket, TicketId};
+//! use redkiln_github::graph::Graph;
+//! use redkiln_github::ticket::{Status, Ticket, TicketId};
 //!
 //! let ticket = |id: &str, blocked_by: &[&str], status| Ticket {
 //!     id: TicketId::new(id),
@@ -22,15 +22,16 @@
 //!     ticket("3", &["2"], Status::Open),
 //! ])?;
 //!
-//! assert!(graph.check().code().is_success());
+//! let check = graph.check();
+//! assert!(check.dangling.is_empty() && check.cycle.is_none());
 //! let ready: Vec<&str> = graph.frontier().map(|t| t.id.as_str()).collect();
 //! assert_eq!(ready, ["2"]);
-//! # Ok::<(), bench::dag::graph::GraphError>(())
+//! # Ok::<(), redkiln_github::graph::GraphError>(())
 //! ```
 
-use crate::cycle;
-use crate::dag::ticket::{Status, Ticket, TicketId};
-use crate::exit_codes::{self, Code};
+mod cycle;
+
+use crate::ticket::{Status, Ticket, TicketId};
 
 /// A ticket's blocker that names no ticket in the graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +67,8 @@ pub struct Graph {
     dangling: Vec<Dangling>,
 }
 
-/// What `dag check` found.
+/// What [`Graph::check`] found. A cycle through a missing ticket cannot be judged, so a caller
+/// ranking the two puts dangling references first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Check<'g> {
     /// Every dangling reference.
@@ -74,22 +76,6 @@ pub struct Check<'g> {
     /// One cycle, if any: each id is blocked by the next and the last by the first, starting
     /// at the smallest id.
     pub cycle: Option<Vec<&'g TicketId>>,
-}
-
-impl Check<'_> {
-    /// The exit code: [`exit_codes::DAG_DANGLING`] when any reference dangles (a cycle through
-    /// a missing ticket cannot be judged, so dangling comes first), else
-    /// [`exit_codes::DAG_CYCLE`] for a cycle, else [`exit_codes::OK`].
-    #[must_use]
-    pub const fn code(&self) -> Code {
-        if !self.dangling.is_empty() {
-            exit_codes::DAG_DANGLING
-        } else if self.cycle.is_some() {
-            exit_codes::DAG_CYCLE
-        } else {
-            exit_codes::OK
-        }
-    }
 }
 
 /// Whether a ticket is one the graph is about, or only a blocker from outside it.
@@ -258,6 +244,3 @@ impl Graph {
         cycle::find_cycle(&self.blockers)
     }
 }
-
-#[cfg(test)]
-mod tests;

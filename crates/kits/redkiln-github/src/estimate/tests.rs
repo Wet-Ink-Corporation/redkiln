@@ -2,7 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use super::{Basis, MAX_FILE_TOKENS, MAX_FILES, UNKNOWN_FILE_TOKENS, estimate, named_files};
-use crate::dag::ticket::{Status, Ticket, TicketId};
+use crate::ticket::{Status, Ticket, TicketId};
 
 fn ticket(body: &str, files: &[&str]) -> Ticket {
     Ticket {

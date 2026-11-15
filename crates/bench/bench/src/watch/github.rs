@@ -20,7 +20,7 @@ use super::gate::HeadGate;
 use super::poll::Source;
 use super::snapshot::{Blocker, Pending, Snapshot};
 use super::threads;
-use crate::dag::tracker::github::{GhApi, GhError, GhGraphql, Repo};
+use redkiln_github::tracker::github::{GhApi, GhError, GhGraphql, Repo};
 
 /// The most check runs, and the most commit statuses, of one commit read.
 pub(crate) const MAX_CHECKS: usize = 100;

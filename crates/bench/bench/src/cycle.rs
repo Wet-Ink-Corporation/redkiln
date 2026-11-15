@@ -1,5 +1,5 @@
-//! Cycle detection over dependency edges, shared by `dag` (blockers) and `grill`
-//! (`depends_on`): iterative, and linear in nodes plus edges.
+//! Cycle detection over dependency edges, for `grill` (`depends_on`): iterative, and linear in
+//! nodes plus edges. `dag`'s graph uses the GitHub kit's copy (`redkiln_github::graph`).
 
 /// One cycle in the graph whose node `i` depends on the nodes `dependencies[i]` lists, as
 /// indices into `dependencies`, or `None` when the graph is acyclic. Each index in the cycle

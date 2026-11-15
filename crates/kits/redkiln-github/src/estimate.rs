@@ -15,7 +15,7 @@ use std::path::{Component, Path};
 
 use serde::Serialize;
 
-use crate::dag::ticket::Ticket;
+use crate::ticket::Ticket;
 
 /// The single-context budget `dag frontier` flags against unless `--budget` says otherwise.
 pub const DEFAULT_BUDGET: u64 = 100_000;

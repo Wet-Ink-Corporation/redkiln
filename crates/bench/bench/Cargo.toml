@@ -27,6 +27,9 @@ redkiln-core = { workspace = true }
 # The guard kit: the shell lexer, the denylist engine Bench's rule packs plug into,
 # protected-path matching, redaction and the repository path globs.
 redkiln-guard = { workspace = true }
+# The GitHub kit: tickets, the tracker port and its GitHub adapter, the ticket graph and
+# estimate, and the bounded git reads of a pull request's diff (Move 2 step 5, PR 5.3).
+redkiln-github = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

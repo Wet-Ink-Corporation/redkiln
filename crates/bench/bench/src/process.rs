@@ -1,8 +1,8 @@
 //! Running a child process to completion within a deadline and with capped output (H-13),
-//! shared by `git` (`paths`, and `floor_guard` through `paths::run_git_capped`), `gh`
-//! (`dag::tracker::github`'s `GhCli`, which `watch` uses too) and the test command of `task
-//! done` (`task::run_command`, which pipes nothing: its child writes straight to anneal's
-//! stderr). `perf noise` times its runs with `wait_or_kill_every`, and the weigh-in bridge
+//! shared by `git` (`paths`, and `floor_guard` through `paths::run_git_capped`) and the test
+//! command of `task done` (`task::run_command`, which pipes nothing: its child writes straight
+//! to anneal's stderr). `gh` and the pull request diff's git run through the GitHub kit's own
+//! copy (`redkiln_github`). `perf noise` times its runs with `wait_or_kill_every`, and the weigh-in bridge
 //! (`weighin::ProcessRunner`) pipes a batch to `weighin` with `wait_with_input`.
 
 use std::convert::Infallible;
@@ -40,9 +40,8 @@ pub(crate) enum WaitError {
 /// one a grandchild still blocks is left to end on its own, holding only its pipe end and at
 /// most `cap` bytes, until that grandchild closes the pipe or exits, or this process exits.
 /// Only the child is killed, not its descendants: std cannot kill a process group without
-/// `unsafe`. Nothing caps these threads across calls: a caller that
-/// loops, such as `watch` polling `gh` (16 MiB cap) for up to 1800 s, can leave one set per
-/// timed-out call, each bounded as above, until its grandchildren exit or anneal does. With
+/// `unsafe`. Nothing caps these threads across calls: a caller that loops can leave one set
+/// per timed-out call, each bounded as above, until its grandchildren exit or anneal does. With
 /// nothing piped (as for `task done`'s test command) there are no threads, and a timeout
 /// returns once the child itself is killed and reaped.
 pub(crate) fn wait_with_deadline(

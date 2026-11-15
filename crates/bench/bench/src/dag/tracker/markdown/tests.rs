@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use super::{Markdown, MarkdownError, parse_ticket};
-use crate::dag::ticket::{Status, Ticket, TicketId};
-use crate::dag::tracker::{Tracker, TrackerError};
+use redkiln_github::ticket::{Status, Ticket, TicketId};
+use redkiln_github::tracker::Tracker;
 
 fn parsed(text: &str) -> Ticket {
     parse_ticket("7", text).expect("valid ticket")
@@ -119,7 +119,7 @@ fn a_bad_ticket_is_an_error_naming_its_file_and_line() {
     assert!(
         matches!(
             &result,
-            Err(TrackerError::Markdown(MarkdownError::Ticket { path, line: 2, .. }))
+            Err(MarkdownError::Ticket { path, line: 2, .. })
                 if path.ends_with("1.md")
         ),
         "got {result:?}"
@@ -133,10 +133,7 @@ fn a_missing_directory_is_an_error() {
     let result = Markdown::new(dir.path().join("absent")).read();
 
     assert!(
-        matches!(
-            &result,
-            Err(TrackerError::Markdown(MarkdownError::ReadDir { .. }))
-        ),
+        matches!(&result, Err(MarkdownError::ReadDir { .. })),
         "got {result:?}"
     );
 }
@@ -150,10 +147,7 @@ fn an_oversized_ticket_is_an_error() {
     let result = Markdown::new(dir.path()).read();
 
     assert!(
-        matches!(
-            &result,
-            Err(TrackerError::Markdown(MarkdownError::TooLarge { .. }))
-        ),
+        matches!(&result, Err(MarkdownError::TooLarge { .. })),
         "got {result:?}"
     );
 }

@@ -35,8 +35,9 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/core/redkiln-core` | Core (hub) | The suite's store (ST-04 to ST-11) and its location (ST-01 to ST-03), `suite.toml` (ST-12, ST-13), the envelope and tags, trust, ids and subjects, journals with checkpoint and import, and old ledgers read from a copy | happenstance-core, happenstance-sqlite (`=0.6.0`, `sync`), tokio (`rt`), tempfile, thiserror, serde, serde_json, sha2, time, toml |
 | `crates/weigh-in/weighin` | plugin (weigh-in), binary `weighin` | The Weigh-In CLI and single writer of its ledger, kept in the Core store through `redkiln-core`: git, context packs, hooks, batch writes | weighin-core, weighin-contract, knowledge-contract, redkiln-core, clap, anyhow, time, tempfile, serde, serde_json |
 | `crates/kits/redkiln-guard` | kit | Guards: shell lexer, denylist engine and its rule-pack seam, protected paths, redaction, path globs | thiserror |
+| `crates/kits/redkiln-github` | kit | GitHub and git reads: tickets, the tracker port and its GitHub adapter, the ticket graph and estimate, PR diffs | serde, serde_json, thiserror |
 | `crates/bench/bench-contract` | contract (bench) | `bench.*` events (`event`), commands (`cli`), `status --json` data (`status`) | redkiln-core (optional), serde, thiserror |
-| `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI, its events kept in the Core store through `redkiln-core` | bench-contract, redkiln-core, redkiln-guard, clap, ureq, sha2, serde, serde_json, thiserror |
+| `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI, its events kept in the Core store through `redkiln-core` | bench-contract, redkiln-core, redkiln-guard, redkiln-github, clap, ureq, sha2, serde, serde_json, thiserror |
 | `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
 | `tools/skillcheck` | tool, binary `skillcheck` | Skill QA: `lint skills`, `eval routing\|uplift`; never shipped | bench-contract, clap, serde, serde_json, sha2, thiserror |
 

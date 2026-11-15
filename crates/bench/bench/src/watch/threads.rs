@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use super::WatchError;
 use super::snapshot::Blocker;
-use crate::dag::tracker::github::{Field, GhApi, GhError, GhGraphql};
+use redkiln_github::tracker::github::{Field, GhApi, GhError, GhGraphql};
 
 /// The most review threads of one pull request read.
 pub(crate) const MAX_THREADS: usize = 100;

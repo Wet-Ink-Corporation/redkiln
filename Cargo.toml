@@ -50,6 +50,8 @@ toml = { version = "1.1", default-features = false, features = ["std", "parse", 
 
 # Kits (crates/kits/): the guard kit, Move 2 step 5 (D4, Ryan 2026-11-14).
 redkiln-guard = { path = "crates/kits/redkiln-guard" }
+# The GitHub kit, Move 2 step 5 PR 5.3 (D4, Ryan 2026-11-14).
+redkiln-github = { path = "crates/kits/redkiln-github" }
 
 # Weigh-In's crates as imported at Move 1 (docs/plan/move-1-weigh-in.md, step 1), with weigh-in
 # 1.2.0's requirements; tokio, sha2, clap and time are M1-B.

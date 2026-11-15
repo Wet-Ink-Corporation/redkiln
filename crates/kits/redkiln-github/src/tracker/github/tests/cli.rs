@@ -1,6 +1,6 @@
 //! The real `gh` adapter's edges: how a failure is classified, the output cap, and the timeout.
 
-use crate::dag::tracker::github::gh::{GhError, MAX_GH_OUTPUT, failure, within_cap};
+use crate::tracker::github::gh::{GhError, MAX_GH_OUTPUT, failure, within_cap};
 
 #[test]
 fn gh_saying_http_410_gone_is_not_found_too() {
@@ -59,7 +59,7 @@ fn a_gh_that_never_answers_is_killed_at_the_timeout() -> Result<(), Box<dyn std:
     use std::process::Command;
     use std::time::Duration;
 
-    use crate::dag::tracker::github::gh::{GhApi, GhCli};
+    use crate::tracker::github::gh::{GhApi, GhCli};
 
     let scratch = tempfile::tempdir()?;
     // A gh that blocks opening a FIFO nobody ever writes, until it is killed.
@@ -89,7 +89,7 @@ fn a_gh_that_never_answers_is_killed_at_the_timeout() -> Result<(), Box<dyn std:
 
 #[test]
 fn a_graphql_query_sends_raw_fields_with_f_and_typed_ones_with_capital_f() {
-    use crate::dag::tracker::github::gh::{Field, graphql_args};
+    use crate::tracker::github::gh::{Field, graphql_args};
 
     let args = graphql_args(
         "query { viewer { login } }",

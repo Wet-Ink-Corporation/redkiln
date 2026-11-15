@@ -1,6 +1,42 @@
-use super::{Blockers, Mismatches, compare};
-use crate::dag::ticket::{Status, Ticket, TicketId};
+use super::{Blockers, Mismatches, compare, id_order};
 use crate::lint::plan::Task;
+use redkiln_github::ticket::{Status, Ticket, TicketId};
+
+#[test]
+fn id_order_agrees_with_ticket_id_order() {
+    let ids = [
+        "",
+        "0",
+        "00",
+        "1",
+        "01",
+        "001",
+        "2",
+        "9",
+        "10",
+        "18446744073709551615",
+        "18446744073709551616",
+        "99999999999999999999",
+        "-1",
+        "1a",
+        "a",
+        "A",
+        "b",
+        "002-auth",
+        "T1",
+        "t1",
+        "é",
+    ];
+    for left in ids {
+        for right in ids {
+            assert_eq!(
+                id_order(left, right),
+                TicketId::new(left).cmp(&TicketId::new(right)),
+                "{left:?} against {right:?}"
+            );
+        }
+    }
+}
 
 fn task(id: &str, blocked_by: &[&str]) -> Task {
     Task {

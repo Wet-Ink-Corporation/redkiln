@@ -16,9 +16,9 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use crate::dag::ticket::{Status, Ticket, TicketId};
-use crate::dag::tracker::{MAX_TICKETS, Tracker, TrackerError};
 use crate::frontmatter::{self, Document};
+use redkiln_github::ticket::{Status, Ticket, TicketId};
+use redkiln_github::tracker::{MAX_TICKETS, Tracker};
 
 /// The largest ticket file read (H-13).
 pub const MAX_TICKET_BYTES: u64 = 1024 * 1024;
@@ -91,11 +91,13 @@ impl Markdown {
 }
 
 impl Tracker for Markdown {
+    type Error = MarkdownError;
+
     fn name(&self) -> &'static str {
         "markdown"
     }
 
-    fn read(&self) -> Result<Vec<Ticket>, TrackerError> {
+    fn read(&self) -> Result<Vec<Ticket>, MarkdownError> {
         let files = ticket_files(&self.dir)?;
         let mut tickets = Vec::with_capacity(files.len());
         for (id, path) in files {

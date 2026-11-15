@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use super::{check, frontier};
-use crate::dag::tracker::Tracker;
-use crate::dag::tracker::github::{GhApi, GhError, GitHub};
 use crate::dag::tracker::markdown::Markdown;
+use redkiln_github::tracker::Tracker;
+use redkiln_github::tracker::github::{GhApi, GhError, GitHub};
 
 /// Runs `report` and returns (exit code, envelope).
 fn emitted(

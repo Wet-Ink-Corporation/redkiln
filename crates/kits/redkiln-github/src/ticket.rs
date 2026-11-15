@@ -77,7 +77,7 @@ pub enum Status {
     Done,
 }
 
-/// One ticket as a [`Tracker`](crate::dag::tracker::Tracker) reads it.
+/// One ticket as a [`Tracker`](crate::tracker::Tracker) reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ticket {
     /// Unique within the tracker's tickets.

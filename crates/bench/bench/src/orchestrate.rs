@@ -23,13 +23,16 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 
 use crate::command::CommandName;
-use crate::dag::{self, Source, ticket::TicketId};
+use crate::dag::check::CheckCode;
+use crate::dag::{self, Source};
 use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::render::command_help;
 use crate::exit_codes::{self, Code};
 use crate::weighin::Runner;
 use park::{ParkArgs, RuleArgs};
+use redkiln_github::ticket::TicketId;
+use redkiln_github::tracker::Tracker;
 
 /// Fewest independent tickets that make fanning out worth its cost.
 pub const MIN_FAN_OUT: usize = 3;
@@ -110,7 +113,7 @@ struct FanOutData<'g> {
 /// `orchestrate fan-out`: the frontier's size against [`MIN_FAN_OUT`].
 fn fan_out<O: Write>(args: &FanOutArgs, cwd: &Path, out: &mut O) -> Result<Code, CliError> {
     let tracker = dag::tracker(&args.source, cwd)?;
-    let graph = dag::read_graph(tracker.as_ref())?;
+    let graph = dag::read_graph(&tracker)?;
     let verdict = graph.check();
     let tickets: Vec<&TicketId> = if verdict.code().is_success() {
         graph.frontier().map(|ticket| &ticket.id).collect()
