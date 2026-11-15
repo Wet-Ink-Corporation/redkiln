@@ -4,9 +4,11 @@ use std::path::Path;
 
 use super::{Cache, RULE_SOURCES, content_hash, hash_with_rules};
 use crate::baseline::BaselineError;
+use crate::lint::checks_prose::Enforcers;
 use crate::lint::discover::{EntryKind, Surroundings};
 use crate::lint::document::{test_dir, test_skill};
 use crate::lint::read::LintError;
+use crate::profile::{BENCH, Profile};
 
 const TEXT: &str = "---\nname: plan\n---\n# Plan\n";
 
@@ -20,11 +22,85 @@ fn surroundings(has_scripts: bool, references: &[(&str, EntryKind)]) -> Surround
     }
 }
 
+/// What the checks read beside the skill: Bench's profile and `hooks`.
+fn bench(hooks: &BTreeSet<String>) -> Enforcers<'_> {
+    Enforcers {
+        profile: &BENCH,
+        hook_ids: hooks,
+    }
+}
+
 /// The hash of a `plan` skill with `text`, `around` it and `hooks`.
 fn hash(text: &str, around: &Surroundings, hooks: &[&str]) -> String {
     let dir = test_dir(Path::new("skills/plan"), "plan");
     let hooks: BTreeSet<String> = hooks.iter().map(|h| (*h).to_owned()).collect();
-    content_hash(&test_skill(&dir, text), around, &hooks)
+    content_hash(&test_skill(&dir, text), around, bench(&hooks))
+}
+
+/// The hash of a `plan` skill with [`TEXT`] under `profile`, with no hook ids.
+fn hash_under(profile: &Profile) -> String {
+    let dir = test_dir(Path::new("skills/plan"), "plan");
+    let hooks = BTreeSet::new();
+    let enforcers = Enforcers {
+        profile,
+        hook_ids: &hooks,
+    };
+    content_hash(
+        &test_skill(&dir, TEXT),
+        &surroundings(false, &[]),
+        enforcers,
+    )
+}
+
+#[test]
+fn every_profile_field_is_part_of_the_hash() {
+    let first = hash_under(&BENCH);
+    let variants = [
+        (
+            "binary",
+            Profile {
+                binary: "other",
+                ..BENCH
+            },
+        ),
+        (
+            "commands",
+            Profile {
+                commands: &["frobnicate"],
+                ..BENCH
+            },
+        ),
+        (
+            "hook ids",
+            Profile {
+                hook_ids: &["guard"],
+                ..BENCH
+            },
+        ),
+        (
+            "entry skills",
+            Profile {
+                entry_skills: &["plan"],
+                ..BENCH
+            },
+        ),
+        (
+            "enforcer fix",
+            Profile {
+                enforcer_fix: "another fix",
+                ..BENCH
+            },
+        ),
+    ];
+
+    assert_eq!(first, hash_under(&BENCH), "stable");
+    let mut seen = BTreeSet::from([first]);
+    for (field, profile) in variants {
+        assert!(
+            seen.insert(hash_under(&profile)),
+            "{field} changes the hash"
+        );
+    }
 }
 
 #[test]
@@ -79,8 +155,13 @@ fn the_rule_sources_are_part_of_the_hash() {
     let hooks = BTreeSet::new();
 
     assert_ne!(
-        hash_with_rules(&[("a.rs", "fn check() {}")], &skill, &none, &hooks),
-        hash_with_rules(&[("a.rs", "fn check() { changed }")], &skill, &none, &hooks),
+        hash_with_rules(&[("a.rs", "fn check() {}")], &skill, &none, bench(&hooks)),
+        hash_with_rules(
+            &[("a.rs", "fn check() { changed }")],
+            &skill,
+            &none,
+            bench(&hooks)
+        ),
         "editing a check invalidates every cached entry"
     );
     assert!(
@@ -94,7 +175,7 @@ fn hash_of_dir(root: &Path, hooks: &BTreeSet<String>) -> String {
     let dir = test_dir(root, "plan");
     let text = std::fs::read_to_string(root.join("SKILL.md")).expect("read SKILL.md");
     let around = Surroundings::read(&dir).expect("surroundings");
-    content_hash(&test_skill(&dir, &text), &around, hooks)
+    content_hash(&test_skill(&dir, &text), &around, bench(hooks))
 }
 
 #[test]

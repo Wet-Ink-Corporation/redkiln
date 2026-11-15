@@ -1,4 +1,4 @@
-//! `bench eval routing --router claude`: Tier 2, the real router (`evals/README.md`).
+//! `skillcheck eval routing --router claude`: Tier 2, the real router (`evals/README.md`).
 //!
 //! The Tier 1 fixtures are read and checked as Tier 1 reads them; any problem stops the run
 //! before anything is spent. Each positive prompt then runs under Claude Code's router through

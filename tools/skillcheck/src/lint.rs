@@ -1,5 +1,5 @@
-//! `bench lint skills`: checks skill directories against the 21 skill design rules
-//! (`docs/skill-rules.md`).
+//! `skillcheck lint skills`: checks skill directories against the 21 skill design rules
+//! (`docs/skill-rules.md`), under the profile of the plugin that ships them (`--plugin`).
 //!
 //! Per-skill checks (`checks_spec`, `checks_body`, `checks_prose`) run once per skill and are
 //! cached by content hash; set-level checks (`checks_set`) run every time. A `SKILL.md` that
@@ -28,8 +28,9 @@ use crate::lint::checker::Checker;
 use crate::lint::finding::{LintFinding, Location};
 use crate::lint::hooks::hook_ids;
 use crate::lint::read::{read_capped, read_text};
-use crate::profile::BENCH;
+use crate::profile::{DEFAULT_PLUGIN, Profile};
 use cache::{Cache, content_hash};
+use checks_prose::Enforcers;
 use discover::{SkillDir, Surroundings, discover};
 use document::Skill;
 
@@ -38,7 +39,7 @@ pub use crate::lint::read::LintError;
 
 pub(crate) use checks_set::vocabulary;
 
-/// Arguments of `bench lint skills`.
+/// Arguments of `skillcheck lint skills`.
 #[derive(Debug, Clone, Args)]
 pub struct SkillsArgs {
     /// Skill directories, or directories of skills (each subdirectory holding a SKILL.md)
@@ -55,6 +56,9 @@ pub struct SkillsArgs {
     /// being checked again
     #[arg(long, value_name = "FILE")]
     pub cache: Option<PathBuf>,
+    /// The plugin whose binary, commands, hook ids and entry skills the rules read
+    #[arg(long, value_name = "NAME", default_value = DEFAULT_PLUGIN)]
+    pub plugin: String,
 }
 
 /// What a run found.
@@ -73,9 +77,13 @@ pub struct Outcome {
 /// # Errors
 /// [`LintError`] when a path is missing, a file cannot be read, or the snapshot cannot be read
 /// or written. Rule violations are findings, never errors.
-pub fn lint(args: &SkillsArgs) -> Result<Outcome, LintError> {
+pub fn lint(args: &SkillsArgs, profile: &Profile) -> Result<Outcome, LintError> {
     let dirs = discover(&args.paths)?;
-    let (hook_ids, mut findings) = hook_ids(args.hooks.as_deref(), BENCH.hook_ids)?;
+    let (hook_ids, mut findings) = hook_ids(args.hooks.as_deref(), profile.hook_ids)?;
+    let enforcers = Enforcers {
+        profile,
+        hook_ids: &hook_ids,
+    };
     let loaded = dirs
         .iter()
         .map(Loaded::read)
@@ -90,7 +98,7 @@ pub fn lint(args: &SkillsArgs) -> Result<Outcome, LintError> {
     let mut cache = args.cache.as_deref().map(Cache::load).transpose()?;
     let mut cached = 0;
     for skill in &skills {
-        let (skill_findings, hit) = per_skill(skill, &hook_ids, cache.as_mut())?;
+        let (skill_findings, hit) = per_skill(skill, enforcers, cache.as_mut())?;
         findings.extend(skill_findings);
         cached += usize::from(hit);
     }
@@ -113,33 +121,33 @@ pub fn lint(args: &SkillsArgs) -> Result<Outcome, LintError> {
 /// whether it was a cache hit.
 fn per_skill(
     skill: &Skill<'_>,
-    hook_ids: &BTreeSet<String>,
+    enforcers: Enforcers<'_>,
     cache: Option<&mut Cache>,
 ) -> Result<(Vec<LintFinding>, bool), LintError> {
     let around = Surroundings::read(skill.dir)?;
     let Some(cache) = cache else {
-        return Ok((check_skill(skill, &around, hook_ids), false));
+        return Ok((check_skill(skill, &around, enforcers), false));
     };
     let key = skill.dir.dir.display().to_string();
-    let hash = content_hash(skill, &around, hook_ids);
+    let hash = content_hash(skill, &around, enforcers);
     if let Some(stored) = cache.lookup(&key, &hash) {
         return Ok((stored.to_vec(), true));
     }
-    let findings = check_skill(skill, &around, hook_ids);
+    let findings = check_skill(skill, &around, enforcers);
     cache.store(key, hash, findings.clone());
     Ok((findings, false))
 }
 
-/// The per-skill checks. They read only `skill`, `around` and `hook_ids`, which is exactly what
-/// [`content_hash`] covers.
+/// The per-skill checks. They read only `skill`, `around` and `enforcers` (the profile and the
+/// hook ids), which is exactly what [`content_hash`] covers.
 fn check_skill(
     skill: &Skill<'_>,
     around: &Surroundings,
-    hook_ids: &BTreeSet<String>,
+    enforcers: Enforcers<'_>,
 ) -> Vec<LintFinding> {
-    let mut findings = checks_spec::check(skill);
+    let mut findings = checks_spec::check(skill, enforcers.profile);
     findings.extend(checks_body::check(skill, &around.references));
-    findings.extend(checks_prose::check(skill, hook_ids, around.has_scripts));
+    findings.extend(checks_prose::check(skill, enforcers, around.has_scripts));
     findings
 }
 

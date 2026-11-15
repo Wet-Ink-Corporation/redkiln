@@ -1,8 +1,7 @@
 //! A hand parser for the small YAML subset a `SKILL.md` frontmatter uses.
 //!
-//! Bench's own copy of `lint::skills::frontmatter`, read by the markdown tracker
-//! (`dag::tracker::markdown`), `hook ruled-before`'s precedents and `rulings`, so they keep it
-//! when the skill linter leaves Bench (Move 2 step 5). The two copies may diverge from then on.
+//! Read by the markdown tracker (`dag::tracker::markdown`), `hook ruled-before`'s precedents and
+//! `rulings`.
 //!
 //! Supported: `key: value` scalars (plain, `"double"` or `'single'` quoted), `key: >` folded and
 //! `key: |` literal blocks (chomping indicators accepted, trailing newlines always stripped), and

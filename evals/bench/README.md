@@ -2,20 +2,22 @@
 
 Skill evaluation suites, outside the packaged plugin. Tier 0 (static) and Tier 1 (lexical routing) run in CI from Release 1; Tier 2 (real routing) and Tier 3 (behaviour uplift) arrive in Release 6.
 
+The tiers run through `skillcheck` (`tools/skillcheck/`, `cargo run -p skillcheck -- <command>`), a repository tool that is not shipped; until Move 2 step 5 they were `bench lint skills` and `bench eval`. Its tests (`cargo nextest run -p skillcheck`) hold the Tier 0, 1 and 3 `--check` bars over `plugins/bench/skills` and these suites. Other paths below (`plugin/`, `evals/routing`) are anneal's, as imported.
+
 `evals/` lives at the repository root, never under `plugin/`, so it is not in the packaged plugin. A test (`repo_gates::the_packaged_plugin_holds_no_evals_directory`) fails if an `evals` directory appears anywhere under `plugin/`.
 
 ## Tier 0: static checks
 
 The merge bar is zero errors from:
 
-- `bench lint skills plugin/skills`: the 21 skill design rules (`docs/skill-rules.md`).
+- `skillcheck lint skills plugin/skills`: the 21 skill design rules (`tools/skillcheck/docs/skill-rules.md`).
 - `claude plugin validate --strict` on the marketplace and on `plugin/`.
 - The content-hash snapshot: a `lint skills --cache` run over `plugin/skills` reports exactly what a fresh run reports (`repo_gates::the_plugin_skills_lint_clean_and_the_snapshot_replays_the_fresh_result`).
 
 ## Tier 1: lexical routing
 
 ```sh
-bench eval routing [--skills plugin/skills] [--fixtures evals/routing]
+skillcheck eval routing [--skills plugin/skills] [--fixtures evals/routing]
 ```
 
 Every model-invoked skill (one without `disable-model-invocation: true`) has a fixture `evals/routing/<skill>.yaml` with 8 to 10 **positive** prompts and 8 to 10 **near-miss** prompts. Each prompt is scored against every model-invoked skill by word overlap, in the style of addyosmani's `run-evals.js`:
@@ -44,7 +46,7 @@ A missing `--skills` or `--fixtures` directory is a usage error (2, one `bench: 
 The JSON envelope's `data` holds the counts (`skills`, `cases`, `passed`, `failed`, `problems`), the confusion table as a map (`confusion`: expected skill, then top-ranked skill, then count) and as aligned text (`table`). Rows are the expected skills (the fixture's skill for a positive, the owner for a near miss); columns are the top-ranked skill, plus `(tie)` and `(none)` (no shared word) when they occur. A near miss can pass off the diagonal when a third skill ranks first. Every miss and every problem is also a finding with its file and line.
 
 ```sh
-bench eval routing | jq -r '.data.table[]'
+skillcheck eval routing | jq -r '.data.table[]'
 ```
 
 ### Fixture schema
@@ -82,7 +84,7 @@ The scorer itself is proved on test skill sets in `crates/anneal-cli/tests/fixtu
 The lexical proxy can lie. Tier 2 measures how often each skill really fires under Claude Code's router, with every sibling skill installed, and reports it as an interval.
 
 ```sh
-bench eval routing --router claude [--skills plugin/skills] [--fixtures evals/routing] \
+skillcheck eval routing --router claude [--skills plugin/skills] [--fixtures evals/routing] \
   [--max-cost-usd 25] [--timeout 3600] [--concurrency 4] [--model <model>] \
   [--claude <path>] [--trust-plugin] [--changed-since <ref>]
 ```
@@ -126,7 +128,7 @@ For example, 21 of 27 is 0.778 with a lower bound of 0.592, short of 0.70; 9 of 
 The envelope's `data` holds the counts (`skills`, `prompts`, `runs`, `errored`, `counted_errors`, `rounds`, `unsettled`), `cost_usd`, `cost_is_lower_bound` and `max_cost_usd`, `complete`, `stop` (why it stopped early), `per_skill` (each skill's `should_fire` and `should_not`: bar, threshold, `fired`, `trials`, `interval`, `position`, plus `prompts_met`, `prompts_failed`, `answered` and `passed`), `cases` (each prompt's runs and whether it settled) and the confusion table as a map (`confusion`) and as text (`table`): rows are the expected skill, columns the skill that fired, plus `(none)`, `(several)` and `(error)` when they occur. Each failing prompt and each missed should-not bar is a finding, as is an incomplete run.
 
 ```sh
-bench eval routing --router claude --trust-plugin | jq -r '.data.table[]'
+skillcheck eval routing --router claude --trust-plugin | jq -r '.data.table[]'
 ```
 
 ### `--changed-since <ref>`
@@ -153,7 +155,7 @@ jobs:
       - run: curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
       - run: ~/.cargo/bin/cargo build --locked -p anneal-cli
       - run: >
-          ./target/debug/bench eval routing --router claude --trust-plugin
+          ./target/debug/skillcheck eval routing --router claude --trust-plugin
           --max-cost-usd 5 --changed-since "origin/${{ github.base_ref }}"
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -168,7 +170,7 @@ The Tier 2 code is proved without a model: the statistics against reference valu
 Routing says a skill fires; Tier 3 asks whether firing it changes what the agent does. Each entry skill (`grill`, `spec`, `plan`, `build`, `diagnose`, `verify`, `ship`) has a regression suite and a capability suite of cases under `evals/uplift/<skill>/`, and each case runs 3 times with the skill and 3 times without it (`--runs` asks for 3 to 20).
 
 ```sh
-bench eval uplift [--skills plugin/skills] [--suites evals/uplift] [--skill <name>]... \
+skillcheck eval uplift [--skills plugin/skills] [--suites evals/uplift] [--skill <name>]... \
   [--case <case>] [--runs 3] [--no-baseline] [--check] [--baseline <plugin dir>] [--max-cost-usd 25] [--timeout 3600] \
   [--concurrency 4] [--model <model>] [--claude <path>] [--trust-plugin] [--changed-since <ref>] \
   [--allow-gated-tools] [--allow-scaffolds] [--work-dir <dir>] [--keep-results <dir>]
@@ -351,7 +353,7 @@ Scaffolding hooks (`role: scaffolding` in the CLI's hook table, `crates/anneal-c
 2. Run the suites of the skills the hook serves against the copy as the baseline, under the new model:
 
    ```sh
-   bench eval uplift --skill <skill> --baseline <copy> --model <new model> --trust-plugin
+   skillcheck eval uplift --skill <skill> --baseline <copy> --model <new model> --trust-plugin
    ```
 
    The with arm is the plugin with the hook; the baseline is the plugin without it. Add `--allow-gated-tools` when the skill's cases name `Write`, `Edit` or `Bash` (`build`'s do), after reviewing them; without it the run is refused before anything is spent.
@@ -377,7 +379,7 @@ jobs:
       - run: curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
       - run: ~/.cargo/bin/cargo build --locked -p anneal-cli
       - run: >
-          ./target/debug/bench eval uplift --trust-plugin --allow-gated-tools
+          ./target/debug/skillcheck eval uplift --trust-plugin --allow-gated-tools
           --max-cost-usd 25 --changed-since "origin/${{ github.base_ref }}"
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

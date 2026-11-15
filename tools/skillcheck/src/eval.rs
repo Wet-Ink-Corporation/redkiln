@@ -1,4 +1,4 @@
-//! `bench eval`: evaluation suites.
+//! `skillcheck eval`: evaluation suites.
 //!
 //! - [`routing`]: `eval routing`, Tier 1 lexical routing over `evals/routing/<skill>.yaml`,
 //!   and with `--router claude` Tier 2, the same fixtures under Claude Code's own router
@@ -31,7 +31,7 @@ use crate::exit_codes::render::command_help;
 use routing::real::RealArgs;
 use routing::{Case, CaseKind, Confusion, Outcome, Problem};
 
-/// Arguments of `bench eval`.
+/// Arguments of `skillcheck eval`.
 #[derive(Debug, Args)]
 pub struct EvalArgs {
     /// Which suite to run.
@@ -39,7 +39,7 @@ pub struct EvalArgs {
     pub suite: EvalSuite,
 }
 
-/// The suites `bench eval` runs.
+/// The suites `skillcheck eval` runs.
 #[derive(Debug, Subcommand)]
 pub enum EvalSuite {
     /// Score routing fixtures against the skills: by word overlap (100% rank-1), or with
@@ -52,7 +52,7 @@ pub enum EvalSuite {
     Uplift(uplift::UpliftArgs),
 }
 
-/// Arguments of `bench eval routing`: the inputs both routers read, and the Tier 2 flags.
+/// Arguments of `skillcheck eval routing`: the inputs both routers read, and the Tier 2 flags.
 #[derive(Debug, Clone, Args)]
 pub struct RoutingCommand {
     /// The skills and fixtures.
@@ -63,14 +63,14 @@ pub struct RoutingCommand {
     pub real: RealArgs,
 }
 
-/// Runs `bench eval <suite>` and writes its envelope to `out`.
+/// Runs `skillcheck eval <suite>` and writes its envelope to `out`.
 ///
 /// A warning before a run goes to `err` (`eval uplift`'s socket path); `lookup` reads one
 /// environment variable (`eval uplift`'s default work directory).
 ///
 /// # Errors
 /// [`CliError::Usage`] for a Tier 2 flag without `--router claude` or a run flag with
-/// `eval uplift --check`, [`CliError::Eval`] or [`CliError::Uplift`] when the inputs could not
+/// `eval uplift --check`, [`CliError::Routing`] or [`CliError::Uplift`] when the inputs could not
 /// be read, the real router could not run or `err` could not be written,
 /// [`CliError::Output`] when `out` cannot be written.
 pub fn run<O: Write, E: Write>(

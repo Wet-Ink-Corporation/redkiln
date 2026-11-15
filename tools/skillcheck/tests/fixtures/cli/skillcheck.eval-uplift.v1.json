@@ -1,5 +1,5 @@
 {
-  "schema": "bench.eval-uplift/1",
+  "schema": "skillcheck.eval-uplift/1",
   "ok": true,
   "command": "eval uplift",
   "data": {

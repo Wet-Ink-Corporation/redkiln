@@ -5,6 +5,9 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
+use skillcheck::lint::{LintError, Outcome, SkillsArgs};
+use skillcheck::profile::BENCH;
+
 pub(crate) mod conform;
 
 pub(crate) use conform::{envelope, golden};
@@ -36,6 +39,12 @@ pub(crate) fn git(dir: &Path, args: &[&str]) {
         "git {args:?} failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+/// `lint skills` with `args` under Bench's profile, the default `--plugin`; the tests that call
+/// it all lint Bench's skills or fixtures.
+pub(crate) fn lint(args: &SkillsArgs) -> Result<Outcome, LintError> {
+    skillcheck::lint::lint(args, &BENCH)
 }
 
 /// Copies the directory tree at `from` to `to`, creating `to`.

@@ -8,18 +8,29 @@ use crate::lint::checker::{
 };
 use crate::lint::document::{Line, Skill, code_spans, has_token, words};
 use crate::lint::finding::LintFinding;
-use crate::profile::{BENCH, Profile};
+use crate::profile::Profile;
 
-/// Every prose check for `skill`. `hook_ids` are the hook ids that count as enforcers.
+/// What rule 10 reads to judge an enforcer: the plugin's binary and commands (`profile`) and
+/// the hook ids that count as enforcers.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Enforcers<'a> {
+    /// The plugin's profile; its binary and commands name `` `<binary> <command>` ``
+    /// enforcers, and its fix is the finding's.
+    pub(crate) profile: &'a Profile,
+    /// The hook ids that count as enforcers.
+    pub(crate) hook_ids: &'a BTreeSet<String>,
+}
+
+/// Every prose check for `skill`.
 pub(crate) fn check(
     skill: &Skill<'_>,
-    hook_ids: &BTreeSet<String>,
+    enforcers: Enforcers<'_>,
     has_scripts: bool,
 ) -> Vec<LintFinding> {
     let mut findings = Vec::new();
     for line in skill.prose().filter(|l| has_token(l.text, "MUST")) {
         findings.extend(hard_rule_late(skill, line));
-        findings.extend(enforcer(skill, line, hook_ids));
+        findings.extend(enforcer(skill, line, enforcers));
     }
     findings.extend(
         skill
@@ -42,40 +53,29 @@ fn hard_rule_late(skill: &Skill<'_>, line: &Line<'_>) -> Option<LintFinding> {
     })
 }
 
-/// The profile rule 10 reads: the binary and commands a `` `<binary> <command>` `` enforcer
-/// names, and the fix it suggests.
-const PROFILE: Profile = BENCH;
-
-/// What a MUST line with no enforcer should do; the command form is the profile's binary
-/// (held equal by a test).
-const ENFORCER_FIX: &str = PROFILE.enforcer_fix;
-
-/// Rule 10: a MUST line names its enforcer: `` `bench <command>` `` or a hook id in backticks.
-fn enforcer(
-    skill: &Skill<'_>,
-    line: &Line<'_>,
-    hook_ids: &BTreeSet<String>,
-) -> Option<LintFinding> {
-    let enforced = code_spans(line.text).any(|span| is_enforcer(span, hook_ids));
+/// Rule 10: a MUST line names its enforcer: `` `<binary> <command>` `` or a hook id in
+/// backticks.
+fn enforcer(skill: &Skill<'_>, line: &Line<'_>, enforcers: Enforcers<'_>) -> Option<LintFinding> {
+    let enforced = code_spans(line.text).any(|span| is_enforcer(span, enforcers));
     (!enforced).then(|| {
         LintFinding::warning(
             Checker::Enforcer,
             skill.at(line.no),
             "this MUST names no enforcer.",
-            ENFORCER_FIX,
+            enforcers.profile.enforcer_fix,
         )
     })
 }
 
-fn is_enforcer(span: &str, hook_ids: &BTreeSet<String>) -> bool {
-    if hook_ids.contains(span.trim()) {
+fn is_enforcer(span: &str, enforcers: Enforcers<'_>) -> bool {
+    if enforcers.hook_ids.contains(span.trim()) {
         return true;
     }
     let mut parts = span.split_whitespace();
-    parts.next() == Some(PROFILE.binary)
+    parts.next() == Some(enforcers.profile.binary)
         && parts
             .next()
-            .is_some_and(|command| PROFILE.has_command(command))
+            .is_some_and(|command| enforcers.profile.has_command(command))
 }
 
 /// Rule 9: an adjective standing in for a number on a gate line. Tables (the cure) and the
@@ -147,8 +147,20 @@ fn reviews(skill: &Skill<'_>, has_scripts: bool) -> Vec<LintFinding> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_enforcer;
+    use super::Enforcers;
+    use crate::profile::BENCH;
     use std::collections::BTreeSet;
+
+    /// Whether `span` is an enforcer under Bench's profile and `hooks`.
+    fn is_enforcer(span: &str, hooks: &BTreeSet<String>) -> bool {
+        super::is_enforcer(
+            span,
+            Enforcers {
+                profile: &BENCH,
+                hook_ids: hooks,
+            },
+        )
+    }
 
     #[test]
     fn an_enforcer_is_a_bench_command_or_a_known_hook_id() {
@@ -167,9 +179,9 @@ mod tests {
         let command = format!("`{} <command> ...`", bench_contract::cli::BINARY);
 
         assert!(
-            super::ENFORCER_FIX.contains(&command),
+            BENCH.enforcer_fix.contains(&command),
             "{}",
-            super::ENFORCER_FIX
+            BENCH.enforcer_fix
         );
     }
 

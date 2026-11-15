@@ -1,5 +1,5 @@
 {
-  "schema": "bench.eval-routing/1",
+  "schema": "skillcheck.eval-routing/1",
   "ok": true,
   "command": "eval routing",
   "data": {

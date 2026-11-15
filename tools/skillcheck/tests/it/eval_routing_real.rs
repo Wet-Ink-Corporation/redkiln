@@ -1,4 +1,4 @@
-//! `bench eval routing --router claude` (Tier 2) against the fixture sets in
+//! `skillcheck eval routing --router claude` (Tier 2) against the fixture sets in
 //! `tests/fixtures/eval-routing/`, whose root is also a plugin (`.claude-plugin/plugin.json`
 //! names it `fixture`). No test reaches a model: the router is a missing program, or on unix
 //! a fake `claude` script that answers every batch from its arguments.
@@ -15,7 +15,7 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval-routing")
 }
 
-/// `bench eval routing --skills <fixtures>/skills --fixtures <routing>` plus `args`.
+/// `skillcheck eval routing --skills <fixtures>/skills --fixtures <routing>` plus `args`.
 fn eval_routing(routing: &Path, args: &[&str]) -> std::io::Result<Output> {
     Command::new(env!("CARGO_BIN_EXE_skillcheck"))
         .args(["eval", "routing", "--skills"])
@@ -43,7 +43,7 @@ fn a_claude_only_flag_without_the_claude_router_is_a_usage_error() -> TestResult
     assert_eq!(envelope(&output)?, Value::Null, "nothing on stdout");
     assert_eq!(
         String::from_utf8(output.stderr)?,
-        "bench: error: --max-cost-usd needs --router claude\n"
+        "skillcheck: error: --max-cost-usd needs --router claude\n"
     );
     Ok(())
 }
@@ -110,7 +110,7 @@ fn a_claude_that_cannot_start_exits_4_with_one_error_line() -> TestResult {
     assert_eq!(output.status.code(), Some(4), "{stderr}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        stderr.starts_with("bench: error: eval: ")
+        stderr.starts_with("skillcheck: error: eval: ")
             && stderr.contains("no-such-claude")
             && stderr.lines().count() == 1,
         "{stderr:?}"
@@ -175,7 +175,7 @@ done
 printf '{"schemaVersion":1,"costUsd":0.25,"partial":false,"suite":{"plugins":[{"name":"fixture","path":"%s"}]},"cases":[%s]}' "$plugin" "$cases" > "$out"
 "#;
 
-/// A run of `bench eval routing --router claude` against a fake `claude`, with its own
+/// A run of `skillcheck eval routing --router claude` against a fake `claude`, with its own
 /// `TMPDIR` so the test can see what the run left behind there.
 #[cfg(unix)]
 struct FakeRun {
@@ -245,7 +245,7 @@ fn a_claude_that_fails_without_a_result_exits_4_with_its_stderr_and_leaves_no_wo
     assert_eq!(run.output.status.code(), Some(4), "{stderr}");
     assert!(run.output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        stderr.starts_with("bench: error: eval: ")
+        stderr.starts_with("skillcheck: error: eval: ")
             && stderr.contains("Error: not logged in")
             && stderr.contains("its spend is unknown")
             && stderr.lines().count() == 1,

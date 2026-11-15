@@ -7,7 +7,8 @@
 //!
 //! - [`cli`]: the command tree and [`cli::run`], the entry point.
 //! - [`lint`]: `lint skills`, the 21 skill design rules (Tier 0), with the finding model
-//!   ([`lint::finding`]) and the checker catalogue ([`lint::checker`]).
+//!   ([`lint::finding`]) and the checker catalogue ([`lint::checker`]); [`profile`]: the plugin
+//!   facts the rules read (`--plugin`, `bench` by default).
 //! - [`eval`]: `eval routing`, Tier 1 lexical routing and, with `--router claude`, Tier 2 under
 //!   Claude Code's router with Wilson intervals; `eval uplift`, Tier 3, each entry skill's
 //!   behaviour suites with the skill and without it, with Newcombe intervals.
@@ -31,6 +32,6 @@ mod path_text;
 pub mod paths;
 mod pipe;
 mod process;
-mod profile;
+pub mod profile;
 #[cfg(test)]
 mod test_repo;

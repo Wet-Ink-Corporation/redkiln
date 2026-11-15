@@ -1,4 +1,4 @@
-//! `bench eval uplift`: Tier 3, behaviour uplift (`evals/README.md`).
+//! `skillcheck eval uplift`: Tier 3, behaviour uplift (`evals/README.md`).
 //!
 //! Each entry skill has suites of cases under `evals/uplift/<skill>/{regression,capability}/`
 //! (`suites`, `case`), narrowed by `--skill` and `--case` (`select`). Every problem with them

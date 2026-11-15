@@ -1,14 +1,18 @@
 # Skill design rules and their checkers
 
-`anneal lint skills [PATH]...` checks skill directories against the 21 skill design rules from
+`skillcheck lint skills [PATH]...` checks skill directories against the 21 skill design rules from
 the blueprint. Each rule maps to at least one **checker**. A checker either decides mechanically
 (an `error` or a `warning`) or, where no machine can judge the rule, lists it as a `review` item.
 Nothing is passed silently. A test fails when a checker id is missing from this page.
 
+Since Move 2 step 5 this is `tools/skillcheck`, a repository tool, not a Bench command. Other
+names on this page (`anneal`, `.anneal/`, `plugin/skills`) are anneal's, as imported; the
+`lint rules` section below stays Bench's (`bench lint rules`).
+
 ```sh
-anneal lint skills plugin/skills                       # what CI runs
-anneal lint skills plugin/skills --index docs/bootstrap-index.md   # also check the bootstrap index (rule 4)
-anneal lint skills plugin/skills --cache .anneal/lint-skills.json   # skip unchanged skills
+skillcheck lint skills plugin/skills                       # what CI runs
+skillcheck lint skills plugin/skills --index docs/bootstrap-index.md   # also check the bootstrap index (rule 4)
+skillcheck lint skills plugin/skills --cache .anneal/lint-skills.json   # skip unchanged skills
 ```
 
 ## Inputs
@@ -27,6 +31,9 @@ anneal lint skills plugin/skills --cache .anneal/lint-skills.json   # skip uncha
   `docs/bootstrap-index.md` (see `docs/hooks.md`). Without it, the index rule is listed as a
   review item.
 - `--cache FILE` is the content-hash snapshot (below).
+- `--plugin NAME` (default `bench`) names the plugin whose binary, commands, hook ids and entry
+  skills the rules read, from its contract crate. Only `bench` has a profile; any other name is a
+  usage error (exit 2) before a path is read.
 
 ## Severity and exit codes
 

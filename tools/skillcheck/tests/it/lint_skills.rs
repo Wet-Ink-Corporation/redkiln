@@ -1,4 +1,4 @@
-//! `bench lint skills` against the fixture pairs in `tests/fixtures/lint-skills/`: every
+//! `skillcheck lint skills` against the fixture pairs in `tests/fixtures/lint-skills/`: every
 //! checker has a failing fixture that trips it (and nothing else) and a passing one that is
 //! clean.
 
@@ -10,9 +10,10 @@ use std::process::Command;
 use serde_json::Value;
 use skillcheck::lint::checker::Checker;
 use skillcheck::lint::finding::Severity;
-use skillcheck::lint::{Outcome, SkillsArgs, lint};
+use skillcheck::lint::{Outcome, SkillsArgs};
+use skillcheck::profile::DEFAULT_PLUGIN;
 
-use crate::support::copy_dir;
+use crate::support::{copy_dir, lint};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -163,6 +164,7 @@ fn lint_fixture(fixture: &Path) -> Result<Outcome, Box<dyn Error>> {
         index: index.is_file().then_some(index),
         hooks: None,
         cache: None,
+        plugin: DEFAULT_PLUGIN.to_owned(),
     };
     Ok(lint(&args)?)
 }
@@ -333,7 +335,7 @@ fn a_missing_path_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert_eq!(code, Some(2), "a bad path is a usage error");
     assert_eq!(envelope, Value::Null, "nothing on stdout");
     assert!(
-        stderr.starts_with("bench: error: ") && stderr.lines().count() == 1,
+        stderr.starts_with("skillcheck: error: ") && stderr.lines().count() == 1,
         "one line: {stderr}"
     );
     Ok(())
@@ -352,6 +354,7 @@ fn the_cache_replays_unchanged_skills_and_rechecks_changed_ones() -> TestResult 
         index: None,
         hooks: None,
         cache: Some(work.path().join("cache/lint-skills.json")),
+        plugin: DEFAULT_PLUGIN.to_owned(),
     };
 
     let fresh = lint(&args)?;

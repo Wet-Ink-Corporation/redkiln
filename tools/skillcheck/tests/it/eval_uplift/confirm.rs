@@ -69,7 +69,7 @@ fn a_case_naming_no_case_exits_2_with_one_error_line() -> TestResult {
         ),
         (
             Some(2),
-            "bench: error: eval: --case nope.json names no case under the suites directory\n"
+            "skillcheck: error: eval: --case nope.json names no case under the suites directory\n"
                 .to_owned(),
             true
         )

@@ -1,4 +1,4 @@
-//! `bench eval routing` against the fixture sets in `tests/fixtures/eval-routing/`: `skills/`
+//! `skillcheck eval routing` against the fixture sets in `tests/fixtures/eval-routing/`: `skills/`
 //! holds three model-invoked skills and one user-invoked one; `pass/` routes every prompt
 //! correctly, `fail/` has one positive that ranks the wrong skill first.
 
@@ -14,7 +14,7 @@ fn fixtures() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/eval-routing")
 }
 
-/// Runs `bench eval routing --skills <skills> --fixtures <routing>` and returns the exit
+/// Runs `skillcheck eval routing --skills <skills> --fixtures <routing>` and returns the exit
 /// code, the parsed envelope (`Null` when stdout is empty) and stderr.
 fn eval_routing(
     skills: &Path,
@@ -46,7 +46,7 @@ fn a_passing_set_exits_0_and_its_table_is_all_diagonal() -> TestResult {
 
     assert_eq!(code, Some(0), "100% rank-1: {envelope}");
     assert_eq!(stderr, "", "nothing on stderr");
-    crate::support::golden("bench.eval-routing/1", &envelope, &[&fixtures()], &[])?;
+    crate::support::golden("skillcheck.eval-routing/1", &envelope, &[&fixtures()], &[])?;
     assert_eq!(
         envelope["command"],
         json!("eval routing"),
@@ -148,9 +148,9 @@ fn a_missing_fixtures_dir_is_a_usage_error_with_nothing_on_stdout() -> TestResul
     assert_eq!(code, Some(2), "usage error");
     assert_eq!(envelope, Value::Null, "nothing on stdout");
     assert!(
-        stderr.starts_with("bench: error: eval: reading fixtures: no such path: ")
+        stderr.starts_with("skillcheck: error: eval: reading fixtures: no such path: ")
             && stderr.lines().count() == 1,
-        "one `bench: error:` line: {stderr:?}"
+        "one `skillcheck: error:` line: {stderr:?}"
     );
     Ok(())
 }

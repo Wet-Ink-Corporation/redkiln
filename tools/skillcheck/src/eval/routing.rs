@@ -1,4 +1,4 @@
-//! `bench eval routing`: Tier 1 lexical routing (`evals/README.md`).
+//! `skillcheck eval routing`: Tier 1 lexical routing (`evals/README.md`).
 //!
 //! Each model-invoked skill has a fixture `<fixtures>/<skill>.yaml` of positive prompts, which
 //! must rank the skill first, and near misses, which look like the skill but belong to another
@@ -27,7 +27,7 @@ use crate::lint::read::{LintError, read_capped};
 use fixture::Fixture;
 use judge::judge;
 
-/// Arguments of `bench eval routing`.
+/// Arguments of `skillcheck eval routing`.
 #[derive(Debug, Clone, Args)]
 pub struct RoutingArgs {
     /// The directory of skills to route between
@@ -201,11 +201,11 @@ impl Display for Fault {
             }
             Self::SelfOwned => f.write_str("a near miss cannot be owned by the skill it mimics"),
             Self::SkillUnparseable => f.write_str(
-                "the skill's SKILL.md does not parse; fix it first (see `bench lint skills`)",
+                "the skill's SKILL.md does not parse; fix it first (see `skillcheck lint skills`)",
             ),
             Self::OwnerUnparseable { owner } => write!(
                 f,
-                "near-miss owner `{owner}`: its SKILL.md does not parse; fix it first (see `bench lint skills`)"
+                "near-miss owner `{owner}`: its SKILL.md does not parse; fix it first (see `skillcheck lint skills`)"
             ),
         }
     }

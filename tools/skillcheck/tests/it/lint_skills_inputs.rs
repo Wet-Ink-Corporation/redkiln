@@ -1,4 +1,4 @@
-//! `bench lint skills` on awkward inputs: symlinks, wrong path kinds, oversized and
+//! `skillcheck lint skills` on awkward inputs: symlinks, wrong path kinds, oversized and
 //! non-UTF-8 files, a broken `--hooks` file.
 
 use std::error::Error;
@@ -6,9 +6,10 @@ use std::path::{Path, PathBuf};
 
 use skillcheck::lint::checker::Checker;
 use skillcheck::lint::finding::{LintFinding, Severity};
-use skillcheck::lint::{LintError, SkillsArgs, lint};
+use skillcheck::lint::{LintError, SkillsArgs};
+use skillcheck::profile::DEFAULT_PLUGIN;
 
-use crate::support::copy_dir;
+use crate::support::{copy_dir, lint};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -24,6 +25,7 @@ fn args(paths: Vec<PathBuf>) -> SkillsArgs {
         index: None,
         hooks: None,
         cache: None,
+        plugin: DEFAULT_PLUGIN.to_owned(),
     }
 }
 
@@ -267,7 +269,7 @@ fn the_envelope_names_the_command_lint_skills() -> TestResult {
         .output()?;
     let envelope: serde_json::Value = crate::support::envelope(&output)?;
     crate::support::golden(
-        "bench.lint-skills/1",
+        "skillcheck.lint-skills/1",
         &envelope,
         &[&fixture("rule-01-name/pass/skills")],
         &[],

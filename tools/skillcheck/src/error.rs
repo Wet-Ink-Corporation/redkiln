@@ -9,6 +9,7 @@ use crate::eval::routing::RoutingError;
 use crate::eval::uplift::UpliftError;
 use crate::exit_codes::{self, Code};
 use crate::lint::LintError;
+use crate::profile::UnknownPlugin;
 
 /// Why `skillcheck` could not produce a result.
 #[derive(Debug, thiserror::Error)]
@@ -22,6 +23,9 @@ pub enum CliError {
     /// `lint skills` could not check its inputs.
     #[error("lint")]
     Lint(#[from] LintError),
+    /// `lint skills --plugin` named a plugin with no skill profile.
+    #[error("lint")]
+    Profile(#[from] UnknownPlugin),
     /// `eval routing` could not read its inputs or run its first batch.
     #[error("eval")]
     Routing(#[from] RoutingError),
@@ -38,7 +42,7 @@ impl CliError {
     #[must_use]
     pub const fn code(&self) -> Code {
         match self {
-            Self::Usage { .. } => exit_codes::USAGE,
+            Self::Usage { .. } | Self::Profile(_) => exit_codes::USAGE,
             Self::Lint(error) => error.code(),
             Self::Routing(error) => error.code(),
             Self::Uplift(error) => error.code(),

@@ -8,8 +8,11 @@ use std::path::{Path, PathBuf};
 
 use skillcheck::eval::routing::{RoutingArgs, evaluate};
 use skillcheck::exit_codes;
+use skillcheck::lint::SkillsArgs;
 use skillcheck::lint::finding::Severity;
-use skillcheck::lint::{SkillsArgs, lint};
+use skillcheck::profile::DEFAULT_PLUGIN;
+
+use crate::support::lint;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -42,7 +45,7 @@ fn the_plugin_skills_route_at_100_percent_rank_1() -> TestResult {
     assert_eq!(
         outcome.code(),
         exit_codes::OK,
-        "Tier 1 needs every fixture valid and 100% rank-1 (run `bench eval routing`):\n{report}"
+        "Tier 1 needs every fixture valid and 100% rank-1 (run `skillcheck eval routing`):\n{report}"
     );
     Ok(())
 }
@@ -55,6 +58,7 @@ fn the_plugin_skills_lint_clean_and_the_snapshot_replays_the_fresh_result() -> T
         index: None,
         hooks: None,
         cache: None,
+        plugin: DEFAULT_PLUGIN.to_owned(),
     };
     let cached_args = SkillsArgs {
         cache: Some(work.path().join("lint-cache.json")),
@@ -101,7 +105,7 @@ fn every_entry_skill_has_valid_regression_and_capability_suites() -> TestResult 
     assert_eq!(
         output.status.code(),
         Some(0),
-        "Tier 3 suites must all be valid (run `bench eval uplift --check`): {}",
+        "Tier 3 suites must all be valid (run `skillcheck eval uplift --check`): {}",
         envelope["findings"]
     );
     let thin: Vec<String> = [

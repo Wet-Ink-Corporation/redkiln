@@ -20,6 +20,7 @@ use crate::exit_codes::{self, Code};
 use crate::lint::finding::{LintFinding, Severity};
 use crate::lint::{self, SkillsArgs};
 use crate::pipe::Pipe;
+use crate::profile::profile;
 
 /// The flags clap answers by printing instead of running a command.
 const HELP_AND_VERSION: [&str; 4] = ["-h", "--help", "-V", "--version"];
@@ -115,7 +116,8 @@ where
             command: Some(Command::Lint(args)),
         }) => match &args.target {
             LintTarget::Skills(skills) => {
-                let outcome = lint::lint(skills)?;
+                let profile = profile(&skills.plugin)?;
+                let outcome = lint::lint(skills, &profile)?;
                 report(&outcome, out)
             }
         },
@@ -266,5 +268,16 @@ mod tests {
 
         assert_eq!((code, out.as_str()), (2, ""), "usage error");
         assert_eq!(err, "skillcheck: error: lint: no such path: no/such/dir\n");
+    }
+
+    #[test]
+    fn a_plugin_with_no_profile_is_a_usage_error_before_any_path_is_read() {
+        let (code, out, err) = ran(&["lint", "skills", "no/such/dir", "--plugin", "weighin"]);
+
+        assert_eq!((code, out.as_str()), (2, ""), "usage error");
+        assert_eq!(
+            err,
+            "skillcheck: error: lint: no skill profile for plugin \"weighin\"\n"
+        );
     }
 }

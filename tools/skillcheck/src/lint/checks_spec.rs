@@ -7,19 +7,16 @@ use crate::lint::checker::{
 };
 use crate::lint::document::Skill;
 use crate::lint::finding::LintFinding;
-use crate::profile::BENCH;
+use crate::profile::Profile;
 
-/// The plugin's model-invoked entry skills (rule 4), from the profile.
-const ENTRY_SKILLS: &[&str] = BENCH.entry_skills;
-
-/// Every frontmatter check for `skill`.
-pub(crate) fn check(skill: &Skill<'_>) -> Vec<LintFinding> {
+/// Every frontmatter check for `skill`; `profile` names the plugin's entry skills (rule 4).
+pub(crate) fn check(skill: &Skill<'_>, profile: &Profile) -> Vec<LintFinding> {
     let mut findings = fields(skill);
     findings.extend(name(skill));
     findings.extend(description_budget(skill));
     findings.extend(description_trigger(skill));
     findings.extend(skip_rationalization(skill));
-    findings.extend(model_invocation(skill));
+    findings.extend(model_invocation(skill, profile.entry_skills));
     findings
 }
 
@@ -159,11 +156,11 @@ fn skip_rationalization(skill: &Skill<'_>) -> Option<LintFinding> {
 }
 
 /// Rule 4: entry skills are model-invoked; every other skill sets
-/// `disable-model-invocation: true`.
-fn model_invocation(skill: &Skill<'_>) -> Option<LintFinding> {
+/// `disable-model-invocation: true`. `entry_skills` are the plugin's model-invoked skills.
+fn model_invocation(skill: &Skill<'_>, entry_skills: &[&str]) -> Option<LintFinding> {
     let value = skill.doc.value("disable-model-invocation");
     let line = skill.field_line("disable-model-invocation");
-    let is_entry = ENTRY_SKILLS.contains(&skill.dir.name.as_str());
+    let is_entry = entry_skills.contains(&skill.dir.name.as_str());
     let (message, fix) = match (value, is_entry) {
         ("" | "false", true) | ("true", false) => return None,
         ("true", true) => (
@@ -177,7 +174,7 @@ fn model_invocation(skill: &Skill<'_>) -> Option<LintFinding> {
             format!(
                 "`{}` is not an entry skill ({}) but is model-invoked.",
                 skill.dir.name,
-                ENTRY_SKILLS.join(", ")
+                entry_skills.join(", ")
             ),
             "set `disable-model-invocation: true`, or fold it into an entry skill's \
              `references/`."
@@ -198,10 +195,11 @@ fn model_invocation(skill: &Skill<'_>) -> Option<LintFinding> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_kebab_case, model_invocation, name};
+    use super::{is_kebab_case, name};
     use crate::lint::checker::Checker;
     use crate::lint::document::{test_dir, test_skill};
     use crate::lint::finding::{LintFinding, Severity};
+    use crate::profile::BENCH;
     use std::path::Path;
 
     /// The finding `check` gives for a skill in directory `dir_name` with `frontmatter`.
@@ -247,6 +245,11 @@ mod tests {
             None,
             "a good name passes"
         );
+    }
+
+    /// Rule 4 under Bench's entry skills.
+    fn model_invocation(skill: &super::Skill<'_>) -> Option<LintFinding> {
+        super::model_invocation(skill, BENCH.entry_skills)
     }
 
     #[test]

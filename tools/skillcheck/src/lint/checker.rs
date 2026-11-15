@@ -1,9 +1,9 @@
 //! The rule catalogue: every checker id and the design rule it enforces.
 //!
 //! It also holds the data the skill checks use (allowed frontmatter fields, budgets, word
-//! lists); the entry skills are the plugin's (`bench_contract::plugin::ENTRY_SKILLS`, read
-//! through `lint::skills`' profile). `docs/skill-rules.md` documents the same table; a test fails when a checker is
-//! missing from it.
+//! lists); the entry skills are the plugin's, read through its
+//! [`Profile`](crate::profile::Profile). `docs/skill-rules.md` documents the same table; a
+//! test fails when a checker is missing from it.
 
 use std::fmt::{self, Display, Formatter};
 

@@ -3,8 +3,9 @@
 //! findings are replayed, so a cached run reports exactly what a fresh one would.
 //!
 //! The inputs are the `SKILL.md` bytes as loaded (through any symlink), the skill's name, the
-//! [`Surroundings`] (`scripts/` present, the `references/` listing), the hook ids, the anneal
-//! version and the source of the checks themselves. Nothing else on disk is read by a per-skill
+//! [`Surroundings`] (`scripts/` present, the `references/` listing), the hook ids, the plugin's
+//! [`Profile`](crate::profile::Profile), the skillcheck version and the source of the checks
+//! themselves. Nothing else on disk is read by a per-skill
 //! check, so nothing else is hashed.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::baseline::{BaselineError, read_snapshot_bytes, write_snapshot_json};
+use crate::lint::checks_prose::Enforcers;
 use crate::lint::discover::Surroundings;
 use crate::lint::document::Skill;
 use crate::lint::finding::LintFinding;
@@ -124,7 +126,7 @@ impl Cache {
 macro_rules! rule_sources {
     ($($path:literal),* $(,)?) => {
         /// Every module whose code decides per-skill findings, as (path relative to
-        /// `src/lint/skills/`, source). Hashing the source means an edited check invalidates
+        /// `src/lint/`, source). Hashing the source means an edited check invalidates
         /// the snapshot by itself.
         const RULE_SOURCES: &[(&str, &str)] = &[$(($path, include_str!($path))),*];
     };
@@ -152,9 +154,9 @@ rule_sources!(
 pub(crate) fn content_hash(
     skill: &Skill<'_>,
     around: &Surroundings,
-    hook_ids: &BTreeSet<String>,
+    enforcers: Enforcers<'_>,
 ) -> String {
-    hash_with_rules(RULE_SOURCES, skill, around, hook_ids)
+    hash_with_rules(RULE_SOURCES, skill, around, enforcers)
 }
 
 /// [`content_hash`] with the rule sources given, so a test can vary them.
@@ -162,7 +164,7 @@ fn hash_with_rules(
     rules: &[(&str, &str)],
     skill: &Skill<'_>,
     around: &Surroundings,
-    hook_ids: &BTreeSet<String>,
+    enforcers: Enforcers<'_>,
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(FORMAT_VERSION.to_le_bytes());
@@ -171,10 +173,19 @@ fn hash_with_rules(
         hash_bytes(&mut hasher, source.as_bytes());
     }
     hash_bytes(&mut hasher, env!("CARGO_PKG_VERSION").as_bytes());
-    hash_count(&mut hasher, hook_ids.len());
-    for id in hook_ids {
+    hash_count(&mut hasher, enforcers.hook_ids.len());
+    for id in enforcers.hook_ids {
         hash_bytes(&mut hasher, id.as_bytes());
     }
+    let profile = enforcers.profile;
+    hash_bytes(&mut hasher, profile.binary.as_bytes());
+    for list in [profile.commands, profile.hook_ids, profile.entry_skills] {
+        hash_count(&mut hasher, list.len());
+        for item in list {
+            hash_bytes(&mut hasher, item.as_bytes());
+        }
+    }
+    hash_bytes(&mut hasher, profile.enforcer_fix.as_bytes());
     hash_bytes(&mut hasher, skill.dir.name.as_bytes());
     hasher.update(skill.size.to_le_bytes());
     hash_bytes(&mut hasher, skill.doc.source.as_bytes());

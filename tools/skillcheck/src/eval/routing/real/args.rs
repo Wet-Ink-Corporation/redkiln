@@ -1,4 +1,4 @@
-//! The Tier 2 flags of `bench eval routing` and the settings they resolve to.
+//! The Tier 2 flags of `skillcheck eval routing` and the settings they resolve to.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

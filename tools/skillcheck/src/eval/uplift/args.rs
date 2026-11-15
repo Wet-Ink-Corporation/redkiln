@@ -1,4 +1,4 @@
-//! The flags of `bench eval uplift` and the mode they resolve to.
+//! The flags of `skillcheck eval uplift` and the mode they resolve to.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ const DEFAULT_SKILLS: &str = "plugin/skills";
 /// `--suites` when not given.
 const DEFAULT_SUITES: &str = "evals/uplift";
 
-/// Arguments of `bench eval uplift`.
+/// Arguments of `skillcheck eval uplift`.
 #[derive(Debug, Clone, Args)]
 pub struct UpliftArgs {
     /// The directory of the plugin's skills; the plugin is its parent
