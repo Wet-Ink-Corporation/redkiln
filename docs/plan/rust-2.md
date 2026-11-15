@@ -37,6 +37,7 @@ The import's gate is Core 1.0, which freezes at Move 2. **Decided (Ryan, 2026-11
 | R-4 | **The root's vendored gate.** This repository runs temper 1.4.0 at `.claude/temper/`; temper is at 1.6.0 | **Decided (Ryan, 2026-11-08):** bump the root copy to the latest 1.x in its own PR, after Move 1 closes and before Move 2's re-baseline, so Bench is baselined once under the newer engine |
 | R-5 | **Kits.** `redkiln-guard` is first cut at Move 2 (from anneal); `redkiln-craft` is born with Rust | The kit-bound modules move out after the import is green, one PR per kit, never in the import |
 | R-6 | **Lens plugin.** `plugins/temper-lens/` becomes `plugins/rust-lens/`, a mod plugin with its own launcher copy (as `rk-weigh-in-mod`) | As the manifest says |
+| R-7 | **No plugin inside a plugin.** claude.ai's sync refuses a plugin root that holds another `.claude-plugin/plugin.json`: temper's root plugin (`source: "./"`) has held `plugins/temper-lens/` since 2026-10-31 (temper d27882d), so every sync since skips temper and claude.ai still serves 1.5.0 | `rk-rust` and `rust-lens` ship as sibling folders in the release repository, never nested. Ryan chose on 2026-11-14 to leave claude.ai on temper 1.5.0 until then rather than serve 1.6.0 from `redkiln-plugins` |
 
 ## Open questions temper left (Weigh-In, temper repository)
 
