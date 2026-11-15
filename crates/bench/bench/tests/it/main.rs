@@ -18,9 +18,6 @@ mod decide;
 mod decide_http;
 mod design_tree_schema;
 mod dry_run;
-mod eval_routing;
-mod eval_routing_real;
-mod eval_uplift;
 #[cfg(test)]
 mod fixtures;
 mod floor_guard;
@@ -42,8 +39,6 @@ mod ledger;
 mod legacy_import;
 mod lint_plan;
 mod lint_rules;
-mod lint_skills;
-mod lint_skills_inputs;
 mod lint_spec;
 mod lint_terms;
 mod migrate;

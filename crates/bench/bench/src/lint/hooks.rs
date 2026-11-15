@@ -1,5 +1,6 @@
 //! The hook ids that count as enforcers (design rule 10): those of a `--hooks` metadata file,
-//! else the defaults the caller gives. `lint skills` and `lint rules` share it.
+//! else the defaults the caller gives. `lint rules` reads it; `tools/skillcheck` keeps its own
+//! copy for `lint skills` (Move 2 step 5, PR 5.1b).
 
 use std::collections::BTreeSet;
 use std::path::Path;

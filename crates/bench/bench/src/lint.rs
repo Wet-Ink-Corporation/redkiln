@@ -1,7 +1,9 @@
 //! `bench lint`: schema and anatomy checks whose every finding carries a rule, a location and
 //! a fix string.
 //!
-//! - [`skills`]: `lint skills`, the 21 skill design rules.
+//! `lint skills`, the 21 skill design rules, is `tools/skillcheck`'s since Move 2 step 5
+//! (PR 5.1b).
+//!
 //! - [`terms`]: `lint terms`, uses of the glossary's avoided terms; its hits are
 //!   `{file, line, term}`, not rule findings, so it writes its own envelope `data`.
 //! - [`spec`]: `lint spec`, a spec's sections, EARS criteria, markers, constitution check and
@@ -9,17 +11,16 @@
 //!   checker), so it writes its own envelope `data` too.
 //! - [`plan`]: `lint plan`, a plan's spec link, sections, tasks, task fields and blockers;
 //!   its findings are [`plan::PlanFinding`]s and its `data` carries the plan as read.
-//! - [`finding`]: the finding model the skill rules use, and its envelope form; [`checker`]:
-//!   the checker ids those findings carry.
+//! - [`finding`]: the finding model `lint rules` reports, and its envelope form; [`checker`]:
+//!   the one checker id those findings carry.
 //! - [`read`]: the read cap and bounded reads every target (and Bench's other readers) uses,
 //!   and [`read::LintError`]; the private `hooks` module: the hook ids that count as
-//!   enforcers, for `lint skills` and `lint rules`.
+//!   enforcers, for `lint rules`.
 //!
 //! - [`brief`]: `lint brief`, the nine fields of a brief (`brief::fields`), each present once
 //!   and filled; its findings are [`brief::BriefFinding`]s.
 //! - [`rules`]: `lint rules`, every rule of a rule document names an enforcer that exists;
-//!   its findings are rule 10's `enforcer` [`finding::LintFinding`]s, reported as `lint skills`
-//!   reports its own.
+//!   its findings are rule 10's `enforcer` [`finding::LintFinding`]s.
 
 pub mod brief;
 pub mod checker;
@@ -28,7 +29,6 @@ mod hooks;
 pub mod plan;
 pub mod read;
 pub mod rules;
-pub mod skills;
 pub mod spec;
 pub mod terms;
 
@@ -57,9 +57,6 @@ pub struct LintArgs {
 /// The things `bench lint` checks.
 #[derive(Debug, Subcommand)]
 pub enum LintTarget {
-    /// Check skill directories against the 21 skill design rules
-    #[command(after_help = command_help(CommandName::Lint))]
-    Skills(skills::SkillsArgs),
     /// Find the glossary's avoided terms (`_Avoid_:` lines) in files
     #[command(after_help = command_help(CommandName::Lint))]
     Terms(terms::TermsArgs),
@@ -87,15 +84,6 @@ pub enum LintTarget {
 /// cannot be written.
 pub fn run<O: Write>(args: &LintArgs, out: &mut O) -> Result<Code, CliError> {
     match &args.target {
-        LintTarget::Skills(skills_args) => {
-            let outcome = skills::lint(skills_args)?;
-            report(
-                "skills",
-                &outcome.findings,
-                Counts::new(outcome.skills, outcome.cached),
-                out,
-            )
-        }
         LintTarget::Terms(terms_args) => {
             let outcome = terms::lint(terms_args)?;
             terms::report(&terms_args.glossary, &outcome, out)
@@ -127,9 +115,10 @@ pub fn run<O: Write>(args: &LintArgs, out: &mut O) -> Result<Code, CliError> {
 /// How many inputs a run looked at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Counts {
-    /// Inputs checked (skills, specs, ...).
+    /// Inputs checked (rule documents).
     checked: usize,
-    /// Inputs whose findings were replayed from the snapshot.
+    /// Inputs whose findings were replayed from a snapshot: always 0 for `lint rules`, kept in
+    /// `data` so its envelope reads as before.
     cached: usize,
 }
 
@@ -160,7 +149,7 @@ struct Detail<'a> {
     finding: &'a LintFinding,
 }
 
-/// Writes the envelope for `findings` from the `lint` `target` (`"skills"`) and returns its
+/// Writes the envelope for `findings` from the `lint` `target` (`"rules"`) and returns its
 /// code: 1 when any finding is an error, else 0. Warnings and review items are listed but never
 /// fail the run.
 ///

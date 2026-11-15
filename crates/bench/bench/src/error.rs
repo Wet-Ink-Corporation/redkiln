@@ -15,8 +15,6 @@ use crate::calibrate::CalibrateError;
 use crate::command::CommandName;
 use crate::dag::DagError;
 use crate::decide::DecideError;
-use crate::eval::routing::RoutingError;
-use crate::eval::uplift::UpliftError;
 use crate::exit_codes::{self, Code};
 use crate::floor_guard::FloorError;
 use crate::grill::GrillError;
@@ -73,12 +71,6 @@ pub enum CliError {
     /// The working directory could not be read.
     #[error("reading the working directory")]
     CurrentDir(#[source] io::Error),
-    /// `bench eval` could not read its inputs.
-    #[error("eval")]
-    Eval(#[from] RoutingError),
-    /// `bench eval uplift` could not read its inputs or run its first batch.
-    #[error("eval")]
-    Uplift(#[from] UpliftError),
     /// `bench dag` could not read the tickets or build their graph.
     #[error("dag")]
     Dag(#[from] DagError),
@@ -186,8 +178,6 @@ impl CliError {
             | Self::ParkContended { .. }
             | Self::TooManyRounds { .. } => exit_codes::INTERNAL,
             Self::Lint(error) | Self::Plan(error) => error.code(),
-            Self::Eval(error) => error.code(),
-            Self::Uplift(error) => error.code(),
             Self::Grill(error) => error.code(),
             Self::Task(error) => error.code(),
             Self::Mode(error) => error.code(),
