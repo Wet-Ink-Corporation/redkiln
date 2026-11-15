@@ -1,7 +1,7 @@
 //! Scratch git repositories for unit tests: a `main` branch with a base commit, and helpers to
 //! write files and commit them. Test-only; every helper returns a `Result` so a failed setup is
 //! a test error with git's message. A copy of the part of Bench's `test_repo` the eval tests
-//! use (Move 2 step 5, PR 5.1b).
+//! use.
 
 use std::error::Error;
 use std::path::Path;

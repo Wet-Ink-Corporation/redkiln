@@ -1,5 +1,5 @@
 //! Paths handled as text, so output reads the same on every platform (a copy of Bench's
-//! `path_text`, Move 2 step 5, PR 5.1b).
+//! `path_text`).
 
 use std::borrow::Cow;
 

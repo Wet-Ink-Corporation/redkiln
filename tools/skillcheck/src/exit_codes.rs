@@ -1,6 +1,5 @@
-//! The exit-code table: the one place exit codes are declared, with the numbers and texts the
-//! lint and eval commands had under `bench` (Move 2 step 5, PR 5.1b). [`render`] puts the table
-//! in `--help`.
+//! The exit-code table of `lint skills` and `eval`: the one place their exit codes are
+//! declared. [`render`] puts the table in `--help`.
 //!
 //! The rule behind every row: "2 never reads as 0". Only success exits 0.
 

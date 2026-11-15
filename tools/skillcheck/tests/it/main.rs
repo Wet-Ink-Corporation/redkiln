@@ -1,5 +1,5 @@
 //! Integration tests for the `skillcheck` binary and library, compiled as one test binary
-//! (TST-02). Moved from Bench with `lint skills` and `eval` (Move 2 step 5, PR 5.1b).
+//! (TST-02).
 
 mod bootstrap_index;
 mod eval_routing;

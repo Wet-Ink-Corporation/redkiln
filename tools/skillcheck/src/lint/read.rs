@@ -1,6 +1,6 @@
 //! Reading the files `lint skills` and the evals are given: the read cap, bounded reads, the
 //! usage checks on command-line paths, and [`LintError`], why a lint could not run. A copy of
-//! Bench's `lint::read`, which Bench's other lints keep (Move 2 step 5, PR 5.1b).
+//! Bench's `lint::read`, which Bench's other lints keep.
 
 use std::fs::File;
 use std::io::{self, Read};

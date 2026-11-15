@@ -1,7 +1,7 @@
 //! The `lint skills --cache` snapshot file: read within a cap, written atomically.
 //!
-//! A copy of the two snapshot functions of Bench's `baseline` module and what they need (Move 2
-//! step 5, PR 5.1b); the name stays so the moved cache code and its tests read as they did.
+//! A copy of the two snapshot functions of Bench's `baseline` module and what they need, under
+//! the same name so the cache code reads like Bench's.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};

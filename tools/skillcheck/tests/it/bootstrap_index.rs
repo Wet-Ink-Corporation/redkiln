@@ -1,5 +1,4 @@
-//! `lint skills --index` against Bench's committed bootstrap index (rule 4). Moved from Bench's
-//! `tests/it/hook_bootstrap.rs` (Move 2 step 5, PR 5.1b).
+//! `lint skills --index` against Bench's committed bootstrap index (rule 4).
 
 use std::error::Error;
 use std::path::Path;

@@ -1,6 +1,6 @@
 //! The repository's own skills against the Tier 0, 1 and 3 merge bars (`evals/bench/README.md`).
-//! CI runs these tests, so they are what enforce the bars there. Moved from Bench's
-//! `tests/it/repo_gates.rs` (Move 2 step 5, PR 5.1b); the debug-leftovers test stays in Bench.
+//! CI runs these tests, so they are what enforce the bars there. The debug-leftovers test is
+//! Bench's own (`tests/it/repo_gates.rs`).
 
 use std::error::Error;
 use std::fmt::Write as _;

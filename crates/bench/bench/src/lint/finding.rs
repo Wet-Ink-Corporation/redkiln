@@ -1,8 +1,8 @@
 //! The lint finding model `bench lint rules` reports: severity, location, message and the fix
 //! string, and its conversion to the envelope's [`Finding`].
 //!
-//! A copy of the skill linter's model, which moved to `tools/skillcheck` (Move 2 step 5,
-//! PR 5.1b); `lint rules` keeps its own so its envelope bytes stay as they were.
+//! `tools/skillcheck` has its own copy for `lint skills`; this one keeps `lint rules`' envelope
+//! bytes stable.
 
 use std::fmt::{self, Display, Formatter};
 

@@ -89,7 +89,7 @@ jobs:
           area kb '^(\.kb/|crates/knowledge/|tools/xtask/)'
           area weigh-in '^(plugins/weigh-in(-mod)?/|tools/weigh-in/|tools/launcher/weighin-)'
           area bench '^(plugins/bench(-cockpit)?/|tools/bench/|tools/launcher/bench-)'
-          area skillcheck '^(plugins/[^/]+/skills/|evals/|tools/skillcheck/|crates/bench/bench-contract/|spec/schemas/cli-envelope-1\.schema\.json$|Cargo\.(toml|lock)$)'
+          area skillcheck '^(plugins/[^/]+/skills/|evals/|tools/skillcheck/|crates/bench/bench-contract/|spec/schemas/cli-envelope-1\.schema\.json$|docs/bench/bootstrap-index\.md$|Cargo\.(toml|lock)$)'
 
   rust:
     needs: changes

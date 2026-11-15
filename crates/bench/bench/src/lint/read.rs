@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use crate::baseline::BaselineError;
 use crate::exit_codes::{self, Code};
 
-/// Files read whole (the `lint terms` glossary and scanned files, rulings, rule and spec
-/// documents) larger than this are not read past it (H-13).
+/// Files read whole (a `--hooks` file, the `lint terms` glossary and scanned files, rulings,
+/// rule and spec documents) larger than this are not read past it (H-13).
 pub(crate) const MAX_READ_BYTES: u64 = 1024 * 1024;
 
 /// Why a Bench `lint` command (`lint terms`, `lint spec`, ...) could not run.

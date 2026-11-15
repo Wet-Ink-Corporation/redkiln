@@ -1,7 +1,7 @@
 //! Paths the evals resolve: the anneal home (`<home>/tmp`, `eval uplift`'s default work
 //! directory) and git's answers about a directory, with every git call bounded (H-13).
 //!
-//! A copy of what the evals used of Bench's `paths` (Move 2 step 5, PR 5.1b): the home rule is
+//! A copy of what the evals used of Bench's `paths`: the home rule is
 //! Bench's unchanged until `redkiln-calibrate`'s `UserScope` (5.4), and the git runner is
 //! duplicated until `redkiln-dispatch` (Move 4) absorbs the copies.
 

@@ -16,7 +16,7 @@
 //!   `PreToolUse` preconditions hook on file edits), and the one-`ERROR`-line output
 //!   hooks share.
 //! - [`lint`]: `bench lint terms|spec|plan|brief|rules` and the lint finding model. Skill QA
-//!   (`lint skills`, `eval routing|uplift`) is `tools/skillcheck`'s since Move 2 step 5.
+//!   (`lint skills`, `eval routing|uplift`) is `tools/skillcheck`'s.
 //! - [`plan`]: `bench plan approve|check`, a plan approval recorded in the ledger by hash.
 //! - [`playbook`]: `bench playbook show|list`, the playbooks built into the binary (templates,
 //!   schemas, the route playbook and Clef's thresholds table).

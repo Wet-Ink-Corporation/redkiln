@@ -1,6 +1,6 @@
 //! stdout as SPEC CLI-07 wants it: once its reader has closed it (a broken pipe, as in
 //! `skillcheck lint skills | head`), the rest of the output is dropped and the command goes on
-//! to the exit code it earns. A copy of Bench's `cli::pipe` (Move 2 step 5, PR 5.1b).
+//! to the exit code it earns. A copy of Bench's `cli::pipe`.
 
 use std::io::{self, Write};
 

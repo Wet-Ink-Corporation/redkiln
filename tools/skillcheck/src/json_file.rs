@@ -1,5 +1,5 @@
 //! A JSON file read whole within a size cap and parsed strictly: the `claude plugin eval`
-//! manifest and results. A copy of the reader in Bench's `json_file` (Move 2 step 5, PR 5.1b).
+//! manifest and results. A copy of the reader in Bench's `json_file`.
 
 use std::fs::{self, File};
 use std::io::{self, Read};

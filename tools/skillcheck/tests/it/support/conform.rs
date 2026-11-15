@@ -3,7 +3,7 @@
 //! [`golden`] pins one envelope per output id under `tests/fixtures/cli/`, normalised so paths,
 //! hashes, commit ids and times do not vary between runs. `SKILLCHECK_BLESS=1` rewrites the
 //! goldens a run reaches. A copy of Bench's `tests/it/support/conform.rs` reading skillcheck's
-//! own output ids (Move 2 step 5, PR 5.1b).
+//! own output ids.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};

@@ -2,7 +2,7 @@
 //!
 //! Three kinds, each written in backticks after `Enforcer:`:
 //! - `bench <command> [<subcommand>...] [args]`: a command of this binary, down to a command
-//!   with no subcommands (a lint such as `bench lint skills`, a gate such as `bench plan check`);
+//!   with no subcommands (a lint such as `bench lint spec`, a gate such as `bench plan check`);
 //! - `hook <id>`: one of bench's hook ids, or of the `--hooks` file when given;
 //! - `test <file>::<fn>`: a file under the repository root that defines `fn <fn>(`.
 

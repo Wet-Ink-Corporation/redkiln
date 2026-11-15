@@ -1,7 +1,7 @@
 //! Running a child process to completion within a deadline and with capped output (H-13), for
 //! `git` (`paths`) and `claude plugin eval` (`eval::real::claude`).
 //!
-//! A copy of the waiting half of Bench's `process` module (Move 2 step 5, PR 5.1b): the plan
+//! A copy of the waiting half of Bench's `process` module: the plan
 //! duplicates it here and in `redkiln-github` until `redkiln-dispatch` (Move 4) absorbs them.
 //! Only what this tool calls is kept, so nothing here is dead code.
 

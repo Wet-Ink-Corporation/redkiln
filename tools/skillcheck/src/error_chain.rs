@@ -1,5 +1,5 @@
 //! An error and its sources as one line: what the error line and the eval findings show for a
-//! failure (a copy of Bench's `error_chain`, Move 2 step 5, PR 5.1b).
+//! failure (a copy of Bench's `error_chain`).
 
 use std::error::Error;
 

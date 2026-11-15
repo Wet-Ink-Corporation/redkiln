@@ -1,8 +1,7 @@
 //! `bench lint`: schema and anatomy checks whose every finding carries a rule, a location and
 //! a fix string.
 //!
-//! `lint skills`, the 21 skill design rules, is `tools/skillcheck`'s since Move 2 step 5
-//! (PR 5.1b).
+//! `lint skills`, the 21 skill design rules, is `tools/skillcheck`'s.
 //!
 //! - [`terms`]: `lint terms`, uses of the glossary's avoided terms; its hits are
 //!   `{file, line, term}`, not rule findings, so it writes its own envelope `data`.
