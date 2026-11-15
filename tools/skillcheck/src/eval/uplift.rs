@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use args::default_work_dir;
 pub use args::{BaselineArm, GatedTools, Scaffolds, UpliftArgs};
 pub(crate) use args::{Mode, Settings};
+pub use claude::BenchBinaryError;
 pub use gated::GatedCases;
 pub(crate) use report::report;
 
@@ -47,7 +48,7 @@ use crate::paths::PathError;
 use case::{Grader, Tool};
 use claude::{
     BaselinePlugin, CHILD_TMP_BELOW_WORK_DIR, ClaudeEvaluator, LauncherTarget, Placement, Plugins,
-    Unkept,
+    Unkept, locate_bench,
 };
 use drive::{Ask, Baseline, Drove, Metered, drive, first_batch_error};
 use runs::Runs;
@@ -80,7 +81,7 @@ pub(crate) struct UpliftOutcome {
     pub(crate) cleanup: Option<String>,
     /// The cost cap in US dollars, when a run was asked for.
     pub(crate) max_cost_usd: Option<f64>,
-    /// Where the plugin copies got the running binary, when a run made copies.
+    /// Where the plugin copies got the `bench` binary, when a run made copies.
     pub(crate) anneal: Option<PlacedAnneal>,
     /// The work directory, when a run made its workspace there although a selected case
     /// names Bash and the eval sandbox denies Bash every write under it.
@@ -133,7 +134,7 @@ impl Scope {
     }
 }
 
-/// Where a run's plugin copies got the running `anneal`.
+/// Where a run's plugin copies got the `bench` binary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlacedAnneal {
     /// Under `libexec/<target>/`, the launcher's first choice on this host.
@@ -197,6 +198,10 @@ pub enum UpliftError {
          your rights; review them, then pass --allow-scaffolds to run them"
     )]
     Scaffolds(GatedCases),
+    /// No `bench` binary to place in the plugin copies (`--bench-binary`, or beside
+    /// `skillcheck`).
+    #[error("finding the bench binary for the plugin copies")]
+    BenchBinary(#[source] BenchBinaryError),
     /// The default work directory needs the anneal home, and it is not usable.
     #[error("finding the default work directory")]
     Home(#[source] PathError),
@@ -208,7 +213,8 @@ pub enum UpliftError {
 impl UpliftError {
     /// The documented exit code: an unknown `--skill` is a usage error, as are a `--baseline`
     /// whose manifest cannot be read (a bad argument, not a router failure), gated tools
-    /// without `--allow-gated-tools`, fixtures without `--allow-scaffolds` and a missing or
+    /// without `--allow-gated-tools`, fixtures without `--allow-scaffolds`, no `bench` binary
+    /// to place (`--bench-binary` or beside `skillcheck`) and a missing or
     /// wrong-kind path ([`LintError::code`]); the evaluator's failures are
     /// [`RouterError::code`]'s; an unusable anneal home is internal, as it is for every
     /// command that needs one; a stderr that cannot be written is an output error.
@@ -222,7 +228,8 @@ impl UpliftError {
             | Self::UnknownCase { .. }
             | Self::Baseline(_)
             | Self::GatedTools(_)
-            | Self::Scaffolds(_) => crate::exit_codes::USAGE,
+            | Self::Scaffolds(_)
+            | Self::BenchBinary(_) => crate::exit_codes::USAGE,
             Self::Router(error) => error.code(),
             Self::Changed(error) => error.code(),
         }
@@ -247,7 +254,7 @@ fn for_skills(skills: &[String]) -> &'static str {
 /// `--case` names no case, `--changed-since` cannot compare, a run's selected cases name gated
 /// tools without `--allow-gated-tools` or fixtures without `--allow-scaffolds`, the default
 /// work directory needs an anneal home that is relative, the work directory cannot be made
-/// absolute (or, for a case naming Bash, made), the running binary cannot be found, `err`
+/// absolute (or, for a case naming Bash, made), no `bench` binary can be found, `err`
 /// cannot be written, or the evaluator cannot run its first batch.
 pub(crate) fn evaluate<E: Write>(
     args: &UpliftArgs,
@@ -291,10 +298,20 @@ pub(crate) fn evaluate<E: Write>(
     {
         return Err(UpliftError::Scaffolds(cases));
     }
+    let bench = bench_to_place(settings.bench_binary)?;
+    let anneal = bench.as_ref().map(|(binary, target)| Placement {
+        binary,
+        target: *target,
+    });
     let work_dir = work_dir(settings.work_dir, lookup)?;
     let work_dir = work_dir.as_path();
     outcome.socket_path = warn_socket_path(&outcome.suites.cases, work_dir, err)?;
-    let finished = run(settings, &args.skills, &outcome.suites, work_dir)?;
+    let finished = run(
+        settings,
+        &args.skills,
+        &outcome.suites,
+        Site { work_dir, anneal },
+    )?;
     outcome.drove = Some(finished.drove);
     outcome.cleanup = finished.cleanup;
     outcome.unkept = finished.unkept;
@@ -355,25 +372,44 @@ fn work_dir(
     Ok(absolute.map_err(RouterError::Workspace)?)
 }
 
+/// The `bench` binary to place in each plugin copy, with the host's launcher target, or `None`
+/// when the launcher knows no target for this host (nothing is placed then). A
+/// `--bench-binary` (`given`) that is not a file is refused on every host.
+///
+/// # Errors
+/// [`UpliftError::BenchBinary`] when `given` is not a file, or, on a host the launcher knows,
+/// when nothing is given and no `bench` sits beside the running `skillcheck`.
+fn bench_to_place(given: Option<&Path>) -> Result<Option<(PathBuf, LauncherTarget)>, UpliftError> {
+    let target = LauncherTarget::host();
+    if target.is_none() && given.is_none() {
+        return Ok(None);
+    }
+    let skillcheck = std::env::current_exe()
+        .map_err(|error| UpliftError::BenchBinary(BenchBinaryError::OwnPath(error)))?;
+    let bench = locate_bench(given, &skillcheck).map_err(UpliftError::BenchBinary)?;
+    Ok(target.map(|target| (bench, target)))
+}
+
+/// Where a run happens.
+#[derive(Debug, Clone, Copy)]
+struct Site<'a> {
+    /// The directory its workspace is made in.
+    work_dir: &'a Path,
+    /// The `bench` binary each plugin copy holds under the host's launcher target, if any.
+    anneal: Option<Placement<'a>>,
+}
+
 /// Runs `suites`' cases in the with arm and, unless `--no-baseline`, the baseline's, in a
-/// workspace made in `work_dir`, each plugin copy holding the running binary under the
-/// launcher's target for this host when there is one; with the run, why the workspace could
-/// not be removed afterwards, if it could not, and the results `--keep-results` could not keep.
+/// workspace made in `site`'s work directory, each plugin copy holding its `bench` binary
+/// when there is one; with the run, why the workspace could not be removed afterwards, if it
+/// could not, and the results `--keep-results` could not keep.
 fn run(
     settings: &Settings<'_>,
     skills: &Path,
     suites: &Suites,
-    work_dir: &Path,
+    site: Site<'_>,
 ) -> Result<Finished, UpliftError> {
-    let target = LauncherTarget::host();
-    let binary = target
-        .map(|_| std::env::current_exe())
-        .transpose()
-        .map_err(RouterError::Workspace)?;
-    let anneal = binary
-        .as_deref()
-        .zip(target)
-        .map(|(binary, target)| Placement { binary, target });
+    let Site { work_dir, anneal } = site;
     let plugin_dir = plugin_of(skills);
     let plugin = plugin_name(plugin_dir)?;
     let baseline_name = settings

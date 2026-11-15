@@ -28,7 +28,7 @@ pub(crate) fn script(fixture: &str) -> String {
     let source = single_quoted(&format!("{fixture}/."));
     format!(
         "#!/bin/sh\n\
-         # Written by bench eval uplift: seeds the run's empty workspace with the case's fixture.\n\
+         # Written by skillcheck eval uplift: seeds the run's empty workspace with the case's fixture.\n\
          set -eu\n\
          cp -RL {source} .\n\
          git init -q -b main\n\

@@ -1,12 +1,72 @@
-//! The running `anneal`, placed in each plugin copy where the plugin's launcher
-//! (`plugin/libexec/bench`) looks first, so the hooks and skills of a run find a binary: the
-//! launcher's release download fails inside the eval sandbox.
+//! A `bench` binary, placed in each plugin copy where the plugin's launcher
+//! (`plugins/bench/libexec/bench`) looks first, so the hooks and skills of a run find a binary:
+//! the launcher's release download fails inside the eval sandbox.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use super::scaffold::make_executable;
+
+/// The file name of `bench` on this platform: `bench` plus its executable suffix.
+pub(crate) fn bench_file() -> String {
+    format!("bench{}", std::env::consts::EXE_SUFFIX)
+}
+
+/// Why no `bench` binary could be found to place in the plugin copies.
+#[derive(Debug, thiserror::Error)]
+pub enum BenchBinaryError {
+    /// `--bench-binary` names no file.
+    #[error("--bench-binary {} is not a file", given.display())]
+    NotAFile {
+        /// The path given.
+        given: PathBuf,
+    },
+    /// Without `--bench-binary`, no `bench` file sits beside the running `skillcheck`.
+    #[error(
+        "no bench binary at {}, beside skillcheck; build it (`cargo build -p bench`) or pass \
+         --bench-binary <PATH>",
+        looked.display()
+    )]
+    NotBeside {
+        /// Where it was looked for.
+        looked: PathBuf,
+    },
+    /// The running `skillcheck`'s own path could not be found.
+    #[error("finding skillcheck's own path, beside which bench is looked for")]
+    OwnPath(#[source] io::Error),
+}
+
+/// The `bench` binary to place: `given` (`--bench-binary`) when it is a file, else the
+/// [`bench_file`] beside `skillcheck`, the running executable, when that is a file.
+///
+/// # Errors
+/// [`BenchBinaryError::NotAFile`] when `given` is not a file (a `bench` beside `skillcheck`
+/// is not tried then); [`BenchBinaryError::NotBeside`] when nothing is given and no file
+/// is there.
+pub(crate) fn locate_bench(
+    given: Option<&Path>,
+    skillcheck: &Path,
+) -> Result<PathBuf, BenchBinaryError> {
+    if let Some(given) = given {
+        return if given.is_file() {
+            Ok(given.to_path_buf())
+        } else {
+            Err(BenchBinaryError::NotAFile {
+                given: given.to_path_buf(),
+            })
+        };
+    }
+    let looked = skillcheck
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .join(bench_file());
+    if looked.is_file() {
+        Ok(looked)
+    } else {
+        Err(BenchBinaryError::NotBeside { looked })
+    }
+}
 
 /// A target directory of `libexec/` that the launcher tries first on some host, and the
 /// binary's file name there.
@@ -51,7 +111,7 @@ impl LauncherTarget {
 /// The binary to place in each plugin copy, and the launcher target to place it under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Placement<'a> {
-    /// The binary: the running `anneal` (`std::env::current_exe`).
+    /// The `bench` binary ([`locate_bench`]).
     pub(crate) binary: &'a Path,
     /// The host's launcher target.
     pub(crate) target: LauncherTarget,

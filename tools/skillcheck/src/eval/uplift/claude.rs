@@ -33,7 +33,8 @@ use crate::eval::real::claude::{Invocation, Invoked, Options, budget_arg, invoke
 use crate::eval::real::result;
 use crate::eval::real::workspace::{Limits, Workspace, copy_tree, name_len};
 use crate::eval::real::{RouterError, Stop};
-pub(crate) use libexec::{LauncherTarget, Placement};
+pub use libexec::BenchBinaryError;
+pub(crate) use libexec::{LauncherTarget, Placement, locate_bench};
 pub(crate) use trials::trials;
 
 /// The case schema version this writes for a case without a fixture (Claude Code reads up to
@@ -556,7 +557,7 @@ pub(crate) fn case_file(case: &Case, runs: u32) -> CaseFile<'_> {
             SCHEMA_VERSION
         },
         name: case.name(),
-        description: format!("bench eval uplift (Tier 3): {}", case.file),
+        description: format!("skillcheck eval uplift (Tier 3): {}", case.file),
         tags: ["anneal-uplift"],
         context,
         execution: Execution {

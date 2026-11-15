@@ -170,7 +170,7 @@ fn a_guard_that_slips_one_of_three_runs_is_watched_not_failed() {
             "case": "plan/capability/g.json",
             "passed": 2,
             "runs": 3,
-            "confirm": "bench eval uplift --case plan/capability/g.json --no-baseline --runs 10"
+            "confirm": "skillcheck eval uplift --case plan/capability/g.json --no-baseline --runs 10"
         }])
     );
 }

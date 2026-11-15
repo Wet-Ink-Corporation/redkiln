@@ -42,11 +42,10 @@ const ENTRY_TRIGGERS: [(&str, &str); 7] = [
 
 /// The user-invoked skills, by directory name, and what each does. Each is typed as
 /// `/<plugin>:<skill>` (`/rk-bench:handoff`), the plugin being [`bench_contract::plugin::NAME`].
-const USER_COMMANDS: [(&str, &str); 5] = [
+const USER_COMMANDS: [(&str, &str); 4] = [
     ("orchestrate", "run a plan's tasks across subagents."),
     ("handoff", "write a brief for the next session."),
     ("correct", "record a correction as a standing order."),
-    ("write-skill", "author a skill that lints clean."),
     ("calibrate", "calibrate a Clef decision point."),
 ];
 
@@ -176,7 +175,6 @@ mod tests {
             "/rk-bench:orchestrate",
             "/rk-bench:handoff",
             "/rk-bench:correct",
-            "/rk-bench:write-skill",
             "/rk-bench:calibrate",
         ] {
             assert!(

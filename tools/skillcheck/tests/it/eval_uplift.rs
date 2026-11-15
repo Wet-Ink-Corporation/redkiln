@@ -392,18 +392,26 @@ impl FakeRun {
         let claude = dir.path().join("claude");
         std::fs::write(&claude, FAKE_CLAUDE)?;
         std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
+        // A stand-in `bench` for the plugin copies, unless the test names its own.
+        let bench = dir.path().join("bench");
+        std::fs::write(&bench, "a stand-in bench")?;
         let mut command = Command::new(env!("CARGO_BIN_EXE_skillcheck"));
         if let Some(cwd) = cwd {
             command.current_dir(cwd);
         }
-        let output = command
+        command
             .args(["eval", "uplift", "--skills"])
             .arg(skills)
             .arg("--suites")
             .arg(suites)
             .arg("--claude")
             .arg(&claude)
-            .args(args)
+            .args(args);
+        if !args.iter().any(|arg| *arg == "--bench-binary") {
+            command.arg("--bench-binary").arg(&bench);
+        }
+        let output = command
+            .env("FAKE_ANNEAL", &bench)
             .env("FAKE_CLAUDE_LOG", dir.path().join("claude.log"))
             .env("TMPDIR", tmp.path())
             .env("ANNEAL_HOME", dir.path())
@@ -708,6 +716,62 @@ fn a_refused_gated_run_never_starts_claude_and_leaves_no_workspace() -> TestResu
         ),
         (Vec::<String>::new(), None),
         "no workspace made and claude never started"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn a_bench_binary_that_is_no_file_stops_the_run_before_claude_or_a_workspace() -> TestResult {
+    let empty = tempfile::tempdir()?;
+    let missing = empty.path().join("no-such-bench");
+
+    let run = FakeRun::with_args(&[], &["--bench-binary".as_ref(), missing.as_os_str()])?;
+
+    assert_eq!(
+        (
+            run.output.status.code(),
+            run.output.stdout.is_empty(),
+            std::str::from_utf8(&run.output.stderr)?.to_owned(),
+        ),
+        (
+            Some(2),
+            true,
+            format!(
+                "skillcheck: error: eval: finding the bench binary for the plugin copies: \
+                 --bench-binary {} is not a file\n",
+                missing.display()
+            )
+        )
+    );
+    assert_eq!(
+        (run.left_in_tmp()?, run.log().ok()),
+        (Vec::<String>::new(), None),
+        "no workspace made and claude never started"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn bench_binary_with_check_is_a_usage_error() -> TestResult {
+    let output = eval_uplift(
+        &fixtures().join("eval-uplift/suites"),
+        &["--check", "--bench-binary", "target/debug/bench"],
+    )?;
+
+    assert_eq!(
+        (
+            output.status.code(),
+            output.stdout.is_empty(),
+            std::str::from_utf8(&output.stderr)?,
+        ),
+        (
+            Some(2),
+            true,
+            "skillcheck: error: --check runs nothing, so --bench-binary does not apply\n"
+        )
     );
     Ok(())
 }

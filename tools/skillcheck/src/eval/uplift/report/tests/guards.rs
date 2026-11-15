@@ -55,7 +55,7 @@ fn a_watched_guard_s_finding_holds_its_confirm_command_and_its_skill_lists_it() 
         (
             &json!(
                 "guard case plan/capability/g.json passed 2 of 3 runs with the skill: on watch, \
-                 not failed; confirm it (it holds at 9 of 10): bench eval uplift --case \
+                 not failed; confirm it (it holds at 9 of 10): skillcheck eval uplift --case \
                  plan/capability/g.json --no-baseline --runs 10"
             ),
             &json!(["plan/capability/g.json"]),

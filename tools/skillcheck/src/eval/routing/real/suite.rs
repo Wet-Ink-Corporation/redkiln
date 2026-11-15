@@ -124,7 +124,7 @@ pub(crate) fn case<'a>(
     CaseFile {
         schema_version: SCHEMA_VERSION,
         name,
-        description: "bench eval routing (Tier 2): which skill fires",
+        description: "skillcheck eval routing (Tier 2): which skill fires",
         tags: ["anneal-routing"],
         execution: Execution {
             prompt,
@@ -181,7 +181,7 @@ mod tests {
             json!({
                 "schema_version": "1.0",
                 "name": "prompt-001",
-                "description": "bench eval routing (Tier 2): which skill fires",
+                "description": "skillcheck eval routing (Tier 2): which skill fires",
                 "tags": ["anneal-routing"],
                 "execution": {
                     "prompt": "break the spec into tasks",

@@ -1,8 +1,77 @@
 use std::fs;
 
-use super::{LauncherTarget, install};
+use super::{BenchBinaryError, LauncherTarget, bench_file, install, locate_bench};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+#[test]
+fn without_a_flag_the_bench_beside_skillcheck_is_used() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let skillcheck = dir.path().join("skillcheck");
+    let bench = dir.path().join(bench_file());
+    fs::write(&bench, "bench")?;
+
+    let found = locate_bench(None, &skillcheck)?;
+
+    assert_eq!(found, bench);
+    Ok(())
+}
+
+#[test]
+fn the_flag_overrides_the_bench_beside_skillcheck() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    fs::write(dir.path().join(bench_file()), "beside")?;
+    let given = dir.path().join("elsewhere-bench");
+    fs::write(&given, "given")?;
+
+    let found = locate_bench(Some(&given), &dir.path().join("skillcheck"))?;
+
+    assert_eq!(found, given);
+    Ok(())
+}
+
+#[test]
+fn no_bench_beside_skillcheck_and_no_flag_is_refused_naming_where_it_looked() -> TestResult {
+    let dir = tempfile::tempdir()?;
+
+    let refused = locate_bench(None, &dir.path().join("skillcheck"));
+
+    let looked = dir.path().join(bench_file());
+    assert!(
+        matches!(&refused, Err(BenchBinaryError::NotBeside { looked: at }) if *at == looked),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_flag_naming_no_file_is_refused_even_with_a_bench_beside_skillcheck() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    fs::write(dir.path().join(bench_file()), "beside")?;
+    let given = dir.path().join("no-such-bench");
+
+    let refused = locate_bench(Some(&given), &dir.path().join("skillcheck"));
+
+    assert!(
+        matches!(&refused, Err(BenchBinaryError::NotAFile { given: at }) if *at == given),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_directory_beside_skillcheck_named_bench_is_not_a_binary() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    fs::create_dir(dir.path().join(bench_file()))?;
+
+    let refused = locate_bench(None, &dir.path().join("skillcheck"));
+
+    assert!(
+        matches!(refused, Err(BenchBinaryError::NotBeside { .. })),
+        "{refused:?}"
+    );
+    Ok(())
+}
 
 #[test]
 fn each_host_the_launcher_knows_maps_to_the_target_it_tries_first() {

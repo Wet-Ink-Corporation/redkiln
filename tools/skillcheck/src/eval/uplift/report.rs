@@ -51,7 +51,7 @@ struct Data<'a> {
     graduates: Vec<&'a str>,
     granted_tools: Vec<Granted<'a>>,
     scaffolded: Vec<Scaffolded<'a>>,
-    /// The `libexec/` target the plugin copies got the running binary under, or `null` when
+    /// The `libexec/` target the plugin copies got the `bench` binary under, or `null` when
     /// nothing ran or the launcher knows no target for this host.
     libexec_target: Option<&'static str>,
 }

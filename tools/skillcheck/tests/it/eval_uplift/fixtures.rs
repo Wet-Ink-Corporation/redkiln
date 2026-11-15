@@ -162,10 +162,7 @@ fn seeds_run(
     let log = logs.path().join("seeds.log");
     let run = super::FakeRun::with_suites(
         suites,
-        &[
-            ("FAKE_SEEDS_LOG", log.to_str().ok_or("UTF-8")?),
-            ("FAKE_ANNEAL", env!("CARGO_BIN_EXE_skillcheck")),
-        ],
+        &[("FAKE_SEEDS_LOG", log.to_str().ok_or("UTF-8")?)],
         args,
     )?;
     let seeds = fs::read_to_string(&log)?;

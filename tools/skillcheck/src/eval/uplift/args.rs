@@ -121,6 +121,13 @@ pub struct UpliftArgs {
     /// its batch
     #[arg(long, value_name = "DIR")]
     pub keep_results: Option<PathBuf>,
+    /// The `bench` binary each plugin copy gets under `libexec/<target>/`, where the plugin's
+    /// launcher looks first, so the run's hooks and skills find one (the launcher cannot
+    /// download inside the eval sandbox). By default `bench` (with the platform's executable
+    /// suffix) beside this `skillcheck`, as `cargo build` leaves them; a run with neither is
+    /// refused before anything is copied or spent
+    #[arg(long, value_name = "PATH")]
+    pub bench_binary: Option<PathBuf>,
 }
 
 /// The variable whose value, when set and not empty, is the default work directory.
@@ -233,6 +240,8 @@ pub(crate) struct Settings<'a> {
     pub(crate) work_dir: Option<&'a Path>,
     /// `--keep-results`, where each batch's result is copied, if given.
     pub(crate) keep_results: Option<&'a Path>,
+    /// `--bench-binary`, the `bench` placed in each plugin copy, if given.
+    pub(crate) bench_binary: Option<&'a Path>,
     /// `--runs`, the runs per case in each arm.
     pub(crate) runs: Runs,
     /// Whether the baseline arm runs (`--no-baseline` skips it).
@@ -255,6 +264,7 @@ impl UpliftArgs {
             ("--allow-scaffolds", self.scaffolds == Scaffolds::Allow),
             ("--work-dir", self.work_dir.is_some()),
             ("--keep-results", self.keep_results.is_some()),
+            ("--bench-binary", self.bench_binary.is_some()),
             ("--runs", self.runs.is_some()),
             ("--no-baseline", self.baseline_arm == BaselineArm::Skip),
         ]
@@ -264,7 +274,8 @@ impl UpliftArgs {
 
     /// The flags a guard confirmation carries over from this run, as words: `--skills` and
     /// `--suites` when not the defaults, then `--claude`, `--model`, `--timeout`,
-    /// `--concurrency`, `--max-cost-usd`, `--work-dir` and `--trust-plugin` when given. It
+    /// `--concurrency`, `--max-cost-usd`, `--work-dir`, `--bench-binary` and `--trust-plugin`
+    /// when given. It
     /// never carries the selection (`--skill`, `--changed-since`), the arms (`--baseline`,
     /// `--runs`) or `--keep-results`, which would overwrite this run's kept results.
     pub(crate) fn confirm_words(&self) -> Vec<String> {
@@ -292,6 +303,7 @@ impl UpliftArgs {
             self.max_cost_usd.map(|usd| usd.to_string()),
         );
         push("--work-dir", self.work_dir.as_deref().map(path));
+        push("--bench-binary", self.bench_binary.as_deref().map(path));
         if self.trust_plugin {
             words.push("--trust-plugin".to_owned());
         }
@@ -380,6 +392,7 @@ impl UpliftArgs {
             scaffolds: self.scaffolds,
             work_dir: self.work_dir.as_deref(),
             keep_results: self.keep_results.as_deref(),
+            bench_binary: self.bench_binary.as_deref(),
             runs,
             baseline_arm: self.baseline_arm,
         }))
@@ -419,6 +432,7 @@ mod tests {
             scaffolds: Scaffolds::Refuse,
             work_dir: None,
             keep_results: None,
+            bench_binary: None,
         }
     }
 

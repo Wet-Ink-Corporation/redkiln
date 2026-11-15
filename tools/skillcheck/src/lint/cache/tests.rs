@@ -216,20 +216,10 @@ fn file_boundaries_are_part_of_the_hash() {
 
 /// Lint sources that do not decide per-skill findings, so they are not in `RULE_SOURCES`:
 /// `cache.rs` stores snapshots (a change to its format bumps `FORMAT_VERSION`); `listing.rs`
-/// lists skills for `eval routing` and no lint check reads it; `../terms.rs` is `lint terms`,
-/// `../spec.rs` is `lint spec`, `../plan.rs` is `lint plan`, `../brief.rs` is `lint brief` and
-/// `../rules.rs` is `lint rules`, which no skill check calls.
-const NOT_RULE_SOURCES: [&str; 7] = [
-    "cache.rs",
-    "listing.rs",
-    "../terms.rs",
-    "../spec.rs",
-    "../plan.rs",
-    "../brief.rs",
-    "../rules.rs",
-];
+/// lists skills for `eval routing` and no lint check reads it.
+const NOT_RULE_SOURCES: [&str; 2] = ["cache.rs", "listing.rs"];
 
-/// The `.rs` files directly in `src/<dir>`, as paths relative to `src/lint/skills/`.
+/// The `.rs` files directly in `src/<dir>`, as paths relative to `src/lint/`.
 fn sources_in(dir: &str, prefix: &str) -> Vec<String> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(dir);
     let mut names: Vec<String> = std::fs::read_dir(path)
@@ -256,19 +246,19 @@ fn sources_in(dir: &str, prefix: &str) -> Vec<String> {
 fn every_lint_source_is_hashed_or_explicitly_excluded() {
     let hashed: BTreeSet<&str> = RULE_SOURCES.iter().map(|(name, _)| *name).collect();
 
-    for name in sources_in("lint/skills", "")
-        .into_iter()
-        .chain(sources_in("lint", "../"))
-    {
+    for name in sources_in("lint", "") {
         assert!(
             hashed.contains(name.as_str()) || NOT_RULE_SOURCES.contains(&name.as_str()),
             "{name} is neither in RULE_SOURCES nor in NOT_RULE_SOURCES"
         );
     }
-    assert!(
-        hashed.contains("../../command.rs"),
-        "CommandName::ALL decides enforcer findings"
-    );
+    for parent in ["../lint.rs", "../profile.rs"] {
+        assert!(
+            hashed.contains(parent),
+            "{parent} decides per-skill findings (the driver; the profile's commands, hook ids \
+             and entry skills)"
+        );
+    }
     for excluded in NOT_RULE_SOURCES {
         assert!(!hashed.contains(excluded), "{excluded} is listed twice");
     }

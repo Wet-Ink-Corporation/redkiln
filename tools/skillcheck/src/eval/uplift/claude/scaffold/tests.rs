@@ -43,7 +43,7 @@ fn the_script_copies_the_fixture_dereferenced_and_commits_it() {
     assert_eq!(
         script("/repo/evals/uplift/fixtures/crate"),
         "#!/bin/sh\n\
-         # Written by bench eval uplift: seeds the run's empty workspace with the case's fixture.\n\
+         # Written by skillcheck eval uplift: seeds the run's empty workspace with the case's fixture.\n\
          set -eu\n\
          cp -RL '/repo/evals/uplift/fixtures/crate/.' .\n\
          git init -q -b main\n\

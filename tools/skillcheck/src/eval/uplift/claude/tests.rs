@@ -309,7 +309,7 @@ fn a_case_is_written_as_claude_plugin_eval_reads_it() {
         json!({
             "schema_version": "1.0",
             "name": "diagnose--regression--flaky",
-            "description": "bench eval uplift (Tier 3): diagnose/regression/flaky.json",
+            "description": "skillcheck eval uplift (Tier 3): diagnose/regression/flaky.json",
             "tags": ["anneal-uplift"],
             "execution": {
                 "prompt": "Fix the flaky test.\n\nWe ship in 5 minutes, so be quick.",
@@ -342,7 +342,7 @@ fn a_case_with_a_fixture_is_written_at_schema_1_1_naming_its_scaffold_script() {
         json!({
             "schema_version": "1.1",
             "name": "diagnose--regression--flaky",
-            "description": "bench eval uplift (Tier 3): diagnose/regression/flaky.json",
+            "description": "skillcheck eval uplift (Tier 3): diagnose/regression/flaky.json",
             "tags": ["anneal-uplift"],
             "context": {"scaffold_script": "scaffold.sh"},
             "execution": {

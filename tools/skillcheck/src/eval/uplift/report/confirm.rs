@@ -62,7 +62,7 @@ pub(super) fn watch_finding(watch: &Watch<'_>) -> Finding {
     )
 }
 
-/// `bench eval uplift <prefix…> --case <file> --no-baseline --runs 10`, then
+/// `skillcheck eval uplift <prefix…> --case <file> --no-baseline --runs 10`, then
 /// `--allow-gated-tools` when `case` names a gated tool and `--allow-scaffolds` when it names a
 /// fixture, each word quoted for a POSIX shell. `prefix` is the flags carried over from the
 /// round ([`crate::eval::uplift::UpliftArgs::confirm_words`]).
@@ -75,7 +75,7 @@ pub(super) fn command(prefix: &[String], case: &Case) -> String {
         .any(|tool| tool.is_gated())
         .then_some("--allow-gated-tools");
     let scaffolded = case.fixture.is_some().then_some("--allow-scaffolds");
-    let words = [bench_contract::cli::BINARY, "eval", "uplift"]
+    let words = [crate::envelope::BINARY, "eval", "uplift"]
         .into_iter()
         .chain(prefix.iter().map(String::as_str))
         .chain(["--case", case.file.as_str(), "--no-baseline", "--runs"])
@@ -137,7 +137,7 @@ mod tests {
 
         assert_eq!(
             command(&[], &case),
-            "bench eval uplift --case build/regression/plan-before-source.json --no-baseline \
+            "skillcheck eval uplift --case build/regression/plan-before-source.json --no-baseline \
              --runs 10 --allow-gated-tools --allow-scaffolds"
         );
     }
@@ -148,7 +148,7 @@ mod tests {
 
         assert_eq!(
             command(&prefix, &guard("g", &["Skill", "Read"])),
-            r"bench eval uplift --work-dir '/srv/it'\''s here' --case build/regression/g.json --no-baseline --runs 10"
+            r"skillcheck eval uplift --work-dir '/srv/it'\''s here' --case build/regression/g.json --no-baseline --runs 10"
         );
     }
 

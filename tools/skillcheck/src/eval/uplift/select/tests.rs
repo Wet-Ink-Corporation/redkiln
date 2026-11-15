@@ -30,6 +30,7 @@ fn args(case: &str, skill: &[&str]) -> UpliftArgs {
         scaffolds: Scaffolds::Refuse,
         work_dir: None,
         keep_results: None,
+        bench_binary: None,
     }
 }
 
