@@ -15,16 +15,13 @@
 //!   `SessionStart` bootstrap, the fail-closed `PreToolUse` Bash guard and the fail-closed
 //!   `PreToolUse` preconditions hook on file edits), and the one-`ERROR`-line output
 //!   hooks share.
-//! - [`lint`]: `bench lint skills|terms|spec|plan` and the lint finding model.
+//! - [`lint`]: `bench lint terms|spec|plan|brief|rules` and the lint finding model. Skill QA
+//!   (`lint skills`, `eval routing|uplift`) is `tools/skillcheck`'s.
 //! - [`plan`]: `bench plan approve|check`, a plan approval recorded in the ledger by hash.
 //! - [`playbook`]: `bench playbook show|list`, the playbooks built into the binary (templates,
 //!   schemas, the route playbook and Clef's thresholds table).
 //! - [`mode`]: `bench mode build|diagnose|off`, the worktree's bench mode that the
 //!   `PreToolUse` preconditions hook (`hook preconditions`, on file edits) enforces.
-//! - [`eval`]: `bench eval routing`, Tier 1 lexical routing over `evals/routing/`, and with
-//!   `--router claude` Tier 2, the same prompts under Claude Code's router with Wilson
-//!   intervals; `bench eval uplift`, Tier 3, each entry skill's behaviour suites with the
-//!   skill and without it, with Newcombe intervals.
 //! - [`dag`]: `bench dag check|frontier` over the tickets a tracker holds (markdown, GitHub).
 //! - [`decide`]: `bench decide`, one Clef question per decision point with its thresholds
 //!   applied and a row in `~/.anneal/decisions/decisions.jsonl`, and `decide label`.
@@ -93,7 +90,6 @@ mod diagnostic;
 pub mod envelope;
 pub mod error;
 mod error_chain;
-pub mod eval;
 mod existing_ledger;
 pub mod exit_codes;
 pub mod floor_guard;

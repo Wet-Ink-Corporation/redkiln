@@ -8,7 +8,7 @@
 
 Bench is a Claude Code plugin that turns prose SDLC gates into enforced checks. It has three layers:
 
-1. **Skills** for each phase of the work (`grill`, `spec`, `plan`, `build`, `diagnose`, `verify`, `ship`) and a few user-invoked ones (`/rk-bench:orchestrate`, `/rk-bench:handoff`, `/rk-bench:correct`, `/rk-bench:write-skill`, `/rk-bench:calibrate`).
+1. **Skills** for each phase of the work (`grill`, `spec`, `plan`, `build`, `diagnose`, `verify`, `ship`) and a few user-invoked ones (`/rk-bench:orchestrate`, `/rk-bench:handoff`, `/rk-bench:correct`, `/rk-bench:calibrate`).
 2. **A deterministic CLI**, `bench`, behind hooks on Claude Code events, backed by an append-only event ledger.
 3. **Calibrated judgement calls** (Clef decision points) that run in shadow mode until their calibration says they may enforce.
 
@@ -86,16 +86,16 @@ Clef answers Bench's judgement calls: seven decision points (D1 to D7), such as 
 
 ## Skills and evals
 
-Model-invoked skills (`grill`, `spec`, `plan`, `build`, `diagnose`, `verify`, `ship`) load when the request fits. User-invoked skills run only when you type them: `/rk-bench:handoff` (at a phase boundary or when the context monitor warns), `/rk-bench:orchestrate` (fan an approved plan out across subagents), `/rk-bench:correct` (turn a mistake into a check), `/rk-bench:write-skill` (write a skill test-first) and `/rk-bench:calibrate` (score the Clef points and propose thresholds). See `docs/bench/skills.md`.
+Model-invoked skills (`grill`, `spec`, `plan`, `build`, `diagnose`, `verify`, `ship`) load when the request fits. User-invoked skills run only when you type them: `/rk-bench:handoff` (at a phase boundary or when the context monitor warns), `/rk-bench:orchestrate` (fan an approved plan out across subagents), `/rk-bench:correct` (turn a mistake into a check) and `/rk-bench:calibrate` (score the Clef points and propose thresholds). See `docs/bench/skills.md`.
 
-Skills are tested in four tiers (`evals/bench/README.md`):
+Skills are tested in four tiers by `skillcheck`, a repository tool outside the plugin (`tools/skillcheck/`, `evals/bench/README.md`):
 
 | Tier | What | Where it runs |
 |---|---|---|
-| 0 | Static checks: `bench lint skills`, `claude plugin validate --strict` | CI; `cargo test` runs the skill lint |
-| 1 | Lexical routing: 100% rank-1 on each skill's fixtures (`bench eval routing`) | CI, through `cargo test` |
-| 2 | Real routing under Claude Code's router (`bench eval routing --router claude`) | locally before a release, with `claude` signed in |
-| 3 | Behaviour uplift with and without each skill (`bench eval uplift`) | locally before a release, with `claude` signed in; `cargo test` checks the suites (`--check`) |
+| 0 | Static checks: `skillcheck lint skills`, `claude plugin validate --strict` | CI; `cargo test -p skillcheck` runs the skill lint |
+| 1 | Lexical routing: 100% rank-1 on each skill's fixtures (`skillcheck eval routing`) | CI, through `cargo test -p skillcheck` |
+| 2 | Real routing under Claude Code's router (`skillcheck eval routing --router claude`) | locally before a release, with `claude` signed in |
+| 3 | Behaviour uplift with and without each skill (`skillcheck eval uplift`) | locally before a release, with `claude` signed in; `cargo test` checks the suites (`--check`) |
 
 Tiers 2 and 3 run `claude plugin eval`, so they spend money or plan usage (capped by `--max-cost-usd`, 25 US dollars by default) and run the plugin's hooks on the host: run them in a container.
 

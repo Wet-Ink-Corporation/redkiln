@@ -1,0 +1,34 @@
+[package]
+name = "skillcheck"
+description = "Skill QA for Redkiln plugins: the skill design rules and the routing and uplift evals (Tiers 0 to 3); never shipped"
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "skillcheck"
+path = "src/lib.rs"
+
+[[bin]]
+name = "skillcheck"
+path = "src/main.rs"
+
+[dependencies]
+# Bench's facts the skill rules read (binary, commands, hook ids, entry skills), without Core.
+bench-contract = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The SPEC's CLI envelope schema, validated against every envelope the integration tests capture.
+jsonschema = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

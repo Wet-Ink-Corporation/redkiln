@@ -4,8 +4,9 @@
 //! A rule document is markdown with a `## Rules` section. Each list item in it is one rule, and
 //! names its enforcers after `Enforcer:` in backticks: `bench <command> ...`, `hook <id>` or
 //! `test <file>::<fn>` (see the private `enforcer` module). A rule with none, or with one that
-//! cannot be found, is an `enforcer` error. Findings use the lint finding model, so the
-//! envelope and exit codes are `lint skills`' own.
+//! cannot be found, is an `enforcer` error. Findings use the lint finding model
+//! (`lint::finding`), so the envelope and exit codes are those of Bench's other `lint`
+//! commands.
 
 pub(crate) mod enforcer;
 

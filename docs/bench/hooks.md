@@ -68,9 +68,10 @@ The context is, in order:
 1. **The index**, every time (stable first): what anneal is, the seven entry skills with their
    triggers, and the user-invoked commands, in 200 words or fewer. Its text is generated into
    `docs/bootstrap-index.md` (`ANNEAL_BLESS=1 cargo test -p anneal-cli bootstrap_index_doc`),
-   and `anneal lint skills <skills> --index docs/bootstrap-index.md` accepts it. `lint skills`
-   runs its index rule only when it lints at least one skill; `plugin/skills` has none yet, so
-   the test (`lint_skills_accepts_the_committed_index`) lints a fixture skill. With
+   and `skillcheck lint skills <skills> --index docs/bench/bootstrap-index.md` accepts it
+   (`tools/skillcheck/tests/it/bootstrap_index.rs`, since Move 2 step 5). `lint skills` runs its
+   index rule only when it lints at least one skill, so the test
+   (`lint_skills_accepts_the_committed_index`) lints a fixture skill. With
    `CLAUDE_PLUGIN_ROOT` set, the injected index lists only the entry skills and commands whose
    `skills/<name>/SKILL.md` is a file there, so a plugin without a skill never sends the model
    to load it. It lists them all when the variable is unset, when no skill is found, and, with

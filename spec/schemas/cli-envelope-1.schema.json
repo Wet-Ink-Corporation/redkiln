@@ -13,9 +13,9 @@
   "additionalProperties": false,
   "properties": {
     "schema": {
-      "description": "CLI-02: <namespace>.<command>/<n>.",
+      "description": "CLI-02: <namespace>.<command>/<n>; the namespace is an event namespace (EV-03) or `skillcheck`, the dev tool's (CLI-02a).",
       "type": "string",
-      "pattern": "^(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.[a-z][a-z0-9-]*/[1-9][0-9]*$"
+      "pattern": "^(?:(core|weighin|bench|rust|review|loop|knowledge|backlog)\\.|skillcheck\\.)[a-z][a-z0-9-]*/[1-9][0-9]*$"
     },
     "ok": {
       "type": "boolean"

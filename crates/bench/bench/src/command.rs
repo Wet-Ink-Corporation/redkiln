@@ -49,8 +49,6 @@ pub enum CommandName {
     Decide,
     /// `bench calibrate`
     Calibrate,
-    /// `bench eval`
-    Eval,
     /// `bench status`: the one read model of the ledger and the anneal home for a UI
     Status,
     /// `bench statusline`
@@ -102,7 +100,7 @@ const PLAYBOOK_DOES_NOT_PROVE: &str =
 
 impl CommandName {
     /// Every command, in the order `--help` and `docs/exit-codes.md` list them.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 26] = [
         Self::Ledger,
         Self::Grill,
         Self::Task,
@@ -125,7 +123,6 @@ impl CommandName {
         Self::Verify,
         Self::Decide,
         Self::Calibrate,
-        Self::Eval,
         Self::Status,
         Self::Statusline,
         Self::Snapshot,
@@ -158,7 +155,6 @@ impl CommandName {
             Self::Verify => "verify",
             Self::Decide => "decide",
             Self::Calibrate => "calibrate",
-            Self::Eval => "eval",
             Self::Status => "status",
             Self::Statusline => "statusline",
             Self::Snapshot => "snapshot",
@@ -226,10 +222,6 @@ impl CommandName {
             }
             Self::Decide => "the decision was obtained and recorded",
             Self::Calibrate => "the calibration run completed and was recorded",
-            Self::Eval => {
-                "skill routing accuracy, or each skill's behaviour uplift over its baseline, is at \
-                 or above its bound on the eval set"
-            }
             Self::Status => STATUS_PROVES,
             Self::Statusline => "the status line was rendered",
             Self::Snapshot => SNAPSHOT_PROVES,
@@ -288,7 +280,6 @@ impl CommandName {
             }
             Self::Decide => "that the decision is right",
             Self::Calibrate => "that the decision point is calibrated well enough to enforce",
-            Self::Eval => "routing accuracy or behaviour on prompts outside the eval set",
             Self::Status => STATUS_DOES_NOT_PROVE,
             Self::Statusline => "that the state it shows is current",
             Self::Snapshot => "that the usage it reports is right or current",

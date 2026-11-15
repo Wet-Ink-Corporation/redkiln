@@ -1,10 +1,10 @@
 //! The bootstrap index: the stable part of what the `SessionStart` hook injects.
 //!
 //! It is what anneal is, the entry skills with their triggers, and the commands only the human
-//! runs, in 200 words or fewer (skill rule 4). The entry skills are the linter's
-//! `ENTRY_SKILLS`, in its order (a test holds them equal), so `lint skills` and the bootstrap
-//! agree on them. The same text is committed as `docs/bench/bootstrap-index.md`, which
-//! `bench lint skills --index` checks.
+//! runs, in 200 words or fewer (skill rule 4). The entry skills are `bench-contract`'s
+//! `ENTRY_SKILLS`, in its order (a test holds them equal), so `skillcheck lint skills` and the
+//! bootstrap agree on them. The same text is committed as `docs/bench/bootstrap-index.md`,
+//! which `skillcheck lint skills --index` checks.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -42,11 +42,10 @@ const ENTRY_TRIGGERS: [(&str, &str); 7] = [
 
 /// The user-invoked skills, by directory name, and what each does. Each is typed as
 /// `/<plugin>:<skill>` (`/rk-bench:handoff`), the plugin being [`bench_contract::plugin::NAME`].
-const USER_COMMANDS: [(&str, &str); 5] = [
+const USER_COMMANDS: [(&str, &str); 4] = [
     ("orchestrate", "run a plan's tasks across subagents."),
     ("handoff", "write a brief for the next session."),
     ("correct", "record a correction as a standing order."),
-    ("write-skill", "author a skill that lints clean."),
     ("calibrate", "calibrate a Clef decision point."),
 ];
 
@@ -176,7 +175,6 @@ mod tests {
             "/rk-bench:orchestrate",
             "/rk-bench:handoff",
             "/rk-bench:correct",
-            "/rk-bench:write-skill",
             "/rk-bench:calibrate",
         ] {
             assert!(

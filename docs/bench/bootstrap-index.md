@@ -22,5 +22,4 @@ The human runs these; do not start them unasked:
 - `/rk-bench:orchestrate`: run a plan's tasks across subagents.
 - `/rk-bench:handoff`: write a brief for the next session.
 - `/rk-bench:correct`: record a correction as a standing order.
-- `/rk-bench:write-skill`: author a skill that lints clean.
 - `/rk-bench:calibrate`: calibrate a Clef decision point.

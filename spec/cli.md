@@ -18,6 +18,8 @@ Every Redkiln binary is called by people, by hooks, by sibling plugins and by CI
 | `proves` | string or absent | What a green result proves |
 | `does_not_prove` | string or absent | What a green result does not prove |
 
+**CLI-02a.** The `<namespace>` of `schema` is an event namespace (EV-03), or `skillcheck`, the namespace of `tools/skillcheck`, the repository's skill QA tool (`skillcheck.lint-skills/1`, `skillcheck.eval-routing/1`, `skillcheck.eval-uplift/1`). `skillcheck` is a dev tool that is never shipped in a plugin and writes no events, so it is a CLI namespace only and not in EV-03's registry.
+
 A command whose result a gate or CI reads states `proves` and `does_not_prove`; others may leave them out. `ok` and the exit code come from one value, so they cannot disagree (anneal `envelope.rs`).
 
 ```json

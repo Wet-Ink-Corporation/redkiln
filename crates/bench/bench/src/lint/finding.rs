@@ -1,5 +1,8 @@
-//! The lint finding model shared by every `bench lint` target: severity, location, message and
-//! the fix string, and its conversion to the envelope's [`Finding`].
+//! The lint finding model `bench lint rules` reports: severity, location, message and the fix
+//! string, and its conversion to the envelope's [`Finding`].
+//!
+//! `tools/skillcheck` has its own copy for `lint skills`; this one keeps `lint rules`' envelope
+//! bytes stable.
 
 use std::fmt::{self, Display, Formatter};
 
@@ -75,8 +78,8 @@ pub struct LintFinding {
     pub message: String,
     /// What to do about it, one line.
     pub fix: String,
-    /// Disambiguates findings of one checker on one line (e.g. the other skill of an overlap
-    /// pair); part of the stable key.
+    /// Disambiguates findings of one checker on one line (the enforcer a rule names); part of
+    /// the stable key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
 }
@@ -90,43 +93,12 @@ impl LintFinding {
         message: impl Into<String>,
         fix: impl Into<String>,
     ) -> Self {
-        Self::build(checker, Severity::Error, at, (message.into(), fix.into()))
-    }
-
-    /// A [`Severity::Warning`] finding from `checker` at `at`.
-    #[must_use]
-    pub fn warning(
-        checker: Checker,
-        at: Location,
-        message: impl Into<String>,
-        fix: impl Into<String>,
-    ) -> Self {
-        Self::build(checker, Severity::Warning, at, (message.into(), fix.into()))
-    }
-
-    /// A [`Severity::Review`] finding from `checker` at `at`.
-    #[must_use]
-    pub fn review(
-        checker: Checker,
-        at: Location,
-        message: impl Into<String>,
-        fix: impl Into<String>,
-    ) -> Self {
-        Self::build(checker, Severity::Review, at, (message.into(), fix.into()))
-    }
-
-    fn build(
-        checker: Checker,
-        severity: Severity,
-        at: Location,
-        (message, fix): (String, String),
-    ) -> Self {
         Self {
             checker,
-            severity,
+            severity: Severity::Error,
             at,
-            message,
-            fix,
+            message: message.into(),
+            fix: fix.into(),
             subject: None,
         }
     }
@@ -182,18 +154,18 @@ mod tests {
     #[test]
     fn the_envelope_line_names_location_severity_rule_checker_and_fix() {
         let finding = LintFinding::error(
-            Checker::Name,
-            Location::new("skills/Plan/SKILL.md", 2),
-            "name `Plan` is not kebab-case.",
-            "rename it to `plan`.",
+            Checker::Enforcer,
+            Location::new("docs/rules.md", 7),
+            "this rule names no enforcer.",
+            "name one.",
         );
 
         assert_eq!(
             finding.to_envelope(),
             Finding::new(
-                "lint/name:skills/Plan/SKILL.md:2",
-                "skills/Plan/SKILL.md:2: error rule 1 [name] name `Plan` is not kebab-case. \
-                 fix: rename it to `plan`."
+                "lint/enforcer:docs/rules.md:7",
+                "docs/rules.md:7: error rule 10 [enforcer] this rule names no enforcer. \
+                 fix: name one."
             ),
             "one line with every part"
         );
@@ -201,11 +173,11 @@ mod tests {
 
     #[test]
     fn a_subject_makes_the_key_unique() {
-        let at = Location::new("s/a/SKILL.md", 3);
-        let finding = LintFinding::warning(Checker::Overlap, at, "m", "f").with_subject("b");
+        let at = Location::new("docs/rules.md", 3);
+        let finding = LintFinding::error(Checker::Enforcer, at, "m", "f").with_subject("hook x");
         assert_eq!(
             finding.key(),
-            "lint/overlap:s/a/SKILL.md:3:b",
+            "lint/enforcer:docs/rules.md:3:hook x",
             "subject last"
         );
     }

@@ -8,6 +8,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 |---|---|---|
 | `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, `deny.toml`, `.cargo/` | One workspace, toolchain 1.98.1, temper 1.6.0's lint and supply-chain policy | phase 0 |
 | `tools/xtask/` | `cargo xtask <task>`: the checks below and the release tasks | phase 0 |
+| `tools/skillcheck/` | `skillcheck`: skill QA (lint, routing and uplift evals), moved out of Bench | move 2 |
 | `tools/launcher/` | The shared plugin launcher (sh and `.cmd`) and its tests | phase 0 |
 | `tools/labels/`, `.github/labels.yml` | The suite label manifest (Backlog call A, wi-cef669), its check and an idempotent apply script | phase 0 |
 | `spec/` | Core SPEC, schemas, conformance fixtures | SPEC v1 draft, phase 0 |
@@ -37,6 +38,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/bench/bench-contract` | contract (bench) | `bench.*` events (`event`), commands (`cli`), `status --json` data (`status`) | redkiln-core (optional), serde, thiserror |
 | `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI, its events kept in the Core store through `redkiln-core` | bench-contract, redkiln-core, redkiln-guard, clap, ureq, sha2, serde, serde_json, thiserror |
 | `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
+| `tools/skillcheck` | tool, binary `skillcheck` | Skill QA: `lint skills`, `eval routing\|uplift`; never shipped | bench-contract, clap, serde, serde_json, sha2, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
 

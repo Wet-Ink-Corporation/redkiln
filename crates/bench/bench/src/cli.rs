@@ -22,7 +22,6 @@ use crate::decide::transport::http::UreqTransport;
 use crate::decide::{self, DecideArgs, DecideEnv};
 use crate::diagnostic;
 use crate::error::CliError;
-use crate::eval::{self, EvalArgs};
 use crate::exit_codes::render::{command_help, overview_help};
 use crate::exit_codes::{self, Code};
 use crate::floor_guard::{self, FloorGuardArgs};
@@ -139,9 +138,6 @@ pub enum Command {
     /// Score each Clef decision point against its labelled outcomes and propose thresholds
     #[command(after_help = command_help(CommandName::Calibrate))]
     Calibrate(CalibrateArgs),
-    /// Run evaluation suites, such as skill routing
-    #[command(after_help = command_help(CommandName::Eval))]
-    Eval(EvalArgs),
     /// Fold the ledger and the anneal home into one status document (text, or JSON with --json)
     #[command(after_help = command_help(CommandName::Status))]
     Status(StatusArgs),
@@ -197,7 +193,6 @@ impl Command {
             Self::Verify(_) => CommandName::Verify,
             Self::Decide(_) => CommandName::Decide,
             Self::Calibrate(_) => CommandName::Calibrate,
-            Self::Eval(_) => CommandName::Eval,
             Self::Status(_) => CommandName::Status,
             Self::Statusline(_) => CommandName::Statusline,
             Self::Snapshot(_) => CommandName::Snapshot,
@@ -233,7 +228,6 @@ impl Command {
             | Self::Verify(_)
             | Self::Decide(_)
             | Self::Calibrate(_)
-            | Self::Eval(_)
             | Self::Status(_)
             | Self::Snapshot(_) => OnFailure::Exit,
         }
@@ -361,7 +355,6 @@ fn dispatch<O: Write, E: Write>(
             floor_guard::run(args, &cwd, out)
         }
         Command::Verdict(args) => run_verdict(args, out, err),
-        Command::Eval(args) => eval::run(args, |var| std::env::var_os(var), out, err),
         Command::Decide(args) => run_decide(args, out),
         Command::Calibrate(args) => run_calibrate(args, out, err),
         Command::Hook(args) => run_hook(args, out),
