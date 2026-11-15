@@ -374,6 +374,7 @@ impl Hook {
     fn legacy(&self, failures: &mut Failures) -> (Vec<String>, bool) {
         let mode = legacy_import::Mode::Hook {
             started: self.started,
+            start_by: self.budget.start_by,
         };
         let (notes, spent) = match legacy_import::import_due(&self.env, mode, "hook") {
             Ok(Legacy::NothingDue) => return (Vec::new(), false),

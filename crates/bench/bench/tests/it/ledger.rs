@@ -306,8 +306,20 @@ fn the_main_checkout_and_a_linked_worktree_share_one_store() -> TestResult {
 fn twenty_parallel_processes_append_twenty_events() -> TestResult {
     let dir = tempfile::tempdir()?;
     let store = dir.path().join("anneal/ledger.sqlite3");
+    // The store exists before the race: twenty first opens queue on Core's open lock, and on a
+    // slow runner the last ones ran past their 10 s wait. Concurrent creation is Core's own test
+    // (`concurrent_creators_share_one_schema_and_identity`); this one is the appends.
+    let first = ledger_at(
+        dir.path(),
+        &store,
+        &[
+            "append",
+            r#"{"type":"bench.task_done","data":{"task":"T0"}}"#,
+        ],
+    )?;
+    assert!(first.status.success(), "the store is created: {first:?}");
 
-    let children = (0..20)
+    let children = (1..=20)
         .map(|n| {
             anneal_in(dir.path())
                 .arg("ledger")
@@ -328,8 +340,8 @@ fn twenty_parallel_processes_append_twenty_events() -> TestResult {
     let queried = envelope(&ledger_at(dir.path(), &store, &["query"])?, 0)?;
     assert_eq!(
         positions(&queried),
-        (1..=20).collect::<Vec<_>>(),
-        "20 events"
+        (1..=21).collect::<Vec<_>>(),
+        "the first event and the twenty appended in parallel"
     );
     Ok(())
 }

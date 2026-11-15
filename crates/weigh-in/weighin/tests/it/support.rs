@@ -314,6 +314,18 @@ pub(crate) fn settle_crlf_question(repo: &Path) -> String {
     id
 }
 
+/// What `SessionStart` gave Claude: its whole output, or `additionalContext` when it also has a
+/// `systemMessage` for the user and so prints JSON; `None` for JSON without it.
+pub(crate) fn session_context(out: &str) -> Option<String> {
+    match serde_json::from_str::<Value>(out) {
+        Ok(json) => json
+            .pointer("/hookSpecificOutput/additionalContext")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        Err(_) => Some(out.to_owned()),
+    }
+}
+
 // Steps of the end-to-end scenario `a_session_from_capture_to_record`.
 
 pub(crate) fn capture_both_markers(repo: &Path) {
@@ -330,6 +342,10 @@ pub(crate) fn capture_both_markers(repo: &Path) {
         repo,
         &json!({"hook_event_name": "SessionStart", "session_id": "s1", "cwd": repo, "source": "startup"}),
     );
+    // The prime is Claude's context. A message for the user can come with it, as when a slow
+    // runner's session start runs out of time before its journal import (wi-6ab291e7fb); that
+    // message is the user's, not part of the prime, so it is not measured here.
+    let prime = session_context(&prime).expect("SessionStart's JSON has additionalContext");
     assert!(
         prime.contains("```weigh-in") && prime.contains("session s1"),
         "{prime}"

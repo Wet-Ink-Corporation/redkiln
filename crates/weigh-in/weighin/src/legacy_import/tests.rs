@@ -300,6 +300,7 @@ fn the_hook_leaves_sources_over_its_cap_for_a_command_and_says_so() {
         started: Instant::now()
             .checked_add(Duration::from_secs(60))
             .expect("the clock reaches a minute from now"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let report = ran(import_due(&env, hook, "hook").expect("ran"));
@@ -328,6 +329,7 @@ fn the_hook_past_its_deadline_records_nothing_and_the_next_run_finishes() {
         started: Instant::now()
             .checked_sub(HOOK_START_BY.saturating_mul(2))
             .expect("the clock has run that long"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let hooked = ran(import_due(&env, late, "hook").expect("ran"));
@@ -359,6 +361,7 @@ fn the_hook_past_its_deadline_reads_no_journal_and_leaves_them_waiting() {
         started: Instant::now()
             .checked_sub(HOOK_START_BY.saturating_mul(2))
             .expect("the clock has run that long"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let report = ran(import_due(&env, late, "hook").expect("ran"));
@@ -463,6 +466,7 @@ fn a_late_hook_still_tells_a_journal_over_the_cap() {
         started: Instant::now()
             .checked_sub(HOOK_START_BY.saturating_mul(2))
             .expect("the clock has run that long"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let report = ran(import_due(&env, late, "hook").expect("ran"));
@@ -485,6 +489,7 @@ fn a_hook_whose_ledger_stops_still_reports_a_journal_over_the_cap() {
         started: Instant::now()
             .checked_sub(HOOK_START_BY.saturating_mul(2))
             .expect("the clock has run that long"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let report = ran(import_due(&env, late, "hook").expect("ran"));
@@ -516,6 +521,7 @@ fn a_late_hook_reports_a_settled_journal_and_leaves_an_importable_one_waiting() 
         started: Instant::now()
             .checked_sub(HOOK_START_BY.saturating_mul(2))
             .expect("the clock has run that long"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let report = ran(import_due(&env, late, "hook").expect("ran"));
@@ -652,6 +658,7 @@ fn a_journal_over_the_cap_does_not_hold_the_hook_back() {
         started: Instant::now()
             .checked_add(Duration::from_secs(60))
             .expect("the clock reaches a minute from now"),
+        start_by: Some(HOOK_START_BY),
     };
 
     let report = ran(import_due(&env, hook, "hook").expect("ran"));
