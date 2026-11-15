@@ -13,11 +13,11 @@ use super::WatchError;
 use super::github::{RepoRef, non_empty};
 use super::poll::Source;
 use super::snapshot::{Blocker, Pending, Snapshot};
-use redkiln_github::tracker::github::{GhApi, GhError};
+use crate::tracker::github::{GhApi, GhError};
 
 /// Where a deployment stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum DeployState {
+pub enum DeployState {
     /// It finished and is live.
     Succeeded,
     /// It has not finished; `state` is the provider's word for where it is (`none` before any).
@@ -35,7 +35,7 @@ pub(crate) enum DeployState {
 }
 
 /// A source of one deployment's state.
-pub(crate) trait DeployProvider {
+pub trait DeployProvider {
     /// The deployment's state now.
     ///
     /// # Errors
@@ -46,13 +46,13 @@ pub(crate) trait DeployProvider {
 
 /// One GitHub deployment, read through `gh api`.
 #[derive(Debug)]
-pub(crate) struct GitHubDeployments<'a, G> {
+pub struct GitHubDeployments<'a, G> {
     /// The REST port.
-    pub(crate) gh: &'a G,
+    pub gh: &'a G,
     /// The repository.
-    pub(crate) repo: RepoRef<'a>,
+    pub repo: RepoRef<'a>,
     /// The deployment id.
-    pub(crate) id: u64,
+    pub id: u64,
 }
 
 impl<G: GhApi> DeployProvider for GitHubDeployments<'_, G> {
@@ -109,11 +109,11 @@ struct Status {
 
 /// A deployment watched through `provider`, named `id` in the envelope.
 #[derive(Debug)]
-pub(crate) struct DeployWatch<'a, P> {
+pub struct DeployWatch<'a, P> {
     /// Where its state comes from.
-    pub(crate) provider: &'a P,
+    pub provider: &'a P,
     /// The deployment id as given.
-    pub(crate) id: &'a str,
+    pub id: &'a str,
 }
 
 impl<P: DeployProvider> Source for DeployWatch<'_, P> {

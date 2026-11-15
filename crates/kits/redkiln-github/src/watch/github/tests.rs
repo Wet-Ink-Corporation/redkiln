@@ -354,31 +354,6 @@ fn a_commit_watch_resolves_its_ref_once_and_reads_both_lists_by_that_commit() {
     );
 }
 
-#[test]
-fn an_empty_or_dot_ref_is_refused_before_anything_is_read() {
-    for git_ref in ["", ".", ".."] {
-        let gh = FakeGh::new();
-
-        let result = CommitWatch {
-            gh: &gh,
-            repo: RepoRef::Current,
-            git_ref,
-        }
-        .poll();
-
-        assert!(
-            matches!(&result, Err(WatchError::BadRef { git_ref: refused }) if refused == git_ref),
-            "{git_ref:?}: {result:?}"
-        );
-        assert!(gh.calls.borrow().is_empty(), "{git_ref:?} reached gh");
-        assert_eq!(
-            result.map_err(|error| error.code().value()).err(),
-            Some(7),
-            "a query error"
-        );
-    }
-}
-
 fn merge_state(state: &str) -> Blocker {
     Blocker::MergeState {
         pr: 7,

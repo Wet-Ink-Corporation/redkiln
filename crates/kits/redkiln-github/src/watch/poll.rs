@@ -12,14 +12,14 @@ use super::WatchError;
 use super::snapshot::Snapshot;
 
 /// The default `--timeout`, in seconds: 30 minutes.
-pub(crate) const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
+pub const DEFAULT_TIMEOUT_SECS: u64 = 30 * 60;
 /// The wait after the first poll that finds work pending.
 pub(crate) const FIRST_DELAY: Duration = Duration::from_secs(10);
 /// The longest wait between two polls.
 pub(crate) const MAX_DELAY: Duration = Duration::from_secs(60);
 
 /// Time as the watch sees it.
-pub(crate) trait Clock {
+pub trait Clock {
     /// How long ago the watch started.
     fn elapsed(&self) -> Duration;
     /// Waits `delay`.
@@ -28,13 +28,14 @@ pub(crate) trait Clock {
 
 /// The real clock: the time since it was started, and a thread sleep.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct SystemClock {
+pub struct SystemClock {
     started: Instant,
 }
 
 impl SystemClock {
     /// A clock started now.
-    pub(crate) fn start() -> Self {
+    #[must_use]
+    pub fn start() -> Self {
         Self {
             started: Instant::now(),
         }
@@ -52,7 +53,7 @@ impl Clock for SystemClock {
 }
 
 /// What the watch polls.
-pub(crate) trait Source {
+pub trait Source {
     /// One look at the target.
     ///
     /// # Errors
@@ -62,18 +63,19 @@ pub(crate) trait Source {
 
 /// When to give up, and how to back off until then.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Schedule {
+pub struct Schedule {
     /// How long to keep polling.
-    pub(crate) timeout: Duration,
+    pub timeout: Duration,
     /// The first wait.
-    pub(crate) first: Duration,
+    pub first: Duration,
     /// The longest wait.
-    pub(crate) cap: Duration,
+    pub cap: Duration,
 }
 
 impl Schedule {
     /// The default back-off with `timeout`.
-    pub(crate) const fn with_timeout(timeout: Duration) -> Self {
+    #[must_use]
+    pub const fn with_timeout(timeout: Duration) -> Self {
         Self {
             timeout,
             first: FIRST_DELAY,
@@ -84,15 +86,15 @@ impl Schedule {
 
 /// How the watch ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Watched {
+pub struct Watched {
     /// The last poll's snapshot.
-    pub(crate) snapshot: Snapshot,
+    pub snapshot: Snapshot,
     /// How many polls were made.
-    pub(crate) polls: u32,
+    pub polls: u32,
     /// How long the watch took.
-    pub(crate) waited: Duration,
+    pub waited: Duration,
     /// True when work was still pending at the deadline.
-    pub(crate) timed_out: bool,
+    pub timed_out: bool,
 }
 
 /// Polls `source` until a snapshot settles or `schedule.timeout` has passed, sleeping on
@@ -100,7 +102,7 @@ pub(crate) struct Watched {
 ///
 /// # Errors
 /// The first [`WatchError`] a poll returns.
-pub(crate) fn watch<S: Source, C: Clock>(
+pub fn watch<S: Source, C: Clock>(
     source: &S,
     clock: &C,
     schedule: Schedule,

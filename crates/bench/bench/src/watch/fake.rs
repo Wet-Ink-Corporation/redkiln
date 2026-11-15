@@ -8,9 +8,8 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::watch::gate::{GateBlock, HeadGate};
-use crate::watch::poll::Clock;
 use redkiln_github::tracker::github::{Field, GhApi, GhError, GhGraphql};
+use redkiln_github::watch::{Clock, GateBlock, HeadGate};
 
 /// The bytes of `tests/fixtures/watch/<name>`.
 pub(crate) fn fixture(name: &str) -> io::Result<Vec<u8>> {

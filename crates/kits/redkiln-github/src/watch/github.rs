@@ -20,14 +20,14 @@ use super::gate::HeadGate;
 use super::poll::Source;
 use super::snapshot::{Blocker, Pending, Snapshot};
 use super::threads;
-use redkiln_github::tracker::github::{GhApi, GhError, GhGraphql, Repo};
+use crate::tracker::github::{GhApi, GhError, GhGraphql, Repo};
 
 /// The most check runs, and the most commit statuses, of one commit read.
 pub(crate) const MAX_CHECKS: usize = 100;
 
 /// The repository a watch reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RepoRef<'a> {
+pub enum RepoRef<'a> {
     /// gh's repository for the working directory (its remotes, or `GH_REPO`).
     Current,
     /// `--repo owner/name`.
@@ -44,7 +44,8 @@ impl RepoRef<'_> {
     }
 
     /// `owner/name` when named, for the envelope.
-    pub(crate) fn named(self) -> Option<String> {
+    #[must_use]
+    pub fn named(self) -> Option<String> {
         match self {
             Self::Current => None,
             Self::Named(repo) => Some(repo.to_string()),
@@ -54,13 +55,13 @@ impl RepoRef<'_> {
 
 /// A pull request of the current repository, judged by GitHub and then by the merge gate.
 #[derive(Debug)]
-pub(crate) struct PullRequestWatch<'a, G, H> {
+pub struct PullRequestWatch<'a, G, H> {
     /// The REST and GraphQL port.
-    pub(crate) gh: &'a G,
+    pub gh: &'a G,
     /// The merge gate.
-    pub(crate) gate: &'a H,
+    pub gate: &'a H,
     /// The pull request number.
-    pub(crate) pr: u64,
+    pub pr: u64,
 }
 
 impl<G: GhApi + GhGraphql, H: HeadGate> Source for PullRequestWatch<'_, G, H> {
@@ -124,13 +125,13 @@ impl<G: GhApi + GhGraphql, H: HeadGate> Source for PullRequestWatch<'_, G, H> {
 
 /// The checks of the commit a ref names.
 #[derive(Debug)]
-pub(crate) struct CommitWatch<'a, G> {
+pub struct CommitWatch<'a, G> {
     /// The REST port.
-    pub(crate) gh: &'a G,
+    pub gh: &'a G,
     /// The repository.
-    pub(crate) repo: RepoRef<'a>,
+    pub repo: RepoRef<'a>,
     /// A branch, tag or commit, as given.
-    pub(crate) git_ref: &'a str,
+    pub git_ref: &'a str,
 }
 
 impl<G: GhApi> Source for CommitWatch<'_, G> {

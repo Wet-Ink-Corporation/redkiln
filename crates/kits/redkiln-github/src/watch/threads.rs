@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use super::WatchError;
 use super::snapshot::Blocker;
-use redkiln_github::tracker::github::{Field, GhApi, GhError, GhGraphql};
+use crate::tracker::github::{Field, GhApi, GhError, GhGraphql};
 
 /// The most review threads of one pull request read.
 pub(crate) const MAX_THREADS: usize = 100;
@@ -30,8 +30,8 @@ pub(crate) const THREADS_QUERY: &str = "query($owner: String!, $name: String!, $
 /// # Errors
 /// [`WatchError::Threads`] (both failures) when GraphQL fails and the proxy's route does too,
 /// [`WatchError::Gh`] for any other GraphQL failure, a [`WatchError`] when an answer cannot be
-/// read, and [`WatchError::TooMany`] past [`MAX_THREADS`].
-pub(crate) fn unresolved<G: GhApi + GhGraphql>(
+/// read, and [`WatchError::TooMany`] past `MAX_THREADS` (100).
+pub fn unresolved<G: GhApi + GhGraphql>(
     gh: &G,
     pr: u64,
     pr_url: &str,

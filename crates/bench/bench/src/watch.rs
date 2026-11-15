@@ -16,22 +16,21 @@
 //! threads. Ctrl-C ends the process by the default SIGINT action: no handler, no temporary
 //! file. See `docs/watch.md`.
 //!
-//! - `poll`: the loop, the back-off and the `Clock` port.
-//! - `snapshot`: one poll's blockers and pending work, and their exit codes.
-//! - `github`: the pull request and commit readers (REST).
-//! - `threads`: a pull request's unresolved review threads (GraphQL, or the Claude Code
-//!   proxy's route where GraphQL is refused).
-//! - `deploy`: the `DeployProvider` port and its GitHub Deployments reader.
-//! - `gate`: the merge gate (`hook::merge_gate::judge_head`) behind the `HeadGate` port.
+//! The engine is the GitHub kit's `redkiln_github::watch` (the loop, the `Clock` and `Source`
+//! ports, the snapshot, the pull request, commit, review thread and deployment readers, and
+//! the `HeadGate` port; moved there in Move 2 step 5, PR 5.3b). Bench keeps:
+//!
+//! - `blocker`: the exit codes and findings of a snapshot's blockers and pending work.
+//! - `code`: the exit code of the kit's `WatchError` (7).
+//! - `gate`: the merge gate (`hook::merge_gate::judge_head`) behind the kit's `HeadGate` port.
 
-pub(crate) mod deploy;
+pub(crate) mod blocker;
+pub(crate) mod code;
 #[cfg(test)]
 mod fake;
 pub(crate) mod gate;
-pub(crate) mod github;
-pub(crate) mod poll;
-pub(crate) mod snapshot;
-pub(crate) mod threads;
+
+pub use redkiln_github::watch::WatchError;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -46,12 +45,13 @@ use crate::envelope::{Envelope, Finding};
 use crate::error::CliError;
 use crate::exit_codes::render::command_help;
 use crate::exit_codes::{self, Code};
-use deploy::{DeployWatch, GitHubDeployments};
-use gate::{HeadGate, LedgerGate};
-use github::{CommitWatch, PullRequestWatch, RepoRef};
-use poll::{Clock, DEFAULT_TIMEOUT_SECS, Schedule, SystemClock, Watched};
-use redkiln_github::tracker::github::{GhApi, GhCli, GhError, GhGraphql, Repo};
-use snapshot::{Blocker, Pending};
+use blocker::{BlockerCode, PendingFinding, SnapshotCode};
+use gate::LedgerGate;
+use redkiln_github::tracker::github::{GhApi, GhCli, GhGraphql, Repo};
+use redkiln_github::watch::{
+    Blocker, Clock, CommitWatch, DEFAULT_TIMEOUT_SECS, DeployWatch, GitHubDeployments, HeadGate,
+    Pending, PullRequestWatch, RepoRef, Schedule, SystemClock, Watched, watch,
+};
 
 /// `bench watch`.
 #[derive(Debug, Args)]
@@ -137,76 +137,6 @@ pub enum Provider {
     Github,
 }
 
-/// Why a watch could not read its target (exit 7).
-#[derive(Debug, thiserror::Error)]
-pub enum WatchError {
-    /// A `gh` call failed.
-    #[error(transparent)]
-    Gh(#[from] GhError),
-    /// The review threads could be read neither by GraphQL nor from the Claude Code proxy's
-    /// route; the GraphQL failure leads, the route's follows as the source.
-    #[error("{graphql}; the review thread route of Claude Code's proxy failed too")]
-    Threads {
-        /// Why the GraphQL query failed.
-        graphql: GhError,
-        /// Why the proxy's route failed.
-        #[source]
-        proxy: GhError,
-    },
-    /// An answer was not the shape expected.
-    #[error("gh did not return {what} as expected")]
-    Json {
-        /// What was asked for.
-        what: &'static str,
-        /// The decoding failure.
-        #[source]
-        source: serde_json::Error,
-    },
-    /// The pull request was closed without being merged: nothing is left to wait for.
-    #[error("pull request {pr} is closed without being merged")]
-    Closed {
-        /// The pull request number.
-        pr: u64,
-    },
-    /// GitHub has no such target.
-    #[error("{what} not found")]
-    Missing {
-        /// The target, as `pull request 7` or `commit main`.
-        what: String,
-    },
-    /// A ref that is empty, `.` or `..`: as a path segment it would name another endpoint, and
-    /// git allows none of them as a ref.
-    #[error("{git_ref:?} is not a branch, tag or commit")]
-    BadRef {
-        /// The ref as given.
-        git_ref: String,
-    },
-    /// More items than are read, so the target cannot be judged whole.
-    #[error("more {what} than the {limit} anneal reads")]
-    TooMany {
-        /// What there are too many of.
-        what: &'static str,
-        /// The most read.
-        limit: usize,
-    },
-}
-
-impl WatchError {
-    /// The exit code: 7 for every query error. Exhaustive, so a new variant has to choose.
-    #[must_use]
-    pub const fn code(&self) -> Code {
-        match self {
-            Self::Gh(_)
-            | Self::Threads { .. }
-            | Self::Json { .. }
-            | Self::Closed { .. }
-            | Self::Missing { .. }
-            | Self::BadRef { .. }
-            | Self::TooMany { .. } => exit_codes::WATCH_QUERY,
-        }
-    }
-}
-
 /// The ports a watch runs with.
 pub(crate) struct Ports<'a, G, H, C> {
     /// `gh`, for REST and GraphQL.
@@ -257,7 +187,7 @@ where
                 gate: ports.gate,
                 pr: args.pr,
             };
-            let watched = poll::watch(&source, clock, args.wait.schedule())?;
+            let watched = watch(&source, clock, args.wait.schedule())?;
             (Target::Pr { number: args.pr }, args.wait, watched)
         }
         WatchAction::Ci(args) => {
@@ -267,7 +197,7 @@ where
                 repo,
                 git_ref: &args.git_ref,
             };
-            let watched = poll::watch(&source, clock, args.wait.schedule())?;
+            let watched = watch(&source, clock, args.wait.schedule())?;
             let target = Target::Ci {
                 git_ref: &args.git_ref,
                 repo: repo.named(),
@@ -285,7 +215,7 @@ where
                 provider: &provider,
                 id: &args.id,
             };
-            let watched = poll::watch(&source, clock, args.wait.schedule())?;
+            let watched = watch(&source, clock, args.wait.schedule())?;
             let target = Target::Deploy {
                 id: &args.id,
                 provider: args.provider,
@@ -329,7 +259,7 @@ fn report<O: Write>(
     if watched.timed_out {
         findings.extend(snapshot.pending.iter().map(Pending::finding));
     }
-    snapshot::unique_keys(&mut findings);
+    blocker::unique_keys(&mut findings);
     let subcommand = target.subcommand();
     let data = WatchData {
         target,
