@@ -34,8 +34,11 @@
 //! A denial is Claude Code's deny decision whose reason is one `ERROR` line naming what is
 //! missing and the command that records it, plus a `gate_blocked` event in an existing ledger;
 //! the gate never creates a ledger (none means no verdict). Input or a command it cannot read,
-//! and a ledger, git or setting it cannot read, deny. git and the ledger get [`GIT_BUDGET`]
-//! from the hook's start, each git call at most [`GIT_TIMEOUT`]. See `docs/verdict.md`.
+//! and a ledger, git or setting it cannot read, deny. git and the ledger get [`HOOK_BUDGET`]
+//! from the hook's start, each git call at most [`GIT_TIMEOUT`], and a store step (the open,
+//! the verdict read, the append) starts only when its whole lock wait fits in what is left
+//! (`store_wait`), so the decision is written before the 5 s `timeout` even when every wait runs
+//! to its end. See `docs/verdict.md`.
 
 mod canonical;
 mod pull;
@@ -58,7 +61,8 @@ use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::harness::claude_code::ToolUse;
 use crate::hook::guard::{GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge};
-use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
+use crate::hook::store_wait::{self, OutOfTime, STORE_WAIT};
+use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, write_deny};
 use crate::paths::{self, PathError};
 use crate::pr_diff::Budget;
 use crate::repo_config;
@@ -68,11 +72,13 @@ use crate::verdict::assess::{Invalid, Outcome};
 use crate::verdict::pull_request::{self, PullRequest, Query};
 use pull::Pull;
 
-/// What git and the ledger reads may start within, from the hook's start. Each store open
-/// waits up to Core's `Wait::Hook` (2 s) for another process's lock (D6 of the step 3 plan),
-/// which can now take a gate held by a lock past the hook's 5 s `timeout`; Claude Code then
-/// blocks the merge without the gate's reason, failing closed as the gate does.
-const GIT_BUDGET: Duration = Duration::from_millis(3_500);
+/// What the verdict read may take: git resolving the head (at most [`GIT_TIMEOUT`]), then one
+/// store wait. It starts only when this is left of [`HOOK_BUDGET`].
+const READ_NEEDS: Duration = GIT_TIMEOUT.saturating_add(STORE_WAIT);
+
+/// What the append of `gate_blocked` may take: one store wait. It is skipped, and the deny says
+/// so, when less is left.
+const APPEND_NEEDS: Duration = STORE_WAIT;
 
 /// The `point` of the gate's `gate_blocked` events, before the check's id.
 const POINT_PREFIX: &str = "merge-gate.";
@@ -199,11 +205,24 @@ enum InputError {
     Json(#[source] serde_json::Error),
 }
 
+/// Why the ledger could not be opened.
+#[derive(Debug, thiserror::Error)]
+enum OpenError {
+    #[error(transparent)]
+    Ledger(LedgerError),
+    /// Less than git and the open's lock wait was left of the hook's budget.
+    #[error(transparent)]
+    OutOfTime(OutOfTime),
+}
+
 /// Why a denial could not be recorded in the ledger.
 #[derive(Debug, thiserror::Error)]
 enum RecordError {
     #[error(transparent)]
-    Ledger(LedgerError),
+    Open(OpenError),
+    /// Less than the append's lock wait was left of the hook's budget.
+    #[error(transparent)]
+    OutOfTime(OutOfTime),
     #[error("reading the clock")]
     Clock(#[source] TimestampError),
     #[error("appending gate_blocked")]
@@ -212,7 +231,7 @@ enum RecordError {
 
 /// The ledger a denial is recorded in: none when no ledger exists (the gate never creates
 /// one), or why it could not be opened.
-type Ledger = Result<Option<Store>, LedgerError>;
+type Ledger = Result<Option<Store>, OpenError>;
 
 /// Runs the gate: reads the input from `env.stdin`, judges every `gh pr merge` its Bash command
 /// runs against the pull request's verdicts (in the ledger found from the input's `cwd`, or
@@ -228,7 +247,24 @@ where
     L: Fn(&str) -> Option<OsString>,
     W: Write,
 {
-    let budget = Budget::within(Instant::now(), GIT_BUDGET, GIT_TIMEOUT);
+    run_within(
+        env,
+        out,
+        Budget::within(Instant::now(), HOOK_BUDGET, GIT_TIMEOUT),
+    )
+}
+
+/// [`run`], within `budget` (the hook's: [`HOOK_BUDGET`] from its start).
+///
+/// # Errors
+/// As [`run`].
+fn run_within<R, D, L, W>(env: HookEnv<R, D, L>, out: W, budget: Budget) -> io::Result<()>
+where
+    R: Read,
+    D: FnOnce() -> io::Result<PathBuf>,
+    L: Fn(&str) -> Option<OsString>,
+    W: Write,
+{
     let HookEnv {
         stdin,
         current_dir,
@@ -245,9 +281,12 @@ where
         return Ok(());
     };
     let unrecorded = match ledger {
-        Ok(Some(store)) => record(&store, &denial, session).err(),
+        Ok(Some(store)) => store_wait::fits(store_wait::left(&budget), APPEND_NEEDS)
+            .map_err(RecordError::OutOfTime)
+            .and_then(|()| record(&store, &denial, session))
+            .err(),
         Ok(None) => None,
-        Err(error) => Some(RecordError::Ledger(error)),
+        Err(error) => Some(RecordError::Open(error)),
     };
     let line = match unrecorded {
         None => format!("ERROR {}", denial.reason),
@@ -278,7 +317,7 @@ fn bad_input(
         &format!("the hook input cannot be read: {}", reason(error)),
     );
     let ledger = current_dir()
-        .map_err(LedgerError::CurrentDir)
+        .map_err(|error| OpenError::Ledger(LedgerError::CurrentDir(error)))
         .and_then(|cwd| open_existing(&cwd, lookup, budget));
     (denial, ledger)
 }
@@ -297,7 +336,10 @@ fn judge(
         Ok(cwd) => cwd,
         Err(error) => {
             let denial = unjudged("the working directory cannot be read", &error);
-            return Some((denial, Err(LedgerError::CurrentDir(error))));
+            return Some((
+                denial,
+                Err(OpenError::Ledger(LedgerError::CurrentDir(error))),
+            ));
         }
     };
     let Some(command) = input.tool.command else {
@@ -388,10 +430,20 @@ fn tripped(how: &str) -> Denial {
     )
 }
 
-/// The store seen from `cwd` when there is one: git to find it within what is left of `budget`
-/// (and at most [`GIT_TIMEOUT`]), each write waiting Core's hook wait (2 s, D6).
+/// The store seen from `cwd` when there is one, opened only when git and the open's lock wait
+/// fit in what is left of `budget` ([`open_git`]), each step waiting Core's hook wait (2 s, D6).
 fn open_existing(cwd: &Path, lookup: impl Fn(&str) -> Option<OsString>, budget: Budget) -> Ledger {
-    existing_ledger::open_existing(cwd, lookup, budget.cap(GIT_TIMEOUT), Wait::Hook)
+    let git = open_git(store_wait::left(&budget)).map_err(OpenError::OutOfTime)?;
+    existing_ledger::open_existing(cwd, lookup, git, Wait::Hook).map_err(OpenError::Ledger)
+}
+
+/// How long git may take to find the ledger with `remaining` left: what the open's one store
+/// wait leaves, at most [`GIT_TIMEOUT`].
+///
+/// # Errors
+/// [`OutOfTime`] when too little is left, and neither git nor the open is started.
+fn open_git(remaining: Duration) -> Result<Duration, OutOfTime> {
+    store_wait::git_before(remaining, 1, GIT_TIMEOUT)
 }
 
 /// The denial for `merge` run from `cwd`, with the verdicts in `store`, if any.
@@ -521,6 +573,14 @@ impl Gate<'_> {
     /// The denial for merging pull request `pr` pinned to `head` (the revision, and the flag
     /// that gave it), if any.
     fn judge_pinned(&self, pr: u64, head: (&'static str, &str)) -> Option<Denial> {
+        if self.store.is_some()
+            && let Err(error) = store_wait::fits(store_wait::left(&self.budget), READ_NEEDS)
+        {
+            return Some(unjudged(
+                &format!("#{pr}'s verdicts cannot be read"),
+                &error,
+            ));
+        }
         let query = Query {
             root: self.root,
             pr,

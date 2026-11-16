@@ -204,7 +204,7 @@ The entry in `plugin/hooks/hooks.json`:
 ```
 
 A crash, a timeout or output Claude Code cannot read lets the edit through (`onFailure: "continue"`,
-SPEC HK-11), so the hook denies before its 3.5 s budget runs out. With no binary at all the launcher
+SPEC HK-11), so the hook writes its decision before its 4.5 s budget runs out, even when every store wait runs to its end. With no binary at all the launcher
 exits 0 and the hook is off, as the session start warns (on Windows the hook fails to start, which
 Claude Code reports and lets through). The hook
 itself denies what it cannot judge:
@@ -212,7 +212,7 @@ itself denies what it cannot judge:
 | Failure | Result |
 |---|---|
 | stdin is not `PreToolUse` JSON, is larger than 1 MiB, has no `tool_input.file_path` (`tool_input.notebook_path` for NotebookEdit), or names more than 16 files | deny, `bad-input` |
-| the ledger exists but cannot be opened or read; git, asked from the file's longest existing ancestor directory, fails other than "not a repository"; the file has no existing ancestor directory, cannot be resolved (a component that cannot be read, more than 40 symlinks), or is not inside its own worktree once symlinks are resolved; the 3.5 s budget runs out before every file is judged | deny, `unjudged` |
+| the ledger exists but cannot be opened or read; git, asked from the file's longest existing ancestor directory, fails other than "not a repository"; the file has no existing ancestor directory, cannot be resolved (a component that cannot be read, more than 40 symlinks), or is not inside its own worktree once symlinks are resolved; the 4.5 s budget runs out (or leaves too little for a store wait) before every file is judged | deny, `unjudged` |
 | build mode recorded without a plan or tree (an event appended by hand) | deny, `mode` |
 | the plan or design tree cannot be read | deny, `plan` or `grill` |
 | the decision cannot be written | exit 2 with one `ERROR` line |
@@ -220,14 +220,20 @@ itself denies what it cannot judge:
 Only these mean "no mode" and allow: a file in no git repository, no ledger file for its
 repository (the hook never creates one), and no `mode_set` (or `off`) for its worktree.
 
-It stays inside its 5 s timeout: the whole call, every file and every reading of it, is judged
-within 3.5 s of the hook's start (the rest is for recording a denial and process start-up, as
-the brief hook does). Git gets at most 1 s for each call, and never more than is left; each
-worktree a call reaches is found once per directory (the worktree root) and read once (the
-ledger's location, its mode, and whether its preconditions hold, which are the same for every
-file in it); each ledger statement waits at most 500 ms for another process's lock, and never
-more than is left. Once the budget is spent the edit is denied as `unjudged` ("no time is left
-to judge the edit"), and the denial is not recorded when no time was left to open the ledger.
+It writes its decision inside its 5 s timeout even when every store wait it meets runs to its
+end: the whole call, every file and every reading of it, is judged within 4.5 s of the hook's
+start (the other 500 ms are for process start-up and the output). Git gets at most 1 s for each
+call, and never more than is left; each worktree a call reaches is found once per directory (the
+worktree root) and read once (the ledger's location, its mode, and whether its preconditions
+hold, which are the same for every file in it). Each store step can wait Core's hook wait (2 s)
+for another process's lock, and starts only when that whole wait fits in what is left: opening a
+worktree's ledger (git before it gets only what the open's wait leaves), reading its mode (one
+wait), reading its preconditions (two waits: build mode's design-tree confirmations and plan
+approval), and appending `gate_blocked` (one wait; a ledger opened only to record a denial needs
+git and two waits). Once the budget is spent the edit is denied as `unjudged` ("no time is left
+to judge the edit"), and the denial is not recorded when no time was left to open the ledger or
+to append to it. Past its timeout Claude Code lets the edit through (`onFailure: "continue"`,
+SPEC HK-11), so no step gambles on a wait being short.
 
 ## Known gaps
 

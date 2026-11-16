@@ -613,3 +613,73 @@ fn a_bash_input_without_a_command_is_denied() {
         "{out}"
     );
 }
+
+#[test]
+fn every_store_step_the_gate_starts_ends_within_the_hook_budget() {
+    use crate::hook::HOOK_BUDGET;
+    use crate::hook::guard::GIT_TIMEOUT;
+    use crate::hook::store_wait::{STORE_WAIT, every_remaining, fits};
+
+    for left in every_remaining(HOOK_BUDGET) {
+        if let Ok(git) = super::open_git(left) {
+            assert!(git + STORE_WAIT <= left, "the open, {left:?} left");
+        }
+        if fits(left, super::READ_NEEDS).is_ok() {
+            // git resolves the head, at most its timeout, before the read waits.
+            assert!(GIT_TIMEOUT + STORE_WAIT <= left, "the read, {left:?} left");
+        }
+        if fits(left, super::APPEND_NEEDS).is_ok() {
+            assert!(STORE_WAIT <= left, "the append, {left:?} left");
+        }
+    }
+}
+
+#[test]
+fn the_gate_plans_against_the_hook_budget_and_one_store_wait_per_step() {
+    use crate::hook::guard::GIT_TIMEOUT;
+    use crate::hook::store_wait::STORE_WAIT;
+
+    assert_eq!(super::READ_NEEDS, GIT_TIMEOUT + STORE_WAIT);
+    assert_eq!(super::APPEND_NEEDS, STORE_WAIT);
+}
+
+#[test]
+fn with_no_time_left_for_the_ledger_a_merge_is_still_denied_and_says_so() {
+    use std::ffi::OsString;
+    use std::time::{Duration, Instant};
+
+    use crate::hook::guard::GIT_TIMEOUT;
+    use crate::pr_diff::Budget;
+
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = dir.path().join("ledger.sqlite3");
+    crate::store::Store::open(&store).expect("a ledger");
+    let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(&store));
+    // Less than the open's store wait is left.
+    let budget = Budget::within(Instant::now(), Duration::from_millis(1_900), GIT_TIMEOUT);
+    let input = format!(
+        r#"{{"tool_name": "Bash", "cwd": {cwd:?}, "{TOOL_INPUT}": {{"command": "gh pr merge 7"}}}}"#,
+        cwd = dir.path().display().to_string()
+    );
+    let env = HookEnv {
+        stdin: input.as_bytes(),
+        current_dir: no_cwd,
+        lookup,
+    };
+    let mut out = Vec::new();
+
+    super::run_within(env, &mut out, budget).expect("a Vec accepts every write");
+
+    let out = String::from_utf8(out).expect("UTF-8");
+    assert!(out.contains("\"deny\""), "{out}");
+    assert!(
+        out.contains(
+            "(the block was not recorded in the ledger: no time is left in the hook's budget"
+        ),
+        "{out}"
+    );
+    let events = crate::store::Store::open(&store)
+        .and_then(|ledger| ledger.query(&crate::store::Filter::default()))
+        .expect("the ledger reads");
+    assert!(events.is_empty(), "nothing recorded: {events:?}");
+}

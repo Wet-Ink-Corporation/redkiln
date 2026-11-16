@@ -243,3 +243,65 @@ fn near_misses_of_the_settings_file_are_not_it() {
 
     assert_eq!(matched, Vec::<&str>::new(), "none names the settings file");
 }
+
+#[test]
+fn every_store_step_the_hook_starts_ends_within_the_hook_budget() {
+    use crate::hook::HOOK_BUDGET;
+    use crate::hook::store_wait::{STORE_WAIT, every_remaining, fits};
+
+    for left in every_remaining(HOOK_BUDGET) {
+        if let Ok(git) = super::worktrees::open_git(left) {
+            assert!(git + STORE_WAIT <= left, "a worktree's open, {left:?} left");
+        }
+        if let Ok(git) = super::worktrees::record_git(left) {
+            assert!(
+                git + STORE_WAIT * 2 <= left,
+                "the record's open and append, {left:?} left"
+            );
+        }
+        for (needs, step) in [
+            (super::worktrees::MODE_NEEDS, "the mode read"),
+            (
+                super::worktrees::PRECONDITIONS_NEEDS,
+                "the preconditions' reads",
+            ),
+            (super::APPEND_NEEDS, "the append"),
+        ] {
+            if fits(left, needs).is_ok() {
+                assert!(needs <= left, "{step}, {left:?} left");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_hook_holds_back_one_store_wait_per_read_it_can_meet() {
+    use crate::hook::store_wait::STORE_WAIT;
+
+    assert_eq!(
+        super::worktrees::MODE_NEEDS,
+        STORE_WAIT,
+        "mode::active's one read"
+    );
+    assert_eq!(
+        super::worktrees::PRECONDITIONS_NEEDS,
+        STORE_WAIT * 2,
+        "build mode reads the grill confirmations and the plan's approval"
+    );
+    assert_eq!(super::APPEND_NEEDS, STORE_WAIT);
+}
+
+#[test]
+fn with_too_little_left_for_a_store_wait_the_ledger_is_not_opened() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    // Less than git's least and the open's and append's waits.
+    let short = Budget::within(Instant::now(), Duration::from_millis(4_100), GIT_TIMEOUT);
+
+    let ledger = super::worktrees::open_within(dir.path(), |_: &str| None, short);
+
+    assert!(
+        matches!(ledger, Err(RecordError::OutOfTime)),
+        "{:?}",
+        ledger.as_ref().err()
+    );
+}

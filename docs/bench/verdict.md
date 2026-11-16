@@ -314,9 +314,14 @@ A denial is Claude Code's deny decision whose reason is one `ERROR merge-gate: .
 `directory`, `head`, `no-verdict`, `stale`, `changes-requested`, `tests`, `review`, `bad-input`, `unreadable`
 and `unjudged`) in the ledger when one exists; the gate never creates a ledger, and with none
 every pull request has no verdict. Unreadable input or commands, a merge naming no number, and a
-ledger, git or settings file it cannot read are denied. git and ledger reads share 3.5 s
-from the hook's start, each git call at most 1 s, and each ledger statement waits at most 500 ms
-for a lock and never past what is left of the 3.5 s.
+ledger, git or settings file it cannot read are denied. git and ledger reads share 4.5 s
+from the hook's start (the other 500 ms are for process start-up and the output), each git call
+at most 1 s. Each store step can wait Core's hook wait (2 s) for another process's lock and starts
+only when it can finish in what is left: the open (git before it gets only what the wait leaves),
+the verdict read (only with 3 s left, git resolving the head first), and the append of
+`gate_blocked` (skipped, and the deny says so, with less than 2 s left). So the decision is
+written before the 5 s timeout even when every wait runs to its end; past it Claude Code lets the
+merge through (`onFailure: "continue"`, SPEC HK-11).
 
 ### Known gaps
 

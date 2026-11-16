@@ -29,6 +29,7 @@ pub(crate) mod route;
 pub(crate) mod ruled_before;
 pub(crate) mod standing_orders;
 pub(crate) mod status;
+pub(crate) mod store_wait;
 mod transcript;
 
 use std::error::Error;
@@ -43,10 +44,11 @@ use crate::decide::clock::SystemClock;
 use crate::decide::transport::http::UreqTransport;
 use crate::harness::claude_code::{self, PermissionDecision};
 
-/// How long the hooks that ask Clef within a 5 s `hooks.json` timeout (the guard, route and
-/// ruled-before) plan to take, measured from their start on the monotonic clock; the other
-/// 500 ms cover starting the process and writing the output. Clef is asked only while its whole
-/// timeout still fits in what is left.
+/// How long the hooks with a 5 s `hooks.json` timeout that ask Clef (the guard, route and
+/// ruled-before) or guard a tool call (the guard, merge-gate, preconditions and brief) plan to
+/// take, measured from their start on the monotonic clock; the other 500 ms cover starting the
+/// process and writing the output. Clef is asked only while its whole timeout still fits in what
+/// is left, and a guard starts a store step only while its whole lock wait does (`store_wait`).
 pub(crate) const HOOK_BUDGET: Duration = Duration::from_millis(4_500);
 
 /// Arguments of `bench hook`.
