@@ -1,3 +1,5 @@
+use redkiln_calibrate::score::Probability;
+
 use super::{DAY_MS, DayScore, HISTORY_DAYS, history};
 use crate::calibrate::read::{Answered, Label, LogRows};
 use crate::calibrate::report::report;
@@ -10,7 +12,7 @@ fn push(rows: &mut LogRows, id: &str, probability: f64, ts_ms: Option<u64>) {
         id: id.to_owned(),
         point: Point::D1,
         question: Question::Noul,
-        probability,
+        probability: Probability::try_from(probability).expect("a probability"),
         top: None,
         options: vec!["no".to_owned(), "yes".to_owned()],
         asked: false,

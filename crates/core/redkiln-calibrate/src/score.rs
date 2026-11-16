@@ -7,7 +7,7 @@
 use serde::Serialize;
 
 /// How many equal-width reliability bins cover 0..=1.
-pub const BINS: u32 = 10;
+pub(crate) const BINS: u32 = 10;
 
 /// What a false accept costs: the error the point exists to prevent gets through.
 pub const FALSE_ACCEPT_COST: u32 = 5;
@@ -22,7 +22,7 @@ pub struct Probability(f64);
 /// A number that is not a probability: not finite, or outside 0..=1. Holds the number as text.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0} is not a probability from 0 to 1")]
-pub struct ProbabilityError(pub String);
+pub struct ProbabilityError(String);
 
 impl TryFrom<f64> for Probability {
     type Error = ProbabilityError;
@@ -192,7 +192,7 @@ pub fn brier(samples: &[Sample]) -> Option<f64> {
     Some(sum / f64::from(n))
 }
 
-/// The [`BINS`] reliability bins, `[k/10, (k+1)/10)` with 1.0 in the last.
+/// The ten reliability bins, `[k/10, (k+1)/10)` with 1.0 in the last.
 #[must_use]
 pub fn bins(samples: &[Sample]) -> Vec<Bin> {
     (0..BINS)
@@ -223,7 +223,7 @@ pub fn bins(samples: &[Sample]) -> Vec<Bin> {
 
 /// The total cost of `threshold` on `samples`.
 #[must_use]
-pub fn total_cost(samples: &[Sample], costs: Costs, threshold: f64) -> u32 {
+pub(crate) fn total_cost(samples: &[Sample], costs: Costs, threshold: f64) -> u32 {
     let below = Tally::of(samples.iter().filter(|s| s.probability < threshold));
     let above = Tally::of(samples.iter().filter(|s| s.probability >= threshold));
     costs.total(below, above)

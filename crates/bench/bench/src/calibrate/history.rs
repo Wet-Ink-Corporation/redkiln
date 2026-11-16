@@ -59,7 +59,7 @@ pub(crate) fn history(rows: &LogRows) -> BTreeMap<Point, Vec<DayScore>> {
             .labels
             .get(&decision.id)
             .and_then(|label| outcome(decision, &label.outcome))
-            .and_then(|positive| read::sample(decision, positive))
+            .map(|positive| read::sample(decision, positive))
         {
             tally.samples.push(sample);
         }

@@ -145,7 +145,7 @@ impl CalibrateError {
 /// Runs `bench calibrate` with `env`: the proposals file, then the envelope on `out` (flushed),
 /// then the old-folder warning (D1) and the summary on `err` (flushed), so they are written
 /// only for a run that succeeded. Both are best effort: a stderr that refuses them leaves the
-/// exit code 0.
+/// exit code 0. `--apply` writes its envelope, then the same warning, best effort too.
 pub(crate) fn run<O, E, L>(
     args: &CalibrateArgs,
     env: &CalibrateEnv<'_, L>,
@@ -160,7 +160,17 @@ where
     let log = decide::log::open(&env.lookup)?;
     let selected = |point: Point| args.selects(point);
     if args.apply {
-        return apply::run(args, &log, env.cwd, out);
+        // `--apply` may read the old folder's `proposals.json`, so it warns too (D1).
+        let code = apply::run(args, &log, env.cwd, out)?;
+        let warned = log
+            .legacy_warning()
+            .map_or(Ok(()), |warning| diagnostic::warning(&mut *err, &warning))
+            .and_then(|()| err.flush());
+        return match warned {
+            Ok(()) => Ok(code),
+            // Best effort, as the summary below: the envelope is already on stdout.
+            Err(_unreportable) => Ok(code),
+        };
     }
     let thresholds_file = decide::thresholds_path(args.thresholds.as_deref(), env.cwd);
     let (thresholds, text) = decide::read_thresholds_text(thresholds_file.as_deref())

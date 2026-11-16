@@ -1,3 +1,5 @@
+use redkiln_calibrate::score::Probability;
+
 use super::{NoProposal, PointReport, Reason, Report, Verdict, outcome, report, verdict};
 use crate::calibrate::read::{Answered, Label, LogRows};
 use crate::decide::point::{Point, Question};
@@ -20,7 +22,7 @@ fn noul(id: &str, point: Point, probability: f64, asked: bool) -> Answered {
         id: id.to_owned(),
         point,
         question: Question::Noul,
-        probability,
+        probability: Probability::try_from(probability).expect("a probability"),
         top: None,
         options: vec!["no".to_owned(), "yes".to_owned()],
         asked,
@@ -32,7 +34,7 @@ fn choice(id: &str, point: Point, probability: f64, top: &str) -> Answered {
         id: id.to_owned(),
         point,
         question: Question::Choice,
-        probability,
+        probability: Probability::try_from(probability).expect("a probability"),
         top: Some(top.to_owned()),
         options: vec!["build".to_owned(), "plan".to_owned()],
         asked: false,

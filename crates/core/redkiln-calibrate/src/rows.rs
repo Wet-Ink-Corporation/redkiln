@@ -11,7 +11,7 @@
 //!
 //! Each file is read whole, and must be a regular file (checked by `symlink_metadata` before
 //! it is opened) of at most [`MAX_LOG_FILE_BYTES`]: the log's 16 MiB rotation size plus
-//! [`HEADROOM_ROWS`] rows of its 8 KiB row cap. The log appends without a lock, so concurrent
+//! 64 rows of its 8 KiB row cap. The log appends without a lock, so concurrent
 //! writers can each pass its size check and leave the live file a few rows past 16 MiB; a file
 //! larger still was not written by the log and is an error. Rows are read tolerantly (unknown
 //! fields ignored), as a newer writer may add some; a line that is not a decision or label row
@@ -27,13 +27,14 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
 use crate::log::{DecisionLog, MAX_FILE_BYTES};
+use crate::score::Probability;
 
 /// The log's row cap ([`crate::log::MAX_ROW_BYTES`]) as a `u64`; a test keeps them equal.
-pub const ROW_BYTES: u64 = 8 * 1024;
+pub(crate) const ROW_BYTES: u64 = 8 * 1024;
 
 /// How many rows past the rotation size a live file may hold: concurrent appends that each
 /// passed the log's size check before any of them landed.
-pub const HEADROOM_ROWS: u64 = 64;
+pub(crate) const HEADROOM_ROWS: u64 = 64;
 
 /// The largest log file read: the rotation size plus the headroom (16.5 MiB).
 pub const MAX_LOG_FILE_BYTES: u64 = MAX_FILE_BYTES + HEADROOM_ROWS * ROW_BYTES;
@@ -50,8 +51,8 @@ pub struct Answered<P, Q> {
     pub point: P,
     /// The question type.
     pub question: Q,
-    /// The probability the thresholds applied to, within 0..=1 (`-0.0` read as `0.0`).
-    pub probability: f64,
+    /// The probability the thresholds applied to (a row outside 0..=1 is skipped).
+    pub probability: Probability,
     /// The top option of a choice.
     pub top: Option<String>,
     /// The options a probability was given for, by name.
@@ -264,13 +265,10 @@ fn add_decision<P: Ord, Q: Ord>(decision: DecisionDto<P, Q>, rows: &mut LogRows<
         *unanswered = unanswered.saturating_add(1);
         return;
     };
-    if !(0.0..=1.0).contains(&probability) {
+    let Ok(probability) = Probability::try_from(probability) else {
         rows.skipped_rows = rows.skipped_rows.saturating_add(1);
         return;
-    }
-    // `-0.0` passes the range check but sorts apart from `0.0` under `total_cmp`; adding
-    // `0.0` turns it into `0.0` and leaves every other value as it is.
-    let probability = probability + 0.0;
+    };
     rows.answered.push(Answered {
         id: decision.id,
         point: decision.point,

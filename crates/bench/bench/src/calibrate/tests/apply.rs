@@ -238,9 +238,10 @@ fn apply_with_point_writes_only_that_points_steps() -> TestResult {
 fn a_proposals_file_of_another_kind_is_refused_as_an_internal_error() -> TestResult {
     let home = tempfile::tempdir()?;
     thresholds_copy(home.path())?;
-    fs::create_dir_all(home.path().join("decisions"))?;
+    let dir = home.path().join("calibrate").join("bench");
+    fs::create_dir_all(&dir)?;
     fs::write(
-        home.path().join("decisions").join("proposals.json"),
+        dir.join("proposals.json"),
         r#"{"kind": "something-else", "version": 1, "apply": []}"#,
     )?;
 
@@ -265,16 +266,15 @@ fn apply_needs_an_explicit_thresholds_file() {
     );
 }
 
-/// Writes a proposals file holding one `noul` threshold step of `point` at `pointer`, moving
-/// it `(from, to)`.
-fn proposals_with_step(
-    home: &Path,
-    point: &str,
-    pointer: &str,
-    (from, to): (f64, f64),
-) -> TestResult {
-    let dir = home.join("decisions");
-    fs::create_dir_all(&dir)?;
+/// Writes a proposals file in Bench's folder of the user scope (`<home>/calibrate/bench`)
+/// holding one `noul` threshold step of `point` at `pointer`, moving it `(from, to)`.
+fn proposals_with_step(home: &Path, point: &str, pointer: &str, moved: (f64, f64)) -> TestResult {
+    proposals_in(&home.join("calibrate").join("bench"), point, pointer, moved)
+}
+
+/// [`proposals_with_step`]'s file, written in `dir`.
+fn proposals_in(dir: &Path, point: &str, pointer: &str, (from, to): (f64, f64)) -> TestResult {
+    fs::create_dir_all(dir)?;
     let file = json!({
         "kind": PROPOSALS_KIND,
         "version": PROPOSALS_VERSION,
@@ -369,4 +369,39 @@ fn apply_refuses_a_step_whose_pointer_is_not_under_its_own_point() -> TestResult
         &["--point", "D7"],
         &format!("calibrate/refused:{pointer}"),
     )
+}
+
+#[test]
+fn apply_with_the_old_folder_present_warns_once_naming_both_folders() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let thresholds = thresholds_copy(home.path())?;
+    let old = home.path().join("decisions");
+    proposals_in(
+        &old,
+        "D1",
+        "/points/D1/rules/noul/bands/1/at_least",
+        (0.4, 0.3),
+    )?;
+
+    let ran = calibrate(
+        home.path(),
+        &["--apply", "--thresholds", "clef-thresholds.json"],
+    );
+
+    assert_eq!(ran.code.as_ref().ok(), Some(&0), "{:?}", ran.code);
+    assert_eq!(
+        ran.stderr,
+        format!(
+            "bench: warning: reading the old decision log at {} too; new rows go to {}, and the \
+             old folder is never written or deleted\n",
+            old.display(),
+            home.path().join("calibrate").join("bench").display()
+        )
+    );
+    assert_eq!(
+        fs::read_to_string(&thresholds)?,
+        decide::thresholds::BUILT_IN.replacen(ASK_LINE, &ASK_LINE.replace("0.4", "0.3"), 1),
+        "the old folder's proposals are applied"
+    );
+    Ok(())
 }

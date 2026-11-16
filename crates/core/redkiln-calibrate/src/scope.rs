@@ -18,19 +18,19 @@ use std::path::{Path, PathBuf};
 pub const HOME_VAR: &str = "REDKILN_HOME";
 
 /// The root's folder inside a home directory.
-pub const HOME_DIR: &str = ".redkiln";
+pub(crate) const HOME_DIR: &str = ".redkiln";
 
 /// The variable naming anneal's home, read only for its old decision log.
-pub const LEGACY_HOME_VAR: &str = "ANNEAL_HOME";
+pub(crate) const LEGACY_HOME_VAR: &str = "ANNEAL_HOME";
 
 /// anneal's home folder inside a home directory.
-pub const LEGACY_HOME_DIR: &str = ".anneal";
+pub(crate) const LEGACY_HOME_DIR: &str = ".anneal";
 
 /// The folder inside the root that holds each producer's decision rows.
-pub const CALIBRATE_DIR: &str = "calibrate";
+pub(crate) const CALIBRATE_DIR: &str = "calibrate";
 
 /// anneal's decision log folder inside its home.
-pub const LEGACY_DECISIONS_DIR: &str = crate::log::LOG_DIR;
+pub(crate) const LEGACY_DECISIONS_DIR: &str = crate::log::LOG_DIR;
 
 /// The home directory variables, in the order they are tried.
 const HOME_VARS: [&str; 2] = ["HOME", "USERPROFILE"];

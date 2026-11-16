@@ -15,7 +15,8 @@ The decision log `anneal decide` writes (`docs/decide.md`):
 anneal's old folder `~/.anneal/decisions/` (`$ANNEAL_HOME/decisions/`) and then in Bench's
 folder of the user scope, `~/.redkiln/calibrate/bench/` (`$REDKILN_HOME/calibrate/bench/`), as
 `decide` resolves them (`docs/decide.md`, The decision log). The old folder is never written or
-deleted, and a run that reads it writes one `bench: warning:` line before the summary. Each
+deleted, and a run while it exists writes one `bench: warning:` line before the summary
+(`--apply`, which may read its `proposals.json`, after its envelope). Each
 file must be a regular file; a missing file is skipped. The rows are anneal's v1 JSONL, read by
 Core's `redkiln_calibrate::rows`, which also holds the scores and the promotion bar.
 

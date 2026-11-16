@@ -125,7 +125,7 @@ impl World {
         let mut vars = CONFIGURED.to_vec();
         vars.push((MODE_VAR, "enforce"));
         let world = Self::new(&vars)?;
-        let log = DecisionLog::in_home(world.home());
+        let log = DecisionLog::in_scope(world.home());
         for _ in 0..50 {
             log.count_answered(point)?;
         }

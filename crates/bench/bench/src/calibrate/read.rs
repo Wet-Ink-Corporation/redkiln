@@ -4,7 +4,7 @@
 //! skipped row.
 
 use redkiln_calibrate::rows::{self, ReadError};
-use redkiln_calibrate::score::{Probability, Sample};
+use redkiln_calibrate::score::Sample;
 
 use crate::baseline::BaselineError;
 use crate::calibrate::CalibrateError;
@@ -12,7 +12,7 @@ use crate::decide::log::DecisionLog;
 use crate::decide::point::{Point, Question};
 
 #[cfg(test)]
-pub(crate) use redkiln_calibrate::rows::{HEADROOM_ROWS, Label, MAX_LOG_FILE_BYTES, ROW_BYTES};
+pub(crate) use redkiln_calibrate::rows::{Label, MAX_LOG_FILE_BYTES};
 
 /// An answered decision of a Clef point.
 pub(crate) type Answered = rows::Answered<Point, Question>;
@@ -20,12 +20,10 @@ pub(crate) type Answered = rows::Answered<Point, Question>;
 /// What the log holds, as calibration needs it.
 pub(crate) type LogRows = rows::LogRows<Point, Question>;
 
-/// `decision` as a scored sample whose predicted event happened when `positive`; `None` only
-/// for a probability outside 0..=1, which [`read_log`] never yields (it skips such a row).
-pub(crate) fn sample(decision: &Answered, positive: bool) -> Option<Sample> {
-    Probability::try_from(decision.probability)
-        .ok()
-        .map(|probability| Sample::of(probability, positive))
+/// `decision` as a scored sample whose predicted event happened when `positive`. A row whose
+/// probability is outside 0..=1 never gets here: [`read_log`] counts it as skipped.
+pub(crate) const fn sample(decision: &Answered, positive: bool) -> Sample {
+    Sample::of(decision.probability, positive)
 }
 
 /// Reads every file of `log`: the old folder's, then the new one's.

@@ -122,11 +122,22 @@ impl DecisionLog {
         }
     }
 
-    /// The log in the anneal home `home` (`<home>/decisions`), with no old log beside it.
+    /// The log Bench writes when the user scope's root is `root` (`$REDKILN_HOME`):
+    /// `<root>/calibrate/bench`, with no old log beside it.
     #[cfg(test)]
-    pub(crate) fn in_home(home: &Path) -> Self {
+    pub(crate) fn in_scope(root: &Path) -> Self {
+        Self::from_dirs(DecisionDirs {
+            current: root.join("calibrate").join(PRODUCER),
+            legacy: None,
+        })
+    }
+
+    /// A log alone in anneal's old layout, `<home>/decisions`, with no old log beside it: for
+    /// tests of the log itself, which never read where Bench writes.
+    #[cfg(test)]
+    pub(crate) fn in_anneal_layout(home: &Path) -> Self {
         Self {
-            log: calibrate_log::DecisionLog::in_home(home),
+            log: calibrate_log::DecisionLog::new(home.join("decisions")),
             legacy: None,
         }
     }

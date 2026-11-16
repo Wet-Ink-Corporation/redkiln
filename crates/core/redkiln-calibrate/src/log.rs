@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 /// The log's directory inside an anneal home (the v1 layout, `~/.anneal/decisions`).
-pub const LOG_DIR: &str = "decisions";
+pub(crate) const LOG_DIR: &str = "decisions";
 
 /// The live log file.
 pub const LOG_FILE: &str = "decisions.jsonl";
@@ -78,9 +78,10 @@ impl DecisionLog {
     }
 
     /// The log in the anneal home `home`: `<home>/decisions`, anneal's v1 layout, which a
-    /// producer reads alongside its own (D1) and never writes.
-    #[must_use]
-    pub fn in_home(home: &Path) -> Self {
+    /// producer reads alongside its own (D1) and never writes. Tests only: a producer gets its
+    /// folders from [`crate::scope::UserScope::decisions`].
+    #[cfg(test)]
+    pub(crate) fn in_home(home: &Path) -> Self {
         Self::new(home.join(LOG_DIR))
     }
 

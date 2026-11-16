@@ -169,14 +169,10 @@ pub(crate) fn report<'t>(thresholds: &'t Thresholds, rows: &LogRows) -> Report<'
             .get(&decision.id)
             .map(|label| (outcome(decision, &label.outcome), label.via_mod))
         {
-            Some((Some(positive), via_mod)) => match read::sample(decision, positive) {
-                Some(sample) => {
-                    group.samples.push(sample);
-                    group.via_mod = group.via_mod.saturating_add(u32::from(via_mod));
-                }
-                // Not from the reader, which skips a probability outside 0..=1.
-                None => group.unusable = group.unusable.saturating_add(1),
-            },
+            Some((Some(positive), via_mod)) => {
+                group.samples.push(read::sample(decision, positive));
+                group.via_mod = group.via_mod.saturating_add(u32::from(via_mod));
+            }
             Some((None, _)) => group.unusable = group.unusable.saturating_add(1),
             None => {}
         }

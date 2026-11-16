@@ -12,10 +12,10 @@ Core leaf. Depends on no other Core crate (it may depend on `redkiln-core`, and 
 
 ## Public surface
 Only what a producer calls is `pub` (API-14).
-- `scope`: `UserScope` (`from_lookup`, `root`, `decisions`), `DecisionDirs { current, legacy }`, `ScopeError { NoHome, RelativeHome, Producer }`, and the names (`HOME_VAR`, `HOME_DIR`, `LEGACY_HOME_VAR`, `LEGACY_HOME_DIR`, `CALIBRATE_DIR`, `LEGACY_DECISIONS_DIR`).
-- `log`: `DecisionLog` (`new`, `in_home` for anneal's v1 layout, `dir`, `path`, `append`, `files`), `LogError`, `LOG_DIR`, `LOG_FILE`, `MAX_ROW_BYTES`, `MAX_FILE_BYTES`, `ROTATED_FILES`.
-- `rows`: `read::<P, Q>` over one or more logs, `Answered<P, Q>`, `Label`, `LogRows<P, Q>`, `ReadError`, `MAX_LOG_FILE_BYTES`, `HEADROOM_ROWS`, `ROW_BYTES`, `VIA_MOD`. The point and question are the caller's types.
-- `score`: `Probability` (`TryFrom<f64>`, `ProbabilityError`), `Sample`, `Bin`, `Costs`, `FalseAccept`, `Proposal`, `BINS`, `FALSE_ACCEPT_COST`, `NEEDLESS_COST`, `brier`, `bins`, `total_cost`, `expected_cost`, `propose`, `count`.
+- `scope`: `UserScope` (`from_lookup`, `root`, `decisions`), `DecisionDirs { current, legacy }`, `ScopeError { NoHome, RelativeHome, Producer }`, and `HOME_VAR`; the folder names are crate-private.
+- `log`: `DecisionLog` (`new`, `dir`, `path`, `append`, `files`), `LogError`, `LOG_FILE`, `MAX_ROW_BYTES`, `MAX_FILE_BYTES`, `ROTATED_FILES`.
+- `rows`: `read::<P, Q>` over one or more logs, `Answered<P, Q>`, `Label`, `LogRows<P, Q>`, `ReadError`, `MAX_LOG_FILE_BYTES`, `VIA_MOD`; `Answered::probability` is a `Probability`. The point and question are the caller's types.
+- `score`: `Probability` (`TryFrom<f64>`, `get`; `ProbabilityError`, opaque), `Sample`, `Bin`, `Costs`, `FalseAccept`, `Proposal`, `FALSE_ACCEPT_COST`, `NEEDLESS_COST`, `brier`, `bins`, `expected_cost`, `propose`, `count`.
 - `promotion`: `Bar` (`DEFAULT`: 50 labelled, Brier 0.15, ask rate 0.20; `verdict`), `Verdict`, `Reason`.
 
 ## Invariants

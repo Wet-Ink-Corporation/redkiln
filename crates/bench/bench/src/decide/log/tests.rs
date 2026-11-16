@@ -12,14 +12,14 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[test]
 fn answered_counts_start_at_zero_and_persist_per_point() -> TestResult {
     let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     assert_eq!(log.answered(Point::D1)?, 0);
 
     log.count_answered(Point::D1)?;
     log.count_answered(Point::D1)?;
     log.count_answered(Point::D3)?;
 
-    let reopened = DecisionLog::in_home(home.path());
+    let reopened = DecisionLog::in_anneal_layout(home.path());
     assert_eq!(reopened.answered(Point::D1)?, 2);
     assert_eq!(reopened.answered(Point::D3)?, 1);
     assert_eq!(reopened.answered(Point::D2)?, 0);
@@ -29,7 +29,7 @@ fn answered_counts_start_at_zero_and_persist_per_point() -> TestResult {
 #[test]
 fn a_counts_file_of_another_kind_is_refused() {
     let home = tempfile::tempdir().expect("tempdir");
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     fs::create_dir_all(log.dir()).expect("mkdir");
     fs::write(
         log.counts_path(),
@@ -46,7 +46,7 @@ fn a_counts_file_of_another_kind_is_refused() {
 #[test]
 fn a_directory_at_the_counts_path_is_refused() {
     let home = tempfile::tempdir().expect("tempdir");
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     fs::create_dir_all(log.counts_path()).expect("a directory where counts go");
 
     assert!(matches!(log.answered(Point::D1), Err(LogError::Counts(_))));

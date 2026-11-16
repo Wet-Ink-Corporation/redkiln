@@ -141,7 +141,7 @@ fn http_response(status: &str, extra: &str, body: &[u8]) -> Vec<u8> {
 fn a_200_answer_is_decided_end_to_end_through_the_client() {
     let home = tempfile::tempdir().expect("an anneal home");
     let thresholds = Thresholds::built_in().expect("the shipped thresholds");
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     let state =
         CompactState::parse(r#"{"tool":"Bash","input":{"command":"rm -rf /"}}"#).expect("a state");
     let answer = r#"{"probabilities":{"yes":0.95,"no":0.05}}"#;
