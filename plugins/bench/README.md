@@ -2,9 +2,11 @@
 
 > **Imported from anneal (Move 2).** anneal moved into the redkiln monorepo as Bench: the plugin
 > installs as `rk-bench`, its cockpit mod as `rk-bench-cockpit`, and the CLI is `bench`. The
-> event names, the ledger (`<git-common-dir>/anneal/ledger.sqlite3`), `.anneal/`, `~/.anneal`,
-> the `/anneal` cockpit pane and the `$ANNEAL_*` variables keep their anneal names until later
-> steps of the move (`docs/plan/move-2-bench.md`).
+> event names, the ledger (`<git-common-dir>/anneal/ledger.sqlite3`), the `/anneal` cockpit pane
+> and the `$ANNEAL_*` variables keep their anneal names until later steps of the move
+> (`docs/plan/move-2-bench.md`). Since 5.6 the repository's folder is `.redkiln/bench/` and the
+> per-user state is in `~/.redkiln/bench/` (`$REDKILN_HOME/bench`); anneal's `.anneal/` and
+> `~/.anneal` are still read as a fallback, never written or deleted.
 
 Bench is a Claude Code plugin that turns prose SDLC gates into enforced checks. It has three layers:
 
@@ -66,15 +68,15 @@ Bench's context monitor warns at 60% and stops at 75% of the auto-compact window
 }
 ```
 
-With `bench` on your PATH (and on Windows), the command is just `bench statusline`. If you keep another status line, have your script pipe its input to `bench statusline` as well; it prints one line (`anneal ctx 120k/200k 60%`) and saves the reading to `~/.anneal/context-usage.json`.
+With `bench` on your PATH (and on Windows), the command is just `bench statusline`. If you keep another status line, have your script pipe its input to `bench statusline` as well; it prints one line (`anneal ctx 120k/200k 60%`) and saves the reading to `~/.redkiln/bench/context-usage.json`.
 
-The window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when set, else the model's context window, else 200,000 tokens. Until a status line saves a reading the monitor stays silent, and the session start shows a one-time setup hint. The status line is the fallback for the cockpit mod, which saves the same reading through `bench snapshot write --json` (to `~/.anneal/context-usage-mod.json`); when both save one, the monitor reads the fresher, and while the mod has saved one in the last 10 minutes the setup hint stays away. See `docs/bench/handoff.md`.
+The window is `CLAUDE_CODE_AUTO_COMPACT_WINDOW` when set, else the model's context window, else 200,000 tokens. Until a status line saves a reading the monitor stays silent, and the session start shows a one-time setup hint. The status line is the fallback for the cockpit mod, which saves the same reading through `bench snapshot write --json` (to `~/.redkiln/bench/context-usage-mod.json`); when both save one, the monitor reads the fresher, and while the mod has saved one in the last 10 minutes the setup hint stays away. See `docs/bench/handoff.md`.
 
 `bench status` shows the rest of the state Bench holds for a worktree in at most 12 lines: its mode, the plan's approval, tasks done, gates that blocked, the verdict for `HEAD`, Clef's points, the context reading and the newest ledger events. With `--json` it is one versioned document a UI can render without logic of its own. See `docs/bench/status.md`.
 
 ### Clef (optional)
 
-Clef answers Bench's judgement calls: seven decision points (D1 to D7), such as "is this Bash command destructive?" (the guard) or "is this question a decision for the human?" (`grill`). Each call goes to a model on Cloudflare Workers AI, its probability is checked against the point's thresholds (built in: `bench playbook show clef-thresholds`), and the decision is logged under `~/.anneal/decisions/`. Set it in the plugin's options (`userConfig`):
+Clef answers Bench's judgement calls: seven decision points (D1 to D7), such as "is this Bash command destructive?" (the guard) or "is this question a decision for the human?" (`grill`). Each call goes to a model on Cloudflare Workers AI, its probability is checked against the point's thresholds (built in: `bench playbook show clef-thresholds`), and the decision is logged under `~/.redkiln/calibrate/bench/` (`~/.anneal/decisions/` read alongside). Set it in the plugin's options (`userConfig`):
 
 | Option | Meaning |
 |---|---|

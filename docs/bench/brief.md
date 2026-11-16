@@ -35,12 +35,12 @@ anneal brief build --ticket <id> --base <ref> [--field <key>=<text>]... [--waits
 
 It writes two files under the worktree root, replacing earlier ones:
 
-- `.anneal/briefs/<id>.md`, the brief: a title, the review package's path, the nine fields,
+- `.redkiln/bench/briefs/<id>.md`, the brief: a title, the review package's path, the nine fields,
   then a `## Volatile` section with the base and head commits, `cacheTtl: 1h` when
   `--waits-on-ci` is passed (a fix-loop subagent that waits on CI), and the build time. What
   stays the same comes first and what changes on every build last, so a prompt that starts with
   the stable part keeps its cache.
-- `.anneal/briefs/<id>.review.md`, the review package: the contract (the nine fields) and
+- `.redkiln/bench/briefs/<id>.review.md`, the review package: the contract (the nine fields) and
   `git diff <base>...HEAD` in a fenced block, then the same volatile section. A diff over 4 MiB
   is not included; the package names the `git diff` command that shows it instead, and the
   envelope sets `data.diff_omitted`.
@@ -64,11 +64,11 @@ the base must be an ancestor of `HEAD`. Otherwise it exits 1 with one `brief/ran
 writes nothing. A usage error (a bad ticket or field, outside a worktree) exits 2 with nothing on
 stdout.
 
-The files are written only when `.anneal/briefs` resolves to the resolved worktree root's own
-`.anneal/briefs`: a symlinked `.anneal` or `briefs` leading elsewhere exits 70 with one `ERROR`
-line naming where it leads, and nothing is written there. The directories are made one at a
-time, `.anneal` then `briefs`, each checked before the next is made, so a symlinked `.anneal`
-does not get an empty `briefs` directory where it leads. git failing to resolve the range
+The files are written only when `.redkiln/bench/briefs` resolves to the resolved worktree root's
+own `.redkiln/bench/briefs`: a symlinked `.redkiln`, `bench` or `briefs` leading elsewhere exits 70
+with one `ERROR` line naming where it leads, and nothing is written there. The directories are
+made one at a time, each checked before the next is made, so a symlinked one does not get an
+empty directory where it leads. Bench never writes anneal's `.anneal/briefs/` (PR 5.6). git failing to resolve the range
 (`resolving the range`) or to read the diff (`reading the diff`) is also 70.
 
 ## `anneal lint brief <file>`
@@ -84,10 +84,11 @@ in any ASCII letter case; other sections, such as `## Volatile`, are allowed.
 [hooks.md](hooks.md)). A spawn's prompt names its brief on one line:
 
 ```text
-Brief: .anneal/briefs/36.md
+Brief: .redkiln/bench/briefs/36.md
 ```
 
-The path is relative to the worktree root, under `.anneal/briefs/`, with no `..`, `.`, `\` or
+The path is relative to the worktree root, under `.redkiln/bench/briefs/` (or anneal's
+`.anneal/briefs/`, still accepted for briefs built before 0.x moved), with no `..`, `.`, `\` or
 absolute form, and it must resolve, symlinks included, to a regular file of at most 256 KiB
 inside that directory that passes `lint brief`. A spawn from inside a subagent (its input has
 `agent_id`) is denied unless its `agent_type` is an orchestrate lead (one that names no
@@ -97,23 +98,23 @@ inside that directory that passes `lint brief`. A spawn from inside a subagent (
 {"orchestrate": {"leads": ["orchestrate-lead"]}}
 ```
 
-in `.anneal/config.json`; the list replaces the default, `["orchestrate-lead"]`, and holds at
+in `.redkiln/bench/config.json` (else `.anneal/config.json`); the list replaces the default, `["orchestrate-lead"]`, and holds at
 most 64 names, each 1 to 128 bytes with no control character. An empty list lets no subagent
 spawn. A setting that breaks these, or a file that cannot be read, denies every nested spawn as
 unjudged, naming the problem (for a name, its index). A plugin's agent reports a plugin-scoped type (`anneal:orchestrate-lead`), so
 list that form for one.
 
-An agent cannot add itself to the list: the guard denies Bash writes to `.anneal/config.json`
-(and removing `.anneal`), and the preconditions hook denies the Edit, Write, MultiEdit and
+An agent cannot add itself to the list: the guard denies Bash writes to `.redkiln/bench/config.json`
+and `.anneal/config.json` (and removing `.redkiln/bench`, `.redkiln` or `.anneal`), and the preconditions hook denies the Edit, Write, MultiEdit and
 NotebookEdit tools on it in every mode and with none (`preconditions.settings`), so a human edits
 it (`docs/preconditions.md`).
 
 ## Standing orders
 
-`anneal hook standing-orders` (`SubagentStart`, fail open) adds `.anneal/standing-orders.md`
-at the worktree root to every subagent's context. It is silent when the file is missing and
+`anneal hook standing-orders` (`SubagentStart`, fail open) adds `.redkiln/bench/standing-orders.md`
+(else `.anneal/standing-orders.md`) at the worktree root to every subagent's context. It is silent when the file is missing and
 injects nothing, with one `ERROR` line as `systemMessage`, when it is over 16 KiB, not a
-regular file, or resolves outside the worktree's own `.anneal/` (a symlinked `.anneal`). Claude Code moves context over 10,000 characters to a file and passes a preview,
+regular file, or resolves outside the worktree's own folder (a symlinked `.redkiln`, `bench` or `.anneal`). Claude Code moves context over 10,000 characters to a file and passes a preview,
 so keep orders meant to be read whole under that.
 
 ## Fix-loop rounds

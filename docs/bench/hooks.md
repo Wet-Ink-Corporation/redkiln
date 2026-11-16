@@ -79,7 +79,8 @@ The context is, in order:
 2. **`.continue-here`**, the note the `handoff` hook writes before a compaction, every time it
    exists at the worktree root (a regular file of at most 32 KiB whose head the hook recorded),
    framed as data, with the injection scan's line on a hit; see `docs/handoff.md`.
-3. **The status-line hint**, once per anneal home, while no status line has saved context usage
+3. **The status-line hint**, once per state home (`~/.redkiln/bench/`, its marker read from
+   `~/.anneal` too), while no status line has saved context usage
    (`context-usage.json`) and no mod snapshot is under 10 minutes old (`context-usage-mod.json`,
    from `anneal snapshot write`), so the context monitor is off; see `docs/handoff.md`.
 4. **The live state**, only when it changed for this session (volatile last): the newest five
@@ -200,7 +201,8 @@ directories and prose documents are always allowed; the plan's `Spec:` line exem
 same deny decision as the guard's, with one `ERROR` line naming the missing precondition and the
 command that satisfies it, plus a `gate_blocked` event (`point` is `preconditions.<check>`).
 Unreadable input, and a ledger or git it cannot read, are denied. An edit of
-`.anneal/config.json`, anneal's own settings, is denied in every mode and with none
+`.redkiln/bench/config.json` or `.anneal/config.json`, Bench's own settings, is denied in every
+mode and with none
 (`preconditions.settings`). See `docs/preconditions.md`.
 
 ## `fast-check` (PostToolBatch)
@@ -222,7 +224,7 @@ an input that lists no calls (or cannot be read, which is noted) takes them from
 | Order | Check | Limit | A failure is |
 |---|---|---|---|
 | 1 | `anneal floor-guard` | 6 s | exit 1: a **block**; anything else (exit 3, a timeout): a note |
-| 2 | `check_fast` from `.anneal/config.json` (an argv array, no shell), when set | 5 s | a note with its exit and the last 2 KiB of its output |
+| 2 | `check_fast` from `.redkiln/bench/config.json`, else `.anneal/config.json` (an argv array, no shell), when set | 5 s | a note with its exit and the last 2 KiB of its output |
 | 3 | `anneal lint terms --glossary CONTEXT.md` on the changed files, when `CONTEXT.md` exists | 2 s | a note with the hits |
 | 4 | `anneal lint spec` or `anneal lint plan` for each changed `.md` file whose nearest `specs` or `plans` directory names it | 2 s each | a note with the findings |
 
@@ -302,7 +304,7 @@ answer whose row was logged, does a section whose action is `block` become the `
 which names each such section with its P(yes) and counts toward the cap like the other gates.
 In shadow (the default), off, misconfigured or with Clef unreachable, timed out or answering
 badly, the hook's output is exactly what it would be without D4. D4's other failures (the
-thresholds or anneal home, the budget, a row that could not be logged) join the `ERROR` line only
+thresholds or user scope, the budget, a row that could not be logged) join the `ERROR` line only
 when D4 is configured `enforce`; a Clef failure never blocks. Each section's answer advances D4's
 shadow count, so a stop with a report adds up to five; the five calls run at once and can lose an
 increment between them, which only lengthens the shadow period. Its outcome label, a human pushing back with
@@ -386,8 +388,9 @@ rule table (`hook::completeness::playbook::RULES`, one row per requirement, so #
 | none or `off` | nothing | |
 
 **Block cap.** It blocks at most 2 times in a row per session, stricter than Claude Code's own
-cap of 8 (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`). The count is kept in the anneal home directory
-(`$ANNEAL_HOME`, else `~/.anneal`) in `stop-blocks.json`: per session a hash of its id, its
+cap of 8 (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`). The count is kept in Bench's state home
+(`$REDKILN_HOME/bench`, else `~/.redkiln/bench`; read from `$ANNEAL_HOME`, else `~/.anneal`,
+while absent there) in `stop-blocks.json`: per session a hash of its id, its
 blocks in a row and the transcript's length at the last block, at most 64 sessions. A stop with
 no hard gate resets it, and so does a tool call: the transcript bytes written since the last
 block holding `"type":"tool_use"` (a transcript that shrank, or grew by more than 16 MiB, counts
@@ -434,7 +437,7 @@ and `client::ask_recording`, as the guard's D1 does): the same configuration
 Shared behaviour:
 
 - **Clef off** (no account, or the point's mode `off`): the hook does nothing. It writes
-  nothing, reads no file and creates nothing in the anneal home.
+  nothing, reads no file and creates nothing in the state home.
 - **Shadow** (the default, and every point's first 50 answered decisions even when `enforce`
   is configured): the question is asked and logged, and nothing is injected.
 - **Enforce**: at most one line of `additionalContext` per hook per prompt, and only when the
@@ -584,7 +587,8 @@ prompt labels it with the ruling's id (it held). Until then D6 is labelled only 
 ## `context-monitor` (PostToolBatch)
 
 No matcher, 5 s timeout, `onFailure: continue`, role `scaffolding`. Hooks receive no context
-usage, so it reads the reading saved for the session in the anneal home, by `anneal statusline`
+usage, so it reads the reading saved for the session in the state home (`~/.redkiln/bench/`, each file
+read from `~/.anneal` while absent there), by `anneal statusline`
 (`context-usage.json`) or for the mod by `anneal snapshot write` (`context-usage-mod.json`), the
 fresher of the two, and keeps the level each session last reached (`context-monitor.json`).
 It warns once (`additionalContext`) when usage rises past 60% of the auto-compact window and
@@ -616,10 +620,10 @@ Matcher `Agent`, `timeout` 5 s, `onFailure: "block"`, arguments `hook brief --fa
 reads Claude Code's `PreToolUse` input on stdin (at most 4 MiB; it uses `tool_name`,
 `tool_input.prompt`, `agent_id`, `agent_type`, `session_id` and `cwd`). Any other tool is
 allowed silently. No brief, no spawn: the prompt must hold exactly one `Brief: <path>` line
-naming a file under `.anneal/briefs/` of the worktree (relative, no `..`, `.`, `\` or absolute
+naming a file under `.redkiln/bench/briefs/` (or anneal's `.anneal/briefs/`) of the worktree (relative, no `..`, `.`, `\` or absolute
 path, resolved with symlinks to a regular file of at most 256 KiB inside that directory) that
 passes `anneal lint brief`. A call with `agent_id` set runs inside a subagent and is denied
-unless its `agent_type` is listed in `orchestrate.leads` of `.anneal/config.json` (default
+unless its `agent_type` is listed in `orchestrate.leads` of `.redkiln/bench/config.json`, else `.anneal/config.json` (default
 `["orchestrate-lead"]`); an allowed lead's spawn still needs its brief. A denial is one
 `ERROR brief: ...` line naming what is missing (the fields `lint brief` reports, or the
 `anneal brief build` command), plus a `gate_blocked` event (`point` is `brief.<check>`: `nested`,
@@ -632,11 +636,11 @@ read are denied; git and ledger reads share 3.5 s from the hook's start. See
 
 No matcher (every agent type), `timeout` 5 s, `onFailure: "continue"`. It reads Claude Code's
 `SubagentStart` input on stdin (at most 64 KiB; it uses `cwd`) and adds the repository's
-`.anneal/standing-orders.md` (at the worktree root, or under `cwd` outside git) to the
-subagent's context as `additionalContext`, headed `Standing orders for every subagent
-(.anneal/standing-orders.md):`. With no file it writes nothing. A file over 16 KiB, or a path
-that is not a regular file, resolves outside the worktree's own `.anneal/` (a symlinked
-`.anneal`) or cannot be read, injects nothing, never a part, and is one
+`.redkiln/bench/standing-orders.md`, else `.anneal/standing-orders.md` (at the worktree root, or
+under `cwd` outside git) to the subagent's context as `additionalContext`, headed `Standing orders
+for every subagent (<the file read>):`. With no file it writes nothing. A file over 16 KiB, or a path
+that is not a regular file, resolves outside the worktree's own folder (a symlinked
+`.redkiln`, `.redkiln/bench` or `.anneal`) or cannot be read, injects nothing, never a part, and is one
 `ERROR standing-orders: ...` line as `systemMessage`. `SubagentStart` cannot block, and the hook
 always exits 0 (only a usage error exits 2). Claude Code injects the context once per subagent
 and again after the subagent's auto-compaction; context over 10,000 characters is moved to a

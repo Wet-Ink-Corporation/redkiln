@@ -21,6 +21,7 @@ fn anneal(dir: &Path, args: &[&str], stdin: &[u8]) -> Result<Output, Box<dyn Err
     let mut child = anneal_in(dir)
         .args(args)
         .env("ANNEAL_HOME", dir.join("home"))
+        .env("REDKILN_HOME", dir.join("home"))
         .env("REDKILN_STORE", dir.join("ledger.sqlite3"))
         .env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
         .stdin(Stdio::piped())
@@ -74,7 +75,12 @@ fn a_written_snapshot_is_the_mod_s_and_the_monitor_warns_on_it() -> TestResult {
         Some(&json!("mod")),
         "the envelope says whose: {envelope}"
     );
-    let saved = std::fs::read_to_string(dir.path().join("home").join("context-usage-mod.json"))?;
+    let saved = std::fs::read_to_string(
+        dir.path()
+            .join("home")
+            .join("bench")
+            .join("context-usage-mod.json"),
+    )?;
     assert!(
         saved.contains("\"source\": \"mod\""),
         "the mod's file: {saved}"
@@ -111,6 +117,7 @@ fn invalid_input_exits_2_with_one_error_line_and_nothing_on_stdout() -> TestResu
     assert!(
         !dir.path()
             .join("home")
+            .join("bench")
             .join("context-usage-mod.json")
             .exists(),
         "nothing saved"

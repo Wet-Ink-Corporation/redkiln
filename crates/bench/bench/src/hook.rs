@@ -109,7 +109,7 @@ pub enum HookName {
     /// `PreToolUse` (Agent): deny a spawn whose prompt names no valid brief, and any spawn
     /// from inside a subagent that is not an orchestrate lead; fails closed
     Brief,
-    /// `SubagentStart`: add `.anneal/standing-orders.md` to the subagent's context; fails open
+    /// `SubagentStart`: add `.redkiln/bench/standing-orders.md` to the subagent's context; fails open
     StandingOrders,
 }
 

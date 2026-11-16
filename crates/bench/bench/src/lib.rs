@@ -36,8 +36,9 @@
 //! - [`ledger`]: `bench ledger append|query|tail|journal` over the ledger [`store`].
 //! - [`store`]: Bench's events in the suite store, the one module that reaches
 //!   `redkiln_core::store`.
-//! - [`paths`]: the ledger store (normally in the git common dir) and the anneal home
-//!   (`~/.anneal`).
+//! - [`paths`]: the ledger store (normally in the git common dir) and Bench's per-user state
+//!   folder in the user scope (`~/.redkiln/bench/`, with anneal's `~/.anneal` read as a
+//!   fallback).
 //! - [`adr`]: ADR numbering, `docs/adr/NNNN-<slug>.md` with the next free number.
 //! - [`repro`]: `bench repro record|leftovers`, the red reproduction diagnose mode waits for
 //!   and the `[DEBUG-<id>]` instrumentation left behind ([`repro::debug_leftovers`]).
@@ -52,15 +53,16 @@
 //! - [`pr_diff`]: the bounded git reads of a pull request's diff (commits, base, patch id,
 //!   numstat, ancestry, the diff's text) that `verdict`, `ship`, `brief` and the merge gate
 //!   share, from the GitHub kit (`redkiln_github::diff`), and their [`pr_diff::PrError`].
-//! - [`repo_config`]: `.anneal/config.json`, read within a size cap (`check_fast`,
-//!   `review.require_plugin`, `ship.sensitive_globs`, `orchestrate.leads`).
+//! - [`repo_config`]: `.redkiln/bench/config.json` (anneal's `.anneal/config.json` as a 0.x
+//!   fallback), read within a size cap (`check_fast`, `review.require_plugin`,
+//!   `ship.sensitive_globs`, `orchestrate.leads`).
 //! - [`brief`]: `bench brief build`, a subagent's nine-field brief and its review package
-//!   under `.anneal/briefs/`.
+//!   under `.redkiln/bench/briefs/`.
 //! - [`round`]: `bench round start|status`, a ticket's fix-loop round counter read from the
 //!   ledger.
 //! - [`orchestrate`]: `bench orchestrate fan-out|park|rule`, the fan-out gate and one-way
 //!   calls parked in weigh-in (through the crate-private `weighin` bridge) or ruled on.
-//! - [`status`]: `bench status`, the ledger and the anneal home folded into one document for a
+//! - [`status`]: `bench status`, the ledger and the per-user state folded into one document for a
 //!   UI, `bench.status/1` (SPEC CLI-12, `bench_contract::status`): CLI-12's common keys, then
 //!   phase, plan, tasks, gates, verdict, Clef, context and the ledger's tail
 //!   (`docs/bench/status.md`).
@@ -119,6 +121,7 @@ mod process;
 #[cfg(test)]
 mod release_check;
 pub mod repo_config;
+mod repo_file;
 pub mod repro;
 pub mod rollout;
 pub mod round;

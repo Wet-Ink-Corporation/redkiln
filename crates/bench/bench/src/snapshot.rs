@@ -14,7 +14,7 @@
 //! - `used_percentage` (optional): 0 to 100, of `window`; it gives the tokens only when
 //!   `used_tokens` is absent or `null`.
 //!
-//! The snapshot is saved for the session in the anneal home's `context-usage-mod.json`,
+//! The snapshot is saved for the session in Bench's state home's `context-usage-mod.json`,
 //! stamped `source: mod` with the time, beside the status line's `context-usage.json`; the
 //! context monitor reads the fresher of the two. Any other field, or a field out of range, is
 //! a usage error (2) that writes nothing. Debouncing (at most one write every 2 s) is the
@@ -25,6 +25,7 @@ use std::io::{self, Read, Write};
 use std::time::SystemTimeError;
 
 use clap::{Args, Subcommand};
+use redkiln_calibrate::scope::ScopeError;
 use serde::Deserialize;
 
 use crate::command::CommandName;
@@ -37,7 +38,7 @@ use crate::error::CliError;
 use crate::exit_codes::{self, Code};
 use crate::harness::claude_code::AUTO_COMPACT_WINDOW_VAR;
 use crate::hook::{StdinError, read_stdin};
-use crate::paths::{self, PathError};
+use crate::paths::BenchHome;
 
 /// The most stdin read; a snapshot is a few hundred bytes (H-13).
 const MAX_INPUT_BYTES: u64 = 64 * 1024;
@@ -104,9 +105,9 @@ pub enum SnapshotError {
     /// The system clock is before 1970, so the snapshot cannot be stamped.
     #[error("snapshot write: reading the clock")]
     Clock(#[source] SystemTimeError),
-    /// The anneal home could not be found.
-    #[error("snapshot write: finding the anneal home")]
-    Home(#[source] PathError),
+    /// Bench's state folder in the user scope could not be found.
+    #[error("snapshot write: finding bench's state folder in the user scope")]
+    Home(#[source] ScopeError),
     /// The mod's usage file could not be read or written.
     #[error("snapshot write: saving the snapshot")]
     File(#[source] FileError),
@@ -129,7 +130,7 @@ impl From<StdinError> for SnapshotError {
 
 impl SnapshotError {
     /// The exit code: input that is too large, not the shape or out of range is a usage error
-    /// (2); stdin, the clock, the anneal home or the file failing is internal (70).
+    /// (2); stdin, the clock, the user scope or the file failing is internal (70).
     #[must_use]
     pub const fn code(&self) -> Code {
         match self {
@@ -140,7 +141,7 @@ impl SnapshotError {
 }
 
 /// Runs `bench snapshot <action>`: reads the snapshot from `env.stdin`, the auto-compact
-/// window variable and the anneal home through `env.lookup`, stamps it with `env.clock`'s
+/// window variable and the user scope through `env.lookup`, stamps it with `env.clock`'s
 /// time, and writes the envelope, whose `data` is the snapshot as saved, to `out`.
 ///
 /// # Errors
@@ -167,7 +168,7 @@ where
     let input: Input = serde_json::from_slice(&bytes).map_err(SnapshotError::Json)?;
     let snapshot = reading(&input, lookup(AUTO_COMPACT_WINDOW_VAR).as_deref())?;
     let now_ms = clock.unix_millis().map_err(SnapshotError::Clock)?;
-    let home = paths::anneal_home_from(lookup).map_err(SnapshotError::Home)?;
+    let home = BenchHome::from_lookup(lookup).map_err(SnapshotError::Home)?;
     let saved = Saved::stamped(snapshot, Source::Mod, now_ms);
     context::save(&home, &input.session_id, saved)
         .map_err(|error| SnapshotError::File(FileError(error)))?;

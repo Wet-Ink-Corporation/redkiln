@@ -138,7 +138,7 @@ pub enum Command {
     /// Score each Clef decision point against its labelled outcomes and propose thresholds
     #[command(after_help = command_help(CommandName::Calibrate))]
     Calibrate(CalibrateArgs),
-    /// Fold the ledger and the anneal home into one status document (text, or JSON with --json)
+    /// Fold the ledger and the per-user state into one status document (text, or JSON with --json)
     #[command(after_help = command_help(CommandName::Status))]
     Status(StatusArgs),
     /// Render the Claude Code status line and save the context usage for the context monitor
@@ -352,7 +352,7 @@ fn dispatch<O: Write, E: Write>(
         }
         Command::FloorGuard(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-            floor_guard::run(args, &cwd, out)
+            floor_guard::run(args, &cwd, out, err)
         }
         Command::Verdict(args) => run_verdict(args, out, err),
         Command::Decide(args) => run_decide(args, out, err),
@@ -360,7 +360,7 @@ fn dispatch<O: Write, E: Write>(
         Command::Hook(args) => run_hook(args, out),
         Command::Ship(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-            ship::run(args, &cwd, out)
+            ship::run(args, &cwd, out, err)
         }
         Command::Watch(args) => run_watch(args, out),
         Command::Status(args) => {

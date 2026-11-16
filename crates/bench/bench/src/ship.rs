@@ -4,7 +4,8 @@
 //! It reads `git diff --numstat` of `<base>...<head>` (base `--base`, else `origin/main`, else
 //! `main`; head `--head`, default `HEAD`) and applies [`skip_rule`]: at most 2 files, under 50
 //! changed lines, no binary file and no path matching a sensitive glob (the defaults, plus
-//! `ship.sensitive_globs` from `.anneal/config.json`). Exit 0 skips full review, 1 needs it.
+//! `ship.sensitive_globs` from `.redkiln/bench/config.json`, else anneal's
+//! `.anneal/config.json` with a warning). Exit 0 skips full review, 1 needs it.
 //! The merge gate applies the same rule through `skip`. See `docs/verdict.md`.
 
 pub mod skip_rule;
@@ -21,7 +22,7 @@ use crate::error::CliError;
 use crate::exit_codes::{self, Code};
 use crate::paths::{self, GIT_TIMEOUT, PathError};
 use crate::pr_diff::{self, Budget, PrError};
-use crate::repo_config;
+use crate::{repo_config, repo_file};
 use skip_rule::{Reason, Sensitive, SkipDecision};
 
 /// `bench ship`.
@@ -101,8 +102,14 @@ pub(crate) fn skip(
     })
 }
 
-/// Runs `bench ship <action>` in `cwd`.
-pub(crate) fn run<O: Write>(args: &ShipArgs, cwd: &Path, out: &mut O) -> Result<Code, CliError> {
+/// Runs `bench ship <action>` in `cwd`; one warning line on `err` per file read from anneal's
+/// old folder.
+pub(crate) fn run<O: Write, E: Write>(
+    args: &ShipArgs,
+    cwd: &Path,
+    out: &mut O,
+    err: &mut E,
+) -> Result<Code, CliError> {
     let ShipAction::SkipRule(args) = &args.action;
     let root = paths::worktree_root_within(cwd, GIT_TIMEOUT).map_err(|error| match error {
         PathError::NotARepository { .. } => CliError::Pr(PrError::NotAWorktree {
@@ -112,6 +119,7 @@ pub(crate) fn run<O: Write>(args: &ShipArgs, cwd: &Path, out: &mut O) -> Result<
         other => CliError::Path(other),
     })?;
     let root = Path::new(&root);
+    repo_file::warn(root, &[repo_file::CONFIG], &mut *err).map_err(CliError::Output)?;
     let config = repo_config::gate(root).map_err(PrError::from)?;
     let budget = Budget::per_call(GIT_TIMEOUT);
     let head = pr_diff::resolve_commit(root, &args.head, budget.next().map_err(PrError::from)?)

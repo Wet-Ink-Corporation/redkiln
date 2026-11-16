@@ -1,6 +1,6 @@
 use super::{
-    PathError, StoreSource, anneal_home_from, git_failure, ledger_store, ledger_store_within,
-    read_capped, wait_with_deadline,
+    PathError, StoreSource, git_failure, ledger_store, ledger_store_within, read_capped,
+    wait_with_deadline,
 };
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -118,62 +118,6 @@ fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
 
 fn absolute(name: &str) -> PathBuf {
     std::env::temp_dir().join(name)
-}
-
-#[test]
-fn anneal_home_override_wins() {
-    let over = absolute("over");
-    let home = absolute("home");
-    let lookup = env(&[
-        ("ANNEAL_HOME", over.to_str().expect("UTF-8")),
-        ("HOME", home.to_str().expect("UTF-8")),
-    ]);
-    assert_eq!(
-        anneal_home_from(lookup).expect("resolves"),
-        over,
-        "override"
-    );
-}
-
-#[test]
-fn home_then_userprofile_get_dot_anneal() {
-    let home = absolute("home");
-    let profile = absolute("profile");
-    let both = env(&[
-        ("ANNEAL_HOME", ""),
-        ("HOME", home.to_str().expect("UTF-8")),
-        ("USERPROFILE", profile.to_str().expect("UTF-8")),
-    ]);
-    let windows = env(&[("USERPROFILE", profile.to_str().expect("UTF-8"))]);
-
-    assert_eq!(
-        anneal_home_from(both).expect("resolves"),
-        home.join(".anneal"),
-        "HOME first"
-    );
-    assert_eq!(
-        anneal_home_from(windows).expect("resolves"),
-        profile.join(".anneal"),
-        "USERPROFILE when HOME is unset"
-    );
-}
-
-#[test]
-fn no_home_and_relative_home_are_errors() {
-    let none = anneal_home_from(env(&[])).expect_err("nothing set");
-    let relative = anneal_home_from(env(&[("ANNEAL_HOME", "rel/dir")])).expect_err("relative");
-
-    assert!(matches!(none, PathError::NoHome), "got {none:?}");
-    assert!(
-        matches!(
-            relative,
-            PathError::RelativeHome {
-                var: "ANNEAL_HOME",
-                ..
-            }
-        ),
-        "got {relative:?}"
-    );
 }
 
 #[test]

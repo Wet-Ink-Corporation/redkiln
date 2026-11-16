@@ -15,7 +15,7 @@ use crate::context::note::{self, CONTINUE_HERE};
 use crate::decide::clock::Clock;
 use crate::error_chain::reason;
 use crate::hook::injection_scan::detect;
-use crate::paths::{self, PathError};
+use crate::paths::{self, BenchHome, PathError, StateHome};
 
 /// The heading and framing of the injected note: data, not instructions.
 const NOTE_FRAME: &str = "## Handoff note (.continue-here)\n\nanneal's handoff hook wrote the \
@@ -26,14 +26,14 @@ const NOTE_FRAME: &str = "## Handoff note (.continue-here)\n\nanneal's handoff h
 /// How recent a mod snapshot must be for the mod to count as saving usage: 10 minutes.
 const MOD_FRESH_MS: u64 = 10 * 60 * 1000;
 
-/// The setup hint, shown once per anneal home while no status line saves context usage.
+/// The setup hint, shown once per state home while no status line saves context usage.
 pub(crate) const STATUSLINE_HINT: &str = "anneal: the context monitor is off, because no status \
     line saves context usage (hooks receive none). Set it up once: in ~/.claude/settings.json, \
     make `statusLine` run `bench statusline` through the plugin's launcher; the anneal README's \
     \"Status line\" section has the exact setting. This hint is shown once.";
 
 /// The `.continue-here` note at the root of `cwd`'s worktree, framed as data, when the handoff
-/// hook wrote its head (recorded in the anneal home); and a note when it could not be read, was
+/// hook wrote its head (recorded in the state home); and a note when it could not be read, was
 /// not the hook's, or holds instruction-shaped text (`injection_scan::detect`). Nothing outside
 /// a git repository or without the file.
 pub(crate) fn continue_here(
@@ -57,7 +57,7 @@ pub(crate) fn continue_here(
         Ok(None) => return (None, None),
         Err(error) => return unread(reason(&error)),
     };
-    let recorded = paths::anneal_home_from(lookup)
+    let recorded = BenchHome::from_lookup(lookup)
         .map_err(|error| reason(&error))
         .and_then(|home| note::is_recorded(&home, &root, &text).map_err(|error| reason(&error)));
     match recorded {
@@ -103,25 +103,28 @@ struct Marker {
     version: u32,
 }
 
-/// The status-line hint, when the anneal home has no status-line usage, no mod snapshot saved
-/// within [`MOD_FRESH_MS`] of `clock`'s time, and the hint was never shown there; and a note
-/// when showing it could not be recorded. A hint suppressed by the mod is not recorded as
-/// shown, so it can still show once the mod stops saving.
+/// The status-line hint, when the state home has no status-line usage, no mod snapshot saved
+/// within [`MOD_FRESH_MS`] of `clock`'s time, and the hint was never shown there (its marker in
+/// neither bench's folder nor anneal's home); and a note when showing it could not be recorded
+/// (in bench's folder only). A hint suppressed by the mod is not recorded as shown, so it can
+/// still show once the mod stops saving.
 ///
-/// Without an anneal home there is nowhere to remember the hint (and nowhere the status line
+/// Without a user scope there is nowhere to remember the hint (and nowhere the status line
 /// could save usage), so nothing is shown.
 pub(crate) fn statusline_hint(
     lookup: impl Fn(&str) -> Option<OsString>,
     clock: &impl Clock,
 ) -> (Option<String>, Option<String>) {
-    let Ok(home) = paths::anneal_home_from(lookup) else {
+    let Ok(home) = BenchHome::from_lookup(lookup) else {
         return (None, None);
     };
-    let usage = context::in_home(&home, context::USAGE_FILE);
-    let marker = context::in_home(&home, context::HINT_FILE);
-    if !is_missing(&usage) || !is_missing(&marker) || mod_saves_usage(&home, clock) {
+    // `read` names anneal's copy while bench's is absent, so a file in either folder counts.
+    let usage = home.read(context::USAGE_FILE);
+    let shown_before = home.read(context::HINT_FILE);
+    if !is_missing(&usage) || !is_missing(&shown_before) || mod_saves_usage(&home, clock) {
         return (None, None);
     }
+    let marker = home.written(context::HINT_FILE);
     let shown = Marker {
         kind: context::HINT_KIND,
         version: 1,
@@ -140,7 +143,7 @@ pub(crate) fn statusline_hint(
 /// True when a mod snapshot in `home` was saved within [`MOD_FRESH_MS`] of `clock`'s time. A
 /// clock or mod file that cannot be read counts as true, so the hint errs toward silence, as
 /// [`is_missing`] does.
-fn mod_saves_usage(home: &Path, clock: &impl Clock) -> bool {
+fn mod_saves_usage(home: &BenchHome, clock: &impl Clock) -> bool {
     clock.unix_millis().map_or(true, |now_ms| {
         context::mod_written_within(home, now_ms, MOD_FRESH_MS).unwrap_or(true)
     })

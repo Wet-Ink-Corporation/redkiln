@@ -1,5 +1,8 @@
 //! `bench brief build`: the brief a subagent is spawned with, and the review package (diff and
-//! contract) its reviewer reads, both written as files under `.anneal/briefs/`.
+//! contract) its reviewer reads, both written as files under `.redkiln/bench/briefs/`.
+//!
+//! anneal wrote them under `.anneal/briefs/`, which the brief hook still reads and nothing
+//! writes.
 //!
 //! - `fields`: the nine fields, in one table.
 //! - `ticket`: the validated ticket name the files are named after.
@@ -77,9 +80,9 @@ pub enum BriefError {
     /// git could not read the diff of the range.
     #[error("reading the diff")]
     Diff(#[source] DiffError),
-    /// `.anneal/briefs` resolves (through a symlink) somewhere other than the worktree's own.
+    /// [`BRIEFS_DIR`] resolves (through a symlink) somewhere other than the worktree's own.
     #[error(
-        ".anneal/briefs resolves to {}, not this worktree's own .anneal/briefs; make it a plain \
+        "{BRIEFS_DIR} resolves to {}, not this worktree's own {BRIEFS_DIR}; make it a plain \
          directory",
         resolved.display()
     )]
@@ -292,7 +295,7 @@ fn write_files(
 
 /// Makes [`BRIEFS_DIR`] under the worktree `root` one component at a time, each checked to
 /// resolve to the resolved root's own before the next is made, as the brief hook checks it: a
-/// symlinked `.anneal` or `briefs` would put the files, or an empty `briefs`, outside the
+/// symlinked `.redkiln`, `bench` or `briefs` would put the files, or an empty `briefs`, outside the
 /// worktree. A component that exists already is kept.
 fn make_own_directory(root: &Path) -> Result<(), BriefError> {
     let mut own = fs::canonicalize(root).map_err(|source| write_failed(root, source))?;
@@ -308,7 +311,7 @@ fn make_own_directory(root: &Path) -> Result<(), BriefError> {
         }
         let resolved = fs::canonicalize(&dir).map_err(|source| write_failed(&dir, source))?;
         if resolved != own {
-            // Named as where `.anneal/briefs` resolves: the rest of the path under this part.
+            // Named as where `BRIEFS_DIR` resolves: the rest of the path under this part.
             let resolved = parts.fold(resolved, |path, rest| path.join(rest));
             return Err(BriefError::NotOwnDirectory { resolved });
         }
@@ -362,7 +365,11 @@ fn bad_range<O: Write>(
 }
 
 /// The directory briefs and review packages are written to, relative to the worktree root.
-pub const BRIEFS_DIR: &str = ".anneal/briefs";
+pub const BRIEFS_DIR: &str = ".redkiln/bench/briefs";
+
+/// Where anneal wrote briefs, relative to the worktree root: the brief hook still reads a brief
+/// there (a 0.x fallback), and nothing writes it.
+pub const LEGACY_BRIEFS_DIR: &str = ".anneal/briefs";
 
 /// The brief of `ticket`, relative to the worktree root, `/`-separated.
 #[must_use]

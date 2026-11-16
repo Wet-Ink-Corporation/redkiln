@@ -656,6 +656,90 @@ fn with_no_mode_a_write_or_edit_of_the_anneal_config_is_denied() -> TestResult {
     Ok(())
 }
 
+/// The deny line for an agent's edit of `.redkiln/bench/config.json`.
+const BENCH_SETTINGS_DENIED: &str = "ERROR preconditions: .redkiln/bench/config.json is \
+                                     bench's own settings (the orchestrate leads, the merge \
+                                     gate's keys, check_fast), which an agent may not edit; \
+                                     edit it yourself";
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn with_no_mode_a_write_or_edit_of_the_bench_config_is_denied() -> TestResult {
+    let repo = Repo::new()?;
+    let config = repo
+        .path()
+        .join(".redkiln")
+        .join("bench")
+        .join("config.json");
+
+    let write = repo.write_to(".redkiln/bench/config.json")?;
+    repo.write(".redkiln/bench/config.json", "{}\n")?;
+    let edit = repo.hook(&repo.input("Edit", &config)?)?;
+    let shouting = repo.write_to(".REDKILN/Bench/Config.JSON")?;
+    let climbing = repo.write_to("src/../.redkiln/x/../bench/./config.json")?;
+
+    assert_eq!(denial(&write)?, BENCH_SETTINGS_DENIED, "a Write, no mode");
+    assert_eq!(denial(&edit)?, BENCH_SETTINGS_DENIED, "an Edit, no mode");
+    assert_eq!(denial(&shouting)?, BENCH_SETTINGS_DENIED, "any case");
+    assert_eq!(denial(&climbing)?, BENCH_SETTINGS_DENIED, "after . and ..");
+    assert!(!repo.ledger().exists(), "the hook never creates a ledger");
+    assert_allowed(&repo.write_to(".redkiln/bench/briefs/36.md")?, "a brief");
+    assert_allowed(
+        &repo.write_to(".redkiln/bench/config.json.bak")?,
+        "another file",
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn in_a_mode_a_write_of_the_bench_config_is_denied_and_recorded() -> TestResult {
+    let repo = Repo::new()?;
+    repo.ready()?;
+
+    let reason = denial(&repo.write_to(".redkiln/bench/config.json")?)?;
+
+    assert_eq!(reason, BENCH_SETTINGS_DENIED);
+    let blocked = repo.blocked()?;
+    let [recorded] = blocked.as_slice() else {
+        return Err(format!("one gate_blocked, got {blocked:?}").into());
+    };
+    assert_eq!(
+        recorded.pointer("/event/data/point"),
+        Some(&json!("preconditions.settings")),
+        "{recorded}"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_write_through_a_symlink_to_the_bench_directory_is_denied() -> TestResult {
+    let repo = Repo::new()?;
+    std::fs::create_dir_all(repo.path().join(".redkiln").join("bench"))?;
+    std::os::unix::fs::symlink(".redkiln/bench", repo.path().join("settings"))?;
+
+    let reason = denial(&repo.write_to("settings/config.json")?)?;
+
+    assert_eq!(reason, BENCH_SETTINGS_DENIED);
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn in_a_mode_bench_s_folder_is_scratch() -> TestResult {
+    let repo = Repo::new()?;
+    repo.build()?;
+
+    assert_allowed(
+        &repo.write_to(".redkiln/bench/state.json")?,
+        "bench's folder",
+    );
+    denial(&repo.write_to(".redkiln/suite.toml")?)?;
+    Ok(())
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn in_a_mode_a_write_of_the_anneal_config_is_denied_and_recorded() -> TestResult {

@@ -17,7 +17,7 @@ use redkiln_guard::protect::{Protected, ProtectedPaths, last_component};
 use redkiln_guard::shell::{Shape, Word};
 
 /// The protected paths.
-const PROTECTED: [Protected; 13] = [
+const PROTECTED: [Protected; 14] = [
     Protected::exact("hooks/", None, "hooks"),
     Protected::affix(
         ".claude/settings*.json",
@@ -52,12 +52,21 @@ const PROTECTED: [Protected; 13] = [
     Protected::file(".pre-commit-config.yaml"),
     Protected::file("lefthook.yml"),
     // The gates' own settings: the orchestrate leads the brief hook trusts, the merge gate's
-    // review switch and sensitive globs, `check_fast`.
+    // review switch and sensitive globs, `check_fast`. Bench reads `.redkiln/bench/` and, as a
+    // 0.x fallback, anneal's `.anneal/` (`repo_file`); both are protected.
+    Protected::exact(
+        ".redkiln/bench/config.json",
+        Some(".redkiln/bench"),
+        "config.json",
+    ),
     Protected::exact(".anneal/config.json", Some(".anneal"), "config.json"),
 ];
 
 /// Directories that hold protected config: removing, moving or re-permissioning one changes it.
-const CONTAINERS: [(&str, &str); 4] = [
+/// `.redkiln/bench` is matched on its last two components.
+const CONTAINERS: [(&str, &str); 6] = [
+    (".redkiln/bench", ".redkiln/bench/"),
+    (".redkiln", ".redkiln/"),
     (".anneal", ".anneal/"),
     (".claude", ".claude/"),
     (".github", ".github/"),
@@ -79,6 +88,14 @@ fn protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
 /// a directory holding one, or a directory above the start.
 fn contains_protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
     CONFIG.contains_protected(path, shape, cwd)
+}
+
+/// The protected path a copy, move or link creating `path` may write, if any: a protected file,
+/// or a directory holding one, which the new entry brings its own config into when the
+/// directory does not exist yet. A directory above the start is not one: `..` cannot be
+/// created, and a copy into it lands at a joined path, which is checked on its own.
+fn creates_protected(path: &str, shape: Shape, cwd: &Cwd) -> Option<&'static str> {
+    contains_protected(path, shape, cwd).filter(|label| *label != ABOVE)
 }
 
 fn deny(action: &str, label: &str) -> Denial {
@@ -333,18 +350,20 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
         (dir, &copy.operands[..], true)
     } else {
         let (last, sources) = copy.operands.split_last()?;
+        // A directory that holds config, matched as removing it would be (`.redkiln/bench` on
+        // its last two components); a protected file or a directory above the start there
+        // only widens which joined paths are checked.
+        // `.` and `..`, with nothing left once resolved, are directories too.
         let named_dir = last.text().ends_with(['/', '\\'])
-            || last_component(last.text()).is_some_and(|name| {
-                CONTAINERS
-                    .iter()
-                    .any(|(dir, _)| dir.eq_ignore_ascii_case(name))
-            });
+            || last_component(last.text()).is_none()
+            || contains_protected(last.text(), last.shape(), cwd).is_some();
         ((last.text(), last.shape()), sources, named_dir)
     };
     if sources.is_empty() {
         return None;
     }
-    if let Some(label) = protected(dest, dest_shape, cwd) {
+    // The destination itself: a protected file, or a config folder the copy may create.
+    if let Some(label) = creates_protected(dest, dest_shape, cwd) {
         return Some(deny(&format!("{program} writes {dest}"), label));
     }
     sources.iter().find_map(|source| {
@@ -352,7 +371,8 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
             return Some(deny(&format!("{program} moves {}", source.text()), label));
         }
         let joined = format!("{dest}/{}", basename(source.text()));
-        let label = protected(&joined, dest_shape.max(source.shape()), cwd).filter(|_| into_dir)?;
+        let label =
+            creates_protected(&joined, dest_shape.max(source.shape()), cwd).filter(|_| into_dir)?;
         Some(deny(&format!("{program} writes {joined}"), label))
     })
 }

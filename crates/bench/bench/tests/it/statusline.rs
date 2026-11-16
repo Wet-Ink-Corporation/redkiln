@@ -14,6 +14,7 @@ fn status_line(dir: &Path, stdin: &[u8]) -> Result<Output, Box<dyn Error>> {
     let mut child = anneal_in(dir)
         .arg("statusline")
         .env("ANNEAL_HOME", dir.join("home"))
+        .env("REDKILN_HOME", dir.join("home"))
         .env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -42,10 +43,15 @@ fn the_status_line_prints_usage_and_saves_it_for_the_monitor() -> TestResult {
         "one line"
     );
     assert!(output.stderr.is_empty(), "nothing on stderr");
-    let saved = std::fs::read_to_string(dir.path().join("home").join("context-usage.json"))?;
+    let saved = std::fs::read_to_string(
+        dir.path()
+            .join("home")
+            .join("bench")
+            .join("context-usage.json"),
+    )?;
     assert!(
         saved.contains("\"used_tokens\": 60000.0"),
-        "the reading is in the anneal home: {saved}"
+        "the reading is in Bench's folder of the user scope: {saved}"
     );
     Ok(())
 }

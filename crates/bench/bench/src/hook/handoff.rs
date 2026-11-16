@@ -4,8 +4,8 @@
 //! worktree: the bench mode (phase), the build plan's current task ("task N of M"), the open
 //! gates (what the Stop hook would hold against stopping now: `[DEBUG-` leftovers and the
 //! playbook's missing events), a one-line summary of the ledger's newest events, and the
-//! instructions given to `/compact`, each item on one line. It records the note's head in the
-//! anneal home and adds `/.continue-here` to the repository's `info/exclude` (see
+//! instructions given to `/compact`, each item on one line. It records the note's head in
+//! Bench's state home and adds `/.continue-here` to the repository's `info/exclude` (see
 //! [`crate::context::note`]). A `## Notes` section written into the previous file (what a
 //! script cannot know) is kept, at most [`MAX_NOTES_BYTES`] of it, but only when the hook wrote
 //! that file's head. The bootstrap injects the file at the next session start. Outside a git
@@ -31,7 +31,7 @@ use crate::context::note::{self, CONTINUE_HERE};
 use crate::error_chain::reason;
 use crate::harness::claude_code::StopOutput;
 use crate::hook::{HookEnv, StdinError, read_stdin};
-use crate::paths::{self, PathError};
+use crate::paths::{self, BenchHome, PathError};
 use facts::Facts;
 
 /// The most of the previous file's notes kept, in bytes (H-13).
@@ -109,17 +109,17 @@ where
         .write(out)
 }
 
-/// Writes the note at the worktree `root`, records it in the anneal home and excludes it from
+/// Writes the note at the worktree `root`, records it in the state home and excludes it from
 /// git; what could not be read or written.
 fn write_note(root: &str, input: &Input, lookup: impl Fn(&str) -> Option<OsString>) -> Vec<String> {
     let path = Path::new(root).join(CONTINUE_HERE);
-    let home = paths::anneal_home_from(&lookup);
+    let home = BenchHome::from_lookup(&lookup);
     let mut facts = facts::gather(root, &lookup);
     let notes = match &home {
         Ok(home) => previous_notes(&path, home, root, &mut facts.problems),
         Err(error) => {
             facts.problems.push(format!(
-                "the anneal home, so earlier notes were not kept and the next session start \
+                "bench's state folder in the user scope, so earlier notes were not kept and the next session start \
                  will not inject this one: {}",
                 reason(error)
             ));
@@ -158,12 +158,12 @@ fn write_note(root: &str, input: &Input, lookup: impl Fn(&str) -> Option<OsStrin
 }
 
 /// The notes section of the previous note at `path` and all after it, cut to
-/// [`MAX_NOTES_BYTES`], only when the hook wrote that note's head (recorded in the anneal home
+/// [`MAX_NOTES_BYTES`], only when the hook wrote that note's head (recorded in the state home
 /// `home` for the worktree `root`); `None` when there is no such file or section. Why notes
 /// were not kept goes into `problems`.
 fn previous_notes(
     path: &Path,
-    home: &Path,
+    home: &BenchHome,
     root: &str,
     problems: &mut Vec<String>,
 ) -> Option<String> {

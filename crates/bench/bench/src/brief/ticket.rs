@@ -1,7 +1,7 @@
 //! A ticket's name as `bench brief` and `bench round` take it.
 //!
 //! An issue number (`36`) or a dag ticket id (`003-auth`). It names files
-//! (`.anneal/briefs/<ticket>.md`), so it is checked before anything is read or written.
+//! (`.redkiln/bench/briefs/<ticket>.md`), so it is checked before anything is read or written.
 
 use std::fmt;
 use std::str::FromStr;

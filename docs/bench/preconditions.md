@@ -126,7 +126,8 @@ In either mode, these paths are never source and are always allowed:
   `*_test.*`, `*.test.*`, `*.spec.*` or `test_*.py`), and Rust test module files named
   `tests.rs` or `test.rs`;
 - the build's plan and design tree, as recorded at entry;
-- anything under `.temper/`, `.anneal/`, `tmp/` or `scratch/` at the worktree root;
+- anything under `.temper/`, `.redkiln/bench/`, `.anneal/`, `tmp/` or `scratch/` at the worktree
+  root (the rest of `.redkiln/` is source);
 - prose documents: `*.md`, `*.txt` and `*.rst`. The spec is editable as one of these; it is not
   exempt by name, since the plan's `Spec:` line is itself editable and naming a source file
   there would otherwise unlock it;
@@ -141,12 +142,13 @@ In either mode, these paths are never source and are always allowed:
   environment runs), are source;
 - any file in no git repository.
 
-One file is denied in every mode, and with no mode or no ledger: `.anneal/config.json`
-(`preconditions.settings`), anneal's own settings (the orchestrate leads the brief hook trusts,
+Two names of one file are denied in every mode, and with no mode or no ledger:
+`.redkiln/bench/config.json` and anneal's `.anneal/config.json`, still read as a fallback
+(`preconditions.settings`, each with its own reason), Bench's own settings (the orchestrate leads the brief hook trusts,
 the merge gate's keys, `check_fast`). It is judged before git or the ledger is asked, as written
 after `.` and `..`, as the file resolves when it exists and through a symlinked directory, in any
 ASCII letter case, with trailing dots and spaces and an alternate data stream (`:...`) taken off
-the names; a `.anneal/config.json` in any directory counts. The reason tells the user to edit it
+the names; either path in any directory counts. The reason tells the user to edit it
 themselves.
 
 A path is judged where the OS writes it, not by its name. It is resolved one component at a

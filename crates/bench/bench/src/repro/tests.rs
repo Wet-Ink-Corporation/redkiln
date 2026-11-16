@@ -54,7 +54,11 @@ fn a_timed_out_run_records_nothing_and_exits_4_without_resolving_a_ledger() {
         duration: Duration::from_millis(5_004),
     };
     // Resolving a ledger fails, so the run only succeeds if it never asks for one.
-    let no_ledger = || -> Result<StoreLocation, PathError> { Err(PathError::NoHome) };
+    let no_ledger = || -> Result<StoreLocation, PathError> {
+        Err(PathError::GitTimeout {
+            timeout: Duration::from_secs(1),
+        })
+    };
     let mut out = Vec::new();
 
     let code = finish(attempt, &run, no_ledger, &mut out).expect("it reports");

@@ -49,7 +49,7 @@ pub enum CommandName {
     Decide,
     /// `bench calibrate`
     Calibrate,
-    /// `bench status`: the one read model of the ledger and the anneal home for a UI
+    /// `bench status`: the one read model of the ledger and the per-user state for a UI
     Status,
     /// `bench statusline`
     Statusline,

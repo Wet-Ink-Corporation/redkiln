@@ -47,8 +47,11 @@ impl Name {
     }
 }
 
-/// A protected path: a component, directly under `parent` when that is set. Names are written
-/// in lower case and matched ignoring ASCII case.
+/// A protected path: a component, directly under `parent` when that is set.
+///
+/// A `parent` may be several `/`-separated components (`.redkiln/bench`), all of which must
+/// lead to the component; above the start, any of its leading components may be unknown.
+/// Names are written in lower case and matched ignoring ASCII case.
 #[derive(Debug)]
 pub struct Protected {
     /// How a denial names it.
@@ -107,20 +110,56 @@ impl Protected {
         match self.parent {
             None => components.iter().any(|c| self.name.matches(c, glob)),
             Some(parent) => {
-                let under_parent = components.windows(2).any(|pair| {
-                    matches!(pair, [above, component]
-                        if Name::Exact(parent).matches(above, glob)
-                            && self.name.matches(component, glob))
-                });
-                // Above the start, the parent is unknown and may be the protected one.
+                let parents = parent.split('/').count();
+                let named = |window: &[&str]| {
+                    window.split_last().is_some_and(|(last, above)| {
+                        self.name.matches(last, glob) && ends_with(above, parent, glob)
+                    })
+                };
+                let under_parent = components.windows(parents.saturating_add(1)).any(named);
+                // Above the start, the parent (or the part of it above the first component)
+                // is unknown and may be the protected one: the path may start inside it.
                 let under_unknown = path.escaped
-                    && components
-                        .first()
-                        .is_some_and(|first| self.name.matches(first, glob));
+                    && (0..=parents).any(|known| {
+                        components.get(..=known).is_some_and(|start| {
+                            start.split_last().is_some_and(|(last, above)| {
+                                self.name.matches(last, glob) && is_tail_of(above, parent, glob)
+                            })
+                        })
+                    });
                 under_parent || under_unknown
             }
         }
     }
+}
+
+/// Whether `components` end with every component of the `/`-separated `dirs`.
+fn ends_with(components: &[&str], dirs: &'static str, glob: bool) -> bool {
+    let wanted: Vec<&str> = dirs.split('/').collect();
+    components
+        .len()
+        .checked_sub(wanted.len())
+        .and_then(|from| components.get(from..))
+        .is_some_and(|tail| {
+            tail.iter()
+                .zip(&wanted)
+                .all(|(component, dir)| Name::Exact(dir).matches(component, glob))
+        })
+}
+
+/// Whether `components` are the last of the `/`-separated `dirs` (none counts): what a path
+/// that starts inside `dirs` holds of them.
+fn is_tail_of(components: &[&str], dirs: &'static str, glob: bool) -> bool {
+    let wanted: Vec<&str> = dirs.split('/').collect();
+    wanted
+        .len()
+        .checked_sub(components.len())
+        .and_then(|from| wanted.get(from..))
+        .is_some_and(|tail| {
+            tail.iter()
+                .zip(components)
+                .all(|(dir, component)| Name::Exact(dir).matches(component, glob))
+        })
 }
 
 /// A pack's protected paths: the entries, the directories that hold them (each a name and how
@@ -134,8 +173,9 @@ pub struct ProtectedPaths<'t> {
 }
 
 impl<'t> ProtectedPaths<'t> {
-    /// The table of `paths`, held in `containers` (each a directory name and its label), with
-    /// `above` naming a directory above the start.
+    /// The table of `paths`, held in `containers` (each a directory, one or more `/`-separated
+    /// components matched as a path's last ones, and its label), with `above` naming a
+    /// directory above the start.
     #[must_use]
     pub const fn new(
         paths: &'t [Protected],
@@ -168,12 +208,18 @@ impl<'t> ProtectedPaths<'t> {
         self.protected(path, shape, cwd).or_else(|| {
             readings(path, shape, cwd).find_map(|reading| {
                 let resolved = resolve(&reading.path, reading.anywhere);
-                let Some(last) = resolved.components.last() else {
+                let components = resolved.components.as_slice();
+                if components.is_empty() {
                     return resolved.escaped.then_some(self.above);
-                };
+                }
+                // A container of several components may start above the start, as a protected
+                // path's parent may.
                 self.containers
                     .iter()
-                    .find(|(name, _)| Name::Exact(name).matches(last, reading.glob))
+                    .find(|(dirs, _)| {
+                        ends_with(components, dirs, reading.glob)
+                            || (resolved.escaped && is_tail_of(components, dirs, reading.glob))
+                    })
                     .map(|(_, label)| *label)
             })
         })
@@ -336,3 +382,6 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     }
     pattern.iter().skip(p).all(|c| *c == '*')
 }
+
+#[cfg(test)]
+mod tests;

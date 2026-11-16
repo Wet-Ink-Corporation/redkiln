@@ -1,10 +1,11 @@
 //! `bench hook brief`: the `PreToolUse` gate on the Agent tool. It fails closed.
 //!
 //! No brief, no spawn: an Agent call's prompt must name, on one `Brief: <path>` line, a brief
-//! under `.anneal/briefs/` of the worktree (`reference`) that passes `lint brief`. And a
-//! subagent spawns nothing: a call whose input carries `agent_id` (it runs inside a subagent)
-//! is denied unless its `agent_type` is one of the orchestrate leads (`orchestrate.leads` in
-//! `.anneal/config.json`, default `orchestrate-lead`). Any other tool is allowed silently.
+//! under `.redkiln/bench/briefs/` of the worktree, or anneal's `.anneal/briefs/` (`reference`),
+//! that passes `lint brief`. And a subagent spawns nothing: a call whose input carries
+//! `agent_id` (it runs inside a subagent) is denied unless its `agent_type` is one of the
+//! orchestrate leads (`orchestrate.leads` in `.redkiln/bench/config.json`, else
+//! `.anneal/config.json`; default `orchestrate-lead`). Any other tool is allowed silently.
 //!
 //! A denial is Claude Code's deny decision whose reason is one `ERROR brief:` line, plus a
 //! `gate_blocked` event (`brief.<check>`) in an existing ledger; the hook never creates one.
@@ -35,7 +36,7 @@ use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
 use crate::lint::brief::{BriefFinding, Rule, check};
 use crate::paths::{self, PathError};
 use crate::pr_diff::Budget;
-use crate::repo_config;
+use crate::{repo_config, repo_file};
 use reference::Refusal;
 
 /// The most stdin the hook reads: an Agent prompt can be long (H-13).
@@ -235,7 +236,7 @@ fn worktree_root(cwd: &Path, budget: Budget) -> Result<PathBuf, Denial> {
         Ok(root) => Ok(PathBuf::from(root)),
         Err(PathError::NotARepository { .. }) => Err(Denial::new(
             Check::Unjudged,
-            "not in a git worktree, so there is no .anneal/briefs/ to read a brief from",
+            "not in a git worktree, so there is no .redkiln/bench/briefs/ to read a brief from",
         )),
         Err(error) => Err(Denial::unjudged("the worktree cannot be found", &error)),
     }
@@ -247,8 +248,11 @@ fn nested(root: &Path, agent_type: Option<&str>) -> Option<Denial> {
     let Some(agent) = agent_type.filter(|agent| !agent.is_empty()) else {
         return Some(Denial::new(
             Check::Nested,
-            "a subagent that names no agent_type may not spawn subagents; only the orchestrate \
-             leads may (orchestrate.leads in .anneal/config.json)",
+            &format!(
+                "a subagent that names no agent_type may not spawn subagents; only the \
+                 orchestrate leads may (orchestrate.leads in {})",
+                repo_file::CONFIG.choose(root).path
+            ),
         ));
     };
     let leads = match repo_config::orchestrate_leads(root) {
@@ -267,7 +271,8 @@ fn nested(root: &Path, agent_type: Option<&str>) -> Option<Denial> {
         Check::Nested,
         &format!(
             "a subagent ({agent:?}) may not spawn subagents; only the orchestrate leads may \
-             (orchestrate.leads in .anneal/config.json: {leads})"
+             (orchestrate.leads in {path}: {leads})",
+            path = leads.path()
         ),
     ))
 }

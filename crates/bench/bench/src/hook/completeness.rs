@@ -42,7 +42,7 @@ use crate::harness::claude_code::{StopInput, StopOutput};
 use crate::hook::prompt::Budget;
 use crate::hook::transcript::{self, Activity};
 use crate::hook::{HookEnv, StdinError, read_stdin};
-use crate::paths;
+use crate::paths::{BenchHome, StateHome};
 
 use check::{Findings, Gate};
 use counter::Counter;
@@ -214,8 +214,12 @@ fn cap(
     lookup: impl Fn(&str) -> Option<OsString>,
 ) -> bool {
     let has_gates = !found.gates.is_empty();
-    let path = match paths::anneal_home_from(lookup) {
-        Ok(home) => counter::counter_path(&home),
+    // Read from the state home's file (anneal's while bench's is absent), written to bench's.
+    let (read, path) = match BenchHome::from_lookup(lookup) {
+        Ok(home) => (
+            home.read(counter::COUNTER_FILE),
+            home.written(counter::COUNTER_FILE),
+        ),
         Err(error) if has_gates => return demote(found, "its block count cannot be kept", &error),
         Err(_unneeded) => return false,
     };
@@ -228,7 +232,7 @@ fn cap(
         }
         return false;
     };
-    let mut counter = match Counter::load(&path) {
+    let mut counter = match Counter::load(&read) {
         Ok(counter) => counter,
         Err(error) if has_gates => return demote(found, "its block count cannot be read", &error),
         Err(error) => {

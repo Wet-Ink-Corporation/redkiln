@@ -1,13 +1,15 @@
 //! Context usage, shared by its writers (`bench statusline`, and `bench snapshot write` for
 //! the TypeScript mod) and its readers (the context-monitor and bootstrap hooks). Hooks receive
-//! no usage field, so each writer saves each session's latest reading in the anneal home.
+//! no usage field, so each writer saves each session's latest reading in Bench's state home.
 //!
 //! - [`usage`]: the auto-compact window, the thresholds and the crossing rule.
 //! - [`sessions`]: the small per-session state files (at most 64 sessions, newest last).
 //! - [`note`]: the handoff note `.continue-here`: its bounded read, the record of the notes the
-//!   handoff hook wrote (`handoff-notes.json` in the anneal home), and its git exclusion.
+//!   handoff hook wrote (`handoff-notes.json` in the state home), and its git exclusion.
 //!
-//! The files, all in the anneal home (`~/.anneal`, or `$ANNEAL_HOME`):
+//! The files, all in the state home ([`crate::paths::BenchHome`]: `~/.redkiln/bench`, or
+//! `$REDKILN_HOME/bench`; each read from anneal's `~/.anneal` or `$ANNEAL_HOME` while absent
+//! there, and written only to the new folder):
 //! [`USAGE_FILE`] (written by the status line) and [`MOD_USAGE_FILE`] (written for the mod),
 //! one per [`Source`] so neither writer races the other; [`MONITOR_FILE`] (the level each
 //! session last reached, written by the monitor) and [`HINT_FILE`] (the bootstrap's one-time
@@ -18,9 +20,12 @@ pub(crate) mod note;
 pub(crate) mod sessions;
 pub(crate) mod usage;
 
+#[cfg(test)]
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+
+use crate::paths::StateHome;
 
 use sessions::{SessionFile, SessionsError};
 use usage::{Level, WindowSource};
@@ -47,7 +52,7 @@ pub(crate) const HINT_FILE: &str = "statusline-hint.json";
 pub(crate) const HINT_KIND: &str = "anneal-statusline-hint";
 
 /// What a writer of usage (`bench statusline`, `bench snapshot write`) reads: its input,
-/// the environment (the auto-compact window variable and the anneal home) and the clock that
+/// the environment (the auto-compact window variable and the state home) and the clock that
 /// stamps the snapshot.
 pub(crate) struct WriterEnv<'c, R, L, C> {
     /// The input, on stdin.
@@ -58,7 +63,8 @@ pub(crate) struct WriterEnv<'c, R, L, C> {
     pub(crate) clock: &'c C,
 }
 
-/// `name` in the anneal home `home`.
+/// `name` in the plain folder `home`.
+#[cfg(test)]
 pub(crate) fn in_home(home: &Path, name: &str) -> PathBuf {
     home.join(name)
 }
@@ -123,18 +129,23 @@ impl Saved {
     }
 }
 
-/// Saves `saved` as `session`'s snapshot in its source's file in the anneal home `home`.
+/// Saves `saved` as `session`'s snapshot in its source's file in the state home `home`: the
+/// file as read, with the session set, written to the home's written file.
 ///
 /// # Errors
 /// [`SessionsError`] when the file cannot be read, is not a usage file, or cannot be written.
-pub(crate) fn save(home: &Path, session: &str, saved: Saved) -> Result<(), SessionsError> {
-    let path = in_home(home, saved.source.file());
-    let mut file = SessionFile::<Saved>::load(&path, USAGE_KIND)?;
+pub(crate) fn save(
+    home: &(impl StateHome + ?Sized),
+    session: &str,
+    saved: Saved,
+) -> Result<(), SessionsError> {
+    let name = saved.source.file();
+    let mut file = SessionFile::<Saved>::load(&home.read(name), USAGE_KIND)?;
     file.set(session, saved);
-    file.save(&path)
+    file.save(&home.written(name))
 }
 
-/// Both sources' files in an anneal home, each loaded or the reason it could not be. The
+/// Both sources' files in a state home, each loaded or the reason it could not be. The
 /// context monitor and `bench status` read usage through it, so both judge the same snapshot.
 pub(crate) struct Sources {
     status_line: Result<SessionFile<Saved>, SessionsError>,
@@ -152,9 +163,9 @@ pub(crate) struct Fresher {
 }
 
 impl Sources {
-    /// Loads both sources' files from the anneal home `home`. A file that cannot be read is
+    /// Loads both sources' files from the state home `home`. A file that cannot be read is
     /// kept as its failure, so the other is still judged.
-    pub(crate) fn load(home: &Path) -> Self {
+    pub(crate) fn load(home: &(impl StateHome + ?Sized)) -> Self {
         Self {
             status_line: load(home, Source::Statusline),
             from_mod: load(home, Source::Mod),
@@ -202,13 +213,16 @@ fn fresher(status_line: Option<Saved>, from_mod: Option<Saved>) -> Option<Saved>
     }
 }
 
-/// `session`'s fresher snapshot of the two sources in the anneal home `home` ([`fresher`]);
+/// `session`'s fresher snapshot of the two sources in the state home `home` ([`fresher`]);
 /// `None` when neither has one. The strict form of [`Sources::session`], for its tests.
 ///
 /// # Errors
 /// [`SessionsError`] when either file cannot be read or is not a usage file.
 #[cfg(test)]
-pub(crate) fn freshest(home: &Path, session: &str) -> Result<Option<Saved>, SessionsError> {
+pub(crate) fn freshest(
+    home: &(impl StateHome + ?Sized),
+    session: &str,
+) -> Result<Option<Saved>, SessionsError> {
     let Fresher { saved, unreadable } = Sources::load(home).session(session);
     match unreadable.into_iter().next() {
         Some(error) => Err(error),
@@ -216,13 +230,13 @@ pub(crate) fn freshest(home: &Path, session: &str) -> Result<Option<Saved>, Sess
     }
 }
 
-/// True when any mod snapshot in the anneal home `home` was saved less than `window_ms`
+/// True when any mod snapshot in the state home `home` was saved less than `window_ms`
 /// milliseconds before `now_ms` (or after it, by another clock).
 ///
 /// # Errors
 /// [`SessionsError`] when the mod's file cannot be read or is not a usage file.
 pub(crate) fn mod_written_within(
-    home: &Path,
+    home: &(impl StateHome + ?Sized),
     now_ms: u64,
     window_ms: u64,
 ) -> Result<bool, SessionsError> {
@@ -233,9 +247,12 @@ pub(crate) fn mod_written_within(
         .any(|at| now_ms.saturating_sub(at) < window_ms))
 }
 
-/// `source`'s file in the anneal home `home`.
-fn load(home: &Path, source: Source) -> Result<SessionFile<Saved>, SessionsError> {
-    SessionFile::load(&in_home(home, source.file()), USAGE_KIND)
+/// `source`'s file in the state home `home`, as read.
+fn load(
+    home: &(impl StateHome + ?Sized),
+    source: Source,
+) -> Result<SessionFile<Saved>, SessionsError> {
+    SessionFile::load(&home.read(source.file()), USAGE_KIND)
 }
 
 /// What the monitor remembers of a session: the level its last reading was at.

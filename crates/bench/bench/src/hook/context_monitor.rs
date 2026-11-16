@@ -1,8 +1,8 @@
 //! `bench hook context-monitor`: warns once at 60% and stops once at 75% of the auto-compact
 //! window, per crossing. It fails open.
 //!
-//! Hooks receive no usage field, so it reads the reading saved for the session in the anneal
-//! home: by `bench statusline` (`context-usage.json`) or for the mod by `bench snapshot
+//! Hooks receive no usage field, so it reads the reading saved for the session in Bench's state
+//! home (`~/.redkiln/bench/`, each file read from anneal's home while absent there): by `bench statusline` (`context-usage.json`) or for the mod by `bench snapshot
 //! write` (`context-usage-mod.json`), the fresher of the two (`context::Sources`). Without
 //! one (neither configured, or none reported yet for this session) it is silent. A file that
 //! cannot be read does not silence it: the other is judged, and the unreadable one is named on
@@ -18,7 +18,9 @@
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+
+use redkiln_calibrate::scope::ScopeError;
 
 use crate::context::sessions::{SessionFile, SessionsError};
 use crate::context::usage::{self, Level, Window};
@@ -26,7 +28,7 @@ use crate::context::{self, Fired, Fresher, Saved};
 use crate::error_chain::reason;
 use crate::harness::claude_code::{MonitorInput, StopOutput};
 use crate::hook::HookEnv;
-use crate::paths;
+use crate::paths::{BenchHome, StateHome};
 
 /// The most stdin read. A batch's input carries its tool calls' results; only two fields are
 /// kept, the rest are skipped as they stream past (H-13).
@@ -48,13 +50,13 @@ fn event_of(input: Option<&Input>) -> &'static str {
 enum MonitorError {
     #[error("the hook input cannot be read")]
     Input(#[source] serde_json::Error),
-    #[error("finding the anneal home")]
-    Home(#[source] paths::PathError),
+    #[error("finding bench's state folder in the user scope")]
+    Home(#[source] ScopeError),
     #[error(transparent)]
     State(#[from] SessionsError),
 }
 
-/// Runs the hook: reads the input from `env.stdin`, the anneal home through `env.lookup`, and
+/// Runs the hook: reads the input from `env.stdin`, the user scope through `env.lookup`, and
 /// writes the warning, the stop or nothing to `out`. Pass `&mut out` to keep the writer.
 ///
 /// # Errors
@@ -119,7 +121,7 @@ fn judge(input: &Input, lookup: impl Fn(&str) -> Option<OsString>) -> Judgement 
             unreadable: Vec::new(),
         };
     };
-    let home = match paths::anneal_home_from(lookup) {
+    let home = match BenchHome::from_lookup(lookup) {
         Ok(home) => home,
         Err(error) => {
             return Judgement {
@@ -136,9 +138,13 @@ fn judge(input: &Input, lookup: impl Fn(&str) -> Option<OsString>) -> Judgement 
 }
 
 /// The threshold to fire for `session` given its reading `saved`, with the reading that
-/// crossed it; `None` when nothing fires. Records the session's new level in the anneal home
-/// `home`.
-fn cross(home: &Path, session: &str, saved: Saved) -> Result<Option<Crossed>, MonitorError> {
+/// crossed it; `None` when nothing fires. Records the session's new level in the state home
+/// `home` (the levels as read, written to the home's written file).
+fn cross(
+    home: &impl StateHome,
+    session: &str,
+    saved: Saved,
+) -> Result<Option<Crossed>, MonitorError> {
     let Saved {
         reading: snapshot, ..
     } = saved;
@@ -150,8 +156,8 @@ fn cross(home: &Path, session: &str, saved: Saved) -> Result<Option<Crossed>, Mo
         .used_tokens
         .and_then(|used| window.level(used).map(|level| (level, used)));
     let current = reached.map(|(level, _)| level);
-    let path = context::in_home(home, context::MONITOR_FILE);
-    let mut fired = SessionFile::<Fired>::load(&path, context::MONITOR_KIND)?;
+    let mut fired =
+        SessionFile::<Fired>::load(&home.read(context::MONITOR_FILE), context::MONITOR_KIND)?;
     let previous = fired.get(session).and_then(|fired| fired.level);
     if previous == current {
         return Ok(None);
@@ -159,7 +165,7 @@ fn cross(home: &Path, session: &str, saved: Saved) -> Result<Option<Crossed>, Mo
     fired.set(session, Fired { level: current });
     // Fire only once the new level is kept, so a file that cannot be written never fires
     // the same crossing on every batch.
-    fired.save(&path)?;
+    fired.save(&home.written(context::MONITOR_FILE))?;
     // `crossing` fires `current` or nothing, and `reached` carries `current` with its tokens.
     Ok(usage::crossing(previous, current)
         .and(reached)

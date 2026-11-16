@@ -105,7 +105,7 @@ impl Repo {
         let home = self.state.path().join("home");
         let lookup = move |var: &str| match var {
             "REDKILN_STORE" => Some(OsString::from(&store)),
-            "ANNEAL_HOME" => Some(OsString::from(&home)),
+            "ANNEAL_HOME" | "REDKILN_HOME" => Some(OsString::from(&home)),
             _ => None,
         };
         let mut out = Vec::new();

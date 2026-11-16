@@ -72,12 +72,100 @@ fn a_glob_configured_in_the_repository_adds_a_sensitive_path() -> TestResult {
         r#"{"ship": {"sensitive_globs": ["src/lib.rs"]}}"#,
     )?;
 
+    let output = repo.anneal(&["ship", "skip-rule"])?;
+
+    let envelope = crate::support::envelope(&output)?;
+    assert_eq!(
+        (
+            output.status.code(),
+            std::str::from_utf8(&output.stderr)?,
+            &envelope["data"]["reasons"][0]["category"],
+        ),
+        (
+            Some(1),
+            "bench: warning: .anneal/config.json is read because .redkiln/bench/config.json \
+             does not exist; bench reads anneal's .anneal/ only as a 0.x fallback, so move the \
+             file there\n",
+            &json!("configured"),
+        ),
+        "{envelope}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_glob_configured_in_bench_s_folder_adds_a_sensitive_path_without_a_warning() -> TestResult {
+    let repo = PrRepo::new()?;
+    repo.write(
+        ".redkiln/bench/config.json",
+        r#"{"ship": {"sensitive_globs": ["src/lib.rs"]}}"#,
+    )?;
+
     let envelope = repo.envelope(&["ship", "skip-rule"], 1)?;
 
     assert_eq!(
-        &envelope["data"]["reasons"][0]["category"],
-        &json!("configured"),
+        envelope.pointer("/data/reasons/0/category"),
+        Some(&json!("configured")),
         "{envelope}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_config_only_in_anneal_s_folder_is_read_with_one_warning_and_left_alone() -> TestResult {
+    let repo = PrRepo::new()?;
+    let config = r#"{"ship": {"sensitive_globs": ["src/lib.rs"]}}"#;
+    repo.write(".anneal/config.json", config)?;
+
+    let output = repo.anneal(&["ship", "skip-rule"])?;
+
+    let envelope = crate::support::envelope(&output)?;
+    assert_eq!(
+        (
+            output.status.code(),
+            std::str::from_utf8(&output.stderr)?,
+            envelope.pointer("/data/reasons/0/category"),
+            std::fs::read_to_string(repo.path().join(".anneal").join("config.json"))?,
+            repo.path().join(".redkiln").exists(),
+        ),
+        (
+            Some(1),
+            "bench: warning: .anneal/config.json is read because .redkiln/bench/config.json \
+             does not exist; bench reads anneal's .anneal/ only as a 0.x fallback, so move the \
+             file there\n",
+            Some(&json!("configured")),
+            config.to_owned(),
+            false,
+        )
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn with_both_configs_bench_s_is_read_and_anneal_s_named_as_ignored() -> TestResult {
+    let repo = PrRepo::new()?;
+    repo.write(
+        ".anneal/config.json",
+        r#"{"ship": {"sensitive_globs": ["src/lib.rs"]}}"#,
+    )?;
+    repo.write(".redkiln/bench/config.json", "{}")?;
+
+    let output = repo.anneal(&["ship", "skip-rule"])?;
+
+    let envelope = crate::support::envelope(&output)?;
+    assert_eq!(
+        (
+            std::str::from_utf8(&output.stderr)?,
+            envelope.pointer("/data/reasons/0/category"),
+        ),
+        (
+            "bench: warning: .anneal/config.json is ignored: bench reads \
+             .redkiln/bench/config.json\n",
+            None,
+        )
     );
     Ok(())
 }

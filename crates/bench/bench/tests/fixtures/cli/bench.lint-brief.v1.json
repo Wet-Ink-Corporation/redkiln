@@ -4,7 +4,7 @@
   "command": "lint brief",
   "data": {
     "fields": 9,
-    "file": ".anneal/briefs/36.md",
+    "file": ".redkiln/bench/briefs/36.md",
     "findings": []
   },
   "findings": [],

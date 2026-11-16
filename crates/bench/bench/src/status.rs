@@ -53,7 +53,7 @@ use crate::error::CliError;
 use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::exit_codes::{self, Code};
-use crate::paths::{self, GIT_TIMEOUT, PathError, StoreLocation};
+use crate::paths::{self, BenchHome, GIT_TIMEOUT, PathError, StoreLocation};
 use common::StoreFacts;
 use unreadable::Unreadable;
 
@@ -387,7 +387,8 @@ fn from_plan(
     }
 }
 
-/// `clef` and `context`, from the anneal home and, for `clef`'s counts, the user scope.
+/// `clef` and `context`, from the user scope: Bench's state home and, for `clef`'s counts,
+/// the decision log's folder.
 fn from_home(
     lookup: impl Fn(&str) -> Option<OsString>,
     wanted: Wanted<'_>,
@@ -396,7 +397,7 @@ fn from_home(
     if !wanted.any(&[Section::Clef, Section::Context]) {
         return;
     }
-    let home = match paths::anneal_home_from(&lookup) {
+    let home = match BenchHome::from_lookup(&lookup) {
         Ok(home) => home,
         Err(error) => {
             gathered.unreadable("home", &reason(&error));

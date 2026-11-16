@@ -36,14 +36,14 @@ One section per constraint, each naming the check that enforces it and its tier:
 
 ## The fast command and the ratchets
 
-`.anneal/config.json` names the fast command as an argv array, run without a shell, killed after
-5 s:
+`.redkiln/bench/config.json` names the fast command as an argv array, run without a shell,
+killed after 5 s:
 
 ```json
 {"check_fast": ["cargo", "check", "--quiet"]}
 ```
 
-`.anneal/ratchets.json` holds the numeric floors that may only move the good way:
+`.redkiln/bench/ratchets.json` holds the numeric floors that may only move the good way:
 
 ```json
 {"version": 1, "ratchets": {

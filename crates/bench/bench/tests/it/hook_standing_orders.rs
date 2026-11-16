@@ -148,3 +148,101 @@ fn standing_orders_through_a_symlinked_anneal_directory_are_one_error_line_and_n
     );
     Ok(())
 }
+
+/// Writes `orders` as `relative` (`/`-separated) under `root`.
+fn write_orders(root: &Path, relative: &str, orders: &str) -> TestResult {
+    let path = relative
+        .split('/')
+        .fold(root.to_path_buf(), |path, part| path.join(part));
+    fs::create_dir_all(path.parent().ok_or("a parent")?)?;
+    fs::write(path, orders)?;
+    Ok(())
+}
+
+/// The `additionalContext` the hook wrote.
+fn context(output: &Output) -> TestResult<String> {
+    let written: Value = serde_json::from_slice(&output.stdout)?;
+    Ok(written
+        .pointer("/hookSpecificOutput/additionalContext")
+        .and_then(Value::as_str)
+        .ok_or("additionalContext")?
+        .to_owned())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn standing_orders_in_bench_s_folder_are_injected_naming_it() -> TestResult {
+    let dir = repo(None)?;
+    write_orders(dir.path(), ".redkiln/bench/standing-orders.md", ORDERS)?;
+
+    let context = context(&start(&dir.path().join("src"))?)?;
+
+    assert_eq!(
+        context,
+        format!(
+            "Standing orders for every subagent (.redkiln/bench/standing-orders.md):\n\n{ORDERS}"
+        )
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn with_both_folders_the_orders_in_bench_s_are_injected_and_anneal_s_left_alone() -> TestResult {
+    let dir = repo(Some("old orders\n"))?;
+    write_orders(dir.path(), ".redkiln/bench/standing-orders.md", ORDERS)?;
+
+    let context = context(&start(dir.path())?)?;
+
+    assert_eq!(
+        (
+            context.contains(ORDERS),
+            context.contains("old orders"),
+            fs::read_to_string(dir.path().join(".anneal").join("standing-orders.md"))?
+        ),
+        (true, false, "old orders\n".to_owned())
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn anneal_s_standing_orders_alone_are_injected_naming_them() -> TestResult {
+    let dir = repo(Some(ORDERS))?;
+
+    let context = context(&start(dir.path())?)?;
+
+    assert_eq!(
+        context,
+        format!("Standing orders for every subagent (.anneal/standing-orders.md):\n\n{ORDERS}")
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn standing_orders_through_a_symlinked_bench_directory_are_not_injected() -> TestResult {
+    let dir = repo(None)?;
+    let outside = tempfile::tempdir()?;
+    fs::write(outside.path().join("standing-orders.md"), ORDERS)?;
+    fs::create_dir_all(dir.path().join(".redkiln"))?;
+    std::os::unix::fs::symlink(outside.path(), dir.path().join(".redkiln").join("bench"))?;
+
+    let output = start(dir.path())?;
+
+    let written: Value = serde_json::from_slice(&output.stdout)?;
+    let message = written["systemMessage"].as_str().ok_or("a systemMessage")?;
+    assert_eq!(
+        (
+            message.ends_with(
+                "not this worktree's own .redkiln/bench/standing-orders.md; make .redkiln/bench \
+                 a plain directory"
+            ),
+            written.get("hookSpecificOutput"),
+        ),
+        (true, None),
+        "{written}"
+    );
+    Ok(())
+}

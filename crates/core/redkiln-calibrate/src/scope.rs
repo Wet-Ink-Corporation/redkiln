@@ -8,8 +8,11 @@
 //! [`UserScope::decisions`] names both. Empty values count as unset; a relative one is refused,
 //! since it would move with the working directory.
 //!
-//! The environment is read only through the lookup [`UserScope::from_lookup`] is given, once,
-//! by the binary (ARC-11).
+//! A caller that needs only the root takes [`user_root`], which never reads anneal's home, so a
+//! relative `$ANNEAL_HOME` does not stop it (wi-ad764d8531, option A).
+//!
+//! The environment is read only through the lookup [`UserScope::from_lookup`] or [`user_root`]
+//! is given, once, by the binary (ARC-11).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -82,16 +85,9 @@ impl UserScope {
     /// [`ScopeError::NoHome`] when neither `REDKILN_HOME`, `HOME` nor `USERPROFILE` is set;
     /// [`ScopeError::RelativeHome`] when the root, or anneal's home, would be relative.
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<OsString>) -> Result<Self, ScopeError> {
-        let read = |var: &'static str| {
-            lookup(var)
-                .filter(|value| !value.is_empty())
-                .map(|value| (var, PathBuf::from(value)))
-        };
+        let read = |var| read(&lookup, var);
         let home = HOME_VARS.into_iter().find_map(read);
-        let root = read(HOME_VAR)
-            .or_else(|| home.as_ref().map(|(var, dir)| (*var, dir.join(HOME_DIR))))
-            .ok_or(ScopeError::NoHome)
-            .and_then(absolute)?;
+        let root = root(read(HOME_VAR), home.as_ref())?;
         let legacy_home = read(LEGACY_HOME_VAR)
             .or_else(|| home.map(|(var, dir)| (var, dir.join(LEGACY_HOME_DIR))))
             .map(absolute)
@@ -103,6 +99,14 @@ impl UserScope {
     #[must_use]
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// anneal's home (`$ANNEAL_HOME`, else `$HOME/.anneal`, else `%USERPROFILE%\.anneal`),
+    /// which a producer that moved from anneal reads alongside its folder in the root and never
+    /// writes or deletes; `None` when no variable names one.
+    #[must_use]
+    pub fn legacy_home(&self) -> Option<&Path> {
+        self.legacy_home.as_deref()
     }
 
     /// Where `producer`'s decision rows are (see [`DecisionDirs`]).
@@ -124,6 +128,44 @@ impl UserScope {
             .filter(|legacy| *legacy != current);
         Ok(DecisionDirs { current, legacy })
     }
+}
+
+/// The user scope's root alone, as [`UserScope::root`] gives it.
+///
+/// For a caller that needs nothing else: anneal's home is not read, so a relative
+/// `ANNEAL_HOME` does not stop it (Ryan's wi-ad764d8531, option A). `lookup` reads one
+/// environment variable.
+///
+/// # Errors
+/// [`ScopeError::NoHome`] when neither `REDKILN_HOME`, `HOME` nor `USERPROFILE` is set;
+/// [`ScopeError::RelativeHome`] when the root would be relative.
+pub fn user_root(lookup: impl Fn(&str) -> Option<OsString>) -> Result<PathBuf, ScopeError> {
+    let read = |var| read(&lookup, var);
+    root(
+        read(HOME_VAR),
+        HOME_VARS.into_iter().find_map(read).as_ref(),
+    )
+}
+
+/// `var` and its value as a path, through `lookup`; `None` when unset or empty.
+fn read(
+    lookup: impl Fn(&str) -> Option<OsString>,
+    var: &'static str,
+) -> Option<(&'static str, PathBuf)> {
+    lookup(var)
+        .filter(|value| !value.is_empty())
+        .map(|value| (var, PathBuf::from(value)))
+}
+
+/// The root: `REDKILN_HOME`'s value `over` when set, else `.redkiln` in the home directory
+/// `home`; it must be absolute.
+fn root(
+    over: Option<(&'static str, PathBuf)>,
+    home: Option<&(&'static str, PathBuf)>,
+) -> Result<PathBuf, ScopeError> {
+    over.or_else(|| home.map(|(var, dir)| (*var, dir.join(HOME_DIR))))
+        .ok_or(ScopeError::NoHome)
+        .and_then(absolute)
 }
 
 /// `path`, when absolute.

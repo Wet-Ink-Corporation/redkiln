@@ -42,8 +42,8 @@ use crate::existing_ledger::{self, LedgerError};
 use crate::exit_codes::{self, Code};
 use crate::paths::{self, GIT_TIMEOUT, PathError};
 use crate::pr_diff::{Budget, PrError};
-use crate::repo_config;
 use crate::store::Wait;
+use crate::{repo_config, repo_file};
 use assess::{Fresh, Invalid, Judged, Outcome};
 pub(crate) use commit_status::GithubEnv;
 use pull_request::{PullRequest, Query, ReadError};
@@ -208,8 +208,11 @@ where
                 cwd,
                 lookup,
                 mut out,
+                mut err,
                 ..
             } = io;
+            // One warning line per file read from anneal's old folder (PR 5.6).
+            repo_file::warn(root, &[repo_file::CONFIG], &mut err).map_err(CliError::Output)?;
             run_valid(valid, Place { cwd, root }, lookup, &mut out)
         }
     }

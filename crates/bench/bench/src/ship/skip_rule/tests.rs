@@ -108,6 +108,56 @@ fn each_default_category_catches_a_typical_path() {
 }
 
 #[test]
+fn bench_s_folder_is_gate_config_as_anneal_s_was() {
+    let rules = sensitive_rules(Vec::new()).expect("the defaults compile");
+
+    let categories: Vec<Vec<&str>> = [".redkiln/bench/config.json", ".anneal/config.json"]
+        .iter()
+        .map(|path| {
+            judge(&[change(path, 1)], &rules)
+                .reasons
+                .iter()
+                .filter_map(|reason| match reason {
+                    Reason::Sensitive { category, .. } => Some(*category),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect();
+
+    assert_eq!(categories, [vec!["gate config"], vec!["gate config"]]);
+}
+
+/// A two-file change that links `.redkiln` to a folder holding `bench/config.json` changes the
+/// gate config as surely as editing it: the bare link, anything under `.redkiln/`, and a bare
+/// `.anneal` or `.claude` link are gate config.
+#[test]
+fn a_symlinked_config_folder_and_anything_under_redkiln_are_gate_config() {
+    let linked = [change(".redkiln", 1), change("x/bench/config.json", 1)];
+    let others = [
+        ".redkiln/bench",
+        ".redkiln/review/config.toml",
+        ".anneal",
+        ".claude",
+    ];
+
+    assert_eq!(
+        reasons(&linked),
+        vec![Reason::Sensitive {
+            path: ".redkiln".to_owned(),
+            glob: ".redkiln".to_owned(),
+            category: "gate config",
+        }],
+        "a small change that links .redkiln needs a full review"
+    );
+    let missed: Vec<&str> = others
+        .into_iter()
+        .filter(|path| reasons(&[change(path, 1)]).is_empty())
+        .collect();
+    assert_eq!(missed, Vec::<&str>::new());
+}
+
+#[test]
 fn a_configured_glob_adds_to_the_defaults() {
     let configured = vec![Glob::new("ledger/**").expect("valid")];
     let rules = sensitive_rules(configured).expect("compiles");

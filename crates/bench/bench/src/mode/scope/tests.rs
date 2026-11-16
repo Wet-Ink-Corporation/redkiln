@@ -143,6 +143,29 @@ fn test_files_are_tests_in_any_letter_case() {
 }
 
 #[test]
+fn bench_s_folder_is_scratch_and_the_rest_of_redkiln_is_not() {
+    let kinds = [
+        ".redkiln/bench/a",
+        ".Redkiln/BENCH/briefs/36.md",
+        ".redkiln/suite.toml",
+        ".redkiln/benchx/a.rs",
+        "src/.redkiln/bench/a.rs",
+    ]
+    .map(|path| classify(path, &[]));
+
+    assert_eq!(
+        kinds,
+        [
+            PathKind::Scratch,
+            PathKind::Scratch,
+            PathKind::Source,
+            PathKind::Source,
+            PathKind::Source,
+        ]
+    );
+}
+
+#[test]
 fn scratch_directories_are_scratch_only_at_the_root() {
     for path in [
         ".temper/plans/x.rs",

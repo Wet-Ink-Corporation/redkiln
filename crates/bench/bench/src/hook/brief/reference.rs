@@ -1,12 +1,12 @@
 //! The brief an Agent call's prompt names: one `Brief: <path>` line, the path relative to the
-//! worktree root and under `.anneal/briefs/`, resolved (symlinks included) to a file inside
-//! that directory.
+//! worktree root and under `.redkiln/bench/briefs/` (or anneal's `.anneal/briefs/`, read as a
+//! 0.x fallback), resolved (symlinks included) to a file inside that directory.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::brief::BRIEFS_DIR;
+use crate::brief::{BRIEFS_DIR, LEGACY_BRIEFS_DIR};
 
 /// What starts the line naming the brief.
 const MARKER: &str = "Brief:";
@@ -18,11 +18,11 @@ pub(crate) enum Refusal {
     None,
     /// More than one `Brief:` line.
     Several,
-    /// The path is absolute, has `\`, `.` or `..` parts, or is not under `.anneal/briefs/`.
+    /// The path is absolute, has `\`, `.` or `..` parts, or is under neither briefs directory.
     NotUnderBriefs(String),
     /// Nothing is at the path.
     Missing(String),
-    /// The path resolves (through a symlink) outside `.anneal/briefs/` of the worktree.
+    /// The path resolves (through a symlink) outside its briefs directory of the worktree.
     Escapes(String),
     /// The path could not be resolved.
     Unresolvable(String, String),
@@ -45,7 +45,16 @@ impl Refusal {
                 format!("the brief {path} does not exist; write it with `bench brief build`")
             }
             Self::Escapes(path) => {
-                format!("the brief {path} resolves outside {BRIEFS_DIR}/ of this worktree")
+                // Named as the directory the path is under: Bench's, or anneal's.
+                let legacy = path
+                    .strip_prefix(LEGACY_BRIEFS_DIR)
+                    .is_some_and(|rest| rest.starts_with('/'));
+                let dir = if legacy {
+                    LEGACY_BRIEFS_DIR
+                } else {
+                    BRIEFS_DIR
+                };
+                format!("the brief {path} resolves outside {dir}/ of this worktree")
             }
             Self::Unresolvable(path, why) => format!("the brief {path} cannot be resolved: {why}"),
         }
@@ -77,15 +86,18 @@ pub(crate) fn resolve(root: &Path, text: &str) -> Result<PathBuf, Refusal> {
     if text.contains('\\') || Path::new(text).is_absolute() {
         return Err(refused());
     }
-    let dir_parts: Vec<&str> = BRIEFS_DIR.split('/').collect();
     let parts: Vec<&str> = text.split('/').collect();
-    let (head, rest) = parts
-        .split_at_checked(dir_parts.len())
-        .ok_or_else(refused)?;
     let plain = |part: &&str| !part.is_empty() && *part != "." && *part != "..";
-    if head != dir_parts.as_slice() || rest.is_empty() || !rest.iter().all(plain) {
-        return Err(refused());
-    }
+    // Bench's briefs directory, or anneal's read as a 0.x fallback; nothing writes the old one.
+    let (dir_parts, rest) = [BRIEFS_DIR, LEGACY_BRIEFS_DIR]
+        .into_iter()
+        .find_map(|dir| {
+            let dir_parts: Vec<&str> = dir.split('/').collect();
+            let (head, rest) = parts.split_at_checked(dir_parts.len())?;
+            (head == dir_parts.as_slice() && !rest.is_empty() && rest.iter().all(plain))
+                .then_some((dir_parts, rest))
+        })
+        .ok_or_else(refused)?;
     let dir = dir_parts
         .iter()
         .fold(root.to_path_buf(), |path, part| path.join(part));
@@ -96,8 +108,8 @@ pub(crate) fn resolve(root: &Path, text: &str) -> Result<PathBuf, Refusal> {
         }
         Err(error) => Err(Refusal::Unresolvable(text.to_owned(), error.to_string())),
     };
-    // The briefs directory itself must be the worktree's own, not a symlink (of `.anneal` or
-    // of `briefs`) to somewhere else: compare it with the resolved root's.
+    // The briefs directory itself must be the worktree's own, not a symlink (of any directory
+    // on its way) to somewhere else: compare it with the resolved root's.
     let real_root = canonical(root)?;
     let own_dir = dir_parts
         .iter()
@@ -205,6 +217,64 @@ mod tests {
             resolve(root.path(), ".anneal/briefs/36.md"),
             Err(Refusal::Escapes(".anneal/briefs/36.md".to_owned())),
             "the file is inside the linked directory, but not inside the worktree"
+        );
+    }
+
+    #[test]
+    fn a_brief_in_bench_s_folder_or_anneal_s_resolves_to_its_file() {
+        let root = tempfile::tempdir().expect("a directory");
+        for dir in [".redkiln/bench/briefs", ".anneal/briefs"] {
+            let dir = dir
+                .split('/')
+                .fold(root.path().to_path_buf(), |path, part| path.join(part));
+            std::fs::create_dir_all(&dir).expect("created");
+            std::fs::write(dir.join("36.md"), "## Goal\nx\n").expect("written");
+        }
+        let real = std::fs::canonicalize(root.path()).expect("resolves");
+
+        assert_eq!(
+            (
+                resolve(root.path(), ".redkiln/bench/briefs/36.md"),
+                resolve(root.path(), ".anneal/briefs/36.md"),
+            ),
+            (
+                Ok(real
+                    .join(".redkiln")
+                    .join("bench")
+                    .join("briefs")
+                    .join("36.md")),
+                Ok(real.join(".anneal").join("briefs").join("36.md")),
+            )
+        );
+    }
+
+    #[test]
+    fn paths_outside_bench_s_briefs_directory_are_refused_before_the_disk_is_read() {
+        let root = tempfile::tempdir().expect("a directory");
+        for text in [
+            ".redkiln/bench/briefs/",
+            ".redkiln/bench/briefs/../x.md",
+            ".redkiln/bench/x.md",
+            ".redkiln/briefs/x.md",
+            "bench/briefs/x.md",
+        ] {
+            assert_eq!(
+                resolve(root.path(), text),
+                Err(Refusal::NotUnderBriefs(text.to_owned())),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_bench_directory_that_is_a_symlink_out_of_the_worktree_is_refused() {
+        let (root, _outside) = linked_out(".redkiln/bench", true);
+
+        assert_eq!(
+            resolve(root.path(), ".redkiln/bench/briefs/36.md"),
+            Err(Refusal::Escapes(".redkiln/bench/briefs/36.md".to_owned())),
+            "briefs/ resolves outside the worktree"
         );
     }
 

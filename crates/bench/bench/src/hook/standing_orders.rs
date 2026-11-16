@@ -2,10 +2,12 @@
 //! (`SubagentStart` cannot block).
 //!
 //! It reads Claude Code's `SubagentStart` input on stdin (it uses `cwd`) and adds the
-//! repository's standing orders, `.anneal/standing-orders.md` at the worktree root (or under
-//! `cwd` outside git), to the subagent's context as `additionalContext`. With no such file it
-//! writes nothing. A file that is not a regular file, resolves outside the worktree's own
-//! `.anneal/` (a symlinked `.anneal`), cannot be read or is over
+//! repository's standing orders, `.redkiln/bench/standing-orders.md` at the worktree root (or
+//! under `cwd` outside git; anneal's `.anneal/standing-orders.md` when only it exists, read
+//! as a 0.x fallback without a warning, `repo_file`), to the subagent's context as
+//! `additionalContext`. With no such file it writes nothing. A file that is not a regular
+//! file, resolves outside the worktree's own folder (a symlinked folder), cannot be read or is
+//! over
 //! [`MAX_ORDERS_BYTES`] is injected not at all, never in part: the hook writes one `ERROR` line
 //! as `systemMessage` instead. Claude Code moves `additionalContext` over 10,000 characters to
 //! a file and passes a preview, so orders meant to be read whole stay under that. See
@@ -23,9 +25,7 @@ use crate::error_chain::reason;
 use crate::harness::claude_code::StopOutput;
 use crate::hook::{HookEnv, StdinError, read_stdin};
 use crate::paths::{self, PathError};
-
-/// The standing orders, relative to the worktree root.
-pub(crate) const ORDERS_PATH: [&str; 2] = [".anneal", "standing-orders.md"];
+use crate::repo_file::{self, STANDING_ORDERS};
 
 /// The most bytes of standing orders injected (H-13).
 pub(crate) const MAX_ORDERS_BYTES: u64 = 16 * 1024;
@@ -64,12 +64,16 @@ enum OrdersError {
     #[error("{} is not a regular file", path.display())]
     NotAFile { path: PathBuf },
     #[error(
-        "{} resolves to {}, not this worktree's own .anneal/standing-orders.md; make .anneal a \
-         plain directory",
+        "{} resolves to {}, not this worktree's own {own}; make {dir} a plain directory",
         path.display(),
-        resolved.display()
+        resolved.display(),
+        dir = own.rsplit_once('/').map_or(*own, |(dir, _)| dir)
     )]
-    NotOwn { path: PathBuf, resolved: PathBuf },
+    NotOwn {
+        path: PathBuf,
+        resolved: PathBuf,
+        own: &'static str,
+    },
     #[error("{} is larger than {MAX_ORDERS_BYTES} bytes; shorten it", path.display())]
     TooLarge { path: PathBuf },
     #[error("reading {}", path.display())]
@@ -124,17 +128,16 @@ fn orders<R: Read>(
         Err(PathError::NotARepository { .. }) => cwd,
         Err(error) => return Err(OrdersError::Worktree(error)),
     };
-    read_orders(&root).map(|text| text.map(|text| (ORDERS_PATH.join("/"), text)))
+    let chosen = STANDING_ORDERS.choose(&root).path;
+    read_orders(&root, chosen).map(|text| text.map(|text| (chosen.to_owned(), text)))
 }
 
-/// The text of the standing orders under the worktree `root` (lossy UTF-8); `None` when there
-/// is no file. They must resolve to the resolved root's own `.anneal/standing-orders.md`, as
-/// the brief hook requires of a brief: a symlinked `.anneal` would inject a file from outside
-/// the worktree.
-fn read_orders(root: &Path) -> Result<Option<String>, OrdersError> {
-    let orders_path = ORDERS_PATH
-        .iter()
-        .fold(root.to_path_buf(), |path, part| path.join(part));
+/// The text of the standing orders `chosen` (relative, `/`-separated) under the worktree
+/// `root` (lossy UTF-8); `None` when there is no file. They must resolve to the resolved
+/// root's own file, as the brief hook requires of a brief: a symlinked folder would inject a
+/// file from outside the worktree.
+fn read_orders(root: &Path, chosen: &'static str) -> Result<Option<String>, OrdersError> {
+    let orders_path = repo_file::under(root, chosen);
     let path = orders_path.as_path();
     // Checked before opening: a FIFO would block the hook, and a directory opens on unix only.
     match fs::symlink_metadata(path) {
@@ -157,15 +160,12 @@ fn read_orders(root: &Path) -> Result<Option<String>, OrdersError> {
         source,
     };
     let resolved = fs::canonicalize(path).map_err(read_error)?;
-    let own = ORDERS_PATH
-        .iter()
-        .fold(fs::canonicalize(root).map_err(read_error)?, |own, part| {
-            own.join(part)
-        });
+    let own = repo_file::under(&fs::canonicalize(root).map_err(read_error)?, chosen);
     if resolved != own {
         return Err(OrdersError::NotOwn {
             path: path.to_path_buf(),
             resolved,
+            own: chosen,
         });
     }
     let file = File::open(path).map_err(read_error)?;

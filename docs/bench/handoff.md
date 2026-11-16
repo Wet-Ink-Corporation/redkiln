@@ -31,7 +31,10 @@ status-line input (at most 1 MiB) and uses `session_id` and `context_window`:
   maths, rounded down). The line adds `(hand off soon)` past the first and `(hand off now)`
   past the second.
 
-The reading goes to `context-usage.json` in the anneal home (`~/.anneal`, or `$ANNEAL_HOME`):
+The reading goes to `context-usage.json` in Bench's state home in the user scope
+(`~/.redkiln/bench`, or `$REDKILN_HOME/bench`; PR 5.6). Each of the state files here is read
+from anneal's home (`~/.anneal`, or `$ANNEAL_HOME`) while it is absent from the new folder, and
+nothing is written or deleted there. The file holds
 per session a SHA-256 of its id, `used_tokens`, `window` and `window_source`
 (`env`, `model` or `default`), `source` (`statusline`) and `written_at_ms` (milliseconds since
 the Unix epoch), newest last, at most 64 sessions. A snapshot saved before `source` and
@@ -61,7 +64,7 @@ The snapshot goes to `context-usage-mod.json` beside `context-usage.json`, in th
 stamped `source: mod` and `written_at_ms`. One file per source, so neither writer races the
 other's load-then-save. The command prints the usual envelope (`data` is the snapshot as saved)
 and exits 0; input of another shape or out of range is a usage error (2, one `ERROR` line,
-nothing on stdout, nothing saved); a stdin, clock, anneal home or file failure exits 70. See
+nothing on stdout, nothing saved); a stdin, clock, user scope or file failure exits 70. See
 `docs/exit-codes.md`.
 
 ## The context monitor
@@ -125,7 +128,7 @@ Each item is one line: control characters (CR and LF among them) and Unicode lin
 a file name, task title, gate or error read as spaces, so no item can forge another line.
 
 The hook records the SHA-256 of the note's head (everything before its `## Notes` line) for the
-worktree in `<anneal home>/handoff-notes.json` (at most 64 worktrees). Notes are kept, and the
+worktree in `<state home>/handoff-notes.json` (at most 64 worktrees). Notes are kept, and the
 note is injected, only while the file's head is the one recorded: a hand-written or committed
 `.continue-here`, or one whose head was edited, is neither. Edit only the notes section.
 
@@ -144,9 +147,10 @@ picked up.
 
 ## The setup hint
 
-While the anneal home has no `context-usage.json` and no mod snapshot under 10 minutes old
+While the state home has no `context-usage.json` and no mod snapshot under 10 minutes old
 (`written_at_ms` in `context-usage-mod.json`), the bootstrap adds a one-line hint to set up the
-status line, once per anneal home (it records `statusline-hint.json`). A fresh mod snapshot
+status line, once per state home (it records `statusline-hint.json` in the new folder; a marker in
+anneal's home counts as shown). A fresh mod snapshot
 suppresses the hint without recording it, so it can still show once the mod stops; a mod file
 that cannot be read counts as fresh, so the hint errs toward silence. The first session
 start can run before the status line's first run, so a user who has just set it up may still

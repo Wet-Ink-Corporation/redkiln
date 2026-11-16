@@ -2,10 +2,10 @@
 //! configuration and its answered-decision counts (`counts.json` in the decision log's folder,
 //! `~/.redkiln/calibrate/bench/`, else anneal's old `~/.anneal/decisions/`), and `context`,
 //! the fresher of the latest snapshots `bench statusline` (`context-usage.json`) and the mod
-//! (`context-usage-mod.json`) saved.
+//! (`context-usage-mod.json`) saved in Bench's state home (`~/.redkiln/bench/`, each file
+//! read from anneal's `~/.anneal` while absent there).
 
 use std::ffi::OsString;
-use std::path::Path;
 
 use bench_contract::status::{self, Clef, ClefMode, Context, DecisionPoint, PointStatus};
 
@@ -16,6 +16,7 @@ use crate::decide;
 use crate::decide::config::Mode;
 use crate::decide::modes::Modes;
 use crate::decide::point::Point;
+use crate::paths::StateHome;
 
 /// The point as the section names it.
 const fn point(point: Point) -> DecisionPoint {
@@ -71,7 +72,7 @@ pub(super) struct ContextRead {
 
 /// `context`: the fresher of the status line's and the mod's newest snapshots
 /// ([`context::Sources::newest`]); a usage file that cannot be read leaves the other's shown.
-pub(super) fn context(home: &Path) -> ContextRead {
+pub(super) fn context(home: &(impl StateHome + ?Sized)) -> ContextRead {
     let Fresher { saved, unreadable } = context::Sources::load(home).newest();
     ContextRead {
         context: saved.map(|saved| section(saved.reading)),

@@ -237,6 +237,92 @@ fn bash_writes_to_the_anneal_config_are_denied_and_the_rest_of_anneal_is_not() {
 }
 
 #[test]
+fn bash_writes_to_the_bench_config_are_denied_and_the_rest_of_its_folder_is_not() {
+    assert_table(&[
+        ("echo '{}' > .redkiln/bench/config.json", CONFIG),
+        ("echo x >> ./.redkiln/bench/config.json", CONFIG),
+        ("echo x > .redkiln/x/../bench/config.json", CONFIG),
+        ("tee .redkiln/bench/config.json < x", CONFIG),
+        ("truncate -s 0 .redkiln/bench/config.json", CONFIG),
+        ("sed -i 's/a/b/' .redkiln/bench/config.json", CONFIG),
+        ("cp x.json .redkiln/bench/config.json", CONFIG),
+        ("cp config.json .redkiln/bench", CONFIG),
+        ("cp config.json .redkiln/bench/", CONFIG),
+        ("cp -t .redkiln/bench config.json", CONFIG),
+        ("mv x.json .redkiln/bench/config.json", CONFIG),
+        ("mv .redkiln/bench/config.json old.json", CONFIG),
+        ("mv .redkiln/bench old", CONFIG),
+        ("mv .redkiln old", CONFIG),
+        ("rm .redkiln/bench/config.json", CONFIG),
+        ("rm -r .redkiln/bench", CONFIG),
+        ("rm -r .redkiln/bench/", CONFIG),
+        ("rm -r .redkiln", CONFIG),
+        ("chmod 000 .redkiln/bench", CONFIG),
+        ("ln .redkiln/bench/config.json x", CONFIG),
+        ("cp -l .redkiln/bench/config.json x", CONFIG),
+        ("echo x > .Redkiln/Bench/Config.json", CONFIG),
+        ("echo x > .redkiln/b*/config.json", CONFIG),
+        ("cd .redkiln/bench && echo x > config.json", CONFIG),
+        ("cd .redkiln && echo x > bench/config.json", CONFIG),
+        (
+            "cd .redkiln/bench/briefs && echo x > ../config.json",
+            CONFIG,
+        ),
+        ("echo x > .redkiln/bench/briefs/36.md", ALLOW),
+        ("cat .redkiln/bench/config.json", ALLOW),
+        ("cp .redkiln/bench/config.json x", ALLOW),
+        ("echo x > bench/config.json", ALLOW),
+        ("echo x > crates/bench/config.json", ALLOW),
+        ("rm -r crates/bench", ALLOW),
+    ]);
+}
+
+/// A copy, move or link that may create a config folder writes whatever config it brings:
+/// `cp -r /tmp/x .redkiln` makes `/tmp/x/bench/config.json` the gate config when `.redkiln`
+/// does not exist yet, and the guard cannot tell whether it does.
+#[test]
+fn a_copy_move_or_link_naming_a_config_folder_as_its_destination_is_a_config_write() {
+    assert_table(&[
+        ("cp -r /tmp/x .redkiln", CONFIG),
+        ("cp -r /tmp/x .redkiln/", CONFIG),
+        ("cp -r -t .redkiln /tmp/x", CONFIG),
+        ("cp -r /tmp/x ./.redkiln", CONFIG),
+        ("cp -r /tmp/x .redkiln/bench", CONFIG),
+        ("cp -r /tmp/x .redkiln/bench/", CONFIG),
+        ("cp -r -t .redkiln/bench /tmp/x", CONFIG),
+        ("cp -r /tmp/x .anneal", CONFIG),
+        ("cp -r /tmp/x .anneal/", CONFIG),
+        ("cp -r -t .anneal /tmp/x", CONFIG),
+        ("cp -r /tmp/.redkiln .", CONFIG),
+        ("cp -r /tmp/.anneal .", CONFIG),
+        ("mv /tmp/x .redkiln", CONFIG),
+        ("mv /tmp/x .redkiln/", CONFIG),
+        ("mv -t .redkiln /tmp/x", CONFIG),
+        ("mv /tmp/x .redkiln/bench", CONFIG),
+        ("mv /tmp/x .anneal", CONFIG),
+        ("mv -t .anneal /tmp/x", CONFIG),
+        ("mv /tmp/.redkiln .", CONFIG),
+        ("ln -s /tmp/x .redkiln", CONFIG),
+        ("ln -s /tmp/x .redkiln/", CONFIG),
+        ("ln -s -t .redkiln /tmp/x", CONFIG),
+        ("ln -s /tmp/x/bench .redkiln/bench", CONFIG),
+        ("ln -s /tmp/x .anneal", CONFIG),
+        ("ln -s -t .anneal /tmp/x", CONFIG),
+        ("ln -s /tmp/.redkiln .", CONFIG),
+        ("cp -r /tmp/x .claude", CONFIG),
+        ("mv /tmp/x .github/", CONFIG),
+        ("ln -s /tmp/x .cargo", CONFIG),
+        ("cp notes.md .claude/", CONFIG),
+        ("cp x ..", ALLOW),
+        ("mv x ../y", ALLOW),
+        ("cp -r /tmp/x redkiln", ALLOW),
+        ("cp -r /tmp/redkiln .", ALLOW),
+        ("cp -r .redkiln /tmp/x", ALLOW),
+        ("ln -s .redkiln/bench x", ALLOW),
+    ]);
+}
+
+#[test]
 fn a_hard_link_to_protected_config_is_a_write_of_it() {
     assert_table(&[
         ("ln .anneal/config.json x", CONFIG),

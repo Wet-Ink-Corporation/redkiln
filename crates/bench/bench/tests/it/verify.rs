@@ -37,6 +37,7 @@ fn risk_unreachable(cwd: &Path, home: &Path) -> Result<Output, Box<dyn Error>> {
     Ok(anneal_in(cwd)
         .args(["verify", "risk", "--base", "main"])
         .env("ANNEAL_HOME", home)
+        .env("REDKILN_HOME", home)
         .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
         .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN")
         .env("CLAUDE_PLUGIN_OPTION_CLEF_MODE", "shadow,D5=enforce")

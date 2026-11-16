@@ -1,21 +1,17 @@
-//! Paths the evals resolve: the anneal home rule and git's answers about a directory, with
-//! every git call bounded (H-13).
+//! Paths the evals resolve: git's answers about a directory, with every git call bounded
+//! (H-13).
 //!
-//! A copy of what the evals used of Bench's `paths`. Since PR 5.4 `eval uplift`'s default work
-//! directory is `tmp` in `redkiln-calibrate`'s `UserScope` (wi-6b797a85db), so nothing in the
-//! evals reads [`anneal_home_from`] any more; it stays with its tests until removing them is
-//! decided. The git runner is duplicated until `redkiln-dispatch` (Move 4) absorbs the copies.
+//! A copy of what the evals used of Bench's `paths`. `eval uplift`'s default work directory is
+//! `tmp` in the user scope's root (`redkiln_calibrate::scope::user_root`; wi-6b797a85db,
+//! wi-ad764d8531), so the anneal home rule copied here was deleted in PR 5.6 (wi-ad764d8531,
+//! option A). The git runner is duplicated until `redkiln-dispatch` (Move 4) absorbs the copies.
 
-use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::Duration;
 
 use crate::process::{self, WaitError};
-
-/// The environment variable that overrides the anneal home directory.
-pub const ANNEAL_HOME_VAR: &str = "ANNEAL_HOME";
 
 /// Why a path could not be resolved.
 #[derive(Debug, thiserror::Error)]
@@ -53,17 +49,6 @@ pub enum PathError {
     /// git printed a path that is not UTF-8.
     #[error("git printed a path that is not UTF-8")]
     NonUtf8Output(#[source] std::string::FromUtf8Error),
-    /// None of `ANNEAL_HOME`, `HOME` or `USERPROFILE` is set.
-    #[error("cannot find a home directory: set ANNEAL_HOME, HOME or USERPROFILE")]
-    NoHome,
-    /// The variable holds a relative path, which would move with the working directory.
-    #[error("{var} must be an absolute path, got {value}", value = value.display())]
-    RelativeHome {
-        /// The variable that was read.
-        var: &'static str,
-        /// Its value.
-        value: PathBuf,
-    },
 }
 
 /// The top-level directory of the worktree containing `cwd`, as `git rev-parse
@@ -147,75 +132,11 @@ fn wait_capped(child: &mut Child, timeout: Duration, cap: u64) -> Result<Output,
     })
 }
 
-/// The anneal home directory: `$ANNEAL_HOME` if set, else `$HOME/.anneal`, else
-/// `%USERPROFILE%\.anneal`. Empty values count as unset. `lookup` reads one variable.
-///
-/// # Errors
-/// [`PathError::NoHome`] when none is set; [`PathError::RelativeHome`] when the chosen value is
-/// not absolute.
-pub fn anneal_home_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<PathBuf, PathError> {
-    let read = |var: &'static str| {
-        lookup(var)
-            .filter(|value| !value.is_empty())
-            .map(|value| (var, PathBuf::from(value)))
-    };
-    let (var, path) = if let Some((var, home)) = read(ANNEAL_HOME_VAR) {
-        (var, home)
-    } else {
-        let (var, home) = read("HOME")
-            .or_else(|| read("USERPROFILE"))
-            .ok_or(PathError::NoHome)?;
-        (var, home.join(".anneal"))
-    };
-    if path.is_absolute() {
-        Ok(path)
-    } else {
-        Err(PathError::RelativeHome { var, value: path })
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
     use std::path::PathBuf;
 
-    use super::{PathError, anneal_home_from, git_failure};
-
-    fn lookup(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
-        let pairs: Vec<(String, OsString)> = pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), OsString::from(v)))
-            .collect();
-        move |var| pairs.iter().find(|(k, _)| k == var).map(|(_, v)| v.clone())
-    }
-
-    #[test]
-    fn the_home_is_anneal_home_then_home_dot_anneal_and_must_be_absolute() {
-        let absolute = std::env::temp_dir();
-        let text = absolute.to_str().expect("a UTF-8 temporary directory");
-
-        assert_eq!(
-            anneal_home_from(lookup(&[("ANNEAL_HOME", text), ("HOME", "/x")])).ok(),
-            Some(absolute.clone()),
-            "ANNEAL_HOME wins"
-        );
-        assert_eq!(
-            anneal_home_from(lookup(&[("ANNEAL_HOME", ""), ("HOME", text)])).ok(),
-            Some(absolute.join(".anneal")),
-            "blank counts as unset"
-        );
-        assert!(
-            matches!(
-                anneal_home_from(lookup(&[("HOME", "rel")])),
-                Err(PathError::RelativeHome { var: "HOME", .. })
-            ),
-            "relative refused"
-        );
-        assert!(
-            matches!(anneal_home_from(lookup(&[])), Err(PathError::NoHome)),
-            "no home"
-        );
-    }
+    use super::{PathError, git_failure};
 
     #[test]
     fn only_git_saying_so_is_not_a_repository() {

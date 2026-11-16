@@ -1,8 +1,9 @@
 //! The completeness hook's own block cap: at most [`MAX_CONSECUTIVE_BLOCKS`] blocks in a row
 //! per session.
 //!
-//! The counts live in the anneal home directory (`~/.anneal`, or `$ANNEAL_HOME`) in
-//! [`COUNTER_FILE`]: per session a hash of its id, its consecutive blocks and the transcript's
+//! The counts live in Bench's state home (`~/.redkiln/bench`, or `$REDKILN_HOME/bench`; read
+//! from anneal's `~/.anneal` or `$ANNEAL_HOME` while absent there) in [`COUNTER_FILE`]: per
+//! session a hash of its id, its consecutive blocks and the transcript's
 //! length at the last block (where the next look for a tool call starts), newest last, at most
 //! [`MAX_SESSIONS`] of them. The platform's own cap is 8 (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`);
 //! this one is stricter.
@@ -20,8 +21,8 @@ pub(crate) const MAX_CONSECUTIVE_BLOCKS: u32 = 2;
 /// How many sessions the file remembers; older ones are dropped (H-13).
 pub(crate) const MAX_SESSIONS: usize = 64;
 
-/// The counter file's name in the anneal home directory.
-const COUNTER_FILE: &str = "stop-blocks.json";
+/// The counter file's name in the state home.
+pub(crate) const COUNTER_FILE: &str = "stop-blocks.json";
 
 /// The file's `kind`, so another file of the same name is not overwritten.
 const KIND: &str = "anneal-stop-blocks";
@@ -29,7 +30,8 @@ const KIND: &str = "anneal-stop-blocks";
 /// The file's format version.
 const FORMAT_VERSION: u32 = 1;
 
-/// The counter file in the anneal home directory `home`.
+/// The counter file in the plain folder `home`.
+#[cfg(test)]
 pub(crate) fn counter_path(home: &Path) -> PathBuf {
     home.join(COUNTER_FILE)
 }

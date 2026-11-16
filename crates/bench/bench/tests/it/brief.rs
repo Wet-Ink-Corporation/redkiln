@@ -34,7 +34,7 @@ fn build_args(extra: &[&str]) -> Vec<String> {
 }
 
 fn briefs(repo: &PrRepo) -> PathBuf {
-    repo.path().join(".anneal").join("briefs")
+    repo.path().join(".redkiln").join("bench").join("briefs")
 }
 
 #[test]
@@ -51,8 +51,8 @@ fn build_writes_a_brief_that_lints_clean_and_a_review_package_with_the_diff() ->
     assert_eq!(
         (&data["brief"], &data["review_package"], &data["head"]),
         (
-            &json!(".anneal/briefs/36.md"),
-            &json!(".anneal/briefs/36.review.md"),
+            &json!(".redkiln/bench/briefs/36.md"),
+            &json!(".redkiln/bench/briefs/36.review.md"),
             &json!(head),
         ),
         "{envelope}"
@@ -62,7 +62,7 @@ fn build_writes_a_brief_that_lints_clean_and_a_review_package_with_the_diff() ->
         package.contains("+++ b/src/lib.rs") && package.contains("answer() returns 42."),
         "the diff and the contract: {package}"
     );
-    let lint = repo.envelope(&["lint", "brief", ".anneal/briefs/36.md"], 0)?;
+    let lint = repo.envelope(&["lint", "brief", ".redkiln/bench/briefs/36.md"], 0)?;
     assert_eq!(lint["data"]["findings"], json!([]), "{lint}");
     crate::support::golden("bench.brief-build/1", &envelope, &[repo.path()], &[])?;
     crate::support::golden("bench.lint-brief/1", &lint, &[repo.path()], &[])?;
@@ -75,7 +75,7 @@ fn a_brief_built_without_fields_fails_lint_brief_naming_each_empty_field() -> Te
     let repo = PrRepo::new()?;
 
     let built = repo.envelope(&["brief", "build", "--ticket", "36", "--base", "main"], 0)?;
-    let lint = repo.envelope(&["lint", "brief", ".anneal/briefs/36.md"], 1)?;
+    let lint = repo.envelope(&["lint", "brief", ".redkiln/bench/briefs/36.md"], 1)?;
 
     let empty: Vec<&Value> = lint["data"]["findings"]
         .as_array()
@@ -194,7 +194,7 @@ fn assert_refused_through(repo: &PrRepo, link: &std::path::Path) -> TestResult {
     let outside = tempfile::tempdir()?;
     let target = outside.path().join("briefs");
     fs::create_dir_all(&target)?;
-    if link.ends_with(".anneal") {
+    if link.ends_with("bench") {
         std::os::unix::fs::symlink(outside.path(), link)?;
     } else {
         std::os::unix::fs::symlink(&target, link)?;
@@ -207,8 +207,8 @@ fn assert_refused_through(repo: &PrRepo, link: &std::path::Path) -> TestResult {
     assert_eq!(output.status.code(), Some(70), "{output:?}");
     assert!(output.stdout.is_empty(), "no envelope: {output:?}");
     let expected = format!(
-        "bench: error: .anneal/briefs resolves to {}, not this worktree's own \
-         .anneal/briefs; make it a plain directory\n",
+        "bench: error: .redkiln/bench/briefs resolves to {}, not this worktree's own \
+         .redkiln/bench/briefs; make it a plain directory\n",
         target.canonicalize()?.display()
     );
     assert_eq!(
@@ -229,7 +229,7 @@ fn assert_refused_through(repo: &PrRepo, link: &std::path::Path) -> TestResult {
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn a_briefs_directory_that_is_a_symlink_out_of_the_worktree_is_refused() -> TestResult {
     let repo = PrRepo::new()?;
-    fs::create_dir_all(repo.path().join(".anneal"))?;
+    fs::create_dir_all(repo.path().join(".redkiln").join("bench"))?;
 
     assert_refused_through(&repo, &briefs(&repo))
 }
@@ -237,19 +237,21 @@ fn a_briefs_directory_that_is_a_symlink_out_of_the_worktree_is_refused() -> Test
 #[cfg(unix)]
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn an_anneal_directory_that_is_a_symlink_out_of_the_worktree_is_refused() -> TestResult {
+fn a_bench_directory_that_is_a_symlink_out_of_the_worktree_is_refused() -> TestResult {
     let repo = PrRepo::new()?;
+    fs::create_dir_all(repo.path().join(".redkiln"))?;
 
-    assert_refused_through(&repo, &repo.path().join(".anneal"))
+    assert_refused_through(&repo, &repo.path().join(".redkiln").join("bench"))
 }
 
 #[cfg(unix)]
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
-fn a_symlinked_anneal_directory_gets_no_briefs_directory_where_it_leads() -> TestResult {
+fn a_symlinked_bench_directory_gets_no_briefs_directory_where_it_leads() -> TestResult {
     let repo = PrRepo::new()?;
     let outside = tempfile::tempdir()?;
-    std::os::unix::fs::symlink(outside.path(), repo.path().join(".anneal"))?;
+    fs::create_dir_all(repo.path().join(".redkiln"))?;
+    std::os::unix::fs::symlink(outside.path(), repo.path().join(".redkiln").join("bench"))?;
     let args = build_args(&[]);
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
 
@@ -257,14 +259,14 @@ fn a_symlinked_anneal_directory_gets_no_briefs_directory_where_it_leads() -> Tes
 
     assert_eq!(output.status.code(), Some(70), "{output:?}");
     let expected = format!(
-        "bench: error: .anneal/briefs resolves to {}, not this worktree's own \
-         .anneal/briefs; make it a plain directory\n",
+        "bench: error: .redkiln/bench/briefs resolves to {}, not this worktree's own \
+         .redkiln/bench/briefs; make it a plain directory\n",
         outside.path().canonicalize()?.join("briefs").display()
     );
     assert_eq!(
         String::from_utf8(output.stderr)?,
         expected,
-        "where .anneal/briefs would resolve"
+        "where .redkiln/bench/briefs would resolve"
     );
     assert_eq!(
         fs::read_dir(outside.path())?.count(),
