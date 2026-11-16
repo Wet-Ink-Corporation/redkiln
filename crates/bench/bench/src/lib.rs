@@ -68,11 +68,12 @@
 //!   session's context usage for the context-monitor hook.
 //! - [`snapshot`]: `bench snapshot write --json`, the TypeScript mod's context-usage
 //!   snapshot, saved beside the status line's in the format the CLI owns.
-//! - [`rollout`]: `bench rollout decide`, go, hold or rollback from metrics and band tables.
+//! - [`rollout`] (frozen): `bench rollout decide`, go, hold or rollback from metrics and band
+//!   tables.
 //! - [`json_file`]: a JSON file named on the command line, read within a size cap.
-//! - [`perf`]: `bench perf sample|noise`, a change kept only when it is faster beyond
+//! - [`perf`] (frozen): `bench perf sample|noise`, a change kept only when it is faster beyond
 //!   run-to-run noise.
-//! - [`migrate`]: `bench migrate start|done|contract`, a migration's waves in the ledger;
+//! - [`migrate`] (frozen): `bench migrate start|done|contract`, a migration's waves in the ledger;
 //!   contract is refused while a wave is open.
 
 pub mod adr;
