@@ -188,3 +188,94 @@ fn a_config_path_that_is_not_a_regular_file_is_refused_unopened() {
         "{result:?}"
     );
 }
+
+/// A worktree whose `folder` (`.redkiln` or `.anneal`) is a symlink to `x/`, where `file` (the
+/// config's path below that folder) is a regular file: the file resolves outside the
+/// worktree's own folder, as a copied-in or linked folder would.
+#[cfg(unix)]
+fn symlinked_folder(folder: &str, file: &str) -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let real = root.path().join("x").join(file);
+    std::fs::create_dir_all(real.parent().expect("the file has a folder")).expect("x's folders");
+    std::fs::write(&real, r#"{"ship": {"sensitive_globs": []}}"#).expect("the config is written");
+    std::os::unix::fs::symlink(root.path().join("x"), root.path().join(folder))
+        .expect("the folder is linked");
+    root
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_in_a_symlinked_redkiln_folder_is_refused_as_not_the_worktree_s_own() {
+    let root = symlinked_folder(".redkiln", "bench/config.json");
+
+    let result = super::read_text(root.path());
+
+    assert!(
+        matches!(
+            &result,
+            Err(FileError::NotOwn { path, resolved })
+                if *path == CONFIG_PATH && resolved.ends_with("x/bench/config.json")
+        ),
+        "{result:?}"
+    );
+    let message = result.err().map(|error| error.to_string());
+    assert_eq!(
+        message
+            .as_deref()
+            .map(|text| text.starts_with(".redkiln/bench/config.json resolves to ")),
+        Some(true),
+        "{message:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_whose_bench_folder_is_a_symlink_is_refused_by_the_gate() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(root.path().join("x")).expect("x");
+    std::fs::write(root.path().join("x/config.json"), "{}").expect("the config is written");
+    std::fs::create_dir(root.path().join(".redkiln")).expect(".redkiln");
+    std::os::unix::fs::symlink(root.path().join("x"), root.path().join(".redkiln/bench"))
+        .expect("the folder is linked");
+
+    let result = gate(root.path());
+
+    assert!(
+        matches!(result, Err(GateConfigError::File(FileError::NotOwn { .. }))),
+        "{result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_fallback_config_in_a_symlinked_anneal_folder_is_refused_as_not_the_worktree_s_own() {
+    let root = symlinked_folder(".anneal", "config.json");
+
+    let result = super::read_text(root.path());
+
+    assert!(
+        matches!(
+            &result,
+            Err(FileError::NotOwn { path, .. }) if *path == ".anneal/config.json"
+        ),
+        "{result:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_in_a_worktree_reached_through_a_symlink_is_read() {
+    let real = tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(real.path().join(".redkiln/bench")).expect("the folder");
+    std::fs::write(real.path().join(CONFIG_PATH), "{}").expect("the config is written");
+    let links = tempfile::tempdir().expect("a temporary directory");
+    let root = links.path().join("worktree");
+    std::os::unix::fs::symlink(real.path(), &root).expect("the worktree is linked");
+
+    let result = super::read_text(&root);
+
+    assert!(
+        matches!(&result, Ok(Some(config)) if config.path == CONFIG_PATH),
+        "{result:?}"
+    );
+}

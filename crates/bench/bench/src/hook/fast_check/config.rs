@@ -10,7 +10,7 @@
 //! settings share; each error names the file read.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -43,6 +43,18 @@ pub(crate) enum ConfigError {
         /// The file, relative to the worktree root.
         path: &'static str,
     },
+    /// The file resolves outside the worktree's own folder: never opened.
+    #[error(
+        "{path} resolves to {}, not this worktree's own {path}; make {dir} a plain directory",
+        resolved.display(),
+        dir = path.rsplit_once('/').map_or(*path, |(dir, _)| dir)
+    )]
+    NotOwn {
+        /// The file, relative to the worktree root.
+        path: &'static str,
+        /// Where it resolves.
+        resolved: PathBuf,
+    },
     /// The file is over the config's size cap.
     #[error("{}", FileError::TooLarge { path })]
     TooLarge {
@@ -71,6 +83,7 @@ impl From<FileError> for ConfigError {
         match error {
             FileError::Read { path, source } => Self::Read { path, source },
             FileError::NotAFile { path } => Self::NotAFile { path },
+            FileError::NotOwn { path, resolved } => Self::NotOwn { path, resolved },
             FileError::TooLarge { path } => Self::TooLarge { path },
         }
     }

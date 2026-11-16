@@ -241,6 +241,29 @@ fn a_config_path_that_is_not_a_regular_file_is_a_config_error() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_config_in_a_symlinked_redkiln_folder_is_a_config_error_and_never_run() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(root.path().join("x/bench")).expect("x's folders");
+    std::fs::write(
+        root.path().join("x/bench/config.json"),
+        r#"{"check_fast": ["sh", "-c", "exit 0"]}"#,
+    )
+    .expect("the config is written");
+    std::fs::create_dir(root.path().join(".anneal")).expect(".anneal");
+    std::fs::write(root.path().join(".anneal/config.json"), "{}").expect("the human's config");
+    std::os::unix::fs::symlink(root.path().join("x"), root.path().join(".redkiln"))
+        .expect("the folder is linked");
+
+    let result = read(root.path());
+
+    assert!(
+        matches!(&result, Err(ConfigError::NotOwn { path, .. }) if *path == ".redkiln/bench/config.json"),
+        "{result:?}"
+    );
+}
+
 #[test]
 fn a_missing_config_sets_no_check_fast() {
     let root = tempfile::tempdir().expect("a temporary directory");

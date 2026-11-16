@@ -25,7 +25,7 @@
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -60,6 +60,20 @@ pub enum FileError {
         /// The file, relative to the worktree root.
         path: &'static str,
     },
+    /// The file resolves outside the worktree's own folder (a symlinked `.redkiln`,
+    /// `.redkiln/bench` or `.anneal`): never opened, as the standing-orders and brief readers
+    /// refuse theirs.
+    #[error(
+        "{path} resolves to {}, not this worktree's own {path}; make {dir} a plain directory",
+        resolved.display(),
+        dir = path.rsplit_once('/').map_or(*path, |(dir, _)| dir)
+    )]
+    NotOwn {
+        /// The file, relative to the worktree root.
+        path: &'static str,
+        /// Where it resolves.
+        resolved: PathBuf,
+    },
     /// The file is over `MAX_CONFIG_BYTES` (64 KiB).
     #[error("{path} is larger than {MAX_CONFIG_BYTES} bytes")]
     TooLarge {
@@ -81,7 +95,8 @@ pub(crate) struct ConfigText {
 /// `None` when there is neither.
 ///
 /// # Errors
-/// The [`FileError`] when the path is not a regular file, cannot be read or is too large.
+/// The [`FileError`] when the path is not a regular file, resolves outside the worktree's own
+/// folder, cannot be read or is too large.
 pub(crate) fn read_text(root: &Path) -> Result<Option<ConfigText>, FileError> {
     let chosen = repo_file::CONFIG.choose(root).path;
     let path = repo_file::under(root, chosen);
@@ -95,6 +110,14 @@ pub(crate) fn read_text(root: &Path) -> Result<Option<ConfigText>, FileError> {
         Ok(_) => return Err(FileError::NotAFile { path: chosen }),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(read(error)),
+    }
+    let resolved = fs::canonicalize(&path).map_err(read)?;
+    let own = repo_file::under(&fs::canonicalize(root).map_err(read)?, chosen);
+    if resolved != own {
+        return Err(FileError::NotOwn {
+            path: chosen,
+            resolved,
+        });
     }
     let file = File::open(&path).map_err(read)?;
     let mut bytes = Vec::new();

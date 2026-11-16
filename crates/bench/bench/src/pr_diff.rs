@@ -69,7 +69,11 @@ impl PrError {
             | Self::NoBase
             | Self::UnknownBase { .. }
             | Self::Config(
-                GateConfigError::File(FileError::NotAFile { .. } | FileError::TooLarge { .. })
+                GateConfigError::File(
+                    FileError::NotAFile { .. }
+                    | FileError::NotOwn { .. }
+                    | FileError::TooLarge { .. },
+                )
                 | GateConfigError::Json { .. }
                 | GateConfigError::TooManyGlobs { .. }
                 | GateConfigError::Glob { .. },
