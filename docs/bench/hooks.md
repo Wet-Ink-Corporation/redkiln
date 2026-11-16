@@ -49,9 +49,13 @@ manifest test runs every entry's arguments through the binary.
 
 Guards fail closed. A guard (`hook guard`, `hook preconditions`, `hook merge-gate`, `hook brief`,
 or any hook passed `--fail-closed`) denies what it
-cannot judge. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
-Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "block"`, so a crash
-or a timeout blocks too.
+cannot judge, and denies before its budget runs out (each guard keeps 3.5 to 4.5 s of its 5 s
+`timeout`). When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
+Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "continue"`, not
+`"block"` (SPEC HK-11): Claude Code counts a hook that cannot start as a failure, so `"block"` would
+block every Bash, Edit, Write and Agent call on a Windows copy with no build, where there is no
+`libexec/bench.exe` to spawn. A guard killed or past its timeout therefore lets the call through;
+guards are tripwires (HK-12), and each names the control behind it.
 
 With no binary at all, the launcher exits 0 for every hook, one passed `--fail-closed` included:
 a missing install warns rather than blocks every tool call. For `hook bootstrap` it prints the

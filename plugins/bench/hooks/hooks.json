@@ -74,14 +74,14 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "guard", "--fail-closed"],
             "timeout": 5,
-            "onFailure": "block"
+            "onFailure": "continue"
           },
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "merge-gate", "--fail-closed"],
             "timeout": 5,
-            "onFailure": "block"
+            "onFailure": "continue"
           }
         ]
       },
@@ -93,7 +93,7 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "preconditions", "--fail-closed"],
             "timeout": 5,
-            "onFailure": "block"
+            "onFailure": "continue"
           }
         ]
       },
@@ -105,7 +105,7 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/libexec/bench",
             "args": ["hook", "brief", "--fail-closed"],
             "timeout": 5,
-            "onFailure": "block"
+            "onFailure": "continue"
           }
         ]
       }

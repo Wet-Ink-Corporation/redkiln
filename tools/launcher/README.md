@@ -10,6 +10,8 @@ What it does, in order:
 
 A build's exit code is the launcher's, so a guard whose binary runs and fails still blocks. Hooks fail open only when the plugin has no build at all.
 
+On Windows an exec-form hook resolves only to `libexec/<binary>.exe`, so with no build this launcher never runs: the hook fails to start, and Claude Code lets the call through as long as the entry does not set `onFailure: "block"` (SPEC CLI-11, HK-11). `node tools/launcher/no-build-check.mjs plugins` checks every plugin's hooks against that on each platform (CI, launcher job).
+
 Not here yet: anneal's download-and-verify fallback for installs that carry no binaries. Whether it is needed depends on the org-sync and Cowork `libexec/` spikes (phase 0), so it waits for them.
 
 The copies are byte-identical to these files, and CI checks that (`ci.yml`, plugins job). Tests: `sh tools/launcher/test.sh` (Linux, macOS) and `pwsh tools/launcher/test.ps1` (Windows).

@@ -49,7 +49,9 @@ impl HookEvent {
 pub enum OnFailure {
     /// `continue`: fail open.
     Continue,
-    /// `block`: fail closed, as a guard does.
+    /// `block`: Claude Code blocks the call when the hook fails, which includes failing to
+    /// start. No entry uses it: a guard fails closed inside its binary instead, so a copy with
+    /// no build (on Windows, nothing to spawn) does not block every call (SPEC HK-11).
     Block,
 }
 
@@ -134,8 +136,8 @@ const BOOTSTRAP: HookMetadata = HookMetadata {
 const GUARD: HookMetadata = HookMetadata {
     event: HookEvent::PreToolUse,
     matcher: "Bash",
-    fingerprint: "sha256:0d18e95944bcfef5",
-    on_failure: OnFailure::Block,
+    fingerprint: "sha256:ade7b6b22b9b84be",
+    on_failure: OnFailure::Continue,
     role: Role::Guard,
     model_generation: GENERATION_5,
     source: "Blueprint: Hooks (guard), Gate escalation, skill rule 15; story #14",
@@ -144,8 +146,8 @@ const GUARD: HookMetadata = HookMetadata {
 const MERGE_GATE: HookMetadata = HookMetadata {
     event: HookEvent::PreToolUse,
     matcher: "Bash",
-    fingerprint: "sha256:0d30da5c2cb7ef5f",
-    on_failure: OnFailure::Block,
+    fingerprint: "sha256:0b79d64ae2f00329",
+    on_failure: OnFailure::Continue,
     role: Role::Guard,
     model_generation: GENERATION_5,
     source: "Blueprint: Hooks (merge-gate), Feature catalog #24, #25 and #26, Boundaries \
@@ -155,8 +157,8 @@ const MERGE_GATE: HookMetadata = HookMetadata {
 const PRECONDITIONS: HookMetadata = HookMetadata {
     event: HookEvent::PreToolUse,
     matcher: "Edit|Write|MultiEdit|NotebookEdit",
-    fingerprint: "sha256:e7ef0eefbd49c1a0",
-    on_failure: OnFailure::Block,
+    fingerprint: "sha256:b69602d63519987a",
+    on_failure: OnFailure::Continue,
     role: Role::Guard,
     model_generation: GENERATION_5,
     source: "Blueprint: Hooks (preconditions), Feature catalog #4 and #20; story #23",
@@ -248,8 +250,8 @@ const HANDOFF: HookMetadata = HookMetadata {
 const BRIEF: HookMetadata = HookMetadata {
     event: HookEvent::PreToolUse,
     matcher: "Agent",
-    fingerprint: "sha256:2523893db8a74747",
-    on_failure: OnFailure::Block,
+    fingerprint: "sha256:26d9791781eed252",
+    on_failure: OnFailure::Continue,
     role: Role::Guard,
     model_generation: GENERATION_5,
     source: "Blueprint: Orchestration (no brief, no spawn; no nested spawns); story #36",
@@ -270,12 +272,13 @@ mod tests {
     use super::{HookName, OnFailure};
 
     #[test]
-    fn a_row_blocks_on_failure_exactly_when_the_hook_fails_closed() {
+    fn no_row_blocks_on_failure_not_even_a_guard() {
         for hook in HookName::ALL {
             assert_eq!(
-                hook.metadata().on_failure == OnFailure::Block,
-                hook.is_guard(),
-                "{}: onFailure block and failing closed go together",
+                hook.metadata().on_failure,
+                OnFailure::Continue,
+                "{}: a guard fails closed in its binary; onFailure block would block every call \
+                 when the binary cannot start (SPEC HK-11)",
                 hook.as_str()
             );
         }

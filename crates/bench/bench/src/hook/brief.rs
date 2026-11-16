@@ -337,8 +337,8 @@ enum BriefReadError {
 ///
 /// The path is checked before it is opened, since opening a FIFO blocks until a writer comes.
 /// That check and the open are two steps: a path swapped for a FIFO in between still blocks
-/// the open, until the hook's `timeout` ends it (Claude Code then blocks the call, as the
-/// entry is `onFailure: "block"`). The opened handle is checked again, so anything else
+/// the open, until the hook's `timeout` ends it, and Claude Code then lets the call through (the
+/// entry fails open on a timeout, SPEC HK-11: a guard is a tripwire, HK-12). The opened handle is checked again, so anything else
 /// swapped in (a directory, a larger file) is refused, and the read stops one byte past the
 /// cap.
 fn read_brief(path: &Path) -> Result<String, BriefReadError> {

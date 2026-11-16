@@ -55,8 +55,9 @@ pub struct HookArgs {
     /// The hook to run.
     #[command(subcommand)]
     pub hook: HookName,
-    /// Fail closed: exit 2 when the hook's output cannot be written. The launcher reads the
-    /// same flag to exit 2 when no binary is installed. A guard always fails closed.
+    /// Fail closed: exit 2 when the hook's output cannot be written. A guard always fails
+    /// closed. With no binary installed the launcher lets the hook through all the same
+    /// (SPEC CLI-11).
     #[arg(long, global = true)]
     pub fail_closed: bool,
 }
