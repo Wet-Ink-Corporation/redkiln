@@ -7,6 +7,10 @@
 //! ([`STORE_WAIT`], `Wait::Hook`, ST-09) for another process's lock. A guard starts a store step
 //! only when that whole wait fits in what is left of its [`HOOK_BUDGET`](super::HOOK_BUDGET),
 //! and gives git, before it, only what the waits after it leave.
+//!
+//! Each Core store call is counted as one `Wait::Hook`. Inside one call SQLite can wait more
+//! than once (happenstance's identity re-read at hand-over, a commit's lock escalation), so
+//! under a lock held for the full wait at each of those a guard can still pass its timeout.
 
 use std::time::Duration;
 

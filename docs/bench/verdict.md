@@ -229,7 +229,7 @@ usage error for the commands and a denial in the hook.
 ## The merge gate
 
 `anneal hook merge-gate --fail-closed` runs on every Bash call (`PreToolUse`, matcher `Bash`,
-5 s, `onFailure: "block"`). It judges a merge only in one shape, the canonical merge command,
+5 s, `onFailure: "continue"`, SPEC HK-11). It judges a merge only in one shape, the canonical merge command,
 run as a Bash call of its own:
 
 ```

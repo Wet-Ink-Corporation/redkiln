@@ -51,7 +51,7 @@ Guards fail closed. A guard (`hook guard`, `hook preconditions`, `hook merge-gat
 or any hook passed `--fail-closed`) denies what it
 cannot judge, and writes its decision before its 5 s `timeout` even when every store wait it
 meets runs to its full 2 s: each plans against 4.5 s from its start and starts a store step (an
-open, a read, an append) only when the whole wait fits in what is left (`hook::store_wait`). When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
+open, a read, an append) only when the whole wait fits in what is left (`hook::store_wait`). Each Core store call is counted as one `Wait::Hook`; inside one call SQLite can wait more than once (happenstance's identity re-read at hand-over, a commit's lock escalation), so under a lock held 2 s at each of those a guard can still pass its timeout. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
 Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "continue"`, not
 `"block"` (SPEC HK-11): Claude Code counts a hook that cannot start as a failure, so `"block"` would
 block every Bash, Edit, Write and Agent call on a Windows copy with no build, where there is no
