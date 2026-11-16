@@ -14,7 +14,7 @@ Kit. No I/O, no process, no clock, no environment.
 Only what a guard calls is `pub` (API-14); the rest is `pub(crate)` or narrower.
 - `shell`: `parse`, `parse_without_extglob`, `SimpleCommand` (accessors only; built by the lexer), `Word` (fields crate-private; read through `text`, `shape`, `quoted`, `expansions`, `has_pattern`, `outside_expansions`, `is_literal`, `is_process_substitution`), `Expansion`, `Shape`, `Globs`, `Stdin`, `ParseError`, `EXTGLOB_OPENERS`, `MAX_NESTING`.
 - `engine`: `check<P: Pack>(command, &mut P) -> Option<Denial<P::Rule>>`, the seam (`Pack`, `Call`, `Denial`, `Program`, `Cwd`), `MAX_DEPTH`, `MAX_LEXED_MIB`; option helpers for packs: `wrappers::{Long, is_long, is_option, may_be_option, skip_one, skip_options, takes_value, defines}`, `braces::{reads_as_written, expand, TooMany}`, `readings::may_start_option_cluster`, `git_settings::{settings, Settings, GLOBAL_VALUES}`.
-- `protect`: `Protected` (`file`, `exact`, `affix`), `ProtectedPaths` (`new`, `protected`, `contains_protected`), `last_component`. The table is the pack's.
+- `protect`: `Protected` (`file`, `exact`, `affix`), `ProtectedPaths` (`new`, `protected`, `contains_protected`), `last_component`. The table is the pack's. A parent or container name may have several `/`-separated components (`.redkiln/bench`, PR 5.6), matched as the path's last components; one component matches as before.
 - `redact`: `redact`, `cut_chars`, `REDACTED`, `UNPARSED`, `MAX_COMMAND_CHARS`.
 - `glob`: `Glob` (`new`, `as_str`, `matches`), `GlobError`.
 

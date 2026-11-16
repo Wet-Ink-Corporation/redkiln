@@ -205,7 +205,7 @@ case-insensitive file system (APFS, NTFS) `.CLAUDE/Settings.json` is `.claude/se
 | `.cargo/config*` | `config`, `config.toml` directly in `.cargo` |
 | `.github/workflows/` | `workflows` directly in `.github` |
 | `.eslintrc*`, `.pre-commit-config.yaml`, `lefthook.yml` | anywhere |
-| `.anneal/config.json` | `config.json` directly in `.anneal`: the gates' own settings (the orchestrate leads the brief hook trusts, the merge gate's `review` and `ship` keys, `check_fast`); the preconditions hook denies the Edit, Write, MultiEdit and NotebookEdit tools on it |
+| `.redkiln/bench/config.json`, `.anneal/config.json` | `config.json` directly in `.redkiln/bench` (PR 5.6), or directly in anneal's `.anneal`, still read as a fallback: the gates' own settings (the orchestrate leads the brief hook trusts, the merge gate's `review` and `ship` keys, `check_fast`); the preconditions hook denies the Edit, Write, MultiEdit and NotebookEdit tools on it |
 
 The writes it checks:
 
@@ -216,14 +216,14 @@ The writes it checks:
   `sed -i 's/hooks/x/' notes` is allowed;
 - the destination of `cp`, `mv`, `ln` and `install`, including `-t DIR` and
   `--target-directory` (or `--target`, `--t`). When the destination
-  is a directory (`-t`, a trailing `/`, or `.anneal`, `.claude`, `.github`, `.cargo`), the destination is
+  is a directory (`-t`, a trailing `/`, or `.redkiln`, `.redkiln/bench`, `.anneal`, `.claude`, `.github`, `.cargo`), the destination is
   also checked joined with each source's name, so `cp settings.json .claude/` is denied;
 - what `mv` moves away, and what `rm`, `unlink`, `rmdir`, `shred`, `chmod`, `chown` and `chgrp`
-  touch. These also deny `.anneal`, `.claude`, `.github` or `.cargo` itself, because removing or
+  touch. These also deny `.redkiln`, `.redkiln/bench`, `.anneal`, `.claude`, `.github` or `.cargo` itself, because removing or
   re-permissioning that directory changes the config inside it;
 - the sources of a hard link: `ln` without `-s`/`--symbolic` (also `ln FILE` alone, which links
   into `.`), `link`, and `cp -l`/`--link`. Writing a hard link writes the file it links, so
-  `ln .anneal/config.json x` is a write of `.anneal/config.json`, as are a source directory that
+  `ln .redkiln/bench/config.json x` is a write of `.redkiln/bench/config.json`, as are a source directory that
   holds config (`cp -al .claude /tmp/c`) and the working directory or `/` as a source. A
   symbolic link is not denied: a later write through it is a gap (below).
 

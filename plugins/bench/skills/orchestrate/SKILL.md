@@ -26,7 +26,7 @@ Rulings, not stalls. Fanning out costs about 15 times the tokens of one session,
 
 1. **Gate the fan-out.** Run `bench orchestrate fan-out` with the tracker flags of `bench dag frontier`. It's working if you fan out on exit 0 and work one ticket at a time on exit 3.
 2. **Brief each ticket.** Split tickets `dag frontier` flags over budget, then run `bench brief build --ticket <id> --base <ref>`. It's working if `bench lint brief` passes for each.
-3. **Implement.** Spawn one implementer per ticket with `Brief: .anneal/briefs/<id>.md` and nothing of yours. It's working if the `brief` hook let every spawn through.
+3. **Implement.** Spawn one implementer per ticket with `Brief: .redkiln/bench/briefs/<id>.md` and nothing of yours. It's working if the `brief` hook let every spawn through.
 4. **Verify fresh.** For each ticket spawn a new verifier with the review package only, never the implementer's report or claims. It's working if the verifier read the diff, not a summary.
 5. **Loop.** On a failed verification run `bench round start --ticket <id>` and do what `data.next` says. It's working if no ticket passes five rounds; after five, park it (step 6).
 6. **Decide each call.** Ask D2 with the call as state. On `park` with `data.enforce` true, run `bench orchestrate park --ticket <id> --q <question> --default <option> --flip <fact> --at <path:line> --resolve-by <today + 7 days> --decision <data.id>` and move on. Otherwise (`rule`, shadow, no answer, or park exit 4) choose, then run `bench orchestrate rule --ticket <id> --what --why --cost --decision <data.id>`. It's working if every call ends parked or recorded, never asked in chat.

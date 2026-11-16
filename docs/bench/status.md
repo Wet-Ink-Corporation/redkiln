@@ -1,6 +1,7 @@
 # `anneal status`: one read model for every UI
 
-`anneal status` folds the ledger and the anneal home's state files into one document: the
+`anneal status` folds the ledger and Bench's per-user state files (`~/.redkiln/bench/`, each read
+from anneal's `~/.anneal` while absent there; PR 5.6) into one document: the
 state a person needs to see. A UI (the cockpit mod, a status pane, a script) renders it and
 holds no logic of its own.
 
@@ -68,7 +69,7 @@ A section is `null` when it was not asked for (`--fields`) or its data source do
 (no mode recorded, no verdict, no context reading). When its source exists but cannot be read
 (a state file that does not parse, git failing), the section is `null` too and the envelope has
 one warning `status/unreadable:<section>` saying why; the exit code does not change. A failure to
-find the worktree is `status/unreadable:worktree`, and of the anneal home
+find the worktree is `status/unreadable:worktree`, and of the user scope
 `status/unreadable:home`. The mode is `phase`'s source, so a mode that cannot be read is
 `status/unreadable:phase` even when only `plan` or `tasks` was asked for. `context` has two
 sources: when one of them cannot be read, the other's reading is still shown, beside the

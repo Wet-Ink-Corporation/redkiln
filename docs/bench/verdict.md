@@ -62,7 +62,7 @@ last `verdict set` (see the limits at the end of this section).
 |---|---|
 | `success` | the merge gate would allow `gh pr merge <n> --match-head-commit <sha>` (its own evaluation, `hook::merge_gate::judge_head`, as `watch pr` asks it) |
 | `pending` | the gate wants a verdict the commit may still get: `review` (the skip-rule wants a full review), or `no-verdict`, `stale` or `tests` |
-| `failure` | the gate denies and waits for nothing more on this commit: `changes-requested`, or `unjudged` (a ledger, git or `.anneal/config.json` it cannot read; the gate fails closed) |
+| `failure` | the gate denies and waits for nothing more on this commit: `changes-requested`, or `unjudged` (a ledger, git or settings file it cannot read; the gate fails closed) |
 
 The description names the level, the source and the gate's answer, for example
 `tests-verified by local: the merge gate wants review`. Each `verdict set` posts again, and
@@ -200,11 +200,17 @@ directories and `*` and `?` within one name:
 | migrations | `**/migrations/**`, `**/migrate/**`, `**/*migration*`, `**/*.sql` |
 | ci | `.github/**`, `.gitlab-ci.yml`, `.gitlab/**`, `.circleci/**`, `.buildkite/**`, `.travis.yml`, `azure-pipelines.yml`, `**/Jenkinsfile` |
 | infra | `**/*.tf`, `**/*.tfvars`, `**/terraform/**`, `**/infra/**`, `**/infrastructure/**`, `**/k8s/**`, `**/kubernetes/**`, `**/helm/**`, `**/ansible/**`, `**/deploy/**`, `**/Dockerfile*`, `**/docker-compose*` |
-| gate config | `.anneal/**`, `.claude/**` |
+| gate config | `.redkiln/bench/**`, `.anneal/**`, `.claude/**` |
 
 `**/*auth*` also matches `author.rs`: a false full review is the cheap mistake.
 
-## `.anneal/config.json`
+## `.redkiln/bench/config.json`
+
+Read from `.redkiln/bench/config.json`, else anneal's `.anneal/config.json` (PR 5.6), which Bench
+never writes. `ship skip-rule` and `verdict valid` write one `bench: warning:` line when they
+read the old file (`.anneal/config.json is read because .redkiln/bench/config.json does not
+exist; ...`) or find both (`.anneal/config.json is ignored: bench reads
+.redkiln/bench/config.json`); the merge gate stays silent.
 
 ```json
 {
@@ -308,7 +314,7 @@ A denial is Claude Code's deny decision whose reason is one `ERROR merge-gate: .
 `directory`, `head`, `no-verdict`, `stale`, `changes-requested`, `tests`, `review`, `bad-input`, `unreadable`
 and `unjudged`) in the ledger when one exists; the gate never creates a ledger, and with none
 every pull request has no verdict. Unreadable input or commands, a merge naming no number, and a
-ledger, git or `.anneal/config.json` it cannot read are denied. git and ledger reads share 3.5 s
+ledger, git or settings file it cannot read are denied. git and ledger reads share 3.5 s
 from the hook's start, each git call at most 1 s, and each ledger statement waits at most 500 ms
 for a lock and never past what is left of the 3.5 s.
 
@@ -354,7 +360,7 @@ The gate judges what it can see in a Bash command, for an honest agent:
   changes the diff the head's patch id is taken from. Recording the base's commit and requiring
   it to be an ancestor of the judged base would close this, but needs a new `verdict_set` field
   (a registry change); the commit pin still makes gh refuse a head other than the one judged;
-- `.anneal/config.json` is read from the working tree, so an uncommitted edit changes the
+- the settings file is read from the working tree, so an uncommitted edit changes the
   settings; and anyone can append a review plugin's verdict with `anneal ledger append`, and
   anything outside the guard's sight (a script on disk, the ledger file written directly) can
   record `--source human --actor human`; the guard denies only a model's Bash call that does.
