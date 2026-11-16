@@ -485,6 +485,99 @@ fn a_looser_old_copy_beside_bench_s_ratchet_file_is_ignored_with_a_warning() -> 
     Ok(())
 }
 
+/// Makes `link` (relative to `root`) a symlink to `target`.
+#[cfg(unix)]
+fn symlink(root: &Path, target: &str, link: &str) -> TestResult {
+    std::os::unix::fs::symlink(target, root.join(link))?;
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_ratchet_file_added_through_a_symlinked_redkiln_folder_is_lowered() -> TestResult {
+    let dir = repo(&[("src/lib.rs", "fn a() {}\n")])?;
+    write(
+        dir.path(),
+        &[("x/bench/ratchets.json", &ratchets(10.0, 80.0))],
+    )?;
+    symlink(dir.path(), "x", ".redkiln")?;
+
+    assert_lowered(
+        dir.path(),
+        ("ratchet_loosened", BENCH_RATCHETS, Value::Null),
+    )
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_ratchet_loosened_behind_a_committed_redkiln_symlink_is_lowered() -> TestResult {
+    let dir = repo(&[("x/bench/ratchets.json", &ratchets(10.0, 80.0))])?;
+    symlink(dir.path(), "x", ".redkiln")?;
+    git(dir.path(), &["add", "-A"]);
+    git(dir.path(), &["commit", "-q", "-m", "link"]);
+    write(
+        dir.path(),
+        &[("x/bench/ratchets.json", &ratchets(20.0, 10.0))],
+    )?;
+
+    assert_lowered(
+        dir.path(),
+        ("ratchet_loosened", BENCH_RATCHETS, Value::Null),
+    )
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_ratchet_file_that_is_a_symlink_is_lowered() -> TestResult {
+    let dir = repo(&[("src/lib.rs", "fn a() {}\n")])?;
+    write(dir.path(), &[("loose.json", &ratchets(10.0, 80.0))])?;
+    std::fs::create_dir_all(dir.path().join(".redkiln/bench"))?;
+    symlink(dir.path(), "../../loose.json", BENCH_RATCHETS)?;
+
+    assert_lowered(
+        dir.path(),
+        ("ratchet_loosened", BENCH_RATCHETS, Value::Null),
+    )
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_base_redkiln_symlink_replaced_by_a_plain_folder_is_lowered() -> TestResult {
+    let dir = repo(&[("x/bench/ratchets.json", &ratchets(10.0, 80.0))])?;
+    symlink(dir.path(), "x", ".redkiln")?;
+    git(dir.path(), &["add", "-A"]);
+    git(dir.path(), &["commit", "-q", "-m", "link"]);
+    std::fs::remove_file(dir.path().join(".redkiln"))?;
+    write(dir.path(), &[(BENCH_RATCHETS, &ratchets(20.0, 10.0))])?;
+
+    assert_lowered(
+        dir.path(),
+        ("ratchet_loosened", BENCH_RATCHETS, Value::Null),
+    )
+}
+
+#[test]
+#[cfg(unix)]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_base_anneal_symlink_replaced_by_a_plain_folder_is_lowered() -> TestResult {
+    let dir = repo(&[("y/ratchets.json", &ratchets(10.0, 80.0))])?;
+    symlink(dir.path(), "y", ".anneal")?;
+    git(dir.path(), &["add", "-A"]);
+    git(dir.path(), &["commit", "-q", "-m", "link"]);
+    std::fs::remove_file(dir.path().join(".anneal"))?;
+    write(dir.path(), &[(RATCHETS, &ratchets(20.0, 10.0))])?;
+
+    assert_lowered_with(
+        dir.path(),
+        ("ratchet_loosened", RATCHETS, Value::Null),
+        FALLBACK_WARNING,
+    )
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn a_new_ratchet_file_is_not_judged() -> TestResult {
