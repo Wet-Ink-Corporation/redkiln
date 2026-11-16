@@ -1,3 +1,5 @@
+//! Frozen (Move 2 step 5; blueprint, Bench "Freezes"): security and correctness fixes only until Ship exists.
+//!
 //! `bench rollout decide --metrics <json> --bands <file>`: go, hold or rollback for a rollout,
 //! judged against band tables rather than by feel.
 //!

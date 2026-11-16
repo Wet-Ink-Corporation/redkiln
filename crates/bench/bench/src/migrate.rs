@@ -1,3 +1,5 @@
+//! Frozen (Move 2 step 5; blueprint, Bench "Freezes"): security and correctness fixes only until Ship exists.
+//!
 //! `bench migrate start|done|contract`: an expand, migrate, contract migration tracked wave by
 //! wave in the ledger.
 //!

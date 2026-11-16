@@ -96,6 +96,8 @@ mod existing_ledger;
 pub mod exit_codes;
 pub mod floor_guard;
 mod frontmatter;
+#[cfg(test)]
+mod frozen;
 pub mod grill;
 mod harness;
 pub mod hook;
