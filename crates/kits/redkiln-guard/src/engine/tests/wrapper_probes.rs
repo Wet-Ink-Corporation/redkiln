@@ -2,7 +2,8 @@
 //! binaries (`probe.sh` replaces each word `W1`..`W9` with a recorder), against what the walk
 //! reads the same words to run.
 
-use crate::engine::wrappers::{Program, Run, unwrap};
+use crate::engine::Program;
+use crate::engine::wrappers::{Run, unwrap};
 use crate::shell;
 
 const PROBES: &str = include_str!("../../../tests/fixtures/wrappers/probes.txt");

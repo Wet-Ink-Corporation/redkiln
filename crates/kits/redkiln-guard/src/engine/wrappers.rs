@@ -13,6 +13,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::ptr;
 
+use super::program::Program;
 use super::{braces, readings};
 use crate::shell::{Shape, Word};
 
@@ -41,15 +42,6 @@ const PASSIVE: [&str; 20] = [
 /// wrapper's options are read by its [`grammar::Grammar`] in [`tables`].
 const EXEC_VALUES: &[&str] = &["-a"];
 const TIME_VALUES: &[&str] = &["-f", "-o", "--format", "--output"];
-
-/// The program of a simple command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Program<'a> {
-    /// Its name, without a path or `.exe`.
-    Named(&'a str),
-    /// A word that is not a literal name (`$(echo rm)`, `"$GIT"`, a glob or a brace).
-    Unknown(&'a Word),
-}
 
 /// What a simple command runs, once wrappers are removed.
 #[derive(Debug, PartialEq, Eq)]
