@@ -3,9 +3,11 @@
 //!
 //! The folder is `<user scope>/bench/` (`$REDKILN_HOME/bench`, else `~/.redkiln/bench`), PR 5.6.
 //! anneal kept these files in its home (`$ANNEAL_HOME`, else `~/.anneal`), which is read as a
-//! fallback, file by file, and never written or deleted (D1 style).
+//! fallback, file by file, and never written or deleted (D1 style); an old file that cannot be
+//! read is a stale cache, read as absent.
 
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use redkiln_calibrate::scope::{ScopeError, UserScope};
@@ -74,7 +76,7 @@ impl BenchHome {
 }
 
 impl StateHome for BenchHome {
-    /// The current folder's file when anything is there, else anneal's when anything is there,
+    /// The current folder's file when anything is there, else anneal's when it can be read,
     /// else the current folder's (absent: read as empty).
     fn read(&self, name: &str) -> PathBuf {
         let current = self.current.join(name);
@@ -84,13 +86,26 @@ impl StateHome for BenchHome {
         self.legacy
             .as_ref()
             .map(|legacy| legacy.join(name))
-            .filter(|legacy| is_present(legacy))
+            .filter(|legacy| is_readable_file(legacy))
             .unwrap_or(current)
     }
 
     fn written(&self, name: &str) -> PathBuf {
         self.current.join(name)
     }
+}
+
+/// Whether anneal's copy at `path` is a regular file (not followed through a symlink) that
+/// opens for reading.
+///
+/// A deliberate exception to H-10 (wi-b394c39445 A): anneal's home holds only a stale cache
+/// Bench never writes, so a copy that cannot be read (a directory, a symlink, a FIFO, no
+/// permission) is read as absent, and the state starts empty in Bench's own folder, rather
+/// than its error blocking every save there. The current folder's copy keeps reporting its
+/// errors (`is_present`).
+fn is_readable_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
+        && fs::File::open(path).is_ok()
 }
 
 #[cfg(test)]

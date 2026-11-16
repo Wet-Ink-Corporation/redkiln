@@ -73,6 +73,13 @@ may only move the good way:
   `ratchet_loosened` finding at the line that names it (no line when removed). A deleted file
   removes every ratchet. A working-tree file that does not parse, or is over 1 MiB, is one
   finding for the whole file: breaking the file never unblocks a floor.
+- The ratchet file must be the worktree's own (wi-3e8eb7a535 A), as the config must be: a
+  working-tree copy that resolves anywhere else (a symlinked `.redkiln`, `.redkiln/bench` or
+  `.anneal`, or a symlinked file) is one finding for the whole file on every run, whatever the
+  diff touches, since such a file hides its edits from the diff's paths. When the diff touches
+  the file or a folder on its way (a symlink there shows as a changed `.redkiln`,
+  `.redkiln/bench` or `.anneal`), a merge base that reaches its copy through a symlink
+  (`git ls-tree`) is one finding too: its floors cannot be compared.
 - A ratchet new since the base, or a file new since the base, is not judged. A base copy that is
   not valid (or is over 1 MiB) leaves nothing to compare and is listed in `data.skipped`.
 - The generic `*ratchet*.json` rule above skips both ratchet files, so one change is never

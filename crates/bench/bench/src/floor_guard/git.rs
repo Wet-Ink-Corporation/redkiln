@@ -154,6 +154,34 @@ pub(super) fn read_blob(root: &Path, commit: &str, path: &str) -> Result<FileRea
     ))
 }
 
+/// Those of `paths` (relative to the root, `/`-separated, no glob characters) that are
+/// symlinks in `commit`'s tree, in the order given, read with `git ls-tree`.
+pub(super) fn symlinks(
+    root: &Path,
+    commit: &str,
+    paths: &[&'static str],
+) -> Result<Vec<&'static str>, FloorError> {
+    let mut args = vec!["ls-tree", "-z", "--full-tree", commit, "--"];
+    args.extend_from_slice(paths);
+    let output = git(root, &args, MAX_OUTPUT_BYTES)?;
+    let bytes = checked(output, "ls-tree", MAX_OUTPUT_BYTES)?;
+    // Each entry is `<mode> <type> <object>\t<path>`; mode 120000 is a symlink.
+    let linked: Vec<&[u8]> = bytes
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| {
+            let (meta, path) = entry.split_at_checked(entry.iter().position(|b| *b == b'\t')?)?;
+            meta.starts_with(b"120000 ")
+                .then(|| path.get(1..))
+                .flatten()
+        })
+        .collect();
+    Ok(paths
+        .iter()
+        .copied()
+        .filter(|path| linked.contains(&path.as_bytes()))
+        .collect())
+}
+
 /// A working-tree file as read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum FileRead {

@@ -7,6 +7,9 @@
 //! - `ratchet`: the ratchet file (`.redkiln/bench/ratchets.json`, else anneal's
 //!   `.anneal/ratchets.json` with a warning), read strictly; a ratchet moved the
 //!   bad way since the merge base, removed or turned around is a lowered floor.
+//! - `own`: a ratchet file that is not the worktree's own (a symlinked `.redkiln`,
+//!   `.redkiln/bench` or `.anneal`), or one the merge base reaches through a symlink, is a
+//!   lowered floor too: its floors cannot be judged.
 //!
 //! The diff is the working tree (committed and uncommitted changes) against the merge base of
 //! `HEAD` and the base (`--base`, else `origin/main`, else `main`), plus every untracked file
@@ -20,6 +23,7 @@ pub(crate) mod change;
 mod detect;
 mod diff;
 mod git;
+mod own;
 mod ratchet;
 
 use std::io::{self, Write};
@@ -255,22 +259,32 @@ fn scan_untracked(
 /// of the merge base's ratchets (its new copy, else its old one) against the working tree's
 /// (its new copy, else its old one), so moving the file between the folders is judged like
 /// editing it. With no base copy (or one that is not valid, which is skipped) there is no
-/// floor to lower.
+/// floor to lower. A ratchet file that is not the worktree's own, or one the merge base
+/// reaches through a symlink, is one finding ([`own`]).
 fn ratchets(
     root: &Path,
     merge_base: &str,
     files: &[FileDiff<'_>],
 ) -> Result<RatchetCheck, FloorError> {
-    let paths = [RATCHETS.path, RATCHETS.legacy];
+    if let Some(finding) = own::tree(root)? {
+        return Ok(RatchetCheck::Findings(vec![finding]));
+    }
+    let touching = own::TOUCHING;
     let touched = files
         .iter()
-        .any(|file| paths.contains(&&*file.path) || paths.contains(&&*file.old_path));
+        .any(|file| touching.contains(&&*file.path) || touching.contains(&&*file.old_path));
     if !touched {
         return Ok(RatchetCheck::Findings(Vec::new()));
     }
-    let Some((base_path, base)) =
-        first_present(&paths, |path| git::read_blob(root, merge_base, path))?
-    else {
+    let paths = [RATCHETS.path, RATCHETS.legacy];
+    let base = first_present(&paths, |path| git::read_blob(root, merge_base, path))?;
+    let base_current = base
+        .as_ref()
+        .is_some_and(|(path, _)| *path == RATCHETS.path);
+    if let Some(finding) = own::base(root, merge_base, base_current)? {
+        return Ok(RatchetCheck::Findings(vec![finding]));
+    }
+    let Some((base_path, base)) = base else {
         return Ok(RatchetCheck::Findings(Vec::new()));
     };
     let base = match base {
