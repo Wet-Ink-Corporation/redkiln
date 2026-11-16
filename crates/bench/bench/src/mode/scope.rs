@@ -14,6 +14,10 @@ use crate::floor_guard::is_test_path;
 /// source.
 const SCRATCH_DIRS: [&str; 4] = [".temper", ".anneal", "tmp", "scratch"];
 
+/// Bench's own folder at the worktree root, lowercase with its trailing `/`, scratch like
+/// anneal's `.anneal/` before it; the rest of `.redkiln/` (`suite.toml`) is not.
+const BENCH_DIR: &str = ".redkiln/bench/";
+
 /// Extensions of prose documents, never source.
 const DOC_EXTENSIONS: [&str; 3] = ["md", "txt", "rst"];
 
@@ -47,8 +51,8 @@ const SOURCE_EXTENSIONS: [&str; 15] = [
 pub(crate) enum PathKind {
     /// The plan or the design tree recorded when build mode was entered.
     Artifact,
-    /// Under `.temper/`, `.anneal/`, `tmp/` or `scratch/` at the worktree root, or the handoff
-    /// note `.continue-here` there.
+    /// Under `.temper/`, `.redkiln/bench/`, `.anneal/`, `tmp/` or `scratch/` at the worktree
+    /// root, or the handoff note `.continue-here` there.
     Scratch,
     /// What tools write while code runs: anything under a cache directory such as
     /// `__pycache__/` or `.pytest_cache/` at any depth, Python bytecode (`*.pyc`, `*.pyo`) and
@@ -125,6 +129,9 @@ pub(crate) fn classify(path: &str, artifacts: &[&str]) -> PathKind {
     if let Some((top, _)) = lower.split_once('/')
         && SCRATCH_DIRS.contains(&top)
     {
+        return PathKind::Scratch;
+    }
+    if lower.starts_with(BENCH_DIR) {
         return PathKind::Scratch;
     }
     if lower == CONTINUE_HERE {

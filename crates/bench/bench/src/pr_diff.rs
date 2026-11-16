@@ -69,12 +69,12 @@ impl PrError {
             | Self::NoBase
             | Self::UnknownBase { .. }
             | Self::Config(
-                GateConfigError::File(FileError::NotAFile | FileError::TooLarge)
-                | GateConfigError::Json(_)
-                | GateConfigError::TooManyGlobs
+                GateConfigError::File(FileError::NotAFile { .. } | FileError::TooLarge { .. })
+                | GateConfigError::Json { .. }
+                | GateConfigError::TooManyGlobs { .. }
                 | GateConfigError::Glob { .. },
             ) => exit_codes::USAGE,
-            Self::Config(GateConfigError::File(FileError::Read(_)))
+            Self::Config(GateConfigError::File(FileError::Read { .. }))
             | Self::DefaultGlob(_)
             | Self::Diff(_)
             | Self::Numstat(_) => exit_codes::INTERNAL,

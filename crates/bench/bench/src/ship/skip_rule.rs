@@ -24,8 +24,8 @@ pub(crate) const MAX_LISTED: usize = 64;
 const CONFIGURED: &str = "configured";
 
 /// The default sensitive globs and their categories: auth, payments, migrations, CI, infra,
-/// and the gate's own configuration, so editing `.anneal/config.json` (which can switch the
-/// review requirement) is never a small change. Matched in this order; the first glob that
+/// and the gate's own configuration, so editing `.redkiln/bench/config.json` or anneal's
+/// `.anneal/config.json` (either can switch the review requirement) is never a small change. Matched in this order; the first glob that
 /// matches a path is the one reported.
 pub(crate) const DEFAULT_SENSITIVE: &[(&str, &str)] = &[
     ("auth", "**/*auth*"),
@@ -72,6 +72,7 @@ pub(crate) const DEFAULT_SENSITIVE: &[(&str, &str)] = &[
     ("infra", "**/deploy/**"),
     ("infra", "**/Dockerfile*"),
     ("infra", "**/docker-compose*"),
+    ("gate config", ".redkiln/bench/**"),
     ("gate config", ".anneal/**"),
     ("gate config", ".claude/**"),
 ];

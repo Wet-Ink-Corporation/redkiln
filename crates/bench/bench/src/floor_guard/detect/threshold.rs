@@ -1,7 +1,7 @@
 //! Numeric thresholds on a line (`key = 80`, `"key": 80`, `key: 80`, `--key=80`, `--key 80`),
 //! and whether a change of one loosens a floor.
 
-use crate::floor_guard::ratchet::RATCHETS_PATH;
+use crate::repo_file::RATCHETS;
 
 /// A `key` and its numeric `value` on one line.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,10 +42,10 @@ const TIMEOUT_KEYS: [&str; 4] = ["timeout", "timeout_ms", "testTimeout", "timeou
 
 /// The kind of threshold `key` is in the file at `path`; `coverage_threshold` says whether the
 /// file mentions `coverageThreshold`. In a `*ratchet*.json` file (another tool's ratchet file)
-/// every `max*`/`min*` key is a ratchet value. anneal's own ratchet file
-/// ([`RATCHETS_PATH`]) holds no threshold here: its schema-checked reader judges it.
+/// every `max*`/`min*` key is a ratchet value. Bench's own ratchet file ([`RATCHETS`], at
+/// either of its paths) holds no threshold here: its schema-checked reader judges it.
 pub(super) fn kind(path: &str, key: &str, coverage_threshold: bool) -> Option<Kind> {
-    if path == RATCHETS_PATH {
+    if path == RATCHETS.path || path == RATCHETS.legacy {
         return None;
     }
     let key = key.trim_start_matches('-');

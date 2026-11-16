@@ -237,6 +237,47 @@ fn bash_writes_to_the_anneal_config_are_denied_and_the_rest_of_anneal_is_not() {
 }
 
 #[test]
+fn bash_writes_to_the_bench_config_are_denied_and_the_rest_of_its_folder_is_not() {
+    assert_table(&[
+        ("echo '{}' > .redkiln/bench/config.json", CONFIG),
+        ("echo x >> ./.redkiln/bench/config.json", CONFIG),
+        ("echo x > .redkiln/x/../bench/config.json", CONFIG),
+        ("tee .redkiln/bench/config.json < x", CONFIG),
+        ("truncate -s 0 .redkiln/bench/config.json", CONFIG),
+        ("sed -i 's/a/b/' .redkiln/bench/config.json", CONFIG),
+        ("cp x.json .redkiln/bench/config.json", CONFIG),
+        ("cp config.json .redkiln/bench", CONFIG),
+        ("cp config.json .redkiln/bench/", CONFIG),
+        ("cp -t .redkiln/bench config.json", CONFIG),
+        ("mv x.json .redkiln/bench/config.json", CONFIG),
+        ("mv .redkiln/bench/config.json old.json", CONFIG),
+        ("mv .redkiln/bench old", CONFIG),
+        ("mv .redkiln old", CONFIG),
+        ("rm .redkiln/bench/config.json", CONFIG),
+        ("rm -r .redkiln/bench", CONFIG),
+        ("rm -r .redkiln/bench/", CONFIG),
+        ("rm -r .redkiln", CONFIG),
+        ("chmod 000 .redkiln/bench", CONFIG),
+        ("ln .redkiln/bench/config.json x", CONFIG),
+        ("cp -l .redkiln/bench/config.json x", CONFIG),
+        ("echo x > .Redkiln/Bench/Config.json", CONFIG),
+        ("echo x > .redkiln/b*/config.json", CONFIG),
+        ("cd .redkiln/bench && echo x > config.json", CONFIG),
+        ("cd .redkiln && echo x > bench/config.json", CONFIG),
+        (
+            "cd .redkiln/bench/briefs && echo x > ../config.json",
+            CONFIG,
+        ),
+        ("echo x > .redkiln/bench/briefs/36.md", ALLOW),
+        ("cat .redkiln/bench/config.json", ALLOW),
+        ("cp .redkiln/bench/config.json x", ALLOW),
+        ("echo x > bench/config.json", ALLOW),
+        ("echo x > crates/bench/config.json", ALLOW),
+        ("rm -r crates/bench", ALLOW),
+    ]);
+}
+
+#[test]
 fn a_hard_link_to_protected_config_is_a_write_of_it() {
     assert_table(&[
         ("ln .anneal/config.json x", CONFIG),

@@ -59,6 +59,27 @@ fn verdict_set_records_the_level_source_commit_patch_id_and_base() -> TestResult
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
+fn verdict_valid_reads_anneal_s_config_with_one_warning() -> TestResult {
+    let repo = PrRepo::new()?;
+    repo.write(
+        ".anneal/config.json",
+        r#"{"review": {"require_plugin": true}}"#,
+    )?;
+
+    let output = repo.anneal(&["verdict", "valid", "--pr", "7"])?;
+
+    assert_eq!(
+        std::str::from_utf8(&output.stderr)?,
+        "bench: warning: .anneal/config.json is read because .redkiln/bench/config.json does \
+         not exist; bench reads anneal's .anneal/ only as a 0.x fallback, so move the file \
+         there\n",
+        "{output:?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
 fn verdict_set_refuses_a_commit_that_does_not_exist_and_records_nothing() -> TestResult {
     let repo = PrRepo::new()?;
 

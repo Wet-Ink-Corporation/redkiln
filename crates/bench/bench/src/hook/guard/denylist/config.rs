@@ -17,7 +17,7 @@ use redkiln_guard::protect::{Protected, ProtectedPaths, last_component};
 use redkiln_guard::shell::{Shape, Word};
 
 /// The protected paths.
-const PROTECTED: [Protected; 13] = [
+const PROTECTED: [Protected; 14] = [
     Protected::exact("hooks/", None, "hooks"),
     Protected::affix(
         ".claude/settings*.json",
@@ -52,12 +52,21 @@ const PROTECTED: [Protected; 13] = [
     Protected::file(".pre-commit-config.yaml"),
     Protected::file("lefthook.yml"),
     // The gates' own settings: the orchestrate leads the brief hook trusts, the merge gate's
-    // review switch and sensitive globs, `check_fast`.
+    // review switch and sensitive globs, `check_fast`. Bench reads `.redkiln/bench/` and, as a
+    // 0.x fallback, anneal's `.anneal/` (`repo_file`); both are protected.
+    Protected::exact(
+        ".redkiln/bench/config.json",
+        Some(".redkiln/bench"),
+        "config.json",
+    ),
     Protected::exact(".anneal/config.json", Some(".anneal"), "config.json"),
 ];
 
 /// Directories that hold protected config: removing, moving or re-permissioning one changes it.
-const CONTAINERS: [(&str, &str); 4] = [
+/// `.redkiln/bench` is matched on its last two components.
+const CONTAINERS: [(&str, &str); 6] = [
+    (".redkiln/bench", ".redkiln/bench/"),
+    (".redkiln", ".redkiln/"),
     (".anneal", ".anneal/"),
     (".claude", ".claude/"),
     (".github", ".github/"),
@@ -333,12 +342,11 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
         (dir, &copy.operands[..], true)
     } else {
         let (last, sources) = copy.operands.split_last()?;
+        // A directory that holds config, matched as removing it would be (`.redkiln/bench` on
+        // its last two components); a protected file or a directory above the start there
+        // only widens which joined paths are checked.
         let named_dir = last.text().ends_with(['/', '\\'])
-            || last_component(last.text()).is_some_and(|name| {
-                CONTAINERS
-                    .iter()
-                    .any(|(dir, _)| dir.eq_ignore_ascii_case(name))
-            });
+            || contains_protected(last.text(), last.shape(), cwd).is_some();
         ((last.text(), last.shape()), sources, named_dir)
     };
     if sources.is_empty() {

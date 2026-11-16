@@ -63,13 +63,22 @@ const JUDGE_BUDGET: Duration = Duration::from_millis(3_500);
 /// The `point` of the hook's `gate_blocked` events, before the check's id.
 const POINT_PREFIX: &str = "preconditions.";
 
-/// The directory and file name of anneal's own settings, `.anneal/config.json`.
-const SETTINGS: [&str; 2] = [".anneal", "config.json"];
-
-/// The reason an agent's edit of `.anneal/config.json` is denied.
-const SETTINGS_DENIED: &str = "preconditions: .anneal/config.json is anneal's own settings (the \
-                               orchestrate leads, the merge gate's keys, check_fast), which an \
-                               agent may not edit; edit it yourself";
+/// Bench's own settings files, each as its path's last names, and the reason an agent's edit
+/// of it is denied: `.redkiln/bench/config.json`, and anneal's `.anneal/config.json`, which
+/// Bench still reads as a 0.x fallback (`repo_file`).
+const SETTINGS: [(&[&str], &str); 2] = [
+    (
+        &[".redkiln", "bench", "config.json"],
+        "preconditions: .redkiln/bench/config.json is bench's own settings (the orchestrate \
+         leads, the merge gate's keys, check_fast), which an agent may not edit; edit it \
+         yourself",
+    ),
+    (
+        &[".anneal", "config.json"],
+        "preconditions: .anneal/config.json is anneal's own settings (the orchestrate leads, \
+         the merge gate's keys, check_fast), which an agent may not edit; edit it yourself",
+    ),
+];
 
 /// The precondition a denial names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,8 +330,8 @@ where
     };
     // Before any ledger or mode: the settings name the agents trusted to spawn and the merge
     // gate's rules, so an agent may never write them, in a mode or not.
-    if is_settings(&lexical, &[&resolved, &normalised]) {
-        let denial = Denial::new(Check::Settings, SETTINGS_DENIED);
+    if let Some(denied) = is_settings(&lexical, &[&resolved, &normalised]) {
+        let denial = Denial::new(Check::Settings, denied);
         return Some(Verdict::deny(denial, worktrees.ledger_at(&anchor)));
     }
     if let Some(verdict) = worktrees.judge(&anchor, target, resolved.as_deref()) {
@@ -401,37 +410,62 @@ fn existing_ancestor(path: &Path) -> Option<PathBuf> {
 
 /// Whether the edited file, `lexical` as written after `.` and `..` and `readings` where it
 /// may be written ([`mode::resolve::resolve`] of the path and of its lexical normalisation,
-/// those that resolve), is a `.anneal/config.json`: as written, as any reading, as the file
-/// resolves when it exists, or as its longest existing ancestor directory resolves with the
-/// rest of the path after it (a symlinked directory). Any directory's counts, not only the
-/// worktree root's, since this is judged before git is asked.
-fn is_settings(lexical: &Path, readings: &[&io::Result<PathBuf>]) -> bool {
+/// those that resolve), is one of [`SETTINGS`] (the reason its edit is denied): as written, as
+/// any reading, as the file resolves when it exists, or as its longest existing ancestor
+/// directory resolves with the rest of the path after it (a symlinked directory). Any
+/// directory's counts, not only the worktree root's, since this is judged before git is asked.
+fn is_settings(lexical: &Path, readings: &[&io::Result<PathBuf>]) -> Option<&'static str> {
     let through_anchor = || {
         let anchor = existing_ancestor(lexical)?;
         let rest = lexical.strip_prefix(&anchor).ok()?;
         Some(std::fs::canonicalize(&anchor).ok()?.join(rest))
     };
-    names_settings(lexical)
-        || readings
-            .iter()
-            .any(|reading| reading.as_deref().is_ok_and(names_settings))
-        || std::fs::canonicalize(lexical).is_ok_and(|real| names_settings(&real))
-        || through_anchor().is_some_and(|real| names_settings(&real))
+    settings_named(lexical)
+        .or_else(|| {
+            readings
+                .iter()
+                .find_map(|reading| reading.as_deref().ok().and_then(settings_named))
+        })
+        .or_else(|| {
+            std::fs::canonicalize(lexical)
+                .ok()
+                .and_then(|real| settings_named(&real))
+        })
+        .or_else(|| through_anchor().and_then(|real| settings_named(&real)))
 }
 
-/// Whether `path` ends in `.anneal/config.json`, in any ASCII letter case (APFS and NTFS are
-/// case-insensitive by default) and with what Windows ignores in a name taken off: trailing
-/// dots and spaces, and an alternate data stream (`config.json::$DATA`).
+/// Whether `path` is one of [`SETTINGS`]; see [`settings_named`].
+#[cfg(test)]
 fn names_settings(path: &Path) -> bool {
-    let names = [path.parent().and_then(Path::file_name), path.file_name()];
-    names.iter().zip(SETTINGS).all(|(name, wanted)| {
-        name.is_some_and(|name| {
-            let name = name.to_string_lossy();
-            let stem = name.split_once(':').map_or(&*name, |(stem, _stream)| stem);
-            stem.trim_end_matches(['.', ' '])
-                .eq_ignore_ascii_case(wanted)
+    settings_named(path).is_some()
+}
+
+/// The denial reason of the one of [`SETTINGS`] `path` ends in, in any ASCII letter case (APFS
+/// and NTFS are case-insensitive by default) and with what Windows ignores in a name taken
+/// off: trailing dots and spaces, and an alternate data stream (`config.json::$DATA`).
+fn settings_named(path: &Path) -> Option<&'static str> {
+    let names: Vec<String> = path
+        .components()
+        .rev()
+        .map_while(|component| match component {
+            Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            Component::CurDir
+            | Component::ParentDir
+            | Component::Prefix(_)
+            | Component::RootDir => None,
         })
-    })
+        .collect();
+    SETTINGS
+        .iter()
+        .find(|(wanted, _)| {
+            names.len() >= wanted.len()
+                && names.iter().zip(wanted.iter().rev()).all(|(name, wanted)| {
+                    let stem = name.split_once(':').map_or(name.as_str(), |(stem, _)| stem);
+                    stem.trim_end_matches(['.', ' '])
+                        .eq_ignore_ascii_case(wanted)
+                })
+        })
+        .map(|(_, denied)| *denied)
 }
 
 /// The denial for a gated edit in the worktree whose top-level directory is `root`, given its

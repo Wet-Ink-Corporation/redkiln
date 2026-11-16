@@ -8,7 +8,7 @@
 //!
 //! 1. `bench floor-guard`: a lowered floor (exit 1) is the one result that blocks, as
 //!    `{"decision": "block", "reason": "ERROR fast-check: ..."}`;
-//! 2. the repository's `check:fast` command (`check_fast` in `.anneal/config.json`), 5 s;
+//! 2. the repository's `check:fast` command (`check_fast` in `.redkiln/bench/config.json`), 5 s;
 //! 3. the glossary's avoided terms (`bench lint terms`) on the changed files, when
 //!    `CONTEXT.md` exists;
 //! 4. `bench lint spec` or `bench lint plan` for each changed `.md` file under a `specs` or
@@ -306,9 +306,9 @@ fn run_checks(root: &Path, files: &[String], budget: Budget, report: &mut Report
     }
 }
 
-/// Directories at the worktree root that hold tools' own state (temper's plans, anneal's
-/// config): never anneal specs or plans.
-const TOOL_STATE_DIRS: [&str; 2] = [".temper", ".anneal"];
+/// Directories at the worktree root that hold tools' own state (temper's plans, the suite's
+/// and Bench's config, anneal's): never Bench specs or plans.
+const TOOL_STATE_DIRS: [&str; 3] = [".temper", ".redkiln", ".anneal"];
 
 /// `spec` or `plan` for a `.md` file whose nearest `specs` or `plans` directory names it,
 /// outside [`TOOL_STATE_DIRS`].

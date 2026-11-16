@@ -390,6 +390,79 @@ fn a_base_ratchet_file_over_1_mib_is_skipped_not_judged() -> TestResult {
     Ok(())
 }
 
+/// Bench's ratchet file, where it is read first.
+const BENCH_RATCHETS: &str = ".redkiln/bench/ratchets.json";
+
+/// The warning line floor-guard writes when it reads the old ratchet file.
+const FALLBACK_WARNING: &str = "bench: warning: .anneal/ratchets.json is read because \
+                                .redkiln/bench/ratchets.json does not exist; bench reads \
+                                anneal's .anneal/ only as a 0.x fallback, so move the file \
+                                there\n";
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_raised_ratchet_in_bench_s_folder_is_lowered_at_its_line() -> TestResult {
+    let dir = repo(&[(BENCH_RATCHETS, &ratchets(10.0, 80.0))])?;
+    write(dir.path(), &[(BENCH_RATCHETS, &ratchets(12.0, 80.0))])?;
+
+    assert_lowered(dir.path(), ("ratchet_loosened", BENCH_RATCHETS, json!(4)))
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_ratchet_file_moved_into_bench_s_folder_looser_is_lowered() -> TestResult {
+    let dir = repo(&[(RATCHETS, &ratchets(10.0, 80.0))])?;
+    git(dir.path(), &["mv", RATCHETS, "base.json"]);
+    git(dir.path(), &["rm", "-q", "--cached", "base.json"]);
+    std::fs::remove_file(dir.path().join("base.json"))?;
+    write(dir.path(), &[(BENCH_RATCHETS, &ratchets(10.0, 79.0))])?;
+
+    assert_lowered(dir.path(), ("ratchet_loosened", BENCH_RATCHETS, json!(5)))
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_ratchet_file_moved_back_to_anneal_s_folder_looser_is_lowered() -> TestResult {
+    let dir = repo(&[(BENCH_RATCHETS, &ratchets(10.0, 80.0))])?;
+    std::fs::remove_file(dir.path().join(BENCH_RATCHETS))?;
+    write(dir.path(), &[(RATCHETS, &ratchets(11.0, 80.0))])?;
+
+    let output = floor_guard(dir.path(), &[])?;
+
+    assert_eq!(
+        (
+            output.status.code(),
+            std::str::from_utf8(&output.stderr)?,
+            findings(&crate::support::envelope(&output)?),
+        ),
+        (
+            Some(1),
+            FALLBACK_WARNING,
+            vec![(json!("ratchet_loosened"), json!(RATCHETS), json!(4))]
+        )
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_looser_old_copy_beside_bench_s_ratchet_file_is_ignored_with_a_warning() -> TestResult {
+    let dir = repo(&[(BENCH_RATCHETS, &ratchets(10.0, 80.0))])?;
+    write(dir.path(), &[(RATCHETS, &ratchets(20.0, 10.0))])?;
+
+    let output = floor_guard(dir.path(), &[])?;
+
+    assert_eq!(
+        (output.status.code(), std::str::from_utf8(&output.stderr)?),
+        (
+            Some(0),
+            "bench: warning: .anneal/ratchets.json is ignored: bench reads \
+             .redkiln/bench/ratchets.json\n"
+        )
+    );
+    Ok(())
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn a_new_ratchet_file_is_not_judged() -> TestResult {

@@ -1,4 +1,5 @@
-//! The ratchet file, `.anneal/ratchets.json`: numeric floors that may only move the good way.
+//! The ratchet file, `.redkiln/bench/ratchets.json` (anneal's `.anneal/ratchets.json` read as a
+//! 0.x fallback, `repo_file::RATCHETS`): numeric floors that may only move the good way.
 //!
 //! ```json
 //! {"version": 1, "ratchets": {"warnings": {"value": 12, "direction": "down"}}}
@@ -14,8 +15,9 @@ use serde::Deserialize;
 
 use super::detect::{Category, FloorFinding};
 
-/// Where the ratchet file lives, relative to the repository root.
-pub(crate) const RATCHETS_PATH: &str = ".anneal/ratchets.json";
+/// Where Bench keeps the ratchet file, relative to the repository root.
+#[cfg(test)]
+pub(crate) const RATCHETS_PATH: &str = crate::repo_file::RATCHETS.path;
 
 /// The only format version.
 const VERSION: u64 = 1;
@@ -248,14 +250,20 @@ pub(crate) enum Now<'a> {
     Text(&'a str),
 }
 
-/// The floor findings for the working tree's ratchet file `now` against the merge base's
-/// `base`: one per loosened ratchet, at the line that names it; one per ratchet when the file
-/// is gone; and one for the whole file when it cannot be read as a ratchet file, so breaking
-/// the file never unblocks a floor.
+/// [`findings_at`] for the ratchet file at [`RATCHETS_PATH`].
+#[cfg(test)]
 pub(crate) fn findings(base: &Ratchets, now: Now<'_>) -> Vec<FloorFinding> {
+    findings_at(base, now, RATCHETS_PATH)
+}
+
+/// The floor findings for the working tree's ratchet file `now` against the merge base's
+/// `base`, each naming `file`: one per loosened ratchet, at the line that names it; one per
+/// ratchet when the file is gone; and one for the whole file when it cannot be read as a
+/// ratchet file, so breaking the file never unblocks a floor.
+pub(crate) fn findings_at(base: &Ratchets, now: Now<'_>, file: &str) -> Vec<FloorFinding> {
     let finding = |line, message| FloorFinding {
         category: Category::RatchetLoosened,
-        file: RATCHETS_PATH.to_owned(),
+        file: file.to_owned(),
         line,
         message,
     };

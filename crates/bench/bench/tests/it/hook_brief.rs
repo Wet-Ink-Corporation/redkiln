@@ -85,6 +85,51 @@ fn judge(dir: &Path, input: &Value) -> TestResult<Option<String>> {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_spawn_naming_a_valid_brief_in_bench_s_folder_is_allowed_silently() -> TestResult {
+    let dir = repo()?;
+    let briefs = dir.path().join(".redkiln").join("bench").join("briefs");
+    fs::create_dir_all(&briefs)?;
+    fs::write(briefs.join("37.md"), BRIEF)?;
+    let prompt = "Fix the round counter.\nBrief: .redkiln/bench/briefs/37.md\n";
+
+    assert_eq!(
+        judge(dir.path(), &agent_call(dir.path(), prompt, None))?,
+        None
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
+fn a_lead_configured_in_bench_s_folder_may_spawn_from_inside_a_subagent() -> TestResult {
+    let dir = repo()?;
+    let config = dir.path().join(".redkiln").join("bench");
+    fs::create_dir_all(&config)?;
+    fs::write(
+        config.join("config.json"),
+        r#"{"orchestrate": {"leads": ["planner"]}}"#,
+    )?;
+    let prompt = "Fix it.\nBrief: .anneal/briefs/36.md\n";
+
+    let lead = judge(dir.path(), &agent_call(dir.path(), prompt, Some("planner")))?;
+    let other = judge(dir.path(), &agent_call(dir.path(), prompt, Some("Explore")))?;
+
+    assert_eq!(
+        (lead, other),
+        (
+            None,
+            Some(
+                "ERROR brief: a subagent (\"Explore\") may not spawn subagents; only the \
+                 orchestrate leads may (orchestrate.leads in .redkiln/bench/config.json: planner)"
+                    .to_owned()
+            )
+        )
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git and the binary")]
 fn a_spawn_whose_prompt_names_a_valid_brief_is_allowed_silently() -> TestResult {
     let dir = repo()?;
     let prompt = "Fix the round counter.\nBrief: .anneal/briefs/36.md\n";

@@ -4,7 +4,8 @@
 //! - `detect`: turns them into findings: suppressions added, test files deleted or emptied,
 //!   more tests removed than added, and coverage, timeout and ratchet thresholds loosened.
 //! - `git`: the git calls and working-tree reads, each bounded.
-//! - `ratchet`: the ratchet file (`.anneal/ratchets.json`), read strictly; a ratchet moved the
+//! - `ratchet`: the ratchet file (`.redkiln/bench/ratchets.json`, else anneal's
+//!   `.anneal/ratchets.json` with a warning), read strictly; a ratchet moved the
 //!   bad way since the merge base, removed or turned around is a lowered floor.
 //!
 //! The diff is the working tree (committed and uncommitted changes) against the merge base of
@@ -37,7 +38,9 @@ pub use detect::{Category, FloorFinding};
 use detect::{Detector, PostImage};
 use diff::{FileDiff, Status};
 use git::FileRead;
-use ratchet::{Now, RATCHETS_PATH, Ratchets};
+use ratchet::{Now, Ratchets};
+
+use crate::repo_file::{self, RATCHETS};
 
 /// `bench floor-guard`.
 #[derive(Debug, Args)]
@@ -143,13 +146,16 @@ struct Data<'a> {
     skipped: Vec<Skipped>,
 }
 
-/// Runs `bench floor-guard` in `cwd`.
-pub(crate) fn run<O: Write>(
+/// Runs `bench floor-guard` in `cwd`; one warning line on `err` when the working tree's
+/// ratchet file is read from anneal's old folder, or both copies exist.
+pub(crate) fn run<O: Write, E: Write>(
     args: &FloorGuardArgs,
     cwd: &Path,
     out: &mut O,
+    err: &mut E,
 ) -> Result<Code, CliError> {
     let root = git::toplevel(cwd)?;
+    repo_file::warn(&root, &[RATCHETS], &mut *err).map_err(CliError::Output)?;
     let (base, base_commit) = resolve_base(&root, args.base.as_deref())?;
     let merge_base = git::merge_base(&root, base, &base_commit)?;
     let text = git::diff(&root, &merge_base)?;
@@ -162,8 +168,8 @@ pub(crate) fn run<O: Write>(
     }
     match ratchets(&root, &merge_base, &files)? {
         RatchetCheck::Findings(found) => found.into_iter().for_each(|f| detector.add(f)),
-        RatchetCheck::Skipped(reason) => skipped.push(Skipped {
-            file: RATCHETS_PATH.to_owned(),
+        RatchetCheck::Skipped(file, reason) => skipped.push(Skipped {
+            file: file.to_owned(),
             reason,
         }),
     }
@@ -244,42 +250,69 @@ fn scan_untracked(
     Ok(count)
 }
 
-/// Judges the ratchet file when the diff (`files`) touches it: each of the merge base's
-/// ratchets against the working tree's copy. With no base copy (or one that is not valid,
-/// which is skipped) there is no floor to lower.
+/// Judges the ratchet file when the diff (`files`) touches it, at either of its paths
+/// ([`RATCHETS`]: `.redkiln/bench/ratchets.json`, else anneal's `.anneal/ratchets.json`): each
+/// of the merge base's ratchets (its new copy, else its old one) against the working tree's
+/// (its new copy, else its old one), so moving the file between the folders is judged like
+/// editing it. With no base copy (or one that is not valid, which is skipped) there is no
+/// floor to lower.
 fn ratchets(
     root: &Path,
     merge_base: &str,
     files: &[FileDiff<'_>],
 ) -> Result<RatchetCheck, FloorError> {
+    let paths = [RATCHETS.path, RATCHETS.legacy];
     let touched = files
         .iter()
-        .any(|file| file.path == RATCHETS_PATH || file.old_path == RATCHETS_PATH);
+        .any(|file| paths.contains(&&*file.path) || paths.contains(&&*file.old_path));
     if !touched {
         return Ok(RatchetCheck::Findings(Vec::new()));
     }
-    let base = match git::read_blob(root, merge_base, RATCHETS_PATH)? {
+    let Some((base_path, base)) =
+        first_present(&paths, |path| git::read_blob(root, merge_base, path))?
+    else {
+        return Ok(RatchetCheck::Findings(Vec::new()));
+    };
+    let base = match base {
         FileRead::Text(text) => text,
-        FileRead::Absent => return Ok(RatchetCheck::Findings(Vec::new())),
         FileRead::TooLarge => {
             return Ok(RatchetCheck::Skipped(
+                base_path,
                 "over 1 MiB at the merge base: no ratchet to compare",
             ));
         }
+        FileRead::Absent => return Ok(RatchetCheck::Findings(Vec::new())),
     };
     // The reason is not kept: the base's copy is not this change's to fix, only to compare.
     let Ok(base) = Ratchets::parse(&base) else {
         return Ok(RatchetCheck::Skipped(
+            base_path,
             "not a valid ratchet file at the merge base: no ratchet to compare",
         ));
     };
-    let now = git::read_file(root, RATCHETS_PATH)?;
-    let now = match &now {
-        FileRead::Text(text) => Now::Text(text),
-        FileRead::TooLarge => Now::TooLarge,
-        FileRead::Absent => Now::Absent,
+    let read = first_present(&paths, |path| git::read_file(root, path))?;
+    let (file, now) = match &read {
+        Some((path, FileRead::Text(text))) => (*path, Now::Text(text)),
+        Some((path, FileRead::TooLarge)) => (*path, Now::TooLarge),
+        Some((_, FileRead::Absent)) | None => (base_path, Now::Absent),
     };
-    Ok(RatchetCheck::Findings(ratchet::findings(&base, now)))
+    Ok(RatchetCheck::Findings(ratchet::findings_at(
+        &base, now, file,
+    )))
+}
+
+/// The first of `paths` that `read` finds present, and what it read.
+fn first_present(
+    paths: &[&'static str],
+    read: impl Fn(&str) -> Result<FileRead, FloorError>,
+) -> Result<Option<(&'static str, FileRead)>, FloorError> {
+    for path in paths {
+        match read(path)? {
+            FileRead::Absent => {}
+            found => return Ok(Some((path, found))),
+        }
+    }
+    Ok(None)
 }
 
 /// What judging the ratchet file gave.
@@ -287,8 +320,8 @@ fn ratchets(
 enum RatchetCheck {
     /// The loosened floors (none when the base has no ratchet file).
     Findings(Vec<FloorFinding>),
-    /// Why there was nothing to compare against.
-    Skipped(&'static str),
+    /// The base copy compared against, and why there was nothing to compare against.
+    Skipped(&'static str, &'static str),
 }
 
 /// What the detector needs of `file`'s working-tree content; `None` for a deleted file or one

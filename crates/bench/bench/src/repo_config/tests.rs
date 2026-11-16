@@ -46,11 +46,17 @@ fn leads_that_are_not_a_list_of_names_or_too_many_are_refused() {
     ));
 
     assert!(
-        matches!(not_a_list, Err(LeadsError::Json(_))),
+        matches!(not_a_list, Err(LeadsError::Json { .. })),
         "{not_a_list:?}"
     );
-    assert!(matches!(misspelt, Err(LeadsError::Json(_))), "{misspelt:?}");
-    assert!(matches!(too_many, Err(LeadsError::TooMany)), "{too_many:?}");
+    assert!(
+        matches!(misspelt, Err(LeadsError::Json { .. })),
+        "{misspelt:?}"
+    );
+    assert!(
+        matches!(too_many, Err(LeadsError::TooMany { .. })),
+        "{too_many:?}"
+    );
 }
 
 #[test]
@@ -140,7 +146,10 @@ fn an_unknown_key_inside_review_or_ship_is_refused_rather_than_ignored() {
     assert!(
         matches!(
             (&typo, &ship),
-            (Err(GateConfigError::Json(_)), Err(GateConfigError::Json(_)))
+            (
+                Err(GateConfigError::Json { .. }),
+                Err(GateConfigError::Json { .. })
+            )
         ),
         "a misspelt switch must not silently read as false: {typo:?} {ship:?}"
     );
@@ -159,7 +168,7 @@ fn a_bad_glob_or_too_many_globs_is_refused() {
         "{bad:?}"
     );
     assert!(
-        matches!(&many, Err(GateConfigError::TooManyGlobs)),
+        matches!(&many, Err(GateConfigError::TooManyGlobs { .. })),
         "{many:?}"
     );
 }
@@ -172,7 +181,10 @@ fn a_config_path_that_is_not_a_regular_file_is_refused_unopened() {
     let result = gate(root.path());
 
     assert!(
-        matches!(result, Err(GateConfigError::File(FileError::NotAFile))),
+        matches!(
+            result,
+            Err(GateConfigError::File(FileError::NotAFile { .. }))
+        ),
         "{result:?}"
     );
 }

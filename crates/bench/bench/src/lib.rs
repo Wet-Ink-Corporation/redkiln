@@ -52,10 +52,11 @@
 //! - [`pr_diff`]: the bounded git reads of a pull request's diff (commits, base, patch id,
 //!   numstat, ancestry, the diff's text) that `verdict`, `ship`, `brief` and the merge gate
 //!   share, from the GitHub kit (`redkiln_github::diff`), and their [`pr_diff::PrError`].
-//! - [`repo_config`]: `.anneal/config.json`, read within a size cap (`check_fast`,
-//!   `review.require_plugin`, `ship.sensitive_globs`, `orchestrate.leads`).
+//! - [`repo_config`]: `.redkiln/bench/config.json` (anneal's `.anneal/config.json` as a 0.x
+//!   fallback), read within a size cap (`check_fast`, `review.require_plugin`,
+//!   `ship.sensitive_globs`, `orchestrate.leads`).
 //! - [`brief`]: `bench brief build`, a subagent's nine-field brief and its review package
-//!   under `.anneal/briefs/`.
+//!   under `.redkiln/bench/briefs/`.
 //! - [`round`]: `bench round start|status`, a ticket's fix-loop round counter read from the
 //!   ledger.
 //! - [`orchestrate`]: `bench orchestrate fan-out|park|rule`, the fan-out gate and one-way
@@ -119,6 +120,7 @@ mod process;
 #[cfg(test)]
 mod release_check;
 pub mod repo_config;
+mod repo_file;
 pub mod repro;
 pub mod rollout;
 pub mod round;

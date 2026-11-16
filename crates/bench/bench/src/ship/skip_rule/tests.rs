@@ -108,6 +108,27 @@ fn each_default_category_catches_a_typical_path() {
 }
 
 #[test]
+fn bench_s_folder_is_gate_config_as_anneal_s_was() {
+    let rules = sensitive_rules(Vec::new()).expect("the defaults compile");
+
+    let categories: Vec<Vec<&str>> = [".redkiln/bench/config.json", ".anneal/config.json"]
+        .iter()
+        .map(|path| {
+            judge(&[change(path, 1)], &rules)
+                .reasons
+                .iter()
+                .filter_map(|reason| match reason {
+                    Reason::Sensitive { category, .. } => Some(*category),
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect();
+
+    assert_eq!(categories, [vec!["gate config"], vec!["gate config"]]);
+}
+
+#[test]
 fn a_configured_glob_adds_to_the_defaults() {
     let configured = vec![Glob::new("ledger/**").expect("valid")];
     let rules = sensitive_rules(configured).expect("compiles");

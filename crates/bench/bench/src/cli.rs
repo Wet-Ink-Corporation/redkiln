@@ -352,7 +352,7 @@ fn dispatch<O: Write, E: Write>(
         }
         Command::FloorGuard(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-            floor_guard::run(args, &cwd, out)
+            floor_guard::run(args, &cwd, out, err)
         }
         Command::Verdict(args) => run_verdict(args, out, err),
         Command::Decide(args) => run_decide(args, out, err),
@@ -360,7 +360,7 @@ fn dispatch<O: Write, E: Write>(
         Command::Hook(args) => run_hook(args, out),
         Command::Ship(args) => {
             let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
-            ship::run(args, &cwd, out)
+            ship::run(args, &cwd, out, err)
         }
         Command::Watch(args) => run_watch(args, out),
         Command::Status(args) => {

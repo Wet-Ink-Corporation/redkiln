@@ -135,13 +135,13 @@ fn check_fast_is_the_argv_array_of_the_config() {
 fn a_check_fast_that_is_not_a_non_empty_argv_array_is_an_error() {
     assert!(matches!(
         check_fast(r#"{"check_fast": []}"#),
-        Err(ConfigError::EmptyCheckFast)
+        Err(ConfigError::EmptyCheckFast { .. })
     ));
     assert!(matches!(
         check_fast(r#"{"check_fast": "cargo check"}"#),
-        Err(ConfigError::Json(_))
+        Err(ConfigError::Json { .. })
     ));
-    assert!(matches!(check_fast("[1]"), Err(ConfigError::Json(_))));
+    assert!(matches!(check_fast("[1]"), Err(ConfigError::Json { .. })));
 }
 
 #[test]
@@ -187,12 +187,56 @@ fn scratch_and_tool_state_directories_are_never_linted_as_specs_or_plans() {
 }
 
 #[test]
+fn bench_s_folder_is_tool_state_never_linted_as_specs_or_plans() {
+    assert_eq!(
+        [
+            super::lint_target(".redkiln/bench/specs/draft.md"),
+            super::lint_target(".redkiln/plans/x.md"),
+        ],
+        [None, None]
+    );
+}
+
+#[test]
+fn bench_s_config_is_read_before_anneal_s() -> Result<(), Box<dyn std::error::Error>> {
+    let root = tempfile::tempdir()?;
+    for (dir, argv) in [(".anneal", "old"), (".redkiln/bench", "new")] {
+        let dir = root.path().join(dir);
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(
+            dir.join("config.json"),
+            format!(r#"{{"check_fast": ["{argv}"]}}"#),
+        )?;
+    }
+
+    assert_eq!(read(root.path())?, Some(vec!["new".to_owned()]));
+    Ok(())
+}
+
+#[test]
+fn a_bad_config_is_an_error_naming_the_file_read() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir_all(root.path().join(".anneal")).expect("created");
+    std::fs::write(root.path().join(".anneal/config.json"), "[1]").expect("written");
+
+    let message = read(root.path()).map_err(|error| error.to_string());
+
+    assert_eq!(
+        message,
+        Err(
+            ".anneal/config.json is not a config object with check_fast as an array of strings"
+                .to_owned()
+        )
+    );
+}
+
+#[test]
 fn a_config_path_that_is_not_a_regular_file_is_a_config_error() {
     let root = tempfile::tempdir().expect("a temporary directory");
     std::fs::create_dir_all(root.path().join(".anneal/config.json")).expect("a directory there");
 
     assert!(
-        matches!(read(root.path()), Err(ConfigError::NotAFile)),
+        matches!(read(root.path()), Err(ConfigError::NotAFile { .. })),
         "a directory is never opened as the config"
     );
 }
