@@ -4,7 +4,8 @@
 
 use std::borrow::Cow;
 
-use super::wrappers::{self, Program, Run};
+use super::program::Program;
+use super::wrappers::{self, Run};
 use crate::shell::{SimpleCommand, Stdin};
 
 /// What a command reading its standard input gets.

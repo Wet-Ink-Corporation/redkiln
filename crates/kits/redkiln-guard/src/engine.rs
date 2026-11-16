@@ -20,6 +20,7 @@ mod checker;
 mod cwd;
 mod feed;
 pub mod git_settings;
+mod program;
 pub mod readings;
 mod seam;
 mod variables;
@@ -28,8 +29,8 @@ pub mod wrappers;
 pub use checker::{MAX_DEPTH, MAX_LEXED_MIB, check};
 pub use cwd::Cwd;
 pub(crate) use cwd::is_absolute;
+pub use program::Program;
 pub use seam::{Call, Denial, Pack};
-pub use wrappers::Program;
 
 #[cfg(test)]
 mod tests;

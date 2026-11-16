@@ -5,9 +5,10 @@
 use super::cwd::Cwd;
 use super::feed::{Feed, own_feed};
 use super::git_settings;
+use super::program::Program;
 use super::seam::{Call, Denial, Pack};
 use super::variables::{self, Variables};
-use super::wrappers::{self, Program, Run};
+use super::wrappers::{self, Run};
 use super::{braces, readings};
 use crate::shell::{self, ParseError, SimpleCommand, Word};
 

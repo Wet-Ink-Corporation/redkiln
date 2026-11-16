@@ -8,7 +8,7 @@
 //! the guard's entries and the merge gate's probe; nothing here names a plugin's type.
 
 use super::cwd::Cwd;
-use super::wrappers::Program;
+use super::program::Program;
 use crate::shell::{SimpleCommand, Word};
 
 /// Why a command is denied: the pack's rule, and one line naming what was denied and why.
