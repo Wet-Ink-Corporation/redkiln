@@ -40,7 +40,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/bench/bench-contract` | contract (bench) | `bench.*` events (`event`), commands (`cli`), `status --json` data (`status`) | redkiln-core (optional), serde, thiserror |
 | `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI, its events kept in the Core store through `redkiln-core` | bench-contract, redkiln-core, redkiln-calibrate, redkiln-guard, redkiln-github, clap, ureq, sha2, serde, serde_json, thiserror |
 | `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
-| `tools/skillcheck` | tool, binary `skillcheck` | Skill QA: `lint skills`, `eval routing\|uplift`; never shipped | bench-contract, clap, serde, serde_json, sha2, thiserror |
+| `tools/skillcheck` | tool, binary `skillcheck` | Skill QA: `lint skills`, `eval routing\|uplift`; never shipped | bench-contract, redkiln-calibrate, clap, serde, serde_json, sha2, thiserror |
 
 Each crate's `AGENTS.md` is its charter (ARC-08). The first crate of a layer also adds its `crates/<layer>/*` glob to the workspace members (cargo refuses a glob that matches nothing); tools are listed one by one, since `tools/` also holds scripts.
 

@@ -32,6 +32,8 @@ use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use redkiln_calibrate::scope::ScopeError;
+
 use args::default_work_dir;
 pub use args::{BaselineArm, GatedTools, Scaffolds, UpliftArgs};
 pub(crate) use args::{Mode, Settings};
@@ -44,7 +46,6 @@ use crate::eval::real::claude::plugin_name;
 use crate::eval::real::{ChangedError, RouterError};
 use crate::exit_codes::Code;
 use crate::lint::read::LintError;
-use crate::paths::PathError;
 use case::{Grader, Tool};
 use claude::{
     BaselinePlugin, CHILD_TMP_BELOW_WORK_DIR, ClaudeEvaluator, LauncherTarget, Placement, Plugins,
@@ -202,9 +203,10 @@ pub enum UpliftError {
     /// `skillcheck`).
     #[error("finding the bench binary for the plugin copies")]
     BenchBinary(#[source] BenchBinaryError),
-    /// The default work directory needs the anneal home, and it is not usable.
+    /// The default work directory needs the user scope (`$REDKILN_HOME`, else `~/.redkiln`),
+    /// and it is not usable.
     #[error("finding the default work directory")]
-    Home(#[source] PathError),
+    Home(#[source] ScopeError),
     /// A warning could not be written to stderr before the run.
     #[error("writing a warning")]
     Output(#[source] io::Error),
@@ -216,7 +218,7 @@ impl UpliftError {
     /// without `--allow-gated-tools`, fixtures without `--allow-scaffolds`, no `bench` binary
     /// to place (`--bench-binary` or beside `skillcheck`) and a missing or
     /// wrong-kind path ([`LintError::code`]); the evaluator's failures are
-    /// [`RouterError::code`]'s; an unusable anneal home is internal, as it is for every
+    /// [`RouterError::code`]'s; an unusable user scope is internal, as it is for every
     /// command that needs one; a stderr that cannot be written is an output error.
     #[must_use]
     pub const fn code(&self) -> Code {

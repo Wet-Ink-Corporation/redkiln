@@ -12,7 +12,7 @@ use crate::eval::real::args::{
     DEFAULT_CONCURRENCY, DEFAULT_MAX_COST_USD, DEFAULT_TIMEOUT, cost_cap,
 };
 use crate::eval::real::claude::Options;
-use crate::paths::{PathError, anneal_home_from};
+use redkiln_calibrate::scope::{ScopeError, UserScope};
 
 use super::runs::Runs;
 use super::sandbox::denies_bash_writes;
@@ -101,7 +101,8 @@ pub struct UpliftArgs {
     )]
     pub scaffolds: Scaffolds,
     /// The directory the run's workspace is made in, made if missing (by default `$TMPDIR`
-    /// when set, and on Linux not under the directories below, else `tmp` in the anneal home,
+    /// when set, and on Linux not under the directories below, else `tmp` in the user scope
+    /// (`$REDKILN_HOME`, else `~/.redkiln`),
     /// else, with no home set, the system's temporary directory). `claude` runs with its
     /// `TMPDIR` inside the workspace, and on Linux the eval sandbox denies Bash every write
     /// under `/tmp`, `/var/tmp`, `/dev/shm` and `/run/shm`, so for a case that names Bash give
@@ -133,28 +134,33 @@ pub struct UpliftArgs {
 /// The variable whose value, when set and not empty, is the default work directory.
 const TMPDIR_VAR: &str = "TMPDIR";
 
+/// The folder in the user scope's root that holds a run's workspace by default.
+const TMP_DIR: &str = "tmp";
+
 /// Where a run's workspace is made when `--work-dir` is not given: `$TMPDIR` when set, not
 /// empty (the operator's choice of temporary directory) and, on Linux, not under a directory
-/// the eval sandbox denies Bash writes under; else `<anneal home>/tmp`, which is outside them;
-/// else, with no home set, the system's temporary directory. `lookup` reads one variable.
+/// the eval sandbox denies Bash writes under; else `tmp` in the user scope's root
+/// (`$REDKILN_HOME`, else `~/.redkiln`; wi-6b797a85db), which is outside them; else, with no
+/// home set, the system's temporary directory. `lookup` reads one variable.
 ///
 /// # Errors
-/// [`PathError::RelativeHome`] when the default needs the anneal home and the variable that
-/// names it holds a relative path.
+/// [`ScopeError::RelativeHome`] when the default needs the user scope and a variable it reads
+/// (`REDKILN_HOME`, `HOME`, `USERPROFILE`, or `ANNEAL_HOME`, which the scope also checks)
+/// holds a relative path.
 pub(crate) fn default_work_dir(
     lookup: impl Fn(&str) -> Option<OsString>,
-) -> Result<PathBuf, PathError> {
+) -> Result<PathBuf, ScopeError> {
     if let Some(dir) = lookup(TMPDIR_VAR).filter(|dir| !dir.is_empty())
         && !denies_bash_writes(Path::new(&dir))
     {
         return Ok(PathBuf::from(dir));
     }
-    match anneal_home_from(lookup) {
-        Ok(home) => Ok(home.join("tmp")),
+    match UserScope::from_lookup(lookup) {
+        Ok(scope) => Ok(scope.root().join(TMP_DIR)),
         // No home to put it in: this is only a default, and the system's temporary directory
         // still runs every case, only without Bash writes on Linux, which the run's
         // `eval/uplift/read-only-sandbox` finding then says.
-        Err(PathError::NoHome) => Ok(std::env::temp_dir()),
+        Err(ScopeError::NoHome) => Ok(std::env::temp_dir()),
         Err(error) => Err(error),
     }
 }
@@ -404,9 +410,10 @@ mod tests {
     use std::ffi::OsString;
     use std::path::PathBuf;
 
+    use redkiln_calibrate::scope::ScopeError;
+
     use super::{BaselineArm, GatedTools, Mode, Scaffolds, UpliftArgs, default_work_dir};
     use crate::error::CliError;
-    use crate::paths::PathError;
 
     /// `--case`, `--runs`, `--no-baseline` and the confirmation's flags.
     mod confirmation;
@@ -458,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn without_tmpdir_the_default_work_dir_is_the_anneal_home_s_tmp() {
+    fn without_tmpdir_the_default_work_dir_is_the_user_scope_s_tmp() {
         // A home must be absolute on the host, so both sit under its temp dir (`C:\..` on Windows).
         let me = std::env::temp_dir().join("me");
         let srv = std::env::temp_dir().join("srv-anneal");
@@ -466,13 +473,13 @@ mod tests {
             default_work_dir(lookup(&[("HOME", me.to_str().expect("UTF-8"))])).expect("a home");
         let empty = default_work_dir(lookup(&[
             ("TMPDIR", ""),
-            ("ANNEAL_HOME", srv.to_str().expect("UTF-8")),
+            ("REDKILN_HOME", srv.to_str().expect("UTF-8")),
         ]))
         .expect("a home");
 
         assert_eq!(
             (unset, empty),
-            (me.join(".anneal").join("tmp"), srv.join("tmp"))
+            (me.join(".redkiln").join("tmp"), srv.join("tmp"))
         );
     }
 
@@ -484,11 +491,11 @@ mod tests {
     }
 
     #[test]
-    fn on_linux_a_tmpdir_the_eval_sandbox_denies_gives_way_to_the_anneal_home_s_tmp() {
+    fn on_linux_a_tmpdir_the_eval_sandbox_denies_gives_way_to_the_user_scope_s_tmp() {
         let home = std::env::temp_dir().join("srv-anneal");
         let dir = default_work_dir(lookup(&[
             ("TMPDIR", "/var/tmp/me"),
-            ("ANNEAL_HOME", home.to_str().expect("UTF-8")),
+            ("REDKILN_HOME", home.to_str().expect("UTF-8")),
         ]))
         .expect("a home");
 
@@ -501,18 +508,15 @@ mod tests {
     }
 
     #[test]
-    fn a_relative_anneal_home_the_default_needs_is_an_error() {
-        let error = default_work_dir(lookup(&[("ANNEAL_HOME", "rel/home")]));
+    fn a_relative_user_scope_root_the_default_needs_is_an_error() {
+        let error = default_work_dir(lookup(&[("REDKILN_HOME", "rel/home")]));
 
-        assert!(
-            matches!(
-                &error,
-                Err(PathError::RelativeHome {
-                    var: "ANNEAL_HOME",
-                    ..
-                })
-            ),
-            "{error:?}"
+        assert_eq!(
+            error,
+            Err(ScopeError::RelativeHome {
+                var: "REDKILN_HOME",
+                value: PathBuf::from("rel/home"),
+            })
         );
     }
 

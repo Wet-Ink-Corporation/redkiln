@@ -30,7 +30,8 @@ fn private_dir() -> std::io::Result<tempfile::TempDir> {
 }
 
 /// `skillcheck eval uplift --skills <fixture skills> --suites <suites>` plus `args`, with its own
-/// `TMPDIR` and anneal home so a run never touches the real `~/.anneal`. A run that is not
+/// `TMPDIR`, anneal home and user scope so a run never touches the real `~/.anneal` or
+/// `~/.redkiln`. A run that is not
 /// `--check` and names no `--bench-binary` gets a stand-in one, so it never depends on a `bench`
 /// built beside the binary.
 fn eval_uplift(suites: &Path, args: &[&str]) -> std::io::Result<Output> {
@@ -53,6 +54,7 @@ fn eval_uplift(suites: &Path, args: &[&str]) -> std::io::Result<Output> {
     command
         .env("TMPDIR", private.path())
         .env("ANNEAL_HOME", private.path())
+        .env("REDKILN_HOME", private.path())
         .output()
 }
 
@@ -427,6 +429,7 @@ impl FakeRun {
             .env("FAKE_CLAUDE_LOG", dir.path().join("claude.log"))
             .env("TMPDIR", tmp.path())
             .env("ANNEAL_HOME", dir.path())
+            .env("REDKILN_HOME", dir.path())
             .envs(env.iter().copied())
             .output()?;
         Ok(Self { output, dir, tmp })
