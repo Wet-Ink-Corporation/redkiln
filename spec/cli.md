@@ -56,7 +56,7 @@ Codes 1 and 3 to 63 are each command's own (1 is "cycle" for one command and "te
 
 **CLI-10.** A guard fails closed. It denies what it cannot judge with a deny decision on stdout and exit 0; when it cannot write that decision, it exits 2 with one stderr line, so Claude Code blocks the call.
 
-**CLI-11.** With no build of a plugin's binary present at all, its launcher lets every hook through, guards included, and says once at SessionStart that the plugin is off (the shared launcher, `tools/launcher/README.md`).
+**CLI-11.** With no build of a plugin's binary present at all, its launcher lets every hook through, guards included, and says once at SessionStart that the plugin is off (the shared launcher, `tools/launcher/README.md`). On Windows an exec-form hook resolves only to `libexec/<binary>.exe`, so with no build no launcher runs: the hook fails to start, which Claude Code reports as a hook error and lets through, provided the entry does not set `onFailure: "block"` (HK-11). There the person learns the plugin is off from that error rather than from the launcher's message (HK-2). [hooks.md](hooks.md) has the rest of the hook conventions.
 
 **CLI-13.** CLI-09 to CLI-11 describe Claude Code's hook contract: its payload on stdin, its response on stdout, exit 2 read as "block". They are one harness's protocol, not the product's. A binary reads and writes them in one harness adapter, and its commands work without it; a second harness gets its own adapter (for example `hook --harness <name> <event>`, with Claude Code the default when the flag is absent), added only when that harness is supported. Exit-code rules that exist for Claude Code (2 never a command's own code, CLI-05) stay, since every binary is still called from its hooks.
 

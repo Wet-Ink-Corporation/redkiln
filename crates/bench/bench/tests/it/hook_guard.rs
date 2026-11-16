@@ -349,7 +349,8 @@ fn a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget() -> 
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};
 
-    /// The hook's `timeout` in `hooks.json`: after it, Claude Code blocks without the reason.
+    /// The hook's `timeout` in `hooks.json`: after it, Claude Code lets the call through
+    /// (`onFailure: "continue"`), losing the deny.
     const HOOK_BUDGET: Duration = Duration::from_secs(5);
 
     let scratch = Scratch::new()?;
@@ -377,7 +378,9 @@ fn a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget() -> 
     assert!(
         reason.starts_with("ERROR guard rm-rf: ")
             && reason.contains("not recorded in the ledger")
-            && reason.contains("git did not answer within 1s"),
+            // What the record's two store waits leave of the budget: under 500 ms.
+            && reason.contains("git did not answer within ")
+            && reason.ends_with("ms)"),
         "denied, with a note that the block was not recorded: {reason}"
     );
     assert!(
@@ -396,7 +399,8 @@ fn a_git_whose_grandchild_holds_its_output_still_gets_the_deny_out_within_the_ho
     use std::os::unix::fs::PermissionsExt;
     use std::time::{Duration, Instant};
 
-    /// The hook's `timeout` in `hooks.json`: after it, Claude Code blocks without the reason.
+    /// The hook's `timeout` in `hooks.json`: after it, Claude Code lets the call through
+    /// (`onFailure: "continue"`), losing the deny.
     const HOOK_BUDGET: Duration = Duration::from_secs(5);
 
     let scratch = Scratch::new()?;
@@ -417,7 +421,9 @@ fn a_git_whose_grandchild_holds_its_output_still_gets_the_deny_out_within_the_ho
     let reason = deny_reason(&output)?;
     assert!(
         reason.starts_with("ERROR guard rm-rf: ")
-            && reason.contains("git did not answer within 1s"),
+            // What the record's two store waits leave of the budget: under 500 ms.
+            && reason.contains("git did not answer within ")
+            && reason.ends_with("ms)"),
         "denied, naming the limit git was given: {reason}"
     );
     assert!(

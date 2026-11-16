@@ -10,11 +10,9 @@ use crate::store::{EventKind, Filter, LedgerEvent, Store};
 use bench_contract::event::GateBlocked;
 use serde_json::{Value, json};
 
-use super::{
-    Decision, Fallback, HOOK_BUDGET, MAX_INPUT_BYTES, RECORD_BUSY_TIMEOUT, RECORD_LOCK_WAITS,
-    git_budget, run,
-};
+use super::{Decision, Fallback, HOOK_BUDGET, MAX_INPUT_BYTES, RECORD_LOCK_WAITS, git_budget, run};
 use crate::hook::HookEnv;
+use crate::hook::store_wait::STORE_WAIT;
 
 /// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout.
 fn guard(stdin: &[u8], store: &Path) -> String {
@@ -248,8 +246,13 @@ fn a_failed_read_of_stdin_is_denied() {
 }
 
 #[test]
+fn the_record_holds_back_both_of_its_store_waits() {
+    assert_eq!(RECORD_LOCK_WAITS, 2, "the open's and the append's");
+}
+
+#[test]
 fn git_and_every_lock_wait_of_the_record_fit_in_what_is_left_of_the_budget() {
-    let worst_lock_waits = RECORD_BUSY_TIMEOUT * RECORD_LOCK_WAITS;
+    let worst_lock_waits = STORE_WAIT * RECORD_LOCK_WAITS;
     let steps = u32::try_from(HOOK_BUDGET.as_millis() / 10).expect("a few hundred steps");
 
     let first_overrun = (0..=steps)
@@ -261,6 +264,6 @@ fn git_and_every_lock_wait_of_the_record_fit_in_what_is_left_of_the_budget() {
 }
 
 #[test]
-fn with_no_time_spent_on_clef_git_gets_its_usual_timeout() {
-    assert_eq!(git_budget(HOOK_BUDGET), Some(super::GIT_TIMEOUT));
+fn with_no_time_spent_on_clef_git_gets_what_both_store_waits_leave() {
+    assert_eq!(git_budget(HOOK_BUDGET), Some(Duration::from_millis(500)));
 }

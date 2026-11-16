@@ -292,8 +292,8 @@ fn the_guard_hook_runs_before_every_bash_call_and_fails_closed() -> TestResult {
     );
     assert_eq!(
         hook.on_failure,
-        OnFailure::Block,
-        "a crash, a timeout or bad output blocks"
+        OnFailure::Continue,
+        "the binary fails closed; Claude Code must not block when it cannot start (HK-11)"
     );
     assert_eq!(hook.timeout, 5, "the guard budget is 5 s");
     assert_eq!(
@@ -334,8 +334,8 @@ fn the_preconditions_hook_runs_before_every_edit_and_write_and_fails_closed() ->
     );
     assert_eq!(
         hook.on_failure,
-        OnFailure::Block,
-        "a crash, a timeout or bad output blocks"
+        OnFailure::Continue,
+        "the binary fails closed; Claude Code must not block when it cannot start (HK-11)"
     );
     assert_eq!(hook.timeout, 5, "the preconditions budget is 5 s");
     assert_eq!(
@@ -468,15 +468,28 @@ fn the_fast_check_hook_runs_once_per_batch_of_tool_calls_and_fails_open() -> Tes
 }
 
 #[test]
-fn an_entry_blocks_on_failure_exactly_when_it_passes_fail_closed() -> TestResult {
+fn no_entry_blocks_on_failure_not_even_a_guard() -> TestResult {
     for Placed { hook, .. } in command_hooks()? {
-        let fail_closed = hook.args.iter().any(|arg| arg == "--fail-closed");
         assert_eq!(
-            hook.on_failure == OnFailure::Block,
-            fail_closed,
-            "{:?}: onFailure block and --fail-closed go together, so the binary, the launcher \
-             and Claude Code agree",
+            hook.on_failure,
+            OnFailure::Continue,
+            "{:?}: a guard fails closed in its binary; onFailure block would block every call \
+             when the binary cannot start, as on Windows with no build (SPEC HK-11)",
             hook.args
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn an_entry_passes_fail_closed_exactly_when_its_hook_is_a_guard() -> TestResult {
+    for (hook, _) in rows() {
+        let Placed { hook: entry, .. } = only_entry(hook)?;
+        assert_eq!(
+            entry.args.iter().any(|arg| arg == "--fail-closed"),
+            hook.is_guard(),
+            "{:?}: --fail-closed and the guard role go together",
+            entry.args
         );
     }
     Ok(())
@@ -659,8 +672,8 @@ fn the_brief_hook_runs_before_every_agent_spawn_and_fails_closed() -> TestResult
     );
     assert_eq!(
         hook.on_failure,
-        OnFailure::Block,
-        "a crash or timeout blocks"
+        OnFailure::Continue,
+        "the binary fails closed; Claude Code must not block when it cannot start (HK-11)"
     );
     assert_eq!(hook.timeout, 5, "the brief budget is 5 s");
     assert_eq!(

@@ -28,6 +28,7 @@ use crate::decide::clock::{Clock, SystemClock};
 use crate::decide::transport::Transport;
 use crate::decide::transport::http::UreqTransport;
 use crate::harness::claude_code::ToolUse;
+use crate::hook::store_wait;
 use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, reason, write_ask, write_deny};
 use crate::paths::{self, PathError};
 /// What [`run_with`] reaches Clef and time through, so its callers can name it.
@@ -40,30 +41,17 @@ pub(crate) use denylist::{Context, MergeScan, PrMerge, Target, find_pr_merge, re
 /// bodies, so the cap is well above a `PreToolUse` input's usual size.
 pub(crate) const MAX_INPUT_BYTES: u64 = 1024 * 1024;
 
-/// How long git may take to find the ledger (`bench ledger` allows 10 s). With
-/// [`RECORD_LOCK_RESERVE`] this keeps recording a denial well inside the hook's 5 s `timeout`,
-/// after which Claude Code blocks the call without the guard's reason; see `docs/guard.md`.
-/// The preconditions hook, under the same 5 s budget, shares it.
+/// The most git may take to find the ledger in a hook (`bench ledger` allows 10 s). The
+/// preconditions hook, the merge gate and the brief hook, under the same 5 s budget, share it.
+/// The guard's own record leaves git less: see [`git_budget`].
 pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The least time worth giving git to find the ledger; with less, the record is skipped and the
-/// deny says so.
-const MIN_GIT_TIMEOUT: Duration = Duration::from_millis(200);
-
-/// How long one of the guard's record steps waits for another process's lock: Core's hook
-/// wait (`Wait::Hook`, ST-09; D6 of the step 3 plan). Core can spend it twice, once opening
-/// the store and again for the append's write lock, so a record that meets a lock held that
-/// long can take about 4 s plus git, past the hook's 5 s `timeout`; Claude Code then blocks the
-/// call without the guard's reason, failing closed as `merge_gate` does. The store's writers
-/// never hold the lock that long in practice.
-const RECORD_BUSY_TIMEOUT: Duration = Wait::Hook.timeout();
-
-/// How many [`RECORD_BUSY_TIMEOUT`] waits [`git_budget`] holds back for: one, the open's. The
-/// append's second wait is the overrun [`RECORD_BUSY_TIMEOUT`] describes, accepted under D6.
-const RECORD_LOCK_WAITS: u32 = 1;
-
-/// What [`git_budget`] holds back for the record's lock waits: every one of them, in full.
-const RECORD_LOCK_RESERVE: Duration = RECORD_BUSY_TIMEOUT.saturating_mul(RECORD_LOCK_WAITS);
+/// How many full store waits ([`store_wait::STORE_WAIT`], Core's `Wait::Hook`, 2 s) a record can meet: the
+/// open's and the append's. [`git_budget`] holds both back, so a record that meets a lock held
+/// that long at each still ends inside the guard's budget, and the deny is written before the
+/// hook's 5 s `timeout`, past which Claude Code lets the call through (`onFailure: "continue"`,
+/// SPEC HK-11). With nothing spent git gets the 500 ms the waits leave.
+const RECORD_LOCK_WAITS: u32 = 2;
 
 /// The `point` of the guard's `gate_blocked` events, before the rule's id.
 const POINT_PREFIX: &str = "guard.";
@@ -247,16 +235,13 @@ where
 }
 
 /// How long git may take to find the ledger when `remaining` of [`HOOK_BUDGET`] is left: what
-/// is left after every lock wait the record can meet ([`RECORD_LOCK_RESERVE`]), at most
-/// [`GIT_TIMEOUT`]; `None` when that is under [`MIN_GIT_TIMEOUT`], and the record is skipped so
-/// the deny still arrives in time. The guard's budget counts from when it starts reading its
-/// input, and Clef D1 takes up to 2 s of it, so a deny after D1 can leave less than
-/// [`GIT_TIMEOUT`] plus [`RECORD_LOCK_RESERVE`] for the record, which then gets only what remains.
+/// is left after both of the record's store waits ([`RECORD_LOCK_WAITS`]), at most
+/// [`GIT_TIMEOUT`]; `None` when that is under `store_wait::MIN_GIT_TIMEOUT`, and the record is
+/// skipped so the deny still arrives in time. The guard's budget counts from when it starts
+/// reading its input, and Clef D1 takes up to 2 s of it, so a deny after D1 leaves too little
+/// for the record, which is then skipped and the deny says so.
 fn git_budget(remaining: Duration) -> Option<Duration> {
-    remaining
-        .checked_sub(RECORD_LOCK_RESERVE)
-        .filter(|git| *git >= MIN_GIT_TIMEOUT)
-        .map(|git| git.min(GIT_TIMEOUT))
+    store_wait::git_before(remaining, RECORD_LOCK_WAITS, GIT_TIMEOUT).ok()
 }
 
 /// The command of a Bash call, if `input` is one.
@@ -338,8 +323,8 @@ fn record(
     let mut envelope =
         EventEnvelope::new(event, "hook", Timestamp::now().map_err(RecordError::Clock)?);
     envelope.session_id = session_id;
-    // Core's hook wait (2 s, D6) for the open and again for the append; see
-    // [`RECORD_BUSY_TIMEOUT`] for the overrun under a lock held that long.
+    // Core's hook wait (2 s, D6) for the open and again for the append, both held back by
+    // [`git_budget`] ([`RECORD_LOCK_WAITS`]).
     Store::open_with(&path, Wait::Hook)
         .and_then(|ledger| ledger.append(&envelope))
         .map(drop)

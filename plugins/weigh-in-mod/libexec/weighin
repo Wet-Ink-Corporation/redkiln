@@ -5,7 +5,7 @@
 #
 # Not bin/: Claude Code puts a plugin's bin/ on PATH, and claude.ai rejects hosted plugins that
 # ship one. Hooks start the launcher by path in exec form, so it stays executable; on Windows the
-# same path resolves to libexec/<binary>.cmd.
+# same path resolves only to libexec/<binary>.exe (a release build), never to the .cmd (SPEC CLI-11).
 #
 # Order: the newest build among this platform's targets (a stale native build must not shadow a
 # fresh cross-build), then a <binary> on PATH other than this launcher, then nothing.

@@ -7,8 +7,8 @@ CLI's hook metadata table (`crates/anneal-cli/src/hook/metadata.rs`). Each hook 
 ## `hooks.json`
 
 Every entry is **exec form**: `command` is the launcher by path and `args` are its arguments, so
-no shell parses them. Every entry also declares `onFailure` (`continue` to fail open, `block` for
-a guard) and an explicit `timeout` in seconds. `onFailure` needs Claude Code 2.1.295 or later;
+no shell parses them. Every entry also declares `onFailure` (`continue`, guards included: a guard
+fails closed inside its binary, SPEC HK-11) and an explicit `timeout` in seconds. `onFailure` needs Claude Code 2.1.295 or later;
 older versions ignore it.
 
 ```json
@@ -37,8 +37,8 @@ a file in the plugin, so a new hook does not compile without its row and the plu
 exec form with `onFailure` and a timeout, every entry has exactly one row (same id, event,
 matcher, fingerprint and failure policy) and every row an entry, every id is an `anneal hook`
 subcommand the binary accepts, and every row's id, fingerprint and model generation are well
-formed and its source is named. It also checks that an entry has `onFailure: "block"` exactly
-when its arguments include `--fail-closed`. When a test reports a new fingerprint after you
+formed and its source is named. It also checks that no entry has `onFailure: "block"` (SPEC HK-11), and that an
+entry's arguments include `--fail-closed` exactly when its hook is a guard. When a test reports a new fingerprint after you
 change an entry, copy it into the row.
 
 ## Failing open, and guards failing closed
@@ -49,9 +49,18 @@ manifest test runs every entry's arguments through the binary.
 
 Guards fail closed. A guard (`hook guard`, `hook preconditions`, `hook merge-gate`, `hook brief`,
 or any hook passed `--fail-closed`) denies what it
-cannot judge. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
-Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "block"`, so a crash
-or a timeout blocks too.
+cannot judge, and writes its decision before its 5 s `timeout` even when every store wait it
+meets runs to its full 2 s: each plans against 4.5 s from its start and starts a store step (an
+open, a read, an append) only when the whole wait fits in what is left (`hook::store_wait`). Each Core store call is counted as one `Wait::Hook`; inside one call SQLite can wait more than once (happenstance's identity re-read at hand-over, a commit's lock escalation), so under a lock held 2 s at each of those a guard can still pass its timeout. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
+Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "continue"`, not
+`"block"` (SPEC HK-11): Claude Code counts a hook that cannot start as a failure, so `"block"` would
+block every Bash, Edit, Write and Agent call on a Windows copy with no build, where there is no
+`libexec/bench.exe` to spawn. A guard killed or past its timeout therefore lets the call through;
+guards are tripwires (HK-12). *Not yet met:* HK-12 asks each guard's documentation to name the
+control that is authoritative behind it (a required check, a ruleset, a sandbox); `guard.md`,
+`merge-gate`, `preconditions.md` and `brief` do not yet, and HK-7's stand-down on `Status: WIP` or
+`BLOCKED` is not built in `completeness` (its tests pin that a `BLOCKED` report with a success
+claim still blocks). Both are due before `rk-bench` 0.1.0.
 
 With no binary at all, the launcher exits 0 for every hook, one passed `--fail-closed` included:
 a missing install warns rather than blocks every tool call. For `hook bootstrap` it prints the
@@ -135,7 +144,7 @@ versions older than 2.1.295.
 
 ## `guard` (PreToolUse)
 
-Matcher `Bash`, `timeout` 5 s, `onFailure: "block"`, arguments `hook guard --fail-closed`. It
+Matcher `Bash`, `timeout` 5 s, `onFailure: "continue"`, arguments `hook guard --fail-closed`. It
 reads Claude Code's `PreToolUse` input on stdin (at most 1 MiB; it uses `tool_name`,
 `tool_input.command`, `session_id` and `cwd`), lexes the command the way a shell does, and
 checks it against a deterministic denylist: force pushes to protected branches, `rm -rf` outside
@@ -144,8 +153,9 @@ the temporary and scratch directories, `git add -f`, and Bash writes to lint or 
 An allowed command gets no output. A denied one gets
 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
 "permissionDecisionReason": "ERROR guard <rule>: <reason>"}}` and a `gate_blocked` event in the
-ledger (`point` is `guard.<rule>`), recorded within the hook's budget (git 1 s, 500 ms per
-ledger statement). Unreadable input, and commands it cannot read or model, are denied. What
+ledger (`point` is `guard.<rule>`), recorded within the hook's budget (both 2 s store waits
+held back, git the rest: 500 ms with nothing else spent, or the record is skipped and the deny
+says so). Unreadable input, and commands it cannot read or model, are denied. What
 the denylist does not decide is asked of Clef D1 (`noul destructive_or_irreversible`, #30) in
 process, its command redacted: in shadow mode (the default, and the mode in effect for each
 point's first 50 answered decisions, even when `enforce` is configured) the would-be action is
@@ -158,7 +168,7 @@ D1 are documented in `docs/guard.md`.
 
 ## `merge-gate` (PreToolUse)
 
-Matcher `Bash`, `timeout` 5 s, `onFailure: "block"`, arguments `hook merge-gate --fail-closed`,
+Matcher `Bash`, `timeout` 5 s, `onFailure: "continue"`, arguments `hook merge-gate --fail-closed`,
 in the same matcher group as the guard. It reads Claude Code's `PreToolUse` input on stdin (at
 most 1 MiB; it uses `tool_name`, `tool_input.command`, `session_id` and `cwd`). A merge is judged
 only as the canonical command, `gh pr merge <n> --match-head-commit <full commit> --repo
@@ -180,11 +190,12 @@ with `--actor human`; `via` does not matter). A denial is the guard's deny decis
 `ERROR merge-gate: ...` line naming what is missing and the `anneal verdict set` command that
 records it, plus a `gate_blocked` event (`point` is `merge-gate.<check>`) in an existing ledger;
 it never creates one. Unreadable input or commands, and a ledger, git or setting it cannot read,
-are denied; git and ledger reads share 3.5 s from the hook's start. See `docs/verdict.md`.
+are denied; git and ledger reads share 4.5 s from the hook's start, and a store step starts only
+when its whole 2 s wait fits. See `docs/verdict.md`.
 
 ## `preconditions` (PreToolUse)
 
-Matcher `Edit|Write|MultiEdit|NotebookEdit`, `timeout` 5 s, `onFailure: "block"`, arguments
+Matcher `Edit|Write|MultiEdit|NotebookEdit`, `timeout` 5 s, `onFailure: "continue"`, arguments
 `hook preconditions --fail-closed`. It reads Claude Code's `PreToolUse` input on stdin (at most
 1 MiB; it uses `tool_name`, `tool_input.file_path`, `tool_input.notebook_path`, each
 `tool_input.edits[].file_path`, `session_id` and `cwd`) and the worktree's anneal mode (`anneal
@@ -193,7 +204,8 @@ writes it (symlinks followed, dangling ones too, before `..` is taken) and where
 takes `..` lexically first writes it, either reading's denial denying; the worktree is that
 reading's own, found from the longest existing ancestor directory of where it lands, not the
 hook's cwd. Each worktree is found and read once per call, and the whole call is judged within
-3.5 s of the hook's start; past that the edit is denied. For a file in no git repository, with no ledger, no mode or mode `off` it allows silently and never creates a ledger. In build mode it
+4.5 s of the hook's start, each store step starting only when its whole 2 s wait fits; past that
+the edit is denied. For a file in no git repository, with no ledger, no mode or mode `off` it allows silently and never creates a ledger. In build mode it
 denies source edits until the plan's spec passes `lint spec`, the design tree is confirmed at its
 current hash, the tree was clean at entry and the plan is approved and current; in diagnose mode
 until `anneal repro record` records a `repro_red` for the worktree after entry. Test files, the plan and tree, scratch
@@ -616,7 +628,7 @@ the note and in one `ERROR` line as the `systemMessage` (which Claude Code disca
 
 ## `brief` (PreToolUse)
 
-Matcher `Agent`, `timeout` 5 s, `onFailure: "block"`, arguments `hook brief --fail-closed`. It
+Matcher `Agent`, `timeout` 5 s, `onFailure: "continue"`, arguments `hook brief --fail-closed`. It
 reads Claude Code's `PreToolUse` input on stdin (at most 4 MiB; it uses `tool_name`,
 `tool_input.prompt`, `agent_id`, `agent_type`, `session_id` and `cwd`). Any other tool is
 allowed silently. No brief, no spawn: the prompt must hold exactly one `Brief: <path>` line
@@ -629,8 +641,9 @@ unless its `agent_type` is listed in `orchestrate.leads` of `.redkiln/bench/conf
 `anneal brief build` command), plus a `gate_blocked` event (`point` is `brief.<check>`: `nested`,
 `no-brief`, `path`, `invalid`, `bad-input` or `unjudged`) in an existing ledger; it never
 creates one. Unreadable input, a cwd outside a git worktree, and a setting or brief it cannot
-read are denied; git and ledger reads share 3.5 s from the hook's start. See
-[brief.md](brief.md).
+read are denied; git and ledger reads share 4.5 s from the hook's start, and the record (git,
+then the open's and the append's 2 s store waits) starts only when all of it fits in what is
+left, else the deny says it was not recorded. See [brief.md](brief.md).
 
 ## `standing-orders` (SubagentStart)
 

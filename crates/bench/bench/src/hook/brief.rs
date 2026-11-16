@@ -10,7 +10,9 @@
 //! A denial is Claude Code's deny decision whose reason is one `ERROR brief:` line, plus a
 //! `gate_blocked` event (`brief.<check>`) in an existing ledger; the hook never creates one.
 //! Input it cannot read, a worktree, setting or brief it cannot read, deny. git and the ledger
-//! get [`JUDGE_BUDGET`] from the hook's start, each git call at most [`GIT_TIMEOUT`]. See
+//! get [`HOOK_BUDGET`] from the hook's start, each git call at most [`GIT_TIMEOUT`]; the record
+//! (git, the open's and the append's lock waits) starts only when all of it fits in what is
+//! left (`store_wait`), so the decision is written before the 5 s `timeout`. See
 //! `docs/hooks.md` and `docs/brief.md`.
 
 mod reference;
@@ -32,7 +34,8 @@ use crate::error_chain::reason;
 use crate::existing_ledger::{self, LedgerError};
 use crate::harness::claude_code::SubagentToolUse;
 use crate::hook::guard::GIT_TIMEOUT;
-use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
+use crate::hook::store_wait::{self, OutOfTime, STORE_WAIT};
+use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, write_deny};
 use crate::lint::brief::{BriefFinding, Rule, check};
 use crate::paths::{self, PathError};
 use crate::pr_diff::Budget;
@@ -45,10 +48,8 @@ const MAX_INPUT_BYTES: u64 = 4 * 1024 * 1024;
 /// The most bytes of a brief read; a larger one is denied.
 const MAX_BRIEF_BYTES: u64 = 256 * 1024;
 
-/// What git and the ledger reads may start within, from the hook's start: the 5 s hook
-/// `timeout` less the record's lock wait and process start-up. Not the shared
-/// [`crate::hook::HOOK_BUDGET`]: this hook keeps its own.
-const JUDGE_BUDGET: Duration = Duration::from_millis(3_500);
+/// What the append of `gate_blocked` may take once the ledger is open: one store wait.
+const APPEND_NEEDS: Duration = STORE_WAIT;
 
 /// The tool the hook judges.
 const AGENT_TOOL: &str = "Agent";
@@ -131,6 +132,9 @@ enum InputError {
 enum RecordError {
     #[error(transparent)]
     Ledger(LedgerError),
+    /// Less than git and the record's lock waits was left of the hook's budget.
+    #[error(transparent)]
+    OutOfTime(OutOfTime),
     #[error("reading the clock")]
     Clock(#[source] crate::store::TimestampError),
     #[error("appending gate_blocked")]
@@ -150,7 +154,24 @@ where
     L: Fn(&str) -> Option<OsString>,
     W: Write,
 {
-    let budget = Budget::within(Instant::now(), JUDGE_BUDGET, GIT_TIMEOUT);
+    run_within(
+        env,
+        out,
+        Budget::within(Instant::now(), HOOK_BUDGET, GIT_TIMEOUT),
+    )
+}
+
+/// [`run`], within `budget` (the hook's: [`HOOK_BUDGET`] from its start).
+///
+/// # Errors
+/// As [`run`].
+fn run_within<R, D, L, W>(env: HookEnv<R, D, L>, out: W, budget: Budget) -> io::Result<()>
+where
+    R: Read,
+    D: FnOnce() -> io::Result<PathBuf>,
+    L: Fn(&str) -> Option<OsString>,
+    W: Write,
+{
     let HookEnv {
         stdin,
         current_dir,
@@ -173,13 +194,13 @@ where
             (denial, current_dir(), None)
         }
     };
-    let ledger = cwd.map_err(LedgerError::CurrentDir).and_then(|cwd| {
-        existing_ledger::open_existing(&cwd, lookup, budget.cap(GIT_TIMEOUT), Wait::Hook)
-    });
-    let unrecorded = match ledger {
-        Ok(Some(store)) => record(&store, &denial, session).err(),
+    let unrecorded = match open_ledger(cwd, lookup, budget) {
+        Ok(Some(store)) => store_wait::fits(store_wait::left(&budget), APPEND_NEEDS)
+            .map_err(RecordError::OutOfTime)
+            .and_then(|()| record(&store, &denial, session))
+            .err(),
         Ok(None) => None,
-        Err(error) => Some(RecordError::Ledger(error)),
+        Err(error) => Some(error),
     };
     let line = match unrecorded {
         None => format!("ERROR {}", denial.reason),
@@ -190,6 +211,28 @@ where
         ),
     };
     write_deny(out, &line)
+}
+
+/// The ledger seen from `cwd` when one exists, to record a denial in: opened only when git, the
+/// open's lock wait and the append's fit in what is left of `budget` ([`record_git`]).
+fn open_ledger(
+    cwd: io::Result<PathBuf>,
+    lookup: impl Fn(&str) -> Option<OsString>,
+    budget: Budget,
+) -> Result<Option<Store>, RecordError> {
+    let cwd = cwd.map_err(|error| RecordError::Ledger(LedgerError::CurrentDir(error)))?;
+    let git = record_git(store_wait::left(&budget)).map_err(RecordError::OutOfTime)?;
+    // Core's hook wait (2 s, D6) for the open and again for the append, both held back above.
+    existing_ledger::open_existing(&cwd, lookup, git, Wait::Hook).map_err(RecordError::Ledger)
+}
+
+/// How long git may take to find the ledger with `remaining` left: what the open's and the
+/// append's store waits leave, at most [`GIT_TIMEOUT`].
+///
+/// # Errors
+/// [`OutOfTime`] when too little is left, and the denial is not recorded.
+fn record_git(remaining: Duration) -> Result<Duration, OutOfTime> {
+    store_wait::git_before(remaining, 2, GIT_TIMEOUT)
 }
 
 /// Reads and parses at most [`MAX_INPUT_BYTES`] of `stdin`.
@@ -337,10 +380,10 @@ enum BriefReadError {
 ///
 /// The path is checked before it is opened, since opening a FIFO blocks until a writer comes.
 /// That check and the open are two steps: a path swapped for a FIFO in between still blocks
-/// the open, until the hook's `timeout` ends it (Claude Code then blocks the call, as the
-/// entry is `onFailure: "block"`). The opened handle is checked again, so anything else
-/// swapped in (a directory, a larger file) is refused, and the read stops one byte past the
-/// cap.
+/// the open, until the hook's `timeout` ends it, and Claude Code then lets the call through
+/// (the entry fails open on a timeout, SPEC HK-11: a guard is a tripwire, HK-12). The opened
+/// handle is checked again, so anything else swapped in (a directory, a larger file) is
+/// refused, and the read stops one byte past the cap.
 fn read_brief(path: &Path) -> Result<String, BriefReadError> {
     if !fs::metadata(path)?.is_file() {
         return Err(BriefReadError::NotAFile);

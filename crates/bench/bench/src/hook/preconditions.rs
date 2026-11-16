@@ -9,8 +9,9 @@
 //! first writes it; either reading's denial denies. Each reading is judged in its own worktree
 //! (from the longest existing ancestor directory of where it lands, not the session's working
 //! directory) and that worktree's bench mode in the ledger (`mode::active`), each worktree
-//! found and read once per call (`worktrees`), all within [`JUDGE_BUDGET`], past which the edit
-//! is denied. A file in no repository, no ledger, no mode or mode `off` is allowed
+//! found and read once per call (`worktrees`), all within [`HOOK_BUDGET`], past which the edit
+//! is denied; a store step (an open, a read, the append) starts only when its whole lock wait
+//! fits in what is left (`store_wait`), so the decision is written before the 5 s `timeout`. A file in no repository, no ledger, no mode or mode `off` is allowed
 //! silently, and it never creates a ledger; the one exception is `.anneal/config.json`,
 //! anneal's own settings, which it denies in every mode and none (`Check::Settings`). In a
 //! mode it allows test files, the build's plan and design tree, scratch directories and prose
@@ -46,7 +47,8 @@ use bench_contract::event::GateBlocked;
 use crate::error_chain::reason;
 use crate::existing_ledger::LedgerError;
 use crate::hook::guard::{GIT_TIMEOUT, MAX_INPUT_BYTES};
-use crate::hook::{HookEnv, StdinError, read_stdin, write_deny};
+use crate::hook::store_wait::{self, STORE_WAIT};
+use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, write_deny};
 use crate::mode::scope;
 use crate::mode::{self, Active, Entered};
 use crate::pr_diff::Budget;
@@ -54,11 +56,9 @@ use crate::pr_diff::Budget;
 use self::input::{Input, Tool};
 use self::worktrees::{Worktrees, open_within};
 
-/// What git and the ledger may take, from the hook's start: the 5 s hook `timeout` less the
-/// record's lock wait and process start-up, as the brief hook's. Every file of a call, and
-/// every reading of it, is judged within it; past it the edit is denied. Not the shared
-/// [`crate::hook::HOOK_BUDGET`]: this hook keeps its own.
-const JUDGE_BUDGET: Duration = Duration::from_millis(3_500);
+/// What the append of `gate_blocked` may take: one store wait. It is skipped, and the deny says
+/// so, when less is left of [`HOOK_BUDGET`].
+const APPEND_NEEDS: Duration = STORE_WAIT;
 
 /// The `point` of the hook's `gate_blocked` events, before the check's id.
 const POINT_PREFIX: &str = "preconditions.";
@@ -168,6 +168,9 @@ enum RecordError {
     Ledger(LedgerError),
     #[error("no time was left to open it")]
     OutOfTime,
+    /// Less than the append's lock wait was left of the hook's budget.
+    #[error(transparent)]
+    NoTimeToAppend(store_wait::OutOfTime),
     #[error("reading the clock")]
     Clock(#[source] TimestampError),
     #[error("appending gate_blocked")]
@@ -214,7 +217,7 @@ where
     L: Fn(&str) -> Option<OsString>,
     W: Write,
 {
-    let budget = Budget::within(Instant::now(), JUDGE_BUDGET, GIT_TIMEOUT);
+    let budget = Budget::within(Instant::now(), HOOK_BUDGET, GIT_TIMEOUT);
     let HookEnv {
         stdin,
         current_dir,
@@ -235,7 +238,10 @@ where
         return Ok(());
     };
     let unrecorded = match ledger {
-        Ok(Some(store)) => record(&store, &denial, session).err(),
+        Ok(Some(store)) => store_wait::fits(store_wait::left(&budget), APPEND_NEEDS)
+            .map_err(RecordError::NoTimeToAppend)
+            .and_then(|()| record(&store, &denial, session))
+            .err(),
         Ok(None) => None,
         Err(error) => Some(error),
     };

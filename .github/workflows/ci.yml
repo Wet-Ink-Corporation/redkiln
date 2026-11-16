@@ -76,7 +76,7 @@ jobs:
             echo "$1=$on" >> "$GITHUB_OUTPUT"
           }
           area rust '^(Cargo\.(toml|lock)|rust-toolchain\.toml|clippy\.toml|rustfmt\.toml|deny\.toml|\.cargo/|\.claude/temper/|\.claude/temper\.json|crates/|tools/[^/]+/(Cargo\.toml|src/|tests/|benches/|build\.rs)|tools/launcher/(launcher|exec-form-check)|spec/)'
-          area launcher '^tools/launcher/'
+          area launcher '^(tools/launcher/|plugins/[^/]+/hooks/hooks\.json$)'
           area plugins '^(plugins/|tools/launcher/launcher)'
           area typescript '(^|/)(package(-lock)?\.json|tsconfig[^/]*\.json)$|\.(ts|tsx|mts)$'
           # A job-level `if` cannot call hashFiles, so whether there is anything to check is an
@@ -222,6 +222,11 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./tools/launcher/test.ps1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: every hook lets the call through with no build (CLI-11, HK-11)
+        run: node tools/launcher/no-build-check.mjs plugins
 
   plugins:
     needs: changes
