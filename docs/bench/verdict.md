@@ -200,7 +200,7 @@ directories and `*` and `?` within one name:
 | migrations | `**/migrations/**`, `**/migrate/**`, `**/*migration*`, `**/*.sql` |
 | ci | `.github/**`, `.gitlab-ci.yml`, `.gitlab/**`, `.circleci/**`, `.buildkite/**`, `.travis.yml`, `azure-pipelines.yml`, `**/Jenkinsfile` |
 | infra | `**/*.tf`, `**/*.tfvars`, `**/terraform/**`, `**/infra/**`, `**/infrastructure/**`, `**/k8s/**`, `**/kubernetes/**`, `**/helm/**`, `**/ansible/**`, `**/deploy/**`, `**/Dockerfile*`, `**/docker-compose*` |
-| gate config | `.redkiln/bench/**`, `.anneal/**`, `.claude/**` |
+| gate config | `.redkiln`, `.redkiln/**`, `.anneal`, `.anneal/**`, `.claude`, `.claude/**` (a bare folder name is the folder replaced by a symlink) |
 
 `**/*auth*` also matches `author.rs`: a false full review is the cheap mistake.
 

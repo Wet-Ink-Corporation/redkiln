@@ -72,8 +72,13 @@ pub(crate) const DEFAULT_SENSITIVE: &[(&str, &str)] = &[
     ("infra", "**/deploy/**"),
     ("infra", "**/Dockerfile*"),
     ("infra", "**/docker-compose*"),
-    ("gate config", ".redkiln/bench/**"),
+    // A bare folder name is the folder replaced by a symlink (or a file), which moves every
+    // config below it without a path under it in the diff.
+    ("gate config", ".redkiln"),
+    ("gate config", ".redkiln/**"),
+    ("gate config", ".anneal"),
     ("gate config", ".anneal/**"),
+    ("gate config", ".claude"),
     ("gate config", ".claude/**"),
 ];
 
