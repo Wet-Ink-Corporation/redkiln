@@ -6,11 +6,11 @@
 //! fallback, file by file, and never written or deleted (D1 style).
 
 use std::ffi::OsString;
-use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
 use redkiln_calibrate::scope::{ScopeError, UserScope};
+
+use crate::repo_file::is_present;
 
 /// Bench's folder in the user scope's root.
 pub(crate) const BENCH_DIR: &str = "bench";
@@ -90,15 +90,6 @@ impl StateHome for BenchHome {
 
     fn written(&self, name: &str) -> PathBuf {
         self.current.join(name)
-    }
-}
-
-/// Whether anything is at `path`: an entry that cannot be inspected counts as present, so its
-/// reader reports the failure instead of reading anneal's copy past it.
-fn is_present(path: &Path) -> bool {
-    match fs::symlink_metadata(path) {
-        Ok(_) => true,
-        Err(error) => error.kind() != io::ErrorKind::NotFound,
     }
 }
 

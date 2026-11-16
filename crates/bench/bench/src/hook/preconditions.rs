@@ -444,26 +444,27 @@ fn names_settings(path: &Path) -> bool {
 /// and NTFS are case-insensitive by default) and with what Windows ignores in a name taken
 /// off: trailing dots and spaces, and an alternate data stream (`config.json::$DATA`).
 fn settings_named(path: &Path) -> Option<&'static str> {
-    let names: Vec<String> = path
-        .components()
-        .rev()
-        .map_while(|component| match component {
-            Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
-            Component::CurDir
-            | Component::ParentDir
-            | Component::Prefix(_)
-            | Component::RootDir => None,
-        })
-        .collect();
     SETTINGS
         .iter()
         .find(|(wanted, _)| {
-            names.len() >= wanted.len()
-                && names.iter().zip(wanted.iter().rev()).all(|(name, wanted)| {
-                    let stem = name.split_once(':').map_or(name.as_str(), |(stem, _)| stem);
+            // The path's last names, from the end, up to the first that is not a plain name.
+            let mut names = path
+                .components()
+                .rev()
+                .map_while(|component| match component {
+                    Component::Normal(name) => Some(name.to_string_lossy()),
+                    Component::CurDir
+                    | Component::ParentDir
+                    | Component::Prefix(_)
+                    | Component::RootDir => None,
+                });
+            wanted.iter().rev().all(|wanted| {
+                names.next().is_some_and(|name| {
+                    let stem = name.split_once(':').map_or(&*name, |(stem, _)| stem);
                     stem.trim_end_matches(['.', ' '])
                         .eq_ignore_ascii_case(wanted)
                 })
+            })
         })
         .map(|(_, denied)| *denied)
 }

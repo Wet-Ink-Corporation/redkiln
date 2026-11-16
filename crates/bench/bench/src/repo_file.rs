@@ -122,8 +122,9 @@ pub(crate) fn warn<W: Write>(root: &Path, files: &[RepoFile], mut err: W) -> io:
 }
 
 /// Whether anything is at `path`, a symlink included (not followed). A path whose metadata
-/// cannot be read counts as present, so its reader reports why rather than reading past it.
-fn is_present(path: &Path) -> bool {
+/// cannot be read counts as present, so its reader reports why rather than reading anneal's
+/// copy past it (shared with `paths::BenchHome`).
+pub(crate) fn is_present(path: &Path) -> bool {
     match fs::symlink_metadata(path) {
         Ok(_) => true,
         Err(error) => error.kind() != io::ErrorKind::NotFound,
