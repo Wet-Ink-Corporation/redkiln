@@ -28,6 +28,8 @@ const CASES: &[&str] = &[
     "indented-four-not-a-fence",
     "indented-weigh-in-block",
     "unclosed-weigh-in-block",
+    "closer-at-any-indent",
+    "closer-with-text-is-content",
 ];
 
 /// The files of every case, for `every_fixture_and_schema_is_listed`.

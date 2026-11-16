@@ -1,34 +1,34 @@
-//! The status block a subagent ends with: a `Status:` line and the required sections.
+//! The status block a subagent ends with: the end-of-turn report of SPEC `spec/turns.md`,
+//! read by Core ([`turn::read`], ET-02 to ET-07), and the sections Bench requires of it.
 //!
-//! The block is temper's (`references/process.md` §5): `Status: <value>`, then `Gate:`,
-//! `Review:`, `Changed:`, `Decisions needed:` and `Not verified:` lines. The values and the
-//! sections are data ([`STATUSES`], [`SECTIONS`]), so a playbook can extend them. The last
-//! `Status:` line is the report; code fences do not hide it (temper's template is fenced).
-//! A key is read through list markers, quote markers, emphasis (`*`) and code spans, in any
-//! letter case.
+//! The report is temper's block (`references/process.md` §5): the last `Status:` line (ET-05),
+//! read inside code fences too (ET-06) and through list, quote and heading markers, emphasis
+//! (`*`) and code spans, in any letter case (ET-02), then its section lines (ET-07). Bench
+//! requires the five sections of [`SECTIONS`]; `Declined` is read (it ends the section above
+//! it) but not required. This module turns Core's reading into what `bench.subagent_status`
+//! records and what Clef D4 is asked.
 
 use bench_contract::event::AgentStatus;
+use redkiln_core::turn::{self, Report, Section, TurnStatus};
 
-/// The values a `Status:` line may carry, as written, and what each records.
-pub(crate) const STATUSES: [(&str, AgentStatus); 5] = [
-    ("DONE", AgentStatus::Done),
-    ("DONE_WITH_CONCERNS", AgentStatus::DoneWithConcerns),
-    ("NEEDS_CONTEXT", AgentStatus::NeedsContext),
-    ("BLOCKED", AgentStatus::Blocked),
-    ("WIP", AgentStatus::Wip),
-];
-
-/// The sections that must each start a line after the `Status:` line, in report order.
-pub(crate) const SECTIONS: [&str; 5] = [
-    "Gate",
-    "Review",
-    "Changed",
-    "Decisions needed",
-    "Not verified",
+/// The sections Bench requires after the `Status:` line, in report order.
+pub(crate) const SECTIONS: [Section; 5] = [
+    Section::Gate,
+    Section::Review,
+    Section::Changed,
+    Section::DecisionsNeeded,
+    Section::NotVerified,
 ];
 
 /// How many characters of an unknown status the violation shows.
 const SHOWN_CHARS: usize = 64;
+
+/// What an unknown status's violation says is expected.
+const EXPECTED: &str = "expected DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED or WIP";
+
+/// A status line with no word, put before a message that has none, so that Core reads every
+/// line of the message as following it: a section anywhere in such a message counts as present.
+const BARE_STATUS_LINE: &str = "Status:\n";
 
 /// The status block as read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,38 +43,22 @@ pub(crate) struct Parsed {
 
 /// Reads the status block of `message`. Never fails: whatever is wrong is the violation.
 pub(crate) fn parse(message: &str) -> Parsed {
-    let lines: Vec<String> = message.lines().map(plain).collect();
-    let status_at = lines
-        .iter()
-        .rposition(|line| value(line, "Status").is_some());
-    let after = status_at.map_or(0, |at| at.saturating_add(1));
-    let rest = lines.get(after..).unwrap_or_default();
-    let missing: Vec<String> = SECTIONS
-        .iter()
-        .filter(|section| !rest.iter().any(|line| value(line, section).is_some()))
-        .map(|section| (*section).to_owned())
-        .collect();
+    let report = turn::read(message);
+    let missing = match &report {
+        Some(report) => missing_from(report),
+        None => missing_anywhere(message),
+    };
     let mut problems = Vec::new();
-    let status = match status_at
-        .and_then(|at| lines.get(at))
-        .and_then(|line| value(line, "Status"))
-    {
+    let status = match report.as_ref().map(Report::status) {
         None => {
             problems.push("no Status: line".to_owned());
             None
         }
-        Some(found) => {
-            let word = first_word(found);
-            let known = STATUSES
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(word))
-                .map(|(_, status)| *status);
-            if known.is_none() {
-                let expected = "expected DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED or WIP";
-                let shown = shortened(word);
-                problems.push(format!("unknown status {shown:?}; {expected}"));
-            }
-            known
+        Some(Ok(status)) => Some(agent_status(status)),
+        Some(Err(unknown)) => {
+            let shown = shortened(unknown.word());
+            problems.push(format!("unknown status {shown:?}; {EXPECTED}"));
+            None
         }
     };
     if !missing.is_empty() {
@@ -87,82 +71,59 @@ pub(crate) fn parse(message: &str) -> Parsed {
     }
 }
 
-/// Each section of [`SECTIONS`] with its text in the last status block of `message`, in report
-/// order: the text after its key, then its continuation lines up to a blank line, a code fence
-/// or the next key, joined by spaces; empty for a section the block lacks. `None` when
-/// `message` is not a report: it has no `Status:` line, or its last one does not start with a
-/// status word of [`STATUSES`] (a prose "Status: …" line), as [`parse`] reads it.
+/// Each section of [`SECTIONS`] with its text in the report of `message`, in report order: the
+/// text after its key, then its continuation lines up to a blank line, a code fence, a status
+/// line or any registered key (`Declined` among them), joined by spaces (ET-07); empty for a
+/// section the report lacks. `None` when `message` is not a report: it has no `Status:` line,
+/// or its last one does not carry one of the five words (a prose "Status: …" line, ET-05), as
+/// [`parse`] reads it.
 pub(crate) fn section_texts(message: &str) -> Option<Vec<(&'static str, String)>> {
-    let raw: Vec<&str> = message.lines().collect();
-    let lines: Vec<String> = raw.iter().map(|line| plain(line)).collect();
-    let status_at = lines
-        .iter()
-        .rposition(|line| value(line, "Status").is_some())?;
-    let word = first_word(
-        lines
-            .get(status_at)
-            .and_then(|line| value(line, "Status"))?,
-    );
-    if !STATUSES
-        .iter()
-        .any(|(name, _)| name.eq_ignore_ascii_case(word))
-    {
+    let report = turn::read(message)?;
+    if report.status().is_err() {
         return None;
     }
-    let rest = lines.get(status_at.saturating_add(1)..).unwrap_or_default();
-    let raw_rest = raw.get(status_at.saturating_add(1)..).unwrap_or_default();
-    let is_key = |line: &str| {
-        value(line, "Status").is_some() || SECTIONS.iter().any(|s| value(line, s).is_some())
-    };
     let texts = SECTIONS
-        .iter()
+        .into_iter()
         .map(|section| {
-            let Some(at) = rest.iter().position(|line| value(line, section).is_some()) else {
-                return (*section, String::new());
-            };
-            let first = rest
-                .get(at)
-                .and_then(|line| value(line, section))
-                .unwrap_or_default();
-            let following = rest
-                .iter()
-                .zip(raw_rest)
-                .skip(at.saturating_add(1))
-                .take_while(|(line, raw)| {
-                    !line.trim().is_empty() && !is_fence(raw) && !is_key(line)
-                })
-                .map(|(line, _)| line.as_str());
-            let words: Vec<&str> = std::iter::once(first)
-                .chain(following)
-                .flat_map(str::split_whitespace)
-                .collect();
-            (*section, words.join(" "))
+            // An absent section is empty text: the documented reading of a missing one.
+            let text = report
+                .section(section)
+                .map_or_else(String::new, str::to_owned);
+            (section.key(), text)
         })
         .collect();
     Some(texts)
 }
 
-/// Whether `line` opens or closes a code fence.
-fn is_fence(line: &str) -> bool {
-    let line = line.trim_start();
-    line.starts_with("```") || line.starts_with("~~~")
-}
-
-/// `line` without emphasis and code-span marks, and without leading list or quote markers.
-fn plain(line: &str) -> String {
-    let unmarked: String = line.chars().filter(|c| !matches!(c, '*' | '`')).collect();
-    unmarked
-        .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '-' | '+' | '>' | '#'))
-        .to_owned()
-}
-
-/// The text after `<key>:` when `line` starts with it (in any letter case).
-fn value<'l>(line: &'l str, key: &str) -> Option<&'l str> {
-    let head = line.get(..key.len())?;
-    if !head.eq_ignore_ascii_case(key) {
-        return None;
+/// What `bench.subagent_status` records for a Core status word: the five map one to one.
+fn agent_status(status: TurnStatus) -> AgentStatus {
+    match status {
+        TurnStatus::Done => AgentStatus::Done,
+        TurnStatus::DoneWithConcerns => AgentStatus::DoneWithConcerns,
+        TurnStatus::NeedsContext => AgentStatus::NeedsContext,
+        TurnStatus::Blocked => AgentStatus::Blocked,
+        TurnStatus::Wip => AgentStatus::Wip,
     }
-    line.get(key.len()..)?.strip_prefix(':')
+}
+
+/// The keys of the [`SECTIONS`] `report` lacks, in report order.
+fn missing_from(report: &Report) -> Vec<String> {
+    SECTIONS
+        .into_iter()
+        .filter(|section| report.section(*section).is_none())
+        .map(|section| section.key().to_owned())
+        .collect()
+}
+
+/// The keys of the [`SECTIONS`] that start no line of `message`, a message with no `Status:`
+/// line: there is no report to look after, so the whole message is looked through, under the
+/// same key rule (ET-02, ET-03).
+fn missing_anywhere(message: &str) -> Vec<String> {
+    let whole = format!("{BARE_STATUS_LINE}{message}");
+    turn::read(&whole).map_or_else(
+        || SECTIONS.map(|section| section.key().to_owned()).to_vec(),
+        |report| missing_from(&report),
+    )
 }
 
 /// `word`'s first [`SHOWN_CHARS`] characters, with `…` when it is longer, so a violation stays
@@ -176,19 +137,12 @@ fn shortened(word: &str) -> String {
     shown
 }
 
-/// The first word of `text`, without trailing punctuation.
-fn first_word(text: &str) -> &str {
-    text.split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(['.', ',', ';', ':', '!'])
-}
-
 #[cfg(test)]
 mod tests {
     use bench_contract::event::AgentStatus;
+    use redkiln_core::turn::TurnStatus;
 
-    use super::{Parsed, parse, section_texts};
+    use super::{Parsed, agent_status, parse, section_texts};
 
     const FULL: &str = "\
 Gate: fmt ok | clippy ok | test ok (3 passed) | doc ok
@@ -369,6 +323,55 @@ Not verified: none";
             section_texts(prose_last),
             None,
             "the last Status: line decides, as in `parse`"
+        );
+    }
+
+    #[test]
+    fn a_message_without_a_status_line_lists_only_the_sections_it_lacks() {
+        let parsed = parse("- **Gate:** green\nChanged: a\n\nNot verified: none\n");
+
+        assert_eq!(
+            parsed,
+            Parsed {
+                status: None,
+                violation: Some(
+                    "no Status: line; missing sections: Review, Decisions needed".to_owned()
+                ),
+                missing: vec!["Review".to_owned(), "Decisions needed".to_owned()],
+            },
+            "without a Status: line, sections anywhere in the message count as present"
+        );
+    }
+
+    #[test]
+    fn section_texts_stops_decisions_needed_at_a_declined_line() {
+        let message = "Status: DONE\nGate: ok\nDecisions needed: none\nDeclined: the unwrap; \
+                       a Result instead (H-02)\nNot verified: none\n";
+
+        let texts = section_texts(message).expect("a report");
+
+        assert_eq!(
+            texts.get(3),
+            Some(&("Decisions needed", "none".to_owned())),
+            "Declined: is a registered key (ET-07), so it ends the section above it: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn every_core_word_maps_to_the_agent_status_of_its_name() {
+        let expected = [
+            AgentStatus::Done,
+            AgentStatus::DoneWithConcerns,
+            AgentStatus::NeedsContext,
+            AgentStatus::Blocked,
+            AgentStatus::Wip,
+        ];
+
+        let mapped: Vec<AgentStatus> = TurnStatus::ALL.into_iter().map(agent_status).collect();
+
+        assert_eq!(
+            mapped, expected,
+            "DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED, WIP map one to one, in order"
         );
     }
 
