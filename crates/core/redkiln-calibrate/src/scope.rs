@@ -1,0 +1,148 @@
+//! The user scope (blueprint, User scope): `~/.redkiln/`, the per-user folder Core manages, and
+//! where in it each producer keeps its decision rows.
+//!
+//! The root is `$REDKILN_HOME` when set, else `$HOME/.redkiln`, else `%USERPROFILE%\.redkiln`.
+//! A producer's rows live in `<root>/calibrate/<producer>/`. anneal kept them in
+//! `<anneal home>/decisions/` (`$ANNEAL_HOME`, else `~/.anneal`); per Ryan's D1 (option A,
+//! 2026-11-14) that folder is read alongside the new one and never written or deleted, so
+//! [`UserScope::decisions`] names both. Empty values count as unset; a relative one is refused,
+//! since it would move with the working directory.
+//!
+//! The environment is read only through the lookup [`UserScope::from_lookup`] is given, once,
+//! by the binary (ARC-11).
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+/// The variable naming the user scope's root.
+pub const HOME_VAR: &str = "REDKILN_HOME";
+
+/// The root's folder inside a home directory.
+pub const HOME_DIR: &str = ".redkiln";
+
+/// The variable naming anneal's home, read only for its old decision log.
+pub const LEGACY_HOME_VAR: &str = "ANNEAL_HOME";
+
+/// anneal's home folder inside a home directory.
+pub const LEGACY_HOME_DIR: &str = ".anneal";
+
+/// The folder inside the root that holds each producer's decision rows.
+pub const CALIBRATE_DIR: &str = "calibrate";
+
+/// anneal's decision log folder inside its home.
+pub const LEGACY_DECISIONS_DIR: &str = crate::log::LOG_DIR;
+
+/// The home directory variables, in the order they are tried.
+const HOME_VARS: [&str; 2] = ["HOME", "USERPROFILE"];
+
+/// Why the user scope could not be resolved.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ScopeError {
+    /// None of `REDKILN_HOME`, `HOME` or `USERPROFILE` is set.
+    #[error("cannot find a home directory: set REDKILN_HOME, HOME or USERPROFILE")]
+    NoHome,
+    /// The variable holds a relative path, which would move with the working directory.
+    #[error("{var} must be an absolute path, got {value}", value = value.display())]
+    RelativeHome {
+        /// The variable that was read.
+        var: &'static str,
+        /// The path it gave.
+        value: PathBuf,
+    },
+    /// A producer name that is not one plain folder name.
+    #[error("{name:?} is not a producer name (lowercase letters, digits and `-`, not first)")]
+    Producer {
+        /// The name given.
+        name: String,
+    },
+}
+
+/// The user scope's root, and anneal's home when one is set or implied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserScope {
+    root: PathBuf,
+    legacy_home: Option<PathBuf>,
+}
+
+/// Where a producer's decision rows are: written only to `current`, read from `legacy` first
+/// (when there is one) and then `current`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecisionDirs {
+    /// `<root>/calibrate/<producer>`: the only folder written.
+    pub current: PathBuf,
+    /// anneal's `<anneal home>/decisions`, read alongside and never written or deleted; `None`
+    /// without an anneal home, or when it is `current` itself.
+    pub legacy: Option<PathBuf>,
+}
+
+impl UserScope {
+    /// The scope `lookup` names; `lookup` reads one environment variable.
+    ///
+    /// # Errors
+    /// [`ScopeError::NoHome`] when neither `REDKILN_HOME`, `HOME` nor `USERPROFILE` is set;
+    /// [`ScopeError::RelativeHome`] when the root, or anneal's home, would be relative.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<OsString>) -> Result<Self, ScopeError> {
+        let read = |var: &'static str| {
+            lookup(var)
+                .filter(|value| !value.is_empty())
+                .map(|value| (var, PathBuf::from(value)))
+        };
+        let home = HOME_VARS.into_iter().find_map(read);
+        let root = read(HOME_VAR)
+            .or_else(|| home.as_ref().map(|(var, dir)| (*var, dir.join(HOME_DIR))))
+            .ok_or(ScopeError::NoHome)
+            .and_then(absolute)?;
+        let legacy_home = read(LEGACY_HOME_VAR)
+            .or_else(|| home.map(|(var, dir)| (var, dir.join(LEGACY_HOME_DIR))))
+            .map(absolute)
+            .transpose()?;
+        Ok(Self { root, legacy_home })
+    }
+
+    /// The root, `~/.redkiln` or `$REDKILN_HOME`.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Where `producer`'s decision rows are (see [`DecisionDirs`]).
+    ///
+    /// # Errors
+    /// [`ScopeError::Producer`] unless `producer` is lowercase ASCII letters, digits and `-`,
+    /// not starting with `-`, so it names exactly one folder.
+    pub fn decisions(&self, producer: &str) -> Result<DecisionDirs, ScopeError> {
+        if !is_plain(producer) {
+            return Err(ScopeError::Producer {
+                name: producer.to_owned(),
+            });
+        }
+        let current = self.root.join(CALIBRATE_DIR).join(producer);
+        let legacy = self
+            .legacy_home
+            .as_ref()
+            .map(|home| home.join(LEGACY_DECISIONS_DIR))
+            .filter(|legacy| *legacy != current);
+        Ok(DecisionDirs { current, legacy })
+    }
+}
+
+/// `path`, when absolute.
+fn absolute((var, path): (&'static str, PathBuf)) -> Result<PathBuf, ScopeError> {
+    if path.is_absolute() {
+        Ok(path)
+    } else {
+        Err(ScopeError::RelativeHome { var, value: path })
+    }
+}
+
+/// Whether `name` is one plain lowercase folder name.
+fn is_plain(name: &str) -> bool {
+    !name.starts_with('-')
+        && !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+#[cfg(test)]
+mod tests;

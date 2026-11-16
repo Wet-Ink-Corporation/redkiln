@@ -3,21 +3,22 @@
 //! It reports how well the probabilities match the outcomes labelled with
 //! `bench decide label`, the threshold that would have cost least, and whether the point may
 //! leave shadow mode. `calibrate [--point <D1..D7>] [--thresholds <file>]` reads every file of the decision log
-//! (`decisions.4.jsonl` .. `decisions.1.jsonl`, then `decisions.jsonl`), joins each answered
-//! decision to its latest label, and reports per point and question: n, the labelled n, the
-//! Brier score, 10 reliability bins, the ask rate, the lowest band's threshold now and as
+//! (`decisions.4.jsonl` .. `decisions.1.jsonl`, then `decisions.jsonl`; anneal's old
+//! `~/.anneal/decisions/` first, then `~/.redkiln/calibrate/bench/`, per D1), joins each
+//! answered decision to its latest label, and reports per point and question: n, the labelled
+//! n, the Brier score, 10 reliability bins, the ask rate, the lowest band's threshold now and as
 //! proposed, and a verdict (`stay-shadow` or `eligible-to-enforce`). It writes every point's
-//! report and the manual steps that would apply it to `<anneal home>/decisions/proposals.json`
+//! report and the manual steps that would apply it to `proposals.json` in the log's new folder
 //! (only when those bytes would change), writes the envelope (for `--point`'s point only, when
 //! given; each point with its mode in effect and its per-day history) on stdout and a short
-//! summary on stderr, and exits 0. Its `data.diff` shows each proposed threshold as the changed
+//! summary on stderr (after a `bench: warning:` line when it read the old folder), and exits 0.
+//! The scores, the row reader and the promotion bar are `redkiln_calibrate`'s. Its `data.diff` shows each proposed threshold as the changed
 //! line of the thresholds file. It never edits the thresholds or the mode: only
 //! `calibrate --apply --thresholds <file>` writes a thresholds file, from the last run's
 //! proposals, and never the mode. See `docs/calibrate.md`.
 //!
 //! Private modules:
-//! - `read`: the log's files into rows.
-//! - `score`: Brier score, bins, expected cost and the proposed threshold.
+//! - `read`: the log's files into rows, with Clef's points and questions.
 //! - `report`: the join, the per-question report and the verdict.
 //! - `history`: each question's decisions per UTC day, for a trend.
 //! - `output`: envelope, proposals file, manual steps and summary.
@@ -30,7 +31,6 @@ mod history;
 mod output;
 mod read;
 mod report;
-mod score;
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -41,10 +41,10 @@ use clap::Args;
 use crate::baseline::BaselineError;
 use crate::decide::modes::Modes;
 use crate::decide::point::Point;
-use crate::decide::{self, DecideError, log::DecisionLog};
+use crate::decide::{self, DecideError};
+use crate::diagnostic;
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
-use crate::paths;
 use output::Calibration;
 
 /// The proposals file inside the decision log's directory.
@@ -143,8 +143,9 @@ impl CalibrateError {
 }
 
 /// Runs `bench calibrate` with `env`: the proposals file, then the envelope on `out` (flushed),
-/// then the summary on `err` (flushed), so the summary is written only for a run that
-/// succeeded. The summary is best effort: a summary stderr refuses leaves the exit code 0.
+/// then the old-folder warning (D1) and the summary on `err` (flushed), so they are written
+/// only for a run that succeeded. Both are best effort: a stderr that refuses them leaves the
+/// exit code 0.
 pub(crate) fn run<O, E, L>(
     args: &CalibrateArgs,
     env: &CalibrateEnv<'_, L>,
@@ -156,8 +157,7 @@ where
     E: Write,
     L: Fn(&str) -> Option<OsString>,
 {
-    let home = paths::anneal_home_from(&env.lookup)?;
-    let log = DecisionLog::in_home(&home);
+    let log = decide::log::open(&env.lookup)?;
     let selected = |point: Point| args.selects(point);
     if args.apply {
         return apply::run(args, &log, env.cwd, out);
@@ -194,8 +194,11 @@ where
     output::write_proposals(&calibration)?;
     let code = output::emit(&calibration, selected, out).map_err(CliError::Output)?;
     out.flush().map_err(CliError::Output)?;
-    let summary =
-        output::write_summary(&calibration, selected, &mut *err).and_then(|()| err.flush());
+    let summary = log
+        .legacy_warning()
+        .map_or(Ok(()), |warning| diagnostic::warning(&mut *err, &warning))
+        .and_then(|()| output::write_summary(&calibration, selected, &mut *err))
+        .and_then(|()| err.flush());
     match summary {
         Ok(()) => Ok(code),
         // Best effort, by design (docs/calibrate.md): the summary repeats the envelope, which

@@ -92,7 +92,7 @@ pub(crate) struct World {
 }
 
 impl World {
-    /// A home with `vars` set (and `ANNEAL_HOME` pointing at it).
+    /// A home with `vars` set (and `ANNEAL_HOME` and `REDKILN_HOME` pointing at it).
     pub(crate) fn new(vars: &[(&str, &str)]) -> TestResult<Self> {
         let home = tempfile::tempdir()?;
         let mut map: BTreeMap<String, OsString> = vars
@@ -100,6 +100,10 @@ impl World {
             .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
             .collect();
         map.insert("ANNEAL_HOME".to_owned(), home.path().as_os_str().to_owned());
+        map.insert(
+            "REDKILN_HOME".to_owned(),
+            home.path().as_os_str().to_owned(),
+        );
         Ok(Self { home, vars: map })
     }
 

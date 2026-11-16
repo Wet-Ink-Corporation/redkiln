@@ -140,7 +140,7 @@ pub(crate) fn run<O: Write>(
         });
     };
     let target = cwd.join(flag);
-    let proposals_path = log.dir().join(PROPOSALS_FILE);
+    let proposals_path = log.file_to_read(PROPOSALS_FILE);
     let proposals = read_proposals(&proposals_path)?;
     let (_current, text) =
         decide::read_thresholds_text(Some(&target)).map_err(CalibrateError::Thresholds)?;

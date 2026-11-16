@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use redkiln_calibrate::score::{FALSE_ACCEPT_COST, NEEDLESS_COST};
 use serde::Serialize;
 
 use crate::baseline;
@@ -12,7 +13,6 @@ use crate::calibrate::CalibrateError;
 use crate::calibrate::edit::{Change, Edit, EditError};
 use crate::calibrate::history::DayScore;
 use crate::calibrate::report::{PointReport, QuestionReport, Report, Verdict};
-use crate::calibrate::score::{FALSE_ACCEPT_COST, NEEDLESS_COST};
 use crate::command::CommandName;
 use crate::decide::config::Mode;
 use crate::decide::modes::{Modes, ModesError};

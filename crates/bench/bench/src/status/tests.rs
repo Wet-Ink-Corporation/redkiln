@@ -82,6 +82,7 @@ impl Fixture {
         let mut vars = BTreeMap::new();
         vars.insert("REDKILN_STORE", state.path().join("ledger.sqlite3").into());
         vars.insert("ANNEAL_HOME", state.path().join("home").into());
+        vars.insert("REDKILN_HOME", state.path().join("home").into());
         Ok(Self { repo, state, vars })
     }
 

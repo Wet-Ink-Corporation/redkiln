@@ -1,51 +1,22 @@
 //! The per-point report: the log's decisions joined to their labels, scored per point and
 //! question, with a proposed threshold and a promotion verdict.
 //!
-//! A question is `stay-shadow` when it has fewer than [`MIN_LABELLED`] labelled decisions, a
-//! Brier score over [`MAX_BRIER`], or an ask rate of [`MAX_ASK_RATE`] or more; otherwise it is
-//! `eligible-to-enforce`. A point is eligible only when every question it has decisions for is,
-//! and it has some. The threshold proposed is the point's lowest band, the boundary between
-//! acting and `otherwise`.
+//! A question is `stay-shadow` unless it clears `redkiln_calibrate`'s default promotion bar
+//! ([`Bar::DEFAULT`]: at least 50 labelled decisions, a Brier score of at most 0.15 and an ask
+//! rate under 20%); otherwise it is `eligible-to-enforce`. A point is eligible only when every
+//! question it has decisions for is, and it has some. The threshold proposed is the point's
+//! lowest band, the boundary between acting and `otherwise`.
 
 use std::collections::{BTreeMap, HashSet};
 
+use redkiln_calibrate::promotion::Bar;
+pub(crate) use redkiln_calibrate::promotion::{Reason, Verdict};
+use redkiln_calibrate::score::{self, Bin, Costs, FalseAccept, Sample};
 use serde::Serialize;
 
-use crate::calibrate::read::{Answered, LogRows};
-use crate::calibrate::score::{self, Bin, Costs, FalseAccept, Sample};
+use crate::calibrate::read::{self, Answered, LogRows};
 use crate::decide::point::{Point, Question};
 use crate::decide::thresholds::{Band, PointRules, Rule, Thresholds};
-
-/// Fewest labelled decisions a question needs to be eligible.
-pub(crate) const MIN_LABELLED: u32 = 50;
-
-/// Highest Brier score an eligible question may have.
-pub(crate) const MAX_BRIER: f64 = 0.15;
-
-/// The ask rate at which a question stays in shadow.
-pub(crate) const MAX_ASK_RATE: f64 = 0.20;
-
-/// The promotion verdict. Never applied: `calibrate` only reports it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum Verdict {
-    /// Keep the point in shadow.
-    StayShadow,
-    /// The point may be set to `enforce`.
-    EligibleToEnforce,
-}
-
-/// Why a question stays in shadow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum Reason {
-    /// Fewer than [`MIN_LABELLED`] labelled decisions.
-    TooFewLabelled,
-    /// A Brier score over [`MAX_BRIER`].
-    BrierAboveBound,
-    /// An ask rate of [`MAX_ASK_RATE`] or more.
-    AskRateAtOrAboveBound,
-}
 
 /// Why no threshold is proposed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,27 +27,6 @@ pub(crate) enum NoProposal {
     /// No decision of the question has a usable label.
     #[serde(rename = "no_labels")]
     Unlabelled,
-}
-
-impl Verdict {
-    /// The name, as serialised.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::StayShadow => "stay-shadow",
-            Self::EligibleToEnforce => "eligible-to-enforce",
-        }
-    }
-}
-
-impl Reason {
-    /// The name, as serialised.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::TooFewLabelled => "too_few_labelled",
-            Self::BrierAboveBound => "brier_above_bound",
-            Self::AskRateAtOrAboveBound => "ask_rate_at_or_above_bound",
-        }
-    }
 }
 
 impl NoProposal {
@@ -194,30 +144,13 @@ pub(crate) fn outcome(decision: &Answered, label: &str) -> Option<bool> {
     }
 }
 
-/// The verdict for a question, and every reason it stays in shadow.
+/// The verdict for a question against [`Bar::DEFAULT`], and every reason it stays in shadow.
 pub(crate) fn verdict(
     labelled: u32,
     brier: Option<f64>,
     ask_rate: Option<f64>,
 ) -> (Verdict, Vec<Reason>) {
-    let reasons: Vec<Reason> = [
-        (labelled < MIN_LABELLED).then_some(Reason::TooFewLabelled),
-        brier
-            .is_some_and(|brier| brier > MAX_BRIER)
-            .then_some(Reason::BrierAboveBound),
-        ask_rate
-            .is_some_and(|rate| rate >= MAX_ASK_RATE)
-            .then_some(Reason::AskRateAtOrAboveBound),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    let verdict = if reasons.is_empty() {
-        Verdict::EligibleToEnforce
-    } else {
-        Verdict::StayShadow
-    };
-    (verdict, reasons)
+    Bar::DEFAULT.verdict(labelled, brier, ask_rate)
 }
 
 /// Reports every point of `thresholds` over `rows`.
@@ -236,12 +169,14 @@ pub(crate) fn report<'t>(thresholds: &'t Thresholds, rows: &LogRows) -> Report<'
             .get(&decision.id)
             .map(|label| (outcome(decision, &label.outcome), label.via_mod))
         {
-            Some((Some(positive), via_mod)) => {
-                group
-                    .samples
-                    .push(Sample::new(decision.probability, positive));
-                group.via_mod = group.via_mod.saturating_add(u32::from(via_mod));
-            }
+            Some((Some(positive), via_mod)) => match read::sample(decision, positive) {
+                Some(sample) => {
+                    group.samples.push(sample);
+                    group.via_mod = group.via_mod.saturating_add(u32::from(via_mod));
+                }
+                // Not from the reader, which skips a probability outside 0..=1.
+                None => group.unusable = group.unusable.saturating_add(1),
+            },
             Some((None, _)) => group.unusable = group.unusable.saturating_add(1),
             None => {}
         }

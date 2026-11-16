@@ -306,3 +306,41 @@ fn a_missing_state_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     assert!(stderr.starts_with("bench: error: "), "{stderr}");
     Ok(())
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn with_anneals_old_folder_present_a_label_warns_and_goes_only_to_the_new_one() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let (anneal_home, redkiln_home) = (home.path().join("anneal"), home.path().join("redkiln"));
+    let old = anneal_home.join("decisions");
+    std::fs::create_dir_all(&old)?;
+
+    let output = anneal(home.path())
+        .args(["decide", "label", "d1-1-0", "yes"])
+        .env("ANNEAL_HOME", &anneal_home)
+        .env("REDKILN_HOME", &redkiln_home)
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let new = redkiln_home.join("calibrate").join("bench");
+    assert_eq!(
+        String::from_utf8(output.stderr)?,
+        format!(
+            "bench: warning: reading the old decision log at {} too; new rows go to {}, and the \
+             old folder is never written or deleted\n",
+            old.display(),
+            new.display()
+        )
+    );
+    assert_eq!(
+        rows(&new.join("decisions.jsonl"))?.len(),
+        1,
+        "one label row"
+    );
+    assert_eq!(
+        std::fs::read_dir(&old)?.count(),
+        0,
+        "the old folder stays empty"
+    );
+    Ok(())
+}

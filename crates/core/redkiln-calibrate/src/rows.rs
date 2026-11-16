@@ -1,15 +1,22 @@
-//! Reading the decision log `bench decide` writes: every file, oldest first, into the
+//! Reading decision logs into what calibration needs: every file, oldest first, into the
 //! answered decisions, the unanswered counts and the latest label of each id (and whether it
 //! came through a mod).
 //!
+//! This reads anneal's v1 rows only, the JSONL that `bench decide` and `decide label` write
+//! (`{"kind": "decision", "id", "ts_ms", "point", "question", "probability", "top",
+//! "probabilities", "action", ...}` and `{"kind": "label", "id", "outcome", "via"?}`); it is not
+//! the format of Core's calibration records, which step 6 defines. The point and question are
+//! the caller's types (`P`, `Q`), so a row naming a point or question the caller does not know
+//! is skipped, as one this build cannot read.
+//!
 //! Each file is read whole, and must be a regular file (checked by `symlink_metadata` before
-//! it is opened) of at most [`MAX_LOG_FILE_BYTES`]: decide's 16 MiB rotation size plus
-//! [`HEADROOM_ROWS`] rows of its 8 KiB row cap. `decide` appends without a lock, so concurrent
-//! calls can each pass its size check and leave the live file a few rows past 16 MiB; a file
-//! larger still was not written by `decide` and is an error. Rows are read tolerantly (unknown
-//! fields ignored), as a newer `decide` may add some; a line that is not a decision or label
-//! row this build reads, or a probability outside 0..=1, is counted in `skipped_rows`, not
-//! dropped silently and not fatal, since one torn line must not stop calibration.
+//! it is opened) of at most [`MAX_LOG_FILE_BYTES`]: the log's 16 MiB rotation size plus
+//! [`HEADROOM_ROWS`] rows of its 8 KiB row cap. The log appends without a lock, so concurrent
+//! writers can each pass its size check and leave the live file a few rows past 16 MiB; a file
+//! larger still was not written by the log and is an error. Rows are read tolerantly (unknown
+//! fields ignored), as a newer writer may add some; a line that is not a decision or label row
+//! this build reads, or a probability outside 0..=1, is counted in `skipped_rows`, not dropped
+//! silently and not fatal, since one torn line must not stop calibration.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
@@ -17,86 +24,129 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 
-use crate::baseline::BaselineError;
-use crate::calibrate::CalibrateError;
-use crate::decide::label::Via;
-use crate::decide::log::{DecisionLog, MAX_FILE_BYTES};
-use crate::decide::point::{Point, Question};
+use crate::log::{DecisionLog, MAX_FILE_BYTES};
 
-/// Decide's row cap (`decide::log::MAX_ROW_BYTES`) as a `u64`; a test keeps them equal.
-pub(crate) const ROW_BYTES: u64 = 8 * 1024;
+/// The log's row cap ([`crate::log::MAX_ROW_BYTES`]) as a `u64`; a test keeps them equal.
+pub const ROW_BYTES: u64 = 8 * 1024;
 
 /// How many rows past the rotation size a live file may hold: concurrent appends that each
-/// passed decide's size check before any of them landed.
-pub(crate) const HEADROOM_ROWS: u64 = 64;
+/// passed the log's size check before any of them landed.
+pub const HEADROOM_ROWS: u64 = 64;
 
 /// The largest log file read: the rotation size plus the headroom (16.5 MiB).
-pub(crate) const MAX_LOG_FILE_BYTES: u64 = MAX_FILE_BYTES + HEADROOM_ROWS * ROW_BYTES;
+pub const MAX_LOG_FILE_BYTES: u64 = MAX_FILE_BYTES + HEADROOM_ROWS * ROW_BYTES;
+
+/// A label's `via` when it came through a mod.
+pub const VIA_MOD: &str = "mod";
 
 /// An answered decision: one with a probability.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Answered {
+pub struct Answered<P, Q> {
     /// The decision's id, which labels refer to.
-    pub(crate) id: String,
+    pub id: String,
     /// The decision point.
-    pub(crate) point: Point,
+    pub point: P,
     /// The question type.
-    pub(crate) question: Question,
-    /// The probability the thresholds applied to.
-    pub(crate) probability: f64,
+    pub question: Q,
+    /// The probability the thresholds applied to, within 0..=1 (`-0.0` read as `0.0`).
+    pub probability: f64,
     /// The top option of a choice.
-    pub(crate) top: Option<String>,
-    /// The options Clef gave probabilities for, by name.
-    pub(crate) options: Vec<String>,
+    pub top: Option<String>,
+    /// The options a probability was given for, by name.
+    pub options: Vec<String>,
     /// Whether the action handed the decision to a human (`ask`, `ask_*`).
-    pub(crate) asked: bool,
+    pub asked: bool,
 }
 
 /// The latest label of a decision id.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Label {
+pub struct Label {
     /// The outcome it records.
-    pub(crate) outcome: String,
+    pub outcome: String,
     /// Whether it came through a mod (`via: mod`).
-    pub(crate) via_mod: bool,
+    pub via_mod: bool,
 }
 
-/// What the log holds, as calibration needs it.
-#[derive(Debug, Default)]
-pub(crate) struct LogRows {
+/// What the logs hold, as calibration needs it.
+#[derive(Debug)]
+pub struct LogRows<P, Q> {
     /// The files read, oldest first.
-    pub(crate) files: Vec<PathBuf>,
+    pub files: Vec<PathBuf>,
     /// Answered decisions, in log order.
-    pub(crate) answered: Vec<Answered>,
+    pub answered: Vec<Answered<P, Q>>,
     /// Decisions without an answer, per point and question.
-    pub(crate) unanswered: BTreeMap<(Point, Question), u32>,
+    pub unanswered: BTreeMap<(P, Q), u32>,
     /// The latest label of each decision id.
-    pub(crate) labels: HashMap<String, Label>,
+    pub labels: HashMap<String, Label>,
     /// Lines that are not a row this build reads.
-    pub(crate) skipped_rows: u32,
-    /// When each of `answered` was decided (its `ts_ms`), by index: `read_log` pushes one entry
+    pub skipped_rows: u32,
+    /// When each of `answered` was decided (its `ts_ms`), by index: [`read`] pushes one entry
     /// per answered decision, `None` for a row whose `ts_ms` is missing or not a non-negative
-    /// JSON integer. A reader treats a missing entry as `None` (`calibrate::history`).
-    pub(crate) answered_ms: Vec<Option<u64>>,
+    /// JSON integer. A reader treats a missing entry as `None`.
+    pub answered_ms: Vec<Option<u64>>,
+}
+
+impl<P, Q> Default for LogRows<P, Q> {
+    fn default() -> Self {
+        Self {
+            files: Vec::new(),
+            answered: Vec::new(),
+            unanswered: BTreeMap::new(),
+            labels: HashMap::new(),
+            skipped_rows: 0,
+            answered_ms: Vec::new(),
+        }
+    }
+}
+
+/// Why the logs could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum ReadError {
+    /// A file could not be read.
+    #[error("reading {path}", path = path.display())]
+    Io {
+        /// The file.
+        path: PathBuf,
+        /// The failure.
+        #[source]
+        source: io::Error,
+    },
+    /// Something other than a regular file is where a log file goes.
+    #[error("{path} is not a regular file", path = path.display())]
+    NotAFile {
+        /// The path.
+        path: PathBuf,
+    },
+    /// A file is larger than any the log writes.
+    #[error("{path} is larger than {cap} bytes", path = path.display())]
+    TooLarge {
+        /// The file.
+        path: PathBuf,
+        /// The most read.
+        cap: u64,
+    },
 }
 
 /// One line of the log.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-enum RowDto {
-    Decision(DecisionDto),
+#[serde(bound = "P: DeserializeOwned, Q: DeserializeOwned")]
+enum RowDto<P, Q> {
+    Decision(DecisionDto<P, Q>),
     Label(LabelDto),
 }
 
 #[derive(Debug, Deserialize)]
-struct DecisionDto {
+#[serde(bound = "P: DeserializeOwned, Q: DeserializeOwned")]
+struct DecisionDto<P, Q> {
     id: String,
     /// Read as any JSON value, so a row whose `ts_ms` is not a non-negative JSON integer still
-    /// reads (as it did before calibrate read the field); such a row is left out of the history.
+    /// reads; such a row is left out of `answered_ms`.
     ts_ms: Option<serde_json::Value>,
-    point: Point,
-    question: Question,
+    point: P,
+    question: Q,
     probability: Option<f64>,
     top: Option<String>,
     probabilities: Option<BTreeMap<String, f64>>,
@@ -112,38 +162,44 @@ struct LabelDto {
     via: Option<String>,
 }
 
-/// Reads every file of `log`, oldest first.
+/// Reads every file of each of `logs` in turn, each oldest first: pass an older log before a
+/// newer one, so a newer label is the latest.
 ///
 /// # Errors
-/// [`CalibrateError::Read`] when a file cannot be read or is not a regular file;
-/// [`CalibrateError::TooLarge`] when one is over [`MAX_LOG_FILE_BYTES`].
-pub(crate) fn read_log(log: &DecisionLog) -> Result<LogRows, CalibrateError> {
+/// [`ReadError::Io`] when a file cannot be read; [`ReadError::NotAFile`] when one is not a
+/// regular file; [`ReadError::TooLarge`] when one is over [`MAX_LOG_FILE_BYTES`].
+pub fn read<'a, P, Q>(
+    logs: impl IntoIterator<Item = &'a DecisionLog>,
+) -> Result<LogRows<P, Q>, ReadError>
+where
+    P: DeserializeOwned + Ord,
+    Q: DeserializeOwned + Ord,
+{
     let mut rows = LogRows::default();
-    for path in log.files() {
-        let Some(bytes) = read_file(&path)? else {
-            continue;
-        };
-        read_into(&bytes, &mut rows);
-        rows.files.push(path);
+    for log in logs {
+        for path in log.files() {
+            let Some(bytes) = read_file(&path)? else {
+                continue;
+            };
+            read_into(&bytes, &mut rows);
+            rows.files.push(path);
+        }
     }
     Ok(rows)
 }
 
 /// The whole of the log file at `path`, or `None` when there is none.
-fn read_file(path: &Path) -> Result<Option<Vec<u8>>, CalibrateError> {
-    let io_error = |source| {
-        CalibrateError::Read(BaselineError::Io {
-            op: "reading",
-            path: path.to_path_buf(),
-            source,
-        })
+fn read_file(path: &Path) -> Result<Option<Vec<u8>>, ReadError> {
+    let io_error = |source| ReadError::Io {
+        path: path.to_path_buf(),
+        source,
     };
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_file() => {}
         Ok(_other) => {
-            return Err(CalibrateError::Read(BaselineError::NotAFile {
+            return Err(ReadError::NotAFile {
                 path: path.to_path_buf(),
-            }));
+            });
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(source) => return Err(io_error(source)),
@@ -160,7 +216,7 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>, CalibrateError> {
         .read_to_end(&mut bytes)
         .map_err(io_error)?;
     if u64::try_from(bytes.len()).map_or(true, |len| len > MAX_LOG_FILE_BYTES) {
-        return Err(CalibrateError::TooLarge {
+        return Err(ReadError::TooLarge {
             path: path.to_path_buf(),
             cap: MAX_LOG_FILE_BYTES,
         });
@@ -169,7 +225,11 @@ fn read_file(path: &Path) -> Result<Option<Vec<u8>>, CalibrateError> {
 }
 
 /// Adds the rows of one file to `rows`.
-fn read_into(bytes: &[u8], rows: &mut LogRows) {
+fn read_into<P, Q>(bytes: &[u8], rows: &mut LogRows<P, Q>)
+where
+    P: DeserializeOwned + Ord,
+    Q: DeserializeOwned + Ord,
+{
     for line in bytes.split(|byte| *byte == b'\n') {
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
@@ -184,8 +244,8 @@ fn read_into(bytes: &[u8], rows: &mut LogRows) {
 
 /// Records `label` as its id's latest, with where it came from: a later label replaces an
 /// earlier one's outcome and its `via` alike.
-fn add_label(label: LabelDto, rows: &mut LogRows) {
-    let via_mod = label.via.as_deref() == Some(Via::Mod.as_str());
+fn add_label<P, Q>(label: LabelDto, rows: &mut LogRows<P, Q>) {
+    let via_mod = label.via.as_deref() == Some(VIA_MOD);
     rows.labels.insert(
         label.id,
         Label {
@@ -195,7 +255,7 @@ fn add_label(label: LabelDto, rows: &mut LogRows) {
     );
 }
 
-fn add_decision(decision: DecisionDto, rows: &mut LogRows) {
+fn add_decision<P: Ord, Q: Ord>(decision: DecisionDto<P, Q>, rows: &mut LogRows<P, Q>) {
     let Some(probability) = decision.probability else {
         let unanswered = rows
             .unanswered

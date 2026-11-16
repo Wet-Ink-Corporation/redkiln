@@ -123,6 +123,7 @@ impl World {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let mut vars = BTreeMap::new();
         vars.insert("ANNEAL_HOME", dir.path().join("home").into_os_string());
+        vars.insert("REDKILN_HOME", dir.path().join("home").into_os_string());
         vars.insert(
             "REDKILN_STORE",
             dir.path().join("ledger.sqlite3").into_os_string(),

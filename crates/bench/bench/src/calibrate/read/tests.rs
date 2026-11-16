@@ -303,3 +303,11 @@ fn the_last_label_of_an_id_decides_whether_it_came_via_the_mod() -> TestResult {
     );
     Ok(())
 }
+
+#[test]
+fn the_rows_reader_counts_as_mod_exactly_what_decide_label_writes_for_via_mod() {
+    assert_eq!(
+        redkiln_calibrate::rows::VIA_MOD,
+        crate::decide::label::Via::Mod.as_str()
+    );
+}

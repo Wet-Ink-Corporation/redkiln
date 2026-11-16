@@ -26,7 +26,7 @@ fn calibrate_with(home: &Path, vars: &[(&str, &str)]) -> Result<Value, Box<dyn E
     let env = CalibrateEnv {
         cwd: home,
         lookup: |var: &str| -> Option<OsString> {
-            if var == "ANNEAL_HOME" {
+            if var == "ANNEAL_HOME" || var == "REDKILN_HOME" {
                 return Some(home.as_os_str().to_owned());
             }
             vars.iter()

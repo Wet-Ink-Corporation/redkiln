@@ -42,6 +42,7 @@ fn lookup(home: &Path, vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsStrin
         .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
         .collect();
     map.insert("ANNEAL_HOME".to_owned(), home.as_os_str().to_owned());
+    map.insert("REDKILN_HOME".to_owned(), home.as_os_str().to_owned());
     move |name| map.get(name).cloned()
 }
 

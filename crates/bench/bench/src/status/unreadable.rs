@@ -1,6 +1,8 @@
 //! Why a section of `bench status` could not be read: the error of the module that owns the
 //! section's data, kept typed until the finding is written (ERR-01).
 
+use redkiln_calibrate::scope::ScopeError;
+
 use crate::store::StoreError;
 
 use crate::context::sessions::SessionsError;
@@ -50,6 +52,9 @@ pub(super) enum Unreadable {
     /// The answered-decision counts could not be read.
     #[error(transparent)]
     DecisionLog(#[from] LogError),
+    /// The user scope holding the decision log could not be resolved.
+    #[error(transparent)]
+    Scope(#[from] ScopeError),
     /// The saved context-usage snapshots could not be read.
     #[error(transparent)]
     Sessions(#[from] SessionsError),

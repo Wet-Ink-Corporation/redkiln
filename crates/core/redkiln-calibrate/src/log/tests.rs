@@ -4,7 +4,6 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::{DecisionLog, LOG_FILE, LogError, MAX_ROW_BYTES, ROTATED_FILES};
-use crate::decide::point::Point;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -96,40 +95,6 @@ fn something_other_than_a_file_at_the_log_path_is_refused() {
 }
 
 #[test]
-fn answered_counts_start_at_zero_and_persist_per_point() -> TestResult {
-    let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
-    assert_eq!(log.answered(Point::D1)?, 0);
-
-    log.count_answered(Point::D1)?;
-    log.count_answered(Point::D1)?;
-    log.count_answered(Point::D3)?;
-
-    let reopened = DecisionLog::in_home(home.path());
-    assert_eq!(reopened.answered(Point::D1)?, 2);
-    assert_eq!(reopened.answered(Point::D3)?, 1);
-    assert_eq!(reopened.answered(Point::D2)?, 0);
-    Ok(())
-}
-
-#[test]
-fn a_counts_file_of_another_kind_is_refused() {
-    let home = tempfile::tempdir().expect("tempdir");
-    let log = DecisionLog::in_home(home.path());
-    fs::create_dir_all(&log.dir).expect("mkdir");
-    fs::write(
-        log.counts_path(),
-        r#"{"kind":"other","version":1,"answered":{}}"#,
-    )
-    .expect("write");
-
-    assert!(matches!(
-        log.answered(Point::D1),
-        Err(LogError::CountsForeign { .. })
-    ));
-}
-
-#[test]
 fn rotating_a_live_file_another_call_already_rotated_continues() -> TestResult {
     let home = tempfile::tempdir()?;
     let log = DecisionLog::in_home(home.path());
@@ -141,13 +106,4 @@ fn rotating_a_live_file_another_call_already_rotated_continues() -> TestResult {
     assert!(!log.path().exists(), "no live file appears");
     assert_eq!(lines(&log.rotated(2)), [json!({"n": 1})], "older moved up");
     Ok(())
-}
-
-#[test]
-fn a_directory_at_the_counts_path_is_refused() {
-    let home = tempfile::tempdir().expect("tempdir");
-    let log = DecisionLog::in_home(home.path());
-    fs::create_dir_all(log.counts_path()).expect("a directory where counts go");
-
-    assert!(matches!(log.answered(Point::D1), Err(LogError::Counts(_))));
 }

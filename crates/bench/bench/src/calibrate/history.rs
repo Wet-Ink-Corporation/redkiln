@@ -7,9 +7,10 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use crate::calibrate::read::LogRows;
+use redkiln_calibrate::score::{self, Sample};
+
+use crate::calibrate::read::{self, LogRows};
 use crate::calibrate::report::outcome;
-use crate::calibrate::score::{self, Sample};
 use crate::decide::point::{Point, Question};
 
 /// How many days with decisions each question's history keeps, the latest.
@@ -54,14 +55,13 @@ pub(crate) fn history(rows: &LogRows) -> BTreeMap<Point, Vec<DayScore>> {
             .entry((decision.point, decision.question, day_start_ms))
             .or_default();
         tally.n = tally.n.saturating_add(1);
-        if let Some(positive) = rows
+        if let Some(sample) = rows
             .labels
             .get(&decision.id)
             .and_then(|label| outcome(decision, &label.outcome))
+            .and_then(|positive| read::sample(decision, positive))
         {
-            tally
-                .samples
-                .push(Sample::new(decision.probability, positive));
+            tally.samples.push(sample);
         }
     }
     let mut by_question: BTreeMap<(Point, Question), Vec<DayScore>> = BTreeMap::new();

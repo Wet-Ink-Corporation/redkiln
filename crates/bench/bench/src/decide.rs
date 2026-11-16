@@ -29,6 +29,7 @@ pub mod answer;
 pub mod client;
 pub mod clock;
 pub mod config;
+pub(crate) mod counts;
 pub mod id;
 pub(crate) mod in_process;
 pub(crate) mod label;
@@ -56,7 +57,6 @@ use crate::command::CommandName;
 use crate::envelope::Envelope;
 use crate::error::CliError;
 use crate::exit_codes::{self, Code};
-use crate::paths;
 use client::{Ask, AskError, Setup};
 use clock::Clock;
 use config::ClefConfig;
@@ -210,8 +210,7 @@ where
     T: Transport,
     C: Clock,
 {
-    let home = paths::anneal_home_from(&env.lookup)?;
-    let log = DecisionLog::in_home(&home);
+    let log = log::open(&env.lookup)?;
     if let Some(DecideAction::Label(label)) = &args.action {
         return label_decision(label, &log, env.clock, out);
     }

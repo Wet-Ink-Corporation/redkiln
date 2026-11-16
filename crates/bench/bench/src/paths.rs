@@ -1,5 +1,7 @@
 //! Where Bench keeps state: the suite store (normally in the git common dir, `location`) and
-//! `~/.anneal` (decision log).
+//! `~/.anneal` (context snapshots, hook counters and markers; until step 5.6).
+//!
+//! The decision log moved to the user scope `~/.redkiln/calibrate/bench/` (`decide::log`).
 
 mod location;
 

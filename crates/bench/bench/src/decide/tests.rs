@@ -61,7 +61,7 @@ fn decide(
     let home = tempfile::tempdir().expect("tempdir");
     let home_path = home.path().to_owned();
     let lookup = |name: &str| {
-        if name == "ANNEAL_HOME" {
+        if name == "ANNEAL_HOME" || name == "REDKILN_HOME" {
             return Some(home_path.clone().into_os_string());
         }
         vars.iter()

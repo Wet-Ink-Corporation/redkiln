@@ -25,7 +25,8 @@
 //! - [`dag`]: `bench dag check|frontier` over the tickets a tracker holds (markdown, GitHub);
 //!   tickets, the GitHub tracker, the graph and the estimate are the GitHub kit's.
 //! - [`decide`]: `bench decide`, one Clef question per decision point with its thresholds
-//!   applied and a row in `~/.anneal/decisions/decisions.jsonl`, and `decide label`.
+//!   applied and a row in `~/.redkiln/calibrate/bench/decisions.jsonl` (anneal's old
+//!   `~/.anneal/decisions/` read alongside), and `decide label`.
 //! - [`calibrate`]: `bench calibrate`, each decision point scored against its labelled
 //!   outcomes (Brier, bins, ask rate), a proposed threshold and a promotion verdict.
 //! - [`grill`]: `bench grill frontier|classify|confirm` over the `grill` skill's design tree.

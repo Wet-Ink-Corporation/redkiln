@@ -1,4 +1,5 @@
 use super::{Bin, Costs, FalseAccept, Proposal, Sample, bins, brier, expected_cost, propose};
+use super::{Probability, ProbabilityError};
 
 /// The hand-computed set (docs/calibrate.md works it through):
 /// (0.1, no), (0.3, yes), (0.8, yes), (0.95, no), (1.0, yes).
@@ -227,4 +228,44 @@ fn a_rounding_that_would_leave_the_gap_keeps_the_exact_midpoint() {
         highest < proposal.threshold && proposal.threshold < ceiling,
         "strictly between its neighbours: {proposal:?}"
     );
+}
+
+#[test]
+fn a_probability_is_a_finite_number_from_0_to_1() {
+    for refused in [
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        -0.001,
+        1.0001,
+        2.0,
+    ] {
+        assert_eq!(
+            Probability::try_from(refused).map(Probability::get),
+            Err(ProbabilityError(refused.to_string())),
+            "{refused}"
+        );
+    }
+    for accepted in [0.0, 0.25, 1.0] {
+        assert_eq!(
+            Probability::try_from(accepted).map(Probability::get),
+            Ok(accepted)
+        );
+    }
+}
+
+#[test]
+fn a_negative_zero_probability_is_zero() {
+    let zero = Probability::try_from(-0.0)
+        .expect("-0.0 is within 0..=1")
+        .get();
+
+    assert!(zero.total_cmp(&0.0).is_eq(), "{zero:?} sorts with 0.0");
+}
+
+#[test]
+fn a_checked_sample_scores_as_an_unchecked_one() {
+    let checked = Sample::of(Probability::try_from(0.3).expect("within 0..=1"), true);
+
+    assert_eq!(checked, Sample::new(0.3, true));
 }

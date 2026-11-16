@@ -59,7 +59,7 @@ fn calibrate_into<E: Write>(
         cwd: home,
         // The lookup hands out an owned value per call, as `std::env::var_os` does.
         lookup: |var: &str| -> Option<OsString> {
-            (var == "ANNEAL_HOME").then(|| home.as_os_str().to_owned())
+            (var == "ANNEAL_HOME" || var == "REDKILN_HOME").then(|| home.as_os_str().to_owned())
         },
     };
     let mut out = Vec::new();
@@ -378,7 +378,7 @@ fn decide_in(home: &Path, words: &[&str]) -> Result<Value, Box<dyn std::error::E
         cwd: home,
         lookup: |var: &str| -> Option<OsString> {
             match var {
-                "ANNEAL_HOME" => Some(home.as_os_str().to_owned()),
+                "ANNEAL_HOME" | "REDKILN_HOME" => Some(home.as_os_str().to_owned()),
                 ACCOUNT_VAR => Some("acct0123".into()),
                 TOKEN_VAR => Some("token-value".into()),
                 _ => None,
@@ -514,3 +514,4 @@ fn mod_labels_are_counted_apart_in_the_envelope_and_the_summary() -> TestResult 
 
 mod apply;
 mod dashboard;
+mod scope;

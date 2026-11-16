@@ -1,28 +1,20 @@
-//! The decision log: `<anneal home>/decisions/decisions.jsonl`, one JSON row per decision or
-//! label, append-only.
+//! The decision log: `<dir>/decisions.jsonl`, one JSON row per decision or label,
+//! append-only, in the directory its producer's [`crate::scope::UserScope`] names.
 //!
-//! The anneal home (`~/.anneal`, or `$ANNEAL_HOME`) is outside the plugin's directories, so
-//! the log survives a reinstall (`CLAUDE_PLUGIN_DATA` is deleted on uninstall). Bounds (H-13):
-//! a row is at most [`MAX_ROW_BYTES`]; a file that would pass [`MAX_FILE_BYTES`] is renamed to
-//! `decisions.1.jsonl` (the older ones moving up to `decisions.4.jsonl`, and the fifth
-//! dropped), so the log holds at most 80 MiB. Each row is one `write` of the whole line to a
-//! file opened for appending, so concurrent writers do not interleave rows.
-//!
-//! How many answered decisions each point has had is kept in `counts.json` beside the log,
-//! so the 50-decision shadow period survives rotation. Two decisions at once can lose one
-//! increment, which only lengthens the shadow period.
+//! Bounds (H-13): a row is at most [`MAX_ROW_BYTES`]; a file that would pass
+//! [`MAX_FILE_BYTES`] is renamed to `decisions.1.jsonl` (the older ones moving up to
+//! `decisions.4.jsonl`, and the fifth dropped), so the log holds at most 80 MiB. Each row is one
+//! `write` of the whole line to a file opened for appending, so concurrent writers do not
+//! interleave rows. The rows themselves are the producer's; [`crate::rows`] reads anneal's v1
+//! decision and label rows.
 
-use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use crate::baseline::{self, BaselineError};
-use crate::decide::point::Point;
-
-/// The log's directory inside the anneal home.
+/// The log's directory inside an anneal home (the v1 layout, `~/.anneal/decisions`).
 pub const LOG_DIR: &str = "decisions";
 
 /// The live log file.
@@ -37,16 +29,7 @@ pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 /// How many rotated files are kept.
 pub const ROTATED_FILES: u32 = 4;
 
-/// The counts file inside the log's directory.
-const COUNTS_FILE: &str = "counts.json";
-
-/// The counts file's `kind`, so another file of the same name is not overwritten.
-const COUNTS_KIND: &str = "anneal-decision-counts";
-
-/// The counts file's format version.
-const COUNTS_VERSION: u32 = 1;
-
-/// Why a row could not be appended or the counts kept.
+/// Why a row could not be appended.
 #[derive(Debug, thiserror::Error)]
 pub enum LogError {
     /// A file or directory could not be read, created, renamed or written.
@@ -75,53 +58,33 @@ pub enum LogError {
     /// The row could not be encoded.
     #[error("encoding a decision row")]
     Encode(#[source] serde_json::Error),
-    /// The counts file could not be read or written.
-    #[error("decision counts")]
-    Counts(#[source] BaselineError),
-    /// The counts file is not JSON of the expected shape.
-    #[error("{path} is not a decision counts file", path = path.display())]
-    CountsFormat {
-        /// The file.
-        path: PathBuf,
-        /// What did not parse.
-        #[source]
-        source: serde_json::Error,
-    },
-    /// The counts file belongs to something else, or to another version.
-    #[error("{path} is not {COUNTS_KIND} version {COUNTS_VERSION}", path = path.display())]
-    CountsForeign {
-        /// The file.
-        path: PathBuf,
-    },
 }
 
-/// The decision log in one anneal home.
+/// The decision log in one directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecisionLog {
     dir: PathBuf,
     max_file_bytes: u64,
 }
 
-/// `counts.json`: `{"kind", "version", "answered": {"D1": n, ...}}`.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CountsFile {
-    kind: String,
-    version: u32,
-    answered: BTreeMap<Point, u64>,
-}
-
 impl DecisionLog {
-    /// The log in the anneal home `home`.
+    /// The log in `dir`.
     #[must_use]
-    pub fn in_home(home: &Path) -> Self {
+    pub const fn new(dir: PathBuf) -> Self {
         Self {
-            dir: home.join(LOG_DIR),
+            dir,
             max_file_bytes: MAX_FILE_BYTES,
         }
     }
 
-    /// The log's directory, `<anneal home>/decisions`.
+    /// The log in the anneal home `home`: `<home>/decisions`, anneal's v1 layout, which a
+    /// producer reads alongside its own (D1) and never writes.
+    #[must_use]
+    pub fn in_home(home: &Path) -> Self {
+        Self::new(home.join(LOG_DIR))
+    }
+
+    /// The log's directory.
     #[must_use]
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -199,61 +162,6 @@ impl DecisionLog {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(source) => Err(io_error("rotating", &path, source)),
         }
-    }
-
-    /// The counts file.
-    fn counts_path(&self) -> PathBuf {
-        self.dir.join(COUNTS_FILE)
-    }
-
-    /// How many answered decisions `point` has had.
-    ///
-    /// # Errors
-    /// [`LogError::Counts`] when the counts file cannot be read or is not a regular file;
-    /// [`LogError::CountsFormat`] or [`LogError::CountsForeign`] when it is not ours.
-    pub fn answered(&self, point: Point) -> Result<u64, LogError> {
-        Ok(self.load_counts()?.get(&point).copied().unwrap_or(0))
-    }
-
-    /// How many answered decisions each point has had, read once; a point with none is absent.
-    ///
-    /// # Errors
-    /// As [`DecisionLog::answered`].
-    pub(crate) fn answered_by_point(&self) -> Result<BTreeMap<Point, u64>, LogError> {
-        self.load_counts()
-    }
-
-    /// Counts one more answered decision of `point`, and returns the new count.
-    ///
-    /// # Errors
-    /// As [`DecisionLog::answered`], and [`LogError::Counts`] when the file cannot be written.
-    pub fn count_answered(&self, point: Point) -> Result<u64, LogError> {
-        let mut answered = self.load_counts()?;
-        let count = answered.entry(point).or_insert(0);
-        *count = count.saturating_add(1);
-        let total = *count;
-        let file = CountsFile {
-            kind: COUNTS_KIND.to_owned(),
-            version: COUNTS_VERSION,
-            answered,
-        };
-        baseline::write_snapshot_json(&self.counts_path(), &file).map_err(LogError::Counts)?;
-        Ok(total)
-    }
-
-    fn load_counts(&self) -> Result<BTreeMap<Point, u64>, LogError> {
-        let path = self.counts_path();
-        let Some(bytes) = baseline::read_state_bytes(&path).map_err(LogError::Counts)? else {
-            return Ok(BTreeMap::new());
-        };
-        let file: CountsFile = match serde_json::from_slice(&bytes) {
-            Ok(file) => file,
-            Err(source) => return Err(LogError::CountsFormat { path, source }),
-        };
-        if file.kind != COUNTS_KIND || file.version != COUNTS_VERSION {
-            return Err(LogError::CountsForeign { path });
-        }
-        Ok(file.answered)
     }
 }
 
