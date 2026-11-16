@@ -224,8 +224,11 @@ fn a_post_tool_use_input_is_answered_as_post_tool_use() {
 fn a_state_file_that_cannot_be_written_fails_open_without_a_block() {
     let home = Home::new();
     home.report(Some(190_000.0));
-    std::fs::create_dir(context::in_home(home.path(), context::MONITOR_FILE))
-        .expect("a directory where the monitor's state file goes");
+    std::fs::create_dir_all(context::in_home(
+        &home.path().join("bench"),
+        context::MONITOR_FILE,
+    ))
+    .expect("a directory where the monitor's state file goes");
 
     let output = home.batch();
 

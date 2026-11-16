@@ -238,8 +238,11 @@ fn an_anneal_home_that_cannot_be_found_is_an_internal_error() {
 #[test]
 fn a_usage_file_that_cannot_be_written_is_an_internal_error() {
     let home = tempfile::tempdir().expect("a temporary directory");
-    std::fs::create_dir(context::in_home(home.path(), context::MOD_USAGE_FILE))
-        .expect("a directory where the file goes");
+    std::fs::create_dir_all(context::in_home(
+        &home.path().join("bench"),
+        context::MOD_USAGE_FILE,
+    ))
+    .expect("a directory where the file goes");
 
     let outcome = write(
         r#"{"session_id":"s1","window":200000}"#,

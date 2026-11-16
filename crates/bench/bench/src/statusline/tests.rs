@@ -147,8 +147,8 @@ fn an_unreadable_input_still_prints_a_line_and_one_error_line() {
 #[test]
 fn a_usage_file_that_cannot_be_saved_is_said_in_the_line() {
     let home = tempfile::tempdir().expect("a temporary directory");
-    let path = context::in_home(home.path(), context::USAGE_FILE);
-    std::fs::create_dir(&path).expect("a directory where the file goes");
+    let path = context::in_home(&home.path().join("bench"), context::USAGE_FILE);
+    std::fs::create_dir_all(&path).expect("a directory where the file goes");
     let input = r#"{"session_id":"s1","context_window":{"used_percentage":1}}"#;
 
     let (code, out, err) = status_line(input, home.path(), None);
@@ -159,4 +159,29 @@ fn a_usage_file_that_cannot_be_saved_is_said_in_the_line() {
         "the line says the monitor will not see it"
     );
     assert_eq!(err.lines().count(), 1, "one `bench: error:` line: {err}");
+}
+
+#[test]
+fn an_old_usage_file_that_cannot_be_read_does_not_stop_the_save() {
+    let home = tempfile::tempdir().expect("a temporary directory");
+    std::fs::create_dir(context::in_home(home.path(), context::USAGE_FILE))
+        .expect("a directory where anneal's file was");
+    let input = r#"{"session_id":"s1","context_window":{"used_percentage":1}}"#;
+
+    let (code, out, err) = status_line(input, home.path(), None);
+
+    assert_eq!(
+        (code, out.as_str(), err.as_str()),
+        (0, "anneal ctx 2k/200k 1%\n", ""),
+        "the stale cache is read as absent"
+    );
+    assert_eq!(
+        saved(home.path(), "s1"),
+        Some(Snapshot {
+            used_tokens: Some(2_000.0),
+            window: 200_000,
+            window_source: WindowSource::Default,
+        }),
+        "the reading is saved in Bench's folder"
+    );
 }

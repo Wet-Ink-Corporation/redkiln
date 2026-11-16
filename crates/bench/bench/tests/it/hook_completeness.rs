@@ -490,7 +490,7 @@ fn a_green_run_in_a_sibling_worktree_does_not_satisfy_a_claim() -> TestResult {
 #[cfg_attr(miri, ignore = "runs the binary")]
 fn a_block_count_that_cannot_be_read_turns_the_gate_into_context() -> TestResult {
     let session = Session::new()?;
-    std::fs::create_dir(session.home.path().join("stop-blocks.json"))?;
+    std::fs::create_dir_all(session.home.path().join("bench/stop-blocks.json"))?;
     session.edit(PAST)?;
 
     let decision = session.stop("All tests pass.")?;

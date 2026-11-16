@@ -99,6 +99,18 @@ fn a_file_is_read_from_bench_s_folder_else_anneal_s_and_always_written_to_bench_
 }
 
 #[test]
+fn an_old_file_that_cannot_be_read_is_read_as_absent() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let home = both(dir.path())?;
+    std::fs::create_dir_all(dir.path().join("anneal/usage.json"))?;
+
+    let read = home.read("usage.json");
+
+    assert_eq!(read, dir.path().join("root/bench/usage.json"));
+    Ok(())
+}
+
+#[test]
 fn a_plain_folder_reads_and_writes_in_itself() {
     let folder = Path::new("state");
 
