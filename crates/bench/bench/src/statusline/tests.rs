@@ -13,7 +13,7 @@ use crate::hook::clef_fake::Fixed;
 /// variable `window`: the exit code's value, stdout and stderr.
 fn status_line(input: &str, home: &Path, window: Option<&str>) -> (u8, String, String) {
     let lookup = |var: &str| match var {
-        "ANNEAL_HOME" => Some(OsString::from(home)),
+        "ANNEAL_HOME" | "REDKILN_HOME" => Some(OsString::from(home)),
         AUTO_COMPACT_WINDOW_VAR => window.map(OsString::from),
         _ => None,
     };
@@ -62,7 +62,9 @@ fn a_reading_is_shown_and_saved_for_the_session() {
 fn a_saved_reading_is_stamped_as_the_status_line_s_with_its_time() {
     let home = tempfile::tempdir().expect("a temporary directory");
     let input = r#"{"session_id":"s1","context_window":{"used_percentage":5}}"#;
-    let lookup = |var: &str| (var == "ANNEAL_HOME").then(|| OsString::from(home.path()));
+    let lookup = |var: &str| {
+        (var == "ANNEAL_HOME" || var == "REDKILN_HOME").then(|| OsString::from(home.path()))
+    };
 
     let env = WriterEnv {
         stdin: input.as_bytes(),

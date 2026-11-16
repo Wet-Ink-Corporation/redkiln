@@ -105,6 +105,14 @@ impl UserScope {
         &self.root
     }
 
+    /// anneal's home (`$ANNEAL_HOME`, else `$HOME/.anneal`, else `%USERPROFILE%\.anneal`),
+    /// which a producer that moved from anneal reads alongside its folder in the root and never
+    /// writes or deletes; `None` when no variable names one.
+    #[must_use]
+    pub fn legacy_home(&self) -> Option<&Path> {
+        self.legacy_home.as_deref()
+    }
+
     /// Where `producer`'s decision rows are (see [`DecisionDirs`]).
     ///
     /// # Errors

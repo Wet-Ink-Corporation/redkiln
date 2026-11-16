@@ -49,7 +49,7 @@ fn write(input: &str, home: Option<&Path>, window: Option<&str>) -> Outcome {
     }
     .expect("the snapshot command");
     let lookup = |var: &str| match var {
-        "ANNEAL_HOME" => home.map(OsString::from),
+        "ANNEAL_HOME" | "REDKILN_HOME" => home.map(OsString::from),
         AUTO_COMPACT_WINDOW_VAR => window.map(OsString::from),
         _ => None,
     };

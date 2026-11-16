@@ -3,7 +3,7 @@
 //!
 //! It reads the status-line input on stdin (at most 1 MiB), prints one line
 //! (`anneal ctx 120k/200k 60%`: tokens used of the auto-compact window), and saves the reading
-//! for the session in the anneal home's `context-usage.json`, stamped `source: statusline`
+//! for the session in Bench's state home's `context-usage.json` (`~/.redkiln/bench/`), stamped `source: statusline`
 //! with the time, which the context-monitor hook reads (or the mod's snapshot, when fresher),
 //! since hooks receive no usage field. The tokens used are
 //! `context_window.used_percentage` of `context_window.context_window_size`; the window is
@@ -18,6 +18,7 @@ use std::io::{Read, Write};
 use std::time::SystemTimeError;
 
 use clap::Args;
+use redkiln_calibrate::scope::ScopeError;
 use serde::Deserialize;
 
 use crate::context::sessions::SessionsError;
@@ -30,7 +31,7 @@ use crate::error_chain::reason;
 use crate::exit_codes::{self, Code};
 use crate::harness::claude_code::AUTO_COMPACT_WINDOW_VAR;
 use crate::hook::{StdinError, read_stdin};
-use crate::paths::{self, PathError};
+use crate::paths::BenchHome;
 
 /// The most stdin read; Claude Code's status-line input is a few KiB (H-13).
 const MAX_INPUT_BYTES: u64 = 1024 * 1024;
@@ -69,8 +70,8 @@ enum InputError {
 /// Why the reading could not be saved.
 #[derive(Debug, thiserror::Error)]
 enum SaveError {
-    #[error("finding the anneal home")]
-    Home(#[source] PathError),
+    #[error("finding bench's state folder in the user scope")]
+    Home(#[source] ScopeError),
     #[error("reading the clock")]
     Clock(#[source] SystemTimeError),
     #[error(transparent)]
@@ -79,7 +80,7 @@ enum SaveError {
 
 /// Runs `bench statusline`.
 ///
-/// It reads the input from `stdin`, the auto-compact window variable and the anneal home
+/// It reads the input from `stdin`, the auto-compact window variable and the user scope
 /// through `lookup`, writes the line to `out` and any failure as one `bench: error:` line to
 /// `err`.
 ///
@@ -188,7 +189,7 @@ fn line(reading: &Reading) -> String {
     )
 }
 
-/// Saves `reading` as `session`'s status-line snapshot in the anneal home, stamped with
+/// Saves `reading` as `session`'s status-line snapshot in the state home, stamped with
 /// `clock`'s time.
 fn save(
     session: &str,
@@ -196,7 +197,7 @@ fn save(
     lookup: impl Fn(&str) -> Option<OsString>,
     clock: &impl Clock,
 ) -> Result<(), SaveError> {
-    let home = paths::anneal_home_from(lookup).map_err(SaveError::Home)?;
+    let home = BenchHome::from_lookup(lookup).map_err(SaveError::Home)?;
     let now_ms = clock.unix_millis().map_err(SaveError::Clock)?;
     let snapshot = Snapshot {
         used_tokens: reading.used_tokens,

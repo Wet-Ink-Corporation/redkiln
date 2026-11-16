@@ -148,6 +148,28 @@ fn without_anneal_home_the_old_log_is_home_dot_anneal_decisions() {
 }
 
 #[test]
+fn anneal_s_home_is_anneal_home_then_home_dot_anneal_and_none_without_a_home() {
+    let (anneal, home, over) = (absolute("anneal"), absolute("me"), absolute("over"));
+
+    let set = UserScope::from_lookup(lookup(&[
+        ("ANNEAL_HOME", text(&anneal)),
+        ("HOME", text(&home)),
+    ]))
+    .expect("resolves");
+    let implied = UserScope::from_lookup(lookup(&[("HOME", text(&home))])).expect("resolves");
+    let none = UserScope::from_lookup(lookup(&[("REDKILN_HOME", text(&over))])).expect("resolves");
+
+    assert_eq!(
+        (set.legacy_home(), implied.legacy_home(), none.legacy_home()),
+        (
+            Some(anneal.as_path()),
+            Some(home.join(".anneal").as_path()),
+            None
+        )
+    );
+}
+
+#[test]
 fn an_old_log_that_is_the_new_folder_is_not_read_twice() {
     let root = absolute("same");
     let anneal = root.join("calibrate");

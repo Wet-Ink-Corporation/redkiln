@@ -138,7 +138,7 @@ pub enum Command {
     /// Score each Clef decision point against its labelled outcomes and propose thresholds
     #[command(after_help = command_help(CommandName::Calibrate))]
     Calibrate(CalibrateArgs),
-    /// Fold the ledger and the anneal home into one status document (text, or JSON with --json)
+    /// Fold the ledger and the per-user state into one status document (text, or JSON with --json)
     #[command(after_help = command_help(CommandName::Status))]
     Status(StatusArgs),
     /// Render the Claude Code status line and save the context usage for the context monitor

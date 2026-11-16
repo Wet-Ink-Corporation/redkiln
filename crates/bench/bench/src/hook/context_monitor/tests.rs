@@ -64,7 +64,9 @@ impl Home {
 
     fn monitor(&self, input: &str) -> Option<Value> {
         let home = self.dir.path().to_path_buf();
-        let lookup = move |var: &str| (var == "ANNEAL_HOME").then(|| OsString::from(&home));
+        let lookup = move |var: &str| {
+            (var == "ANNEAL_HOME" || var == "REDKILN_HOME").then(|| OsString::from(&home))
+        };
         let mut out = Vec::new();
         let env = HookEnv {
             stdin: input.as_bytes(),

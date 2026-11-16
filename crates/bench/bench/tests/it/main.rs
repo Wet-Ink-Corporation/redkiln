@@ -65,6 +65,7 @@ mod statusline;
 #[cfg(test)]
 mod support;
 mod task;
+mod user_scope;
 mod verdict;
 mod verdict_status;
 mod verify;

@@ -29,7 +29,8 @@ const TEN_MINUTES_MS: u64 = 10 * 60 * 1000;
 
 /// The hint the bootstrap shows with the anneal home `home` at [`NOW_MS`], if any.
 fn hint_in(home: &Path) -> Option<String> {
-    let lookup = |var: &str| (var == "ANNEAL_HOME").then(|| OsString::from(home));
+    let lookup =
+        |var: &str| (var == "ANNEAL_HOME" || var == "REDKILN_HOME").then(|| OsString::from(home));
     let (hint, note) = statusline_hint(lookup, &At(NOW_MS));
     assert_eq!(note, None, "the hint's marker is recorded");
     hint

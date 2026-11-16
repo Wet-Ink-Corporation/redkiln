@@ -85,7 +85,7 @@ fn counts(path: &Path) -> Result<(usize, usize), Box<dyn Error>> {
 /// The variables the hook reads in `cwd`: only an anneal home inside it.
 fn lookup_in(cwd: &Path) -> impl Fn(&str) -> Option<OsString> {
     let home = cwd.join(".anneal-home");
-    move |var: &str| (var == "ANNEAL_HOME").then(|| OsString::from(&home))
+    move |var: &str| (var == "ANNEAL_HOME" || var == "REDKILN_HOME").then(|| OsString::from(&home))
 }
 
 /// The `SessionStart` hook in `cwd` with no deadline: its context.

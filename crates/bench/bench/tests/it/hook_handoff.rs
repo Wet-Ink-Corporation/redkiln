@@ -46,6 +46,7 @@ impl Repo {
             .args(args)
             .env("REDKILN_STORE", self.state.path().join("ledger.sqlite3"))
             .env("ANNEAL_HOME", self.state.path().join("home"))
+            .env("REDKILN_HOME", self.state.path().join("home"))
             .env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

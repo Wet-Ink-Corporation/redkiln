@@ -145,6 +145,7 @@ fn hook(cwd: &Path, home: &Path, stdin: &[u8]) -> Result<Output, Box<dyn Error>>
     let mut child = anneal_in(cwd)
         .args(["hook", "completeness"])
         .env("ANNEAL_HOME", home)
+        .env("REDKILN_HOME", home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

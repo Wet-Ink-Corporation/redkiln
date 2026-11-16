@@ -6,7 +6,7 @@
 //!
 //! - [`read`] reads only a regular file (a symlink is refused, not followed) of at most
 //!   [`MAX_NOTE_BYTES`], checking the length before reading and reading at most one byte more.
-//! - [`record`] keeps, in the anneal home, the SHA-256 of the note's head (everything before
+//! - [`record`] keeps, in Bench's state home, the SHA-256 of the note's head (everything before
 //!   its `## Notes` line) for its worktree; [`is_recorded`] is true only for a note whose head
 //!   the hook wrote, so a hand-written or committed `.continue-here` is never injected. The
 //!   notes section is the agent's to edit, so it is not hashed; the bootstrap scans it.
@@ -27,7 +27,7 @@ use crate::baseline::{self, BaselineError};
 use crate::content_hash;
 use crate::context::sessions::{SessionFile, SessionsError};
 use crate::mode::scope;
-use crate::paths::{self, PathError};
+use crate::paths::{self, PathError, StateHome};
 
 /// The handoff note's name, at the worktree root.
 pub(crate) const CONTINUE_HERE: &str = ".continue-here";
@@ -39,7 +39,7 @@ pub(crate) const NOTES_HEADING: &str = "## Notes";
 /// less (H-13).
 pub(crate) const MAX_NOTE_BYTES: u64 = 32 * 1024;
 
-/// The record of the notes the hook wrote, in the anneal home.
+/// The record of the notes the hook wrote, in the state home.
 const RECORD_FILE: &str = "handoff-notes.json";
 
 /// The `kind` of [`RECORD_FILE`].
@@ -160,34 +160,36 @@ fn head_hash(text: &str) -> String {
     content_hash::sha256(head.as_bytes())
 }
 
-/// The record file in the anneal home `home`.
-fn record_path(home: &Path) -> PathBuf {
-    super::in_home(home, RECORD_FILE)
-}
-
-/// Records, in the anneal home `home`, that the hook wrote `text` as the note of the worktree
-/// at `root`.
+/// Records, in the state home `home`, that the hook wrote `text` as the note of the worktree
+/// at `root`: the record as read, with the worktree set, written to the home's written file.
 ///
 /// # Errors
 /// [`SessionsError`] when the record file cannot be read or written.
-pub(crate) fn record(home: &Path, root: &str, text: &str) -> Result<(), SessionsError> {
-    let path = record_path(home);
-    let mut file = SessionFile::<Written>::load(&path, RECORD_KIND)?;
+pub(crate) fn record(
+    home: &(impl StateHome + ?Sized),
+    root: &str,
+    text: &str,
+) -> Result<(), SessionsError> {
+    let mut file = SessionFile::<Written>::load(&home.read(RECORD_FILE), RECORD_KIND)?;
     file.set(
         &scope::worktree_key(root),
         Written {
             head: head_hash(text),
         },
     );
-    file.save(&path)
+    file.save(&home.written(RECORD_FILE))
 }
 
 /// Whether `text` has the head the hook last recorded for the worktree at `root`.
 ///
 /// # Errors
 /// [`SessionsError`] when the record file cannot be read.
-pub(crate) fn is_recorded(home: &Path, root: &str, text: &str) -> Result<bool, SessionsError> {
-    let file = SessionFile::<Written>::load(&record_path(home), RECORD_KIND)?;
+pub(crate) fn is_recorded(
+    home: &(impl StateHome + ?Sized),
+    root: &str,
+    text: &str,
+) -> Result<bool, SessionsError> {
+    let file = SessionFile::<Written>::load(&home.read(RECORD_FILE), RECORD_KIND)?;
     Ok(file
         .get(&scope::worktree_key(root))
         .is_some_and(|written| written.head == head_hash(text)))

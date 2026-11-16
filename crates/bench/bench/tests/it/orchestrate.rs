@@ -251,6 +251,7 @@ fn ruled_before(
     let (output, _served) = with_fake_clef(&body, |url| -> TestResult<Output> {
         let mut child = anneal(repo, bin, &["hook", "ruled-before"])
             .env("ANNEAL_HOME", &home)
+            .env("REDKILN_HOME", &home)
             .env("ANNEAL_CLEF_URL", url)
             .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
             .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN")

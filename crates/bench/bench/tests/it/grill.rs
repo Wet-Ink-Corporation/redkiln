@@ -387,6 +387,7 @@ fn classify_with_clef_off_exits_0_and_leaves_the_tree_and_the_home_alone() -> Te
 
     let output = anneal_in(dir.path())
         .env("ANNEAL_HOME", &home)
+        .env("REDKILN_HOME", &home)
         .args([
             "grill",
             "classify",

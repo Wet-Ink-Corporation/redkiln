@@ -14,6 +14,7 @@ fn status_line(dir: &Path, stdin: &[u8]) -> Result<Output, Box<dyn Error>> {
     let mut child = anneal_in(dir)
         .arg("statusline")
         .env("ANNEAL_HOME", dir.join("home"))
+        .env("REDKILN_HOME", dir.join("home"))
         .env_remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

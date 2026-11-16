@@ -12,7 +12,7 @@ Core leaf. Depends on no other Core crate (it may depend on `redkiln-core`, and 
 
 ## Public surface
 Only what a producer calls is `pub` (API-14).
-- `scope`: `UserScope` (`from_lookup`, `root`, `decisions`), `DecisionDirs { current, legacy }`, `ScopeError { NoHome, RelativeHome, Producer }`, and `HOME_VAR`; the folder names are crate-private.
+- `scope`: `UserScope` (`from_lookup`, `root`, `legacy_home`, `decisions`), `DecisionDirs { current, legacy }`, `ScopeError { NoHome, RelativeHome, Producer }`, and `HOME_VAR`; the folder names are crate-private.
 - `log`: `DecisionLog` (`new`, `dir`, `path`, `append`, `files`), `LogError`, `LOG_FILE`, `MAX_ROW_BYTES`, `MAX_FILE_BYTES`, `ROTATED_FILES`.
 - `rows`: `read::<P, Q>` over one or more logs, `Answered<P, Q>`, `Label`, `LogRows<P, Q>`, `ReadError`, `MAX_LOG_FILE_BYTES`, `VIA_MOD`; `Answered::probability` is a `Probability`. The point and question are the caller's types.
 - `score`: `Probability` (`TryFrom<f64>`, `get`; `ProbabilityError`, opaque), `Sample`, `Bin`, `Costs`, `FalseAccept`, `Proposal`, `FALSE_ACCEPT_COST`, `NEEDLESS_COST`, `brier`, `bins`, `expected_cost`, `propose`, `count`.

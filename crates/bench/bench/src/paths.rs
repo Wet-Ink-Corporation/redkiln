@@ -1,9 +1,13 @@
-//! Where Bench keeps state: the suite store (normally in the git common dir, `location`) and
-//! `~/.anneal` (context snapshots, hook counters and markers; until step 5.6).
+//! Where Bench keeps state: the suite store and its per-user state.
+//!
+//! The store is normally in the git common dir (`location`). The per-user state (context
+//! snapshots, hook counters and markers) is in the user scope, `~/.redkiln/bench/`
+//! (`state_home`, PR 5.6), with anneal's `~/.anneal` read as a fallback.
 //!
 //! The decision log moved to the user scope `~/.redkiln/calibrate/bench/` (`decide::log`).
 
 mod location;
+mod state_home;
 
 use std::ffi::OsString;
 use std::io;
@@ -16,6 +20,7 @@ use redkiln_core::suite::RepoClass;
 use serde::Serialize;
 
 pub use location::Notice;
+pub(crate) use state_home::{BenchHome, StateHome};
 
 #[cfg(test)]
 use crate::process::read_capped;
@@ -300,6 +305,10 @@ pub fn anneal_home() -> Result<PathBuf, PathError> {
 
 /// The anneal home directory: `$ANNEAL_HOME` if set, else `$HOME/.anneal`, else
 /// `%USERPROFILE%\.anneal`. Empty values count as unset. `lookup` reads one variable.
+///
+/// Since PR 5.6 no command calls it: Bench's state is in `BenchHome`, which names anneal's
+/// home through the user scope. It stays, with its tests, until deleting them is decided
+/// (H-16), as skillcheck's copy was (wi-ad764d8531).
 ///
 /// # Errors
 /// [`PathError::NoHome`] when none is set; [`PathError::RelativeHome`] when the chosen value is
