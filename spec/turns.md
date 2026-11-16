@@ -4,7 +4,7 @@ An agent ends a turn with a report a program can read: a `Status:` line, the sec
 
 ## Reading
 
-**ET-01. Scope.** The grammar reads the final assistant message of a turn, or a subagent's report as it is handed back, capped by the reading hook (HK-6). Reading never fails: a message with no report, or with a malformed one, is a value (ET-09).
+**ET-01. Scope.** The grammar reads the final assistant message of a turn, or a subagent's report as it is handed back, capped by the reading hook ([hooks.md](hooks.md) HK-6). Reading never fails: a message with no report, or with a malformed one, is a value (ET-09).
 
 **ET-02. Normalised line.** Keys and words are compared on a normalised line: every `*` and `` ` `` in the line is removed, then the leading run of whitespace, `-`, `+`, `>` and `#`. So `- **Status:** `DONE``, `> Status: DONE` and `## Status: DONE` all read as `Status: DONE`. Section text is taken from the normalised line. `_` is not removed, so `DONE_WITH_CONCERNS` survives, and a key in `_` emphasis (`__Status:__`) is not a key.
 
@@ -20,7 +20,7 @@ An agent ends a turn with a report a program can read: a `Status:` line, the sec
 | `BLOCKED` | Needs a decision it cannot take |
 | `WIP` | Paused, unfinished, with the reason given |
 
-The rest of the line is free text, the reason or the question (`Status: WIP: paused for CI`). `WIP` and `BLOCKED` are the honest exits a Stop gate stands down on (HK-7). Adding a word is a SPEC minor; a reader that meets a word it does not know reads a malformed report (ET-05), never fails.
+The rest of the line is free text, the reason or the question (`Status: WIP: paused for CI`). `WIP` and `BLOCKED` are the honest exits a Stop gate stands down on ([hooks.md](hooks.md) HK-7). Adding a word is a SPEC minor; a reader that meets a word it does not know reads a malformed report (ET-05), never fails.
 
 **ET-05. Which line is the report.** The last status line in the message is the report, whatever follows its colon. If its word is not in the set (a prose line such as `Status: waiting on CI`), the message has a malformed report and no status; an earlier status line does not stand in for it. A reader that gates treats a malformed report as neither `WIP` nor `BLOCKED`.
 
@@ -30,7 +30,7 @@ The rest of the line is free text, the reason or the question (`Status: WIP: pau
 
 ## Plugin blocks
 
-**ET-08. Framing.** A plugin block is a fenced code block whose opening fence has three or more backticks or tildes, indented at most three spaces, and that closes as CommonMark says: a line of the same mark, at least as many, and nothing else but whitespace. A backtick fence's info string holds no backtick. The info string's first word names a registered block, matched ASCII case-insensitively. Any other fence is consumed whole, so a block shown inside it (a ````` ````markdown ````` example) is its content. A fence with no closer is read as an ordinary line, so a stray or truncated example does not swallow a block after it. A line indented four or more spaces is not a fence. Blocks may appear anywhere in the message; by convention they follow the report.
+**ET-08. Framing.** A fence opens on a line whose first non-blank characters are three or more backticks or tildes, and closes as CommonMark says: a line of the same mark, at least as many, and nothing else but whitespace. A backtick fence's info string holds no backtick. A plugin block is a fence whose info string's first word names a registered block, matched ASCII case-insensitively. It opens at any indentation, and with no closer it runs to the end of the message, so a truncated report keeps its block. Any other fence opens only when indented at most three spaces (a line indented four or more is not a fence) and is consumed whole, so a block shown inside it (a ````` ````markdown ````` example) is its content; with no closer it is read as an ordinary line, so a stray or truncated example does not swallow a block after it. Status lines are read inside a block too (ET-06). Blocks may appear anywhere in the message; by convention they follow the report.
 
 | Block | Aliases | Owner | Body |
 | --- | --- | --- | --- |
@@ -81,7 +81,7 @@ The grammar reconciles three readers that grew apart:
 | Case | Insensitive | Insensitive | Insensitive (info string) | Insensitive, ASCII |
 | Prefixes | Leading `*`, `_`, `` ` ``, `>`, `-` | Leading whitespace and `- + > #`; every `*` and `` ` `` removed | — | Bench's (ET-02) |
 | Which line | The last line with a known word | The last `Status:` line; prose there is no report | — | Bench's (ET-05) |
-| Fences | Read through | Read through | Other fences consumed whole; unclosed is a plain line; indent at most 3 | Status read through (ET-06); blocks as Weigh-In (ET-08) |
+| Fences | Read through | Read through | Its own block at any indent, unclosed to the end; other fences consumed whole, indent at most 3, unclosed a plain line | Status read through (ET-06); blocks as Weigh-In (ET-08) |
 | Sections | — | Five required | — | Six registered, none required (ET-07) |
 
 Ryan chose the last status line as the report and the module `redkiln_core::turn` (decision cards, 2026-11-16); the normalisation details and the word set being two-way are the plan's defaults (`docs/decisions.md`).

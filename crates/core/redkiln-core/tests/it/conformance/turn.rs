@@ -26,6 +26,8 @@ const CASES: &[&str] = &[
     "block-in-example-fence",
     "unclosed-fence-then-block",
     "indented-four-not-a-fence",
+    "indented-weigh-in-block",
+    "unclosed-weigh-in-block",
 ];
 
 /// The files of every case, for `every_fixture_and_schema_is_listed`.

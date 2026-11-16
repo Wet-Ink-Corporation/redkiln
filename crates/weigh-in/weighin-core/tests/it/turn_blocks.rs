@@ -1,6 +1,8 @@
 //! SPEC ET-08 against its one implementation: `parse_markers` finds exactly the `weigh-in`
 //! blocks each end-of-turn case's reading lists (`spec/fixtures/turn/`), so the shared fixtures
-//! pin Weigh-In's fence rules (indent, unclosed fences, other fences consumed whole).
+//! pin Weigh-In's fence rules: a registered block opens at any indent and runs to the end when
+//! unclosed; any other fence opens only at three spaces or fewer, is consumed whole, and is an
+//! ordinary line when unclosed.
 
 use std::path::{Path, PathBuf};
 
@@ -28,20 +30,24 @@ fn parse_markers_finds_the_blocks_each_turn_case_names() -> TestResult {
         let blocks = reading["blocks"]
             .as_array()
             .ok_or_else(|| format!("{}: blocks is a list", path.display()))?;
-        assert!(
-            blocks.iter().all(|name| name == "weigh-in"),
-            "{}: weigh-in is the one registered block",
-            path.display()
-        );
+        let expected: Vec<&str> = blocks
+            .iter()
+            .map(|block| {
+                assert_eq!(
+                    block["name"],
+                    "weigh-in",
+                    "{}: weigh-in is the one registered block",
+                    path.display()
+                );
+                block["q"].as_str().unwrap_or_default()
+            })
+            .collect();
 
-        assert_eq!(
-            parse_markers(&message).len(),
-            blocks.len(),
-            "{}",
-            path.display()
-        );
+        let found = parse_markers(&message);
+        let questions: Vec<&str> = found.iter().map(|m| m.question.as_str()).collect();
+        assert_eq!(questions, expected, "{}", path.display());
         cases += 1;
     }
-    assert!(cases >= 17, "every case was read, found {cases}");
+    assert!(cases >= 19, "every case was read, found {cases}");
     Ok(())
 }

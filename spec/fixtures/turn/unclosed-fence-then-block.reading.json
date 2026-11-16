@@ -1,1 +1,1 @@
-{"status":"blocked","word":"BLOCKED","sections":{"Gate":"fmt ok"},"blocks":["weigh-in"]}
+{"status":"blocked","word":"BLOCKED","sections":{"Gate":"fmt ok"},"blocks":[{"name":"weigh-in","q":"Which scope?"}]}
