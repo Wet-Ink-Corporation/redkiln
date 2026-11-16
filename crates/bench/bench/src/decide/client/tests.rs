@@ -112,7 +112,7 @@ struct World {
 impl World {
     fn with(vars: &[(&str, &str)]) -> Self {
         let home = tempfile::tempdir().expect("tempdir");
-        let log = DecisionLog::in_home(home.path());
+        let log = DecisionLog::in_anneal_layout(home.path());
         let config = ClefConfig::from_env(|name| {
             vars.iter()
                 .find(|(var, _)| *var == name)

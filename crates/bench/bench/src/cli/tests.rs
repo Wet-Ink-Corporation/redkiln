@@ -286,7 +286,8 @@ fn calibrate_into<O: std::io::Write>(out: O) -> (u8, String) {
     let env = CalibrateEnv {
         cwd: home.path(),
         lookup: |var: &str| -> Option<std::ffi::OsString> {
-            (var == "ANNEAL_HOME").then(|| home.path().as_os_str().to_owned())
+            (var == "ANNEAL_HOME" || var == "REDKILN_HOME")
+                .then(|| home.path().as_os_str().to_owned())
         },
     };
     let Ok(Cli {

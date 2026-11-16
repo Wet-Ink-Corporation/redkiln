@@ -227,7 +227,7 @@ fn ruled_before(
     prompt: &str,
 ) -> TestResult<Value> {
     let home = repo.join(".anneal-home");
-    let decisions = home.join("decisions");
+    let decisions = crate::support::bench_dir(&home);
     std::fs::create_dir_all(&decisions)?;
     std::fs::write(
         decisions.join("counts.json"),

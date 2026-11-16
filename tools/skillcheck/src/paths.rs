@@ -1,9 +1,10 @@
-//! Paths the evals resolve: the anneal home (`<home>/tmp`, `eval uplift`'s default work
-//! directory) and git's answers about a directory, with every git call bounded (H-13).
+//! Paths the evals resolve: the anneal home rule and git's answers about a directory, with
+//! every git call bounded (H-13).
 //!
-//! A copy of what the evals used of Bench's `paths`: the home rule is
-//! Bench's unchanged until `redkiln-calibrate`'s `UserScope` (5.4), and the git runner is
-//! duplicated until `redkiln-dispatch` (Move 4) absorbs the copies.
+//! A copy of what the evals used of Bench's `paths`. Since PR 5.4 `eval uplift`'s default work
+//! directory is `tmp` in `redkiln-calibrate`'s `UserScope` (wi-6b797a85db), so nothing in the
+//! evals reads [`anneal_home_from`] any more; it stays with its tests until removing them is
+//! decided. The git runner is duplicated until `redkiln-dispatch` (Move 4) absorbs the copies.
 
 use std::ffi::OsString;
 use std::io;

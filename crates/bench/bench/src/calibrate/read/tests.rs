@@ -2,7 +2,9 @@ use std::fs;
 
 use serde_json::{Value, json};
 
-use super::{Answered, HEADROOM_ROWS, MAX_LOG_FILE_BYTES, ROW_BYTES, read_log};
+use redkiln_calibrate::score::Probability;
+
+use super::{Answered, MAX_LOG_FILE_BYTES, read_log};
 use crate::baseline::BaselineError;
 use crate::calibrate::CalibrateError;
 use crate::decide::log::{DecisionLog, MAX_FILE_BYTES, MAX_ROW_BYTES};
@@ -37,7 +39,7 @@ fn answered(id: &str, probability: f64, asked: bool) -> Answered {
         id: id.to_owned(),
         point: Point::D1,
         question: Question::Noul,
-        probability,
+        probability: Probability::try_from(probability).expect("a probability"),
         top: None,
         options: vec!["no".to_owned(), "yes".to_owned()],
         asked,
@@ -68,7 +70,7 @@ fn rows_are_read_from_the_rotated_files_then_the_live_one_and_the_last_label_win
         "not json\n{\"kind\": \"other\"}\n",
     )?;
 
-    let rows = read_log(&DecisionLog::in_home(home.path()))?;
+    let rows = read_log(&DecisionLog::in_anneal_layout(home.path()))?;
 
     assert_eq!(
         rows.answered,
@@ -100,7 +102,7 @@ fn rows_are_read_from_the_rotated_files_then_the_live_one_and_the_last_label_win
 #[test]
 fn a_probability_outside_0_to_1_is_a_skipped_row() -> TestResult {
     let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     fs::create_dir_all(home.path().join("decisions"))?;
     write_lines(
         &log.path(),
@@ -117,7 +119,7 @@ fn a_probability_outside_0_to_1_is_a_skipped_row() -> TestResult {
 #[test]
 fn a_negative_zero_probability_is_read_as_zero() -> TestResult {
     let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     fs::create_dir_all(home.path().join("decisions"))?;
     write_lines(
         &log.path(),
@@ -127,7 +129,12 @@ fn a_negative_zero_probability_is_read_as_zero() -> TestResult {
 
     let rows = read_log(&log)?;
 
-    let probability = rows.answered.first().expect("one answered row").probability;
+    let probability = rows
+        .answered
+        .first()
+        .expect("one answered row")
+        .probability
+        .get();
     assert!(
         probability.total_cmp(&0.0).is_eq(),
         "{probability:?} groups with 0.0 under total_cmp"
@@ -139,7 +146,7 @@ fn a_negative_zero_probability_is_read_as_zero() -> TestResult {
 fn no_log_reads_as_no_rows() -> TestResult {
     let home = tempfile::tempdir()?;
 
-    let rows = read_log(&DecisionLog::in_home(home.path()))?;
+    let rows = read_log(&DecisionLog::in_anneal_layout(home.path()))?;
 
     assert_eq!(
         (rows.answered.len(), rows.labels.len(), rows.files.len()),
@@ -151,7 +158,7 @@ fn no_log_reads_as_no_rows() -> TestResult {
 #[test]
 fn a_directory_where_a_log_file_should_be_is_an_error() -> TestResult {
     let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     fs::create_dir_all(log.path())?;
 
     let result = read_log(&log);
@@ -178,6 +185,13 @@ fn live_log_of(log: &DecisionLog, size: u64) -> TestResult {
     Ok(())
 }
 
+/// decide's row cap as Bench expects the reader to count it, in bytes (`redkiln_calibrate`
+/// keeps its own copy crate-private).
+const ROW_BYTES: u64 = 8 * 1024;
+
+/// The rows past the rotation size Bench expects the reader to allow.
+const HEADROOM_ROWS: u64 = 64;
+
 #[test]
 fn the_headroom_is_64_rows_of_decides_row_cap() {
     assert_eq!(
@@ -195,7 +209,7 @@ fn the_headroom_is_64_rows_of_decides_row_cap() {
 fn a_live_file_just_past_the_rotation_size_is_still_read() -> TestResult {
     // Unlocked concurrent appends can each pass decide's check and land past 16 MiB.
     let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     live_log_of(&log, MAX_FILE_BYTES + 100 * 1024)?;
 
     let rows = read_log(&log)?;
@@ -207,7 +221,7 @@ fn a_live_file_just_past_the_rotation_size_is_still_read() -> TestResult {
 #[test]
 fn a_file_past_the_headroom_is_an_error() -> TestResult {
     let home = tempfile::tempdir()?;
-    let log = DecisionLog::in_home(home.path());
+    let log = DecisionLog::in_anneal_layout(home.path());
     live_log_of(&log, MAX_LOG_FILE_BYTES + 1)?;
 
     let result = read_log(&log);
@@ -229,7 +243,7 @@ fn read_rows(rows: &[Value]) -> Result<super::LogRows, Box<dyn std::error::Error
     let dir = home.path().join("decisions");
     fs::create_dir_all(&dir)?;
     write_lines(&dir.join("decisions.jsonl"), rows, "")?;
-    Ok(read_log(&DecisionLog::in_home(home.path()))?)
+    Ok(read_log(&DecisionLog::in_anneal_layout(home.path()))?)
 }
 
 #[test]
@@ -302,4 +316,12 @@ fn the_last_label_of_an_id_decides_whether_it_came_via_the_mod() -> TestResult {
         "only an id whose last label came via the mod"
     );
     Ok(())
+}
+
+#[test]
+fn the_rows_reader_counts_as_mod_exactly_what_decide_label_writes_for_via_mod() {
+    assert_eq!(
+        redkiln_calibrate::rows::VIA_MOD,
+        crate::decide::label::Via::Mod.as_str()
+    );
 }

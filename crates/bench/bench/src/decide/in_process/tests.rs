@@ -42,6 +42,7 @@ fn lookup(home: &Path, vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsStrin
         .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
         .collect();
     map.insert("ANNEAL_HOME".to_owned(), home.as_os_str().to_owned());
+    map.insert("REDKILN_HOME".to_owned(), home.as_os_str().to_owned());
     move |name| map.get(name).cloned()
 }
 
@@ -114,9 +115,9 @@ fn a_prepared_setup_asks_logs_and_labels_like_the_command() {
 
     assert!(asked.unrecorded.is_none(), "{:?}", asked.unrecorded);
     assert_eq!(decision.action, "hint");
-    assert_eq!(prepared.log_dir(), home.path().join("decisions"));
-    let log = std::fs::read_to_string(home.path().join("decisions").join("decisions.jsonl"))
-        .expect("the log");
+    let log_dir = home.path().join("calibrate").join("bench");
+    assert_eq!(prepared.log_dir(), log_dir);
+    let log = std::fs::read_to_string(log_dir.join("decisions.jsonl")).expect("the log");
     let rows: Vec<Value> = log
         .lines()
         .map(|line| serde_json::from_str(line).expect("a JSON row"))

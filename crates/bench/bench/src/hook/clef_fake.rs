@@ -68,7 +68,7 @@ impl Clock for Stepping {
 /// Puts a directory where the decision log's file goes, so no row can be appended while the
 /// counts still read.
 pub(crate) fn block_the_log(home: &Path) -> TestResult {
-    std::fs::create_dir_all(home.join("decisions").join("decisions.jsonl"))?;
+    std::fs::create_dir_all(home.join("calibrate").join("bench").join("decisions.jsonl"))?;
     Ok(())
 }
 
@@ -92,7 +92,7 @@ pub(crate) struct World {
 }
 
 impl World {
-    /// A home with `vars` set (and `ANNEAL_HOME` pointing at it).
+    /// A home with `vars` set (and `ANNEAL_HOME` and `REDKILN_HOME` pointing at it).
     pub(crate) fn new(vars: &[(&str, &str)]) -> TestResult<Self> {
         let home = tempfile::tempdir()?;
         let mut map: BTreeMap<String, OsString> = vars
@@ -100,6 +100,10 @@ impl World {
             .map(|(name, value)| ((*name).to_owned(), OsString::from(value)))
             .collect();
         map.insert("ANNEAL_HOME".to_owned(), home.path().as_os_str().to_owned());
+        map.insert(
+            "REDKILN_HOME".to_owned(),
+            home.path().as_os_str().to_owned(),
+        );
         Ok(Self { home, vars: map })
     }
 
@@ -121,7 +125,7 @@ impl World {
         let mut vars = CONFIGURED.to_vec();
         vars.push((MODE_VAR, "enforce"));
         let world = Self::new(&vars)?;
-        let log = DecisionLog::in_home(world.home());
+        let log = DecisionLog::in_scope(world.home());
         for _ in 0..50 {
             log.count_answered(point)?;
         }
@@ -177,7 +181,11 @@ impl World {
 
     /// The decision log's rows, oldest first; none when there is no log.
     pub(crate) fn rows(&self) -> TestResult<Vec<Value>> {
-        let path = self.home().join("decisions").join("decisions.jsonl");
+        let path = self
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl");
         if !path.exists() {
             return Ok(Vec::new());
         }

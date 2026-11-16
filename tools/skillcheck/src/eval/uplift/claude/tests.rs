@@ -899,7 +899,8 @@ fn the_traces_kept_are_the_asked_cases_runs_that_name_one() -> TestResult {
 }
 
 /// `/ae-<6 hex>/t` is 12 bytes, which leaves 37 of the Linux budget of 49 for the work
-/// directory, enough for `/home/<user>/.anneal/tmp` (Ryan, 2026-10-31).
+/// directory, enough for `/home/<user>/.redkiln/tmp` (Ryan, 2026-10-31; the folder since
+/// wi-6b797a85db).
 #[test]
 fn the_children_s_tmpdir_is_the_work_dir_and_12_bytes_leaving_37() {
     assert_eq!(

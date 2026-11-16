@@ -1,52 +1,41 @@
-//! The decision log: `<anneal home>/decisions/decisions.jsonl`, one JSON row per decision or
-//! label, append-only.
+//! Clef's decision log as Bench keeps it, in the user scope.
 //!
-//! The anneal home (`~/.anneal`, or `$ANNEAL_HOME`) is outside the plugin's directories, so
-//! the log survives a reinstall (`CLAUDE_PLUGIN_DATA` is deleted on uninstall). Bounds (H-13):
-//! a row is at most [`MAX_ROW_BYTES`]; a file that would pass [`MAX_FILE_BYTES`] is renamed to
-//! `decisions.1.jsonl` (the older ones moving up to `decisions.4.jsonl`, and the fifth
-//! dropped), so the log holds at most 80 MiB. Each row is one `write` of the whole line to a
-//! file opened for appending, so concurrent writers do not interleave rows.
+//! It is `redkiln_calibrate`'s rotating log in Bench's folder of the user scope,
+//! `~/.redkiln/calibrate/bench/` (`$REDKILN_HOME`), with anneal's old `~/.anneal/decisions/`
+//! (`$ANNEAL_HOME`) read alongside and never written or deleted (Ryan's D1, option A).
 //!
-//! How many answered decisions each point has had is kept in `counts.json` beside the log,
-//! so the 50-decision shadow period survives rotation. Two decisions at once can lose one
-//! increment, which only lengthens the shadow period.
+//! The user scope is outside the plugin's directories, so the log survives a reinstall
+//! (`CLAUDE_PLUGIN_DATA` is deleted on uninstall). Rows are appended only to the new folder;
+//! [`DecisionLog::logs`] lists the old log first, so a label in either matches a decision in
+//! either.
+//!
+//! How many answered decisions each point has had is kept in `counts.json` beside the log
+//! (`decide::counts`), so the 50-decision shadow period survives rotation. It is read from the
+//! new folder, else from the old one, and written only to the new one, so a point keeps its
+//! count across the move. Two decisions at once can lose one increment, which only lengthens
+//! the shadow period.
 
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::ffi::OsString;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use redkiln_calibrate::log as calibrate_log;
+use redkiln_calibrate::scope::{DecisionDirs, ScopeError, UserScope};
+use serde::Serialize;
 
-use crate::baseline::{self, BaselineError};
+use crate::baseline::BaselineError;
+use crate::decide::counts::{self, COUNTS_KIND, COUNTS_VERSION};
 use crate::decide::point::Point;
 
-/// The log's directory inside the anneal home.
-pub const LOG_DIR: &str = "decisions";
+pub use redkiln_calibrate::log::{LOG_FILE, MAX_FILE_BYTES, MAX_ROW_BYTES, ROTATED_FILES};
 
-/// The live log file.
-pub const LOG_FILE: &str = "decisions.jsonl";
+/// Bench's producer name in the user scope: its rows live in `calibrate/bench/`.
+pub const PRODUCER: &str = "bench";
 
-/// Most bytes in one row, newline included.
-pub const MAX_ROW_BYTES: usize = 8 * 1024;
-
-/// The size past which the live file is rotated.
-pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
-
-/// How many rotated files are kept.
-pub const ROTATED_FILES: u32 = 4;
-
-/// The counts file inside the log's directory.
-const COUNTS_FILE: &str = "counts.json";
-
-/// The counts file's `kind`, so another file of the same name is not overwritten.
-const COUNTS_KIND: &str = "anneal-decision-counts";
-
-/// The counts file's format version.
-const COUNTS_VERSION: u32 = 1;
-
-/// Why a row could not be appended or the counts kept.
+/// Why a row could not be appended or the counts kept. The first four are
+/// [`calibrate_log::LogError`]'s, with its messages.
 #[derive(Debug, thiserror::Error)]
 pub enum LogError {
     /// A file or directory could not be read, created, renamed or written.
@@ -95,115 +84,131 @@ pub enum LogError {
     },
 }
 
-/// The decision log in one anneal home.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecisionLog {
-    dir: PathBuf,
-    max_file_bytes: u64,
+impl From<calibrate_log::LogError> for LogError {
+    fn from(error: calibrate_log::LogError) -> Self {
+        match error {
+            calibrate_log::LogError::Io { op, path, source } => Self::Io { op, path, source },
+            calibrate_log::LogError::NotAFile { path } => Self::NotAFile { path },
+            calibrate_log::LogError::RowTooLarge { bytes } => Self::RowTooLarge { bytes },
+            calibrate_log::LogError::Encode(source) => Self::Encode(source),
+        }
+    }
 }
 
-/// `counts.json`: `{"kind", "version", "answered": {"D1": n, ...}}`.
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CountsFile {
-    kind: String,
-    version: u32,
-    answered: BTreeMap<Point, u64>,
+/// Bench's decision log: the one it writes, and anneal's old one read alongside.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecisionLog {
+    log: calibrate_log::DecisionLog,
+    legacy: Option<calibrate_log::DecisionLog>,
+}
+
+/// Bench's decision log in the user scope `lookup` names.
+///
+/// # Errors
+/// [`ScopeError`] when no home directory is set, or the one chosen (or `$ANNEAL_HOME`) is
+/// relative.
+pub fn open(lookup: impl Fn(&str) -> Option<OsString>) -> Result<DecisionLog, ScopeError> {
+    let dirs = UserScope::from_lookup(lookup)?.decisions(PRODUCER)?;
+    Ok(DecisionLog::from_dirs(dirs))
 }
 
 impl DecisionLog {
-    /// The log in the anneal home `home`.
+    /// The log in `dirs.current`, reading `dirs.legacy` alongside.
     #[must_use]
-    pub fn in_home(home: &Path) -> Self {
+    pub fn from_dirs(dirs: DecisionDirs) -> Self {
         Self {
-            dir: home.join(LOG_DIR),
-            max_file_bytes: MAX_FILE_BYTES,
+            log: calibrate_log::DecisionLog::new(dirs.current),
+            legacy: dirs.legacy.map(calibrate_log::DecisionLog::new),
         }
     }
 
-    /// The log's directory, `<anneal home>/decisions`.
+    /// The log Bench writes when the user scope's root is `root` (`$REDKILN_HOME`):
+    /// `<root>/calibrate/bench`, with no old log beside it.
+    #[cfg(test)]
+    pub(crate) fn in_scope(root: &Path) -> Self {
+        Self::from_dirs(DecisionDirs {
+            current: root.join("calibrate").join(PRODUCER),
+            legacy: None,
+        })
+    }
+
+    /// A log alone in anneal's old layout, `<home>/decisions`, with no old log beside it: for
+    /// tests of the log itself, which never read where Bench writes.
+    #[cfg(test)]
+    pub(crate) fn in_anneal_layout(home: &Path) -> Self {
+        Self {
+            log: calibrate_log::DecisionLog::new(home.join("decisions")),
+            legacy: None,
+        }
+    }
+
+    /// The folder written: the log, `counts.json`, `proposals.json` and hook state.
     #[must_use]
     pub fn dir(&self) -> &Path {
-        &self.dir
+        self.log.dir()
+    }
+
+    /// The old folder read alongside, when there is one.
+    #[must_use]
+    pub fn legacy_dir(&self) -> Option<&Path> {
+        self.legacy.as_ref().map(calibrate_log::DecisionLog::dir)
     }
 
     /// The live log file.
     #[must_use]
     pub fn path(&self) -> PathBuf {
-        self.dir.join(LOG_FILE)
+        self.log.path()
     }
 
-    /// Appends `row` as one JSON line, rotating the file first when it would pass its cap.
+    /// The logs to read rows from, oldest first: the old one, then the one written.
+    pub fn logs(&self) -> impl Iterator<Item = &calibrate_log::DecisionLog> + '_ {
+        self.legacy.iter().chain(std::iter::once(&self.log))
+    }
+
+    /// Where to read the state file `name` from: the folder written when anything is at
+    /// `<dir>/<name>` (or it cannot be told), else the old folder when the file is there, else
+    /// `<dir>/<name>`, whose absence the reader reports.
+    #[must_use]
+    pub fn file_to_read(&self, name: &str) -> PathBuf {
+        let current = self.dir().join(name);
+        let absent = |path: &Path| {
+            fs::symlink_metadata(path).is_err_and(|error| error.kind() == io::ErrorKind::NotFound)
+        };
+        if !absent(&current) {
+            return current;
+        }
+        self.legacy_dir()
+            .map(|legacy| legacy.join(name))
+            .filter(|old| !absent(old))
+            .unwrap_or(current)
+    }
+
+    /// The `bench: warning:` message for a run that reads the old folder: `Some` when it exists
+    /// as a directory, `None` otherwise.
+    #[must_use]
+    pub fn legacy_warning(&self) -> Option<String> {
+        let legacy = self.legacy_dir()?;
+        fs::metadata(legacy)
+            .is_ok_and(|metadata| metadata.is_dir())
+            .then(|| {
+                format!(
+                    "reading the old decision log at {} too; new rows go to {}, and the old \
+                     folder is never written or deleted",
+                    legacy.display(),
+                    self.dir().display()
+                )
+            })
+    }
+
+    /// Appends `row` as one JSON line to the folder written, rotating first when the file
+    /// would pass its cap.
     ///
     /// # Errors
     /// [`LogError::RowTooLarge`] for a row over [`MAX_ROW_BYTES`] (nothing is written);
     /// [`LogError::NotAFile`] when something other than a file is at the log's path;
     /// [`LogError::Io`] when the directory or file cannot be written.
     pub fn append<T: Serialize>(&self, row: &T) -> Result<(), LogError> {
-        let mut line = serde_json::to_vec(row).map_err(LogError::Encode)?;
-        line.push(b'\n');
-        if line.len() > MAX_ROW_BYTES {
-            return Err(LogError::RowTooLarge { bytes: line.len() });
-        }
-        fs::create_dir_all(&self.dir).map_err(|source| io_error("creating", &self.dir, source))?;
-        let path = self.path();
-        let row_bytes = u64::try_from(line.len()).unwrap_or(u64::MAX);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if !metadata.is_file() => return Err(LogError::NotAFile { path }),
-            Ok(metadata) if metadata.len().saturating_add(row_bytes) > self.max_file_bytes => {
-                self.rotate()?;
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => return Err(io_error("reading", &path, source)),
-        }
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|source| io_error("opening", &path, source))?;
-        file.write_all(&line)
-            .map_err(|source| io_error("appending to", &path, source))
-    }
-
-    /// Every file the log can have, oldest first: `decisions.4.jsonl` down to
-    /// `decisions.1.jsonl`, then the live file. Some may not exist.
-    pub fn files(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        (1..=ROTATED_FILES)
-            .rev()
-            .map(|generation| self.rotated(generation))
-            .chain(std::iter::once(self.path()))
-    }
-
-    /// The `generation`th rotated file: `decisions.<generation>.jsonl`.
-    fn rotated(&self, generation: u32) -> PathBuf {
-        self.dir.join(format!("decisions.{generation}.jsonl"))
-    }
-
-    /// Moves each rotated file up one generation (the oldest is overwritten), then the live
-    /// file to generation 1.
-    fn rotate(&self) -> Result<(), LogError> {
-        for generation in (1..ROTATED_FILES).rev() {
-            let from = self.rotated(generation);
-            match fs::rename(&from, self.rotated(generation.saturating_add(1))) {
-                Ok(()) => {}
-                // A generation not written yet: nothing to move.
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(source) => return Err(io_error("rotating", &from, source)),
-            }
-        }
-        let path = self.path();
-        match fs::rename(&path, self.rotated(1)) {
-            Ok(()) => Ok(()),
-            // Another call rotated the live file first; the append creates a new one.
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(io_error("rotating", &path, source)),
-        }
-    }
-
-    /// The counts file.
-    fn counts_path(&self) -> PathBuf {
-        self.dir.join(COUNTS_FILE)
+        Ok(self.log.append(row)?)
     }
 
     /// How many answered decisions `point` has had.
@@ -223,7 +228,8 @@ impl DecisionLog {
         self.load_counts()
     }
 
-    /// Counts one more answered decision of `point`, and returns the new count.
+    /// Counts one more answered decision of `point` in the folder written, and returns the new
+    /// count.
     ///
     /// # Errors
     /// As [`DecisionLog::answered`], and [`LogError::Counts`] when the file cannot be written.
@@ -232,36 +238,24 @@ impl DecisionLog {
         let count = answered.entry(point).or_insert(0);
         *count = count.saturating_add(1);
         let total = *count;
-        let file = CountsFile {
-            kind: COUNTS_KIND.to_owned(),
-            version: COUNTS_VERSION,
-            answered,
-        };
-        baseline::write_snapshot_json(&self.counts_path(), &file).map_err(LogError::Counts)?;
+        counts::write(&self.counts_path(), answered)?;
         Ok(total)
     }
 
-    fn load_counts(&self) -> Result<BTreeMap<Point, u64>, LogError> {
-        let path = self.counts_path();
-        let Some(bytes) = baseline::read_state_bytes(&path).map_err(LogError::Counts)? else {
-            return Ok(BTreeMap::new());
-        };
-        let file: CountsFile = match serde_json::from_slice(&bytes) {
-            Ok(file) => file,
-            Err(source) => return Err(LogError::CountsFormat { path, source }),
-        };
-        if file.kind != COUNTS_KIND || file.version != COUNTS_VERSION {
-            return Err(LogError::CountsForeign { path });
-        }
-        Ok(file.answered)
+    /// The counts file in the folder written.
+    fn counts_path(&self) -> PathBuf {
+        counts::path(self.dir())
     }
-}
 
-fn io_error(op: &'static str, path: &Path, source: io::Error) -> LogError {
-    LogError::Io {
-        op,
-        path: path.to_path_buf(),
-        source,
+    /// The counts of the folder written, else of the old one, else none.
+    fn load_counts(&self) -> Result<BTreeMap<Point, u64>, LogError> {
+        if let Some(answered) = counts::read(&self.counts_path())? {
+            return Ok(answered);
+        }
+        match self.legacy_dir() {
+            Some(legacy) => Ok(counts::read(&counts::path(legacy))?.unwrap_or_default()),
+            None => Ok(BTreeMap::new()),
+        }
     }
 }
 

@@ -21,11 +21,12 @@ use crate::decide::clock::Clock;
 use crate::decide::config::{ClefConfig, ConfigError, Mode};
 use crate::decide::id::{DecisionId, OutcomeLabel};
 use crate::decide::label::{LabelRow, Source};
-use crate::decide::log::{DecisionLog, LogError};
+use redkiln_calibrate::scope::ScopeError;
+
+use crate::decide::log::{self, DecisionLog, LogError};
 use crate::decide::point::Point;
 use crate::decide::thresholds::Thresholds;
 use crate::decide::{DecideError, read_thresholds};
-use crate::paths::{self, PathError};
 
 /// Whether Clef is on for a point, read from the environment alone.
 #[derive(Debug)]
@@ -69,9 +70,9 @@ pub(crate) struct Prepared {
 /// Why the thresholds or the log could not be found.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum PrepareError {
-    /// The anneal home (for the log) could not be resolved.
-    #[error("finding the anneal home")]
-    Home(#[source] PathError),
+    /// The user scope or the anneal home (for the log, D1) could not be resolved.
+    #[error("finding the user scope or the anneal home")]
+    Home(#[source] ScopeError),
     /// The built-in thresholds did not validate.
     #[error(transparent)]
     Thresholds(DecideError),
@@ -94,16 +95,16 @@ impl Prepared {
     /// `Outcome::Misconfigured`.
     ///
     /// # Errors
-    /// [`PrepareError::Home`] when the anneal home cannot be resolved.
+    /// [`PrepareError::Home`] when the user scope or the anneal home cannot be resolved.
     pub(crate) fn with_thresholds(
         thresholds: Thresholds,
         lookup: impl Fn(&str) -> Option<OsString>,
     ) -> Result<Self, PrepareError> {
-        let home = paths::anneal_home_from(&lookup).map_err(PrepareError::Home)?;
+        let log = log::open(&lookup).map_err(PrepareError::Home)?;
         Ok(Self {
             thresholds,
             config: ClefConfig::from_env(&lookup),
-            log: DecisionLog::in_home(&home),
+            log,
         })
     }
 

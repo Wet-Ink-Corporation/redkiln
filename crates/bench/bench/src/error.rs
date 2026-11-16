@@ -6,6 +6,8 @@
 
 use std::io;
 
+use redkiln_calibrate::scope::ScopeError;
+
 use crate::store::{JournalError, StoreError, TimestampError};
 
 use crate::baseline::BaselineError;
@@ -50,6 +52,10 @@ pub enum CliError {
     /// Resolving a path (git common dir, anneal home) failed.
     #[error("resolving a path")]
     Path(#[from] PathError),
+    /// Resolving the user scope (`~/.redkiln`, `$REDKILN_HOME`; `$ANNEAL_HOME` read alongside)
+    /// failed.
+    #[error("resolving a path")]
+    Scope(#[from] ScopeError),
     /// Loading or saving a baseline snapshot failed.
     #[error("baseline snapshot")]
     Baseline(#[from] BaselineError),
@@ -169,6 +175,7 @@ impl CliError {
             Self::Usage { .. } => exit_codes::USAGE,
             Self::NotImplemented { .. } => exit_codes::NOT_IMPLEMENTED,
             Self::Path(_)
+            | Self::Scope(_)
             | Self::Baseline(_)
             | Self::Ledger(_)
             | Self::Journal(_)

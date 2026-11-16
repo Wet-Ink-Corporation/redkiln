@@ -9,7 +9,7 @@ outcome label to a logged decision.
 The hooks that call it (D1 in the guard, D3 and D6 on prompts, D7 in `grill`) land with #30,
 #31 and #32; this command is the one choke point they share. A hook calls it in process rather
 than spawning the binary: `decide::in_process::Prepared::load` reads the thresholds (the copy
-built in; a hook has no `--thresholds`), the configuration and the anneal home exactly as the
+built in; a hook has no `--thresholds`), the configuration and the decision log's folders exactly as the
 command does, and `decide::client::ask` (or `ask_recording`, which also keeps a redacted input in
 the row and hands back the outcome with any failure to log it, as `client::Asked`, so a caller in
 enforce mode can keep a deny when the log is unwritable) applies the same modes, shadow count and
@@ -166,7 +166,8 @@ reports the action with `data.enforce: false`; callers do not act on it. `enforc
 `data.configured_mode: "enforce"`) until it has 50 answered decisions. Only answers to a
 question whose rule has bands count: a record-only question (no bands, such as D3's size
 score) is logged but never advances the shadow period. The count is kept in
-`decisions/counts.json`, so rotation does not reset it; two decisions at once can lose an
+`counts.json` beside the log (read from the old `~/.anneal/decisions/` until the new folder has
+its own, then written only to the new folder), so rotation does not reset it; two decisions at once can lose an
 increment, which only lengthens the shadow period. The file is not protected: editing it by
 hand to raise a point's count skips (part of) the shadow period, so `enforce` takes effect
 early; deleting it only restarts the count, which lengthens the shadow period.
@@ -193,9 +194,24 @@ by name. Every string is trimmed and cut to 1,024 characters (marked `…`); the
 
 ## The decision log
 
-`~/.anneal/decisions/decisions.jsonl` (`$ANNEAL_HOME/decisions/` when set). It is outside the
-plugin's directories, so it survives a reinstall; `CLAUDE_PLUGIN_DATA` is deleted on uninstall.
-Rows are appended, never rewritten. A decision row:
+`~/.redkiln/calibrate/bench/decisions.jsonl` in the user scope (`$REDKILN_HOME/calibrate/bench/`
+when set; `%USERPROFILE%\.redkiln` without `$HOME`), the folder Core's `redkiln-calibrate` names
+for Bench (Move 2 step 5, PR 5.4; Ryan's D1, option A). It is outside the plugin's directories,
+so it survives a reinstall; `CLAUDE_PLUGIN_DATA` is deleted on uninstall. Rows are appended,
+never rewritten, and only to this folder.
+
+anneal kept the log in `~/.anneal/decisions/` (`$ANNEAL_HOME/decisions/` when set). That folder
+is read alongside the new one (its files first, so a label in either matches a decision in
+either) and is never written or deleted; while it exists, `bench decide` and `bench calibrate`
+write one line on stderr:
+
+```text
+bench: warning: reading the old decision log at <old folder> too; new rows go to <new folder>, and the old folder is never written or deleted
+```
+
+Hooks that ask Clef read and write the same folders silently. A relative `$REDKILN_HOME`,
+`$HOME` or `$ANNEAL_HOME` is refused (exit 70), and so is a run with none of `$REDKILN_HOME`,
+`$HOME` or `$USERPROFILE` set. A decision row:
 
 ```json
 {"kind": "decision", "id": "d1760000000000-4242-0", "ts_ms": 1760000000000,

@@ -387,7 +387,7 @@ fn from_plan(
     }
 }
 
-/// `clef` and `context`, from the anneal home.
+/// `clef` and `context`, from the anneal home and, for `clef`'s counts, the user scope.
 fn from_home(
     lookup: impl Fn(&str) -> Option<OsString>,
     wanted: Wanted<'_>,
@@ -404,7 +404,7 @@ fn from_home(
         }
     };
     if wanted.has(Section::Clef) {
-        gathered.document.clef = gathered.keep(Section::Clef, home::clef(&home, &lookup));
+        gathered.document.clef = gathered.keep(Section::Clef, home::clef(&lookup));
     }
     if wanted.has(Section::Context) {
         let home::ContextRead {

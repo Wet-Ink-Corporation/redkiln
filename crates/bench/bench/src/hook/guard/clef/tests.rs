@@ -123,6 +123,7 @@ impl World {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let mut vars = BTreeMap::new();
         vars.insert("ANNEAL_HOME", dir.path().join("home").into_os_string());
+        vars.insert("REDKILN_HOME", dir.path().join("home").into_os_string());
         vars.insert(
             "REDKILN_STORE",
             dir.path().join("ledger.sqlite3").into_os_string(),
@@ -142,7 +143,7 @@ impl World {
     /// Enforce mode past the shadow period (50 answered D1 decisions counted).
     fn enforcing() -> Self {
         let world = Self::configured("enforce");
-        let decisions = world.home().join("decisions");
+        let decisions = world.home().join("calibrate").join("bench");
         fs::create_dir_all(&decisions).expect("the log directory");
         fs::write(
             decisions.join("counts.json"),
@@ -224,13 +225,18 @@ impl World {
 
     /// The decision rows in the log.
     fn rows(&self) -> Vec<Value> {
-        fs::read_to_string(self.home().join("decisions").join("decisions.jsonl"))
-            .map(|text| {
-                text.lines()
-                    .map(|line| serde_json::from_str(line).expect("a JSON row"))
-                    .collect()
-            })
-            .unwrap_or_default()
+        fs::read_to_string(
+            self.home()
+                .join("calibrate")
+                .join("bench")
+                .join("decisions.jsonl"),
+        )
+        .map(|text| {
+            text.lines()
+                .map(|line| serde_json::from_str(line).expect("a JSON row"))
+                .collect()
+        })
+        .unwrap_or_default()
     }
 
     /// The `point`s of the `gate_blocked` events in the ledger.
@@ -472,8 +478,14 @@ fn the_row_and_the_state_hold_the_trimmed_command_without_secrets() {
         json!({"tool": "Bash", "input": {"command": redacted}}),
         "the state sent to Clef"
     );
-    let log = fs::read_to_string(world.home().join("decisions").join("decisions.jsonl"))
-        .expect("the log");
+    let log = fs::read_to_string(
+        world
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl"),
+    )
+    .expect("the log");
     for (i, secret) in ["hunter2", "ghp_x", "tok-123", "pw-456", SECRET]
         .into_iter()
         .enumerate()
@@ -486,8 +498,14 @@ fn the_row_and_the_state_hold_the_trimmed_command_without_secrets() {
 #[test]
 fn in_enforce_mode_unreadable_counts_ask_rather_than_allow() {
     let world = World::configured("enforce");
-    fs::create_dir_all(world.home().join("decisions").join("counts.json"))
-        .expect("a directory where counts.json goes");
+    fs::create_dir_all(
+        world
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("counts.json"),
+    )
+    .expect("a directory where counts.json goes");
     let endpoint = FakeEndpoint::yes(0.95);
 
     let stdout = world.guard("rm -r build", &endpoint);
@@ -503,8 +521,14 @@ fn in_enforce_mode_unreadable_counts_ask_rather_than_allow() {
 #[test]
 fn in_shadow_mode_an_unwritable_log_leaves_the_verdict_alone() {
     let world = World::configured("shadow");
-    fs::create_dir_all(world.home().join("decisions").join("decisions.jsonl"))
-        .expect("a directory where the log goes");
+    fs::create_dir_all(
+        world
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl"),
+    )
+    .expect("a directory where the log goes");
 
     let stdout = world.guard("rm -r build", &FakeEndpoint::yes(0.95));
 
@@ -515,8 +539,14 @@ fn in_shadow_mode_an_unwritable_log_leaves_the_verdict_alone() {
 #[cfg_attr(miri, ignore = "opens a SQLite ledger")]
 fn in_enforce_mode_an_answer_that_cannot_be_logged_keeps_its_deny() {
     let world = World::enforcing();
-    fs::create_dir_all(world.home().join("decisions").join("decisions.jsonl"))
-        .expect("a directory where the log goes");
+    fs::create_dir_all(
+        world
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl"),
+    )
+    .expect("a directory where the log goes");
 
     let stdout = world.guard("rm -r build", &FakeEndpoint::yes(0.95));
 
@@ -528,8 +558,14 @@ fn in_enforce_mode_an_answer_that_cannot_be_logged_keeps_its_deny() {
 #[test]
 fn in_enforce_mode_a_deferred_answer_that_cannot_be_logged_asks() {
     let world = World::enforcing();
-    fs::create_dir_all(world.home().join("decisions").join("decisions.jsonl"))
-        .expect("a directory where the log goes");
+    fs::create_dir_all(
+        world
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl"),
+    )
+    .expect("a directory where the log goes");
 
     let stdout = world.guard("rm -r build", &FakeEndpoint::yes(0.1));
 

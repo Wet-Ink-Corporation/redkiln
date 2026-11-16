@@ -20,6 +20,9 @@ path = "src/main.rs"
 # Bench's facts the skill rules read (binary, commands, hook ids, entry skills), without Core.
 bench-contract = { workspace = true }
 clap = { workspace = true }
+# The user scope `eval uplift`'s default work directory lives in (`<root>/tmp`; wi-6b797a85db,
+# D4 plan item 3).
+redkiln-calibrate = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

@@ -61,7 +61,7 @@ fn decide(
     let home = tempfile::tempdir().expect("tempdir");
     let home_path = home.path().to_owned();
     let lookup = |name: &str| {
-        if name == "ANNEAL_HOME" {
+        if name == "ANNEAL_HOME" || name == "REDKILN_HOME" {
             return Some(home_path.clone().into_os_string());
         }
         vars.iter()
@@ -81,8 +81,13 @@ fn decide(
     } else {
         serde_json::from_slice(&out).expect("one JSON envelope")
     };
-    let log = std::fs::read_to_string(home.path().join("decisions").join("decisions.jsonl"))
-        .unwrap_or_default();
+    let log = std::fs::read_to_string(
+        home.path()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl"),
+    )
+    .unwrap_or_default();
     (code, envelope, log)
 }
 

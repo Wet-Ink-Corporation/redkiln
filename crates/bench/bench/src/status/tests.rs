@@ -82,6 +82,7 @@ impl Fixture {
         let mut vars = BTreeMap::new();
         vars.insert("REDKILN_STORE", state.path().join("ledger.sqlite3").into());
         vars.insert("ANNEAL_HOME", state.path().join("home").into());
+        vars.insert("REDKILN_HOME", state.path().join("home").into());
         Ok(Self { repo, state, vars })
     }
 
@@ -215,7 +216,7 @@ fn approve(store: &Store, hash: &str) -> Setup<u64> {
 
 /// The anneal home with three answered D1 decisions and one context reading at 60%.
 fn home_state(home: &Path) -> Setup<()> {
-    let log = DecisionLog::in_home(home);
+    let log = DecisionLog::in_scope(home);
     for _ in 0..3 {
         log.count_answered(Point::D1)?;
     }

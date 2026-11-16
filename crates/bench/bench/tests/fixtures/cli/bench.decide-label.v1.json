@@ -4,7 +4,7 @@
   "command": "decide label",
   "data": {
     "id": "d1760000000000-7-0",
-    "log": "<root>/decisions/decisions.jsonl",
+    "log": "<root>/calibrate/bench/decisions.jsonl",
     "outcome": "destructive"
   },
   "findings": [],

@@ -3,7 +3,7 @@
 `anneal calibrate [--point <D1..D7>] [--thresholds <file>]` checks each Clef decision point
 against the outcomes labelled with `anneal decide label`. For each point it reports the Brier
 score, reliability bins, the ask rate, a proposed threshold and a promotion verdict. It writes
-the proposal to the anneal home, shows each proposed threshold as a diff of the thresholds file,
+the proposal beside the decision log, shows each proposed threshold as a diff of the thresholds file,
 and prints the steps that would apply it. It applies nothing itself: no threshold changes until
 `anneal calibrate --apply --thresholds <file>` is run, after a human approved the diff, and no
 point moves to `enforce` until a human edits the mode.
@@ -11,9 +11,14 @@ point moves to `enforce` until a human edits the mode.
 ## Input
 
 The decision log `anneal decide` writes (`docs/decide.md`):
-`<anneal home>/decisions/decisions.4.jsonl` down to `decisions.1.jsonl`, then
-`decisions.jsonl`, read oldest first. The anneal home is `$ANNEAL_HOME`, else `~/.anneal`, as
-`decide` resolves it. Each file must be a regular file; a missing file is skipped.
+`decisions.4.jsonl` down to `decisions.1.jsonl`, then `decisions.jsonl`, read oldest first, in
+anneal's old folder `~/.anneal/decisions/` (`$ANNEAL_HOME/decisions/`) and then in Bench's
+folder of the user scope, `~/.redkiln/calibrate/bench/` (`$REDKILN_HOME/calibrate/bench/`), as
+`decide` resolves them (`docs/decide.md`, The decision log). The old folder is never written or
+deleted, and a run while it exists writes one `bench: warning:` line before the summary
+(`--apply`, which may read its `proposals.json`, after its envelope). Each
+file must be a regular file; a missing file is skipped. The rows are anneal's v1 JSONL, read by
+Core's `redkiln_calibrate::rows`, which also holds the scores and the promotion bar.
 
 `decide` rotates the live file at 16 MiB, but it appends without a lock. Concurrent calls can
 each pass its size check and leave the live file a few rows past 16 MiB. So `calibrate` reads
@@ -282,7 +287,7 @@ and stdout already holds its one envelope.
 
 ### The proposal and how to apply it
 
-Every run writes `<anneal home>/decisions/proposals.json` atomically, but only when its
+Every run writes `proposals.json` in the new folder (`~/.redkiln/calibrate/bench/`) atomically, but only when its
 content would change: a run over the same log, thresholds and file path leaves the file, and
 its modification time, as it was, so a reader that runs `calibrate` only to look (the
 cockpit's calibration pane) changes nothing on disk. The file holds
@@ -308,7 +313,8 @@ answered decisions (`docs/decide.md`).
 
 `anneal calibrate --apply --thresholds <file> [--point <D1..D7>]` writes the threshold steps of
 the last run's `proposals.json` (every point's, or `--point`'s) into `<file>`, which must be
-given and must be a regular file. It reads no decision log. Each step replaces only the number
+given and must be a regular file. It reads `proposals.json` from the new folder, else from
+anneal's old one when only that has it. It reads no decision log. Each step replaces only the number
 at its pointer, so the file keeps its layout and `git diff` shows exactly the `data.diff` the
 proposing run showed. Nothing is written unless every selected step applies:
 

@@ -9,7 +9,7 @@ use std::process::Output;
 
 use serde_json::{Value, json};
 
-use crate::support::{anneal_in, with_fake_clef};
+use crate::support::{anneal_in, bench_dir, with_fake_clef};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -49,6 +49,7 @@ fn an_answer_from_clef_exits_0_with_the_action_and_one_row() -> TestResult {
         anneal_in(home.path())
             .args(D1)
             .env("ANNEAL_HOME", home.path())
+            .env("REDKILN_HOME", home.path())
             .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
             .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", SECRET)
             .env(ENDPOINT_VAR, base)
@@ -77,7 +78,7 @@ fn an_answer_from_clef_exits_0_with_the_action_and_one_row() -> TestResult {
     );
     let sent: Value = serde_json::from_slice(&served.body)?;
     assert_eq!(sent["messages"][0]["role"], json!("system"));
-    let log = std::fs::read_to_string(home.path().join("decisions").join("decisions.jsonl"))?;
+    let log = std::fs::read_to_string(bench_dir(home.path()).join("decisions.jsonl"))?;
     assert_eq!(log.lines().count(), 1, "{log}");
     for shown in [
         String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -104,6 +105,7 @@ fn a_proxy_in_the_environment_is_not_used() -> TestResult {
         command
             .args(D1)
             .env("ANNEAL_HOME", home.path())
+            .env("REDKILN_HOME", home.path())
             .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
             .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", SECRET)
             .env(ENDPOINT_VAR, base)
@@ -145,6 +147,7 @@ fn an_endpoint_off_the_loopback_host_is_misconfigured_and_sends_nothing() -> Tes
     let output = anneal_in(home.path())
         .args(D1)
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
         .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", SECRET)
         .env(ENDPOINT_VAR, "https://example.com/accounts")
@@ -160,9 +163,6 @@ fn an_endpoint_off_the_loopback_host_is_misconfigured_and_sends_nothing() -> Tes
             .is_some_and(|reason| reason.starts_with("ANNEAL_CLEF_URL must be http://")),
         "{envelope}"
     );
-    assert!(
-        !home.path().join("decisions").exists(),
-        "nothing asked or logged"
-    );
+    assert!(!bench_dir(home.path()).exists(), "nothing asked or logged");
     Ok(())
 }

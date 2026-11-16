@@ -9,7 +9,7 @@ use std::process::{Output, Stdio};
 
 use serde_json::{Value, json};
 
-use crate::support::anneal_in;
+use crate::support::{anneal_in, bench_dir};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -39,6 +39,7 @@ fn run_hook(
     let mut child = command
         .args(["hook", hook])
         .env("ANNEAL_HOME", home)
+        .env("REDKILN_HOME", home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -71,7 +72,7 @@ fn project() -> Result<tempfile::TempDir, Box<dyn Error>> {
 }
 
 fn rows(home: &Path) -> Result<Vec<Value>, Box<dyn Error>> {
-    let text = std::fs::read_to_string(home.join("decisions").join("decisions.jsonl"))?;
+    let text = std::fs::read_to_string(bench_dir(home).join("decisions.jsonl"))?;
     Ok(text
         .lines()
         .map(serde_json::from_str)

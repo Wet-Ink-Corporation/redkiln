@@ -13,11 +13,13 @@ use crate::support::{anneal_in, copy_dir};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// `anneal` in `home` with `home` as the anneal home and no plugin root.
+/// `anneal` in `home` with `home` as the anneal home and the user scope's root, and no plugin
+/// root.
 fn anneal(home: &Path) -> Command {
     let mut command = anneal_in(home);
     command
         .env("ANNEAL_HOME", home)
+        .env("REDKILN_HOME", home)
         .env_remove("CLAUDE_PLUGIN_ROOT")
         .env_remove("CLAUDE_PLUGIN_OPTION_CLEF_MODE");
     command
@@ -45,7 +47,7 @@ fn close(value: &Value, expected: f64) -> bool {
 #[cfg_attr(miri, ignore = "runs the binary")]
 fn the_hand_computed_log_gives_its_brier_bins_ask_rate_and_proposal() -> TestResult {
     let home = tempfile::tempdir()?;
-    copy_dir(&fixture(), &home.path().join("decisions"))?;
+    copy_dir(&fixture(), &home.path().join("calibrate").join("bench"))?;
 
     let output = anneal(home.path())
         .args(["calibrate", "--point", "D1"])
@@ -109,7 +111,7 @@ fn the_hand_computed_log_gives_its_brier_bins_ask_rate_and_proposal() -> TestRes
 #[cfg_attr(miri, ignore = "runs the binary")]
 fn a_short_summary_goes_to_stderr_and_the_proposals_to_the_anneal_home() -> TestResult {
     let home = tempfile::tempdir()?;
-    copy_dir(&fixture(), &home.path().join("decisions"))?;
+    copy_dir(&fixture(), &home.path().join("calibrate").join("bench"))?;
 
     let output = anneal(home.path()).arg("calibrate").output()?;
 
@@ -121,7 +123,11 @@ fn a_short_summary_goes_to_stderr_and_the_proposals_to_the_anneal_home() -> Test
         stderr.lines().any(|line| line == "D1: stay-shadow"),
         "{stderr}"
     );
-    let proposals = home.path().join("decisions").join("proposals.json");
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join("proposals.json");
     let file: Value = serde_json::from_slice(&fs::read(&proposals)?)?;
     assert_eq!(file["points"].as_array().map(Vec::len), Some(7));
     assert_eq!(
@@ -284,7 +290,7 @@ fn the_current_threshold_is_kept_when_no_candidate_is_cheaper() -> TestResult {
 #[cfg_attr(miri, ignore = "runs the binary")]
 fn labelling_one_decision_twice_keeps_both_rows_and_calibrate_uses_the_last() -> TestResult {
     let home = tempfile::tempdir()?;
-    let dir = home.path().join("decisions");
+    let dir = home.path().join("calibrate").join("bench");
     fs::create_dir_all(&dir)?;
     let id = "d1760000000000-7-0";
     let decision = json!({

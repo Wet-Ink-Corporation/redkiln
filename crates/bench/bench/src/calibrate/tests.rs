@@ -59,7 +59,7 @@ fn calibrate_into<E: Write>(
         cwd: home,
         // The lookup hands out an owned value per call, as `std::env::var_os` does.
         lookup: |var: &str| -> Option<OsString> {
-            (var == "ANNEAL_HOME").then(|| home.as_os_str().to_owned())
+            (var == "ANNEAL_HOME" || var == "REDKILN_HOME").then(|| home.as_os_str().to_owned())
         },
     };
     let mut out = Vec::new();
@@ -121,7 +121,7 @@ fn label(id: &str, outcome: &str) -> Value {
 }
 
 fn write_log(home: &Path, file: &str, rows: &[Value]) -> io::Result<PathBuf> {
-    let dir = home.join("decisions");
+    let dir = home.join("calibrate").join("bench");
     fs::create_dir_all(&dir)?;
     let path = dir.join(file);
     let text: String = rows.iter().map(|row| row.to_string() + "\n").collect();
@@ -207,7 +207,11 @@ fn the_proposals_file_holds_every_point_even_when_one_is_selected() -> TestResul
 
     let ran = calibrate(home.path(), &["--point", "D7"]);
 
-    let proposals = home.path().join("decisions").join("proposals.json");
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join("proposals.json");
     assert_eq!(
         ran.envelope["data"]["proposals"],
         json!(proposals.to_str().expect("a UTF-8 temporary path"))
@@ -293,7 +297,11 @@ fn the_summary_on_stderr_names_each_verdict_and_where_the_proposal_is() -> TestR
 
     let ran = calibrate(home.path(), &["--point", "D1"]);
 
-    let proposals = home.path().join("decisions").join("proposals.json");
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join("proposals.json");
     let lines: Vec<&str> = ran.stderr.lines().collect();
     assert!(lines.len() <= 8, "short: {lines:?}");
     assert!(lines.contains(&"D1: stay-shadow"), "{lines:?}");
@@ -378,7 +386,7 @@ fn decide_in(home: &Path, words: &[&str]) -> Result<Value, Box<dyn std::error::E
         cwd: home,
         lookup: |var: &str| -> Option<OsString> {
             match var {
-                "ANNEAL_HOME" => Some(home.as_os_str().to_owned()),
+                "ANNEAL_HOME" | "REDKILN_HOME" => Some(home.as_os_str().to_owned()),
                 ACCOUNT_VAR => Some("acct0123".into()),
                 TOKEN_VAR => Some("token-value".into()),
                 _ => None,
@@ -514,3 +522,4 @@ fn mod_labels_are_counted_apart_in_the_envelope_and_the_summary() -> TestResult 
 
 mod apply;
 mod dashboard;
+mod scope;

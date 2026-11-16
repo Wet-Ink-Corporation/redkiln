@@ -350,7 +350,7 @@ fn enforcing_with_weigh_in(root: &Path) -> TestResult<World> {
     vars.push((MODE_VAR, "enforce"));
     vars.push(("WEIGHIN_BIN", &bin));
     let world = World::new(&vars)?;
-    let log = crate::decide::log::DecisionLog::in_home(world.home());
+    let log = crate::decide::log::DecisionLog::in_scope(world.home());
     for _ in 0..50 {
         log.count_answered(Point::D6)?;
     }

@@ -1,5 +1,6 @@
-//! The sections `bench status` reads from the anneal home: `clef`, from `decide`'s
-//! configuration and its answered-decision counts (`decisions/counts.json`), and `context`,
+//! The sections `bench status` reads from the user's home: `clef`, from `decide`'s
+//! configuration and its answered-decision counts (`counts.json` in the decision log's folder,
+//! `~/.redkiln/calibrate/bench/`, else anneal's old `~/.anneal/decisions/`), and `context`,
 //! the fresher of the latest snapshots `bench statusline` (`context-usage.json`) and the mod
 //! (`context-usage-mod.json`) saved.
 
@@ -11,8 +12,8 @@ use bench_contract::status::{self, Clef, ClefMode, Context, DecisionPoint, Point
 use super::Unreadable;
 use crate::context::usage::{Level, Window, WindowSource};
 use crate::context::{self, Fresher, Snapshot};
+use crate::decide;
 use crate::decide::config::Mode;
-use crate::decide::log::DecisionLog;
 use crate::decide::modes::Modes;
 use crate::decide::point::Point;
 
@@ -41,11 +42,9 @@ const fn mode(mode: Mode) -> ClefMode {
 /// `clef`, or `None` when Clef has no account and no decision was ever answered. Each point's
 /// `mode` is the one in effect: `off` without an account, `shadow` while a configured
 /// `enforce` has fewer than 50 answered decisions, else the configured one.
-pub(super) fn clef(
-    home: &Path,
-    lookup: impl Fn(&str) -> Option<OsString>,
-) -> Result<Option<Clef>, Unreadable> {
-    let modes = Modes::read(&DecisionLog::in_home(home), lookup)?;
+pub(super) fn clef(lookup: impl Fn(&str) -> Option<OsString>) -> Result<Option<Clef>, Unreadable> {
+    let log = decide::log::open(&lookup)?;
+    let modes = Modes::read(&log, lookup)?;
     let configured = modes.is_configured();
     if !configured && !modes.any_answered() {
         return Ok(None);

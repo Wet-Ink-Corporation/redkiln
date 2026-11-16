@@ -10,7 +10,7 @@ use std::process::{Output, Stdio};
 
 use serde_json::{Value, json};
 
-use crate::support::anneal_in;
+use crate::support::{anneal_in, bench_dir};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -32,7 +32,7 @@ impl Scratch {
 
     /// Counts 50 answered D1 decisions, so `enforce` is past its shadow period.
     fn past_the_shadow_period(&self) -> TestResult {
-        let decisions = self.home().join("decisions");
+        let decisions = bench_dir(&self.home());
         fs::create_dir_all(&decisions)?;
         fs::write(
             decisions.join("counts.json"),
@@ -48,6 +48,7 @@ impl Scratch {
         let mut child = anneal_in(self.dir.path())
             .env("REDKILN_STORE", self.dir.path().join("ledger.sqlite3"))
             .env("ANNEAL_HOME", self.home())
+            .env("REDKILN_HOME", self.home())
             .env("CLAUDE_PLUGIN_OPTION_CF_ACCOUNT_ID", "acct0123")
             .env("CLAUDE_PLUGIN_OPTION_CF_API_TOKEN", "s3cr3t-T0KEN-value")
             .env("CLAUDE_PLUGIN_OPTION_CLEF_MODE", mode)
@@ -72,7 +73,7 @@ impl Scratch {
 
     /// The decision rows in the log.
     fn rows(&self) -> Result<Vec<Value>, Box<dyn Error>> {
-        let log = fs::read_to_string(self.home().join("decisions").join("decisions.jsonl"))?;
+        let log = fs::read_to_string(bench_dir(&self.home()).join("decisions.jsonl"))?;
         Ok(log
             .lines()
             .map(serde_json::from_str)
@@ -144,11 +145,7 @@ fn in_enforce_mode_a_denylisted_command_is_still_denied_without_asking_clef() ->
         "{decision}"
     );
     assert!(
-        !scratch
-            .home()
-            .join("decisions")
-            .join("decisions.jsonl")
-            .exists(),
+        !bench_dir(&scratch.home()).join("decisions.jsonl").exists(),
         "no row: Clef was not asked"
     );
     Ok(())

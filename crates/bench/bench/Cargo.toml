@@ -30,6 +30,9 @@ redkiln-guard = { workspace = true }
 # The GitHub kit: tickets, the tracker port and its GitHub adapter, the ticket graph and
 # estimate, and the bounded git reads of a pull request's diff (Move 2 step 5, PR 5.3).
 redkiln-github = { workspace = true }
+# Core's calibration crate: the scores, the promotion bar, the v1 row reader, the decision log
+# and the user scope it lives in (Move 2 step 5, PR 5.4).
+redkiln-calibrate = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

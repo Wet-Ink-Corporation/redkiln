@@ -73,7 +73,8 @@ fn is_temporary(cwd: &Path) -> bool {
         )
 }
 
-/// `anneal` run in `cwd` with `ANNEAL_HOME` at `home`, isolated from the caller's repository,
+/// `anneal` run in `cwd` with `ANNEAL_HOME` and `REDKILN_HOME` (the user scope the decision log
+/// moved to, D1) at `home`, isolated from the caller's repository,
 /// ledger overrides, Clef configuration and anneal home: the plugin's `CLAUDE_PLUGIN_OPTION_*`
 /// Clef variables, `CLAUDE_PLUGIN_ROOT` (a hook running the tests may set it to another plugin),
 /// `CLAUDE_ENV_FILE` (so `hook bootstrap` never appends to a running session's env file)
@@ -90,6 +91,7 @@ pub(crate) fn anneal_with_home(cwd: &Path, home: &Path) -> Command {
     command
         .current_dir(cwd)
         .env("ANNEAL_HOME", home)
+        .env("REDKILN_HOME", home)
         .env("ANNEAL_CLEF_URL", "http://127.0.0.1:0")
         .env_remove("ANNEAL_STORE")
         .env_remove("REDKILN_STORE")
@@ -218,6 +220,12 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> Result<String, std::fmt::Error> {
         write!(hex, "{byte:02x}")?;
     }
     Ok(hex)
+}
+
+/// Bench's decision-log folder in the user scope whose root is `root` (`$REDKILN_HOME`):
+/// `<root>/calibrate/bench`, where rows, `counts.json` and `proposals.json` are written.
+pub(crate) fn bench_dir(root: &Path) -> PathBuf {
+    root.join("calibrate").join("bench")
 }
 
 /// Copies the directory tree at `from` to `to`, creating `to`.

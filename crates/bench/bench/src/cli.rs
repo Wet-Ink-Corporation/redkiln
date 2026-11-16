@@ -355,7 +355,7 @@ fn dispatch<O: Write, E: Write>(
             floor_guard::run(args, &cwd, out)
         }
         Command::Verdict(args) => run_verdict(args, out, err),
-        Command::Decide(args) => run_decide(args, out),
+        Command::Decide(args) => run_decide(args, out, err),
         Command::Calibrate(args) => run_calibrate(args, out, err),
         Command::Hook(args) => run_hook(args, out),
         Command::Ship(args) => {
@@ -422,9 +422,21 @@ fn run_migrate<O: Write>(args: &MigrateArgs, out: &mut O) -> Result<Code, CliErr
     migrate::run(args, &cwd, |var| std::env::var_os(var), out)
 }
 
-/// `bench decide` with the process's environment, the system clock and the transport.
-fn run_decide<O: Write>(args: &DecideArgs, out: &mut O) -> Result<Code, CliError> {
+/// `bench decide` with the process's environment, the system clock and the transport, after
+/// one `bench: warning:` line on `err` when anneal's old decision folder is read alongside
+/// (D1). A log that cannot be located warns nothing here: `decide::run` reports it.
+fn run_decide<O: Write, E: Write>(
+    args: &DecideArgs,
+    out: &mut O,
+    err: &mut E,
+) -> Result<Code, CliError> {
     let cwd = std::env::current_dir().map_err(CliError::CurrentDir)?;
+    if let Some(warning) = decide::log::open(|var: &str| std::env::var_os(var))
+        .ok()
+        .and_then(|log| log.legacy_warning())
+    {
+        diagnostic::warning(&mut *err, &warning).map_err(CliError::Output)?;
+    }
     let env = DecideEnv {
         cwd: &cwd,
         lookup: |var: &str| std::env::var_os(var),

@@ -10,21 +10,63 @@ use serde::Serialize;
 pub(crate) const BINS: u32 = 10;
 
 /// What a false accept costs: the error the point exists to prevent gets through.
-pub(crate) const FALSE_ACCEPT_COST: u32 = 5;
+pub const FALSE_ACCEPT_COST: u32 = 5;
 
 /// What a needless intervention costs: an ask, block or hint that was not needed.
-pub(crate) const NEEDLESS_COST: u32 = 1;
+pub const NEEDLESS_COST: u32 = 1;
+
+/// A probability: a finite number from 0 to 1, `-0.0` read as `0.0` (API-03).
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub struct Probability(f64);
+
+/// A number that is not a probability: not finite, or outside 0..=1. Holds the number as text.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0} is not a probability from 0 to 1")]
+pub struct ProbabilityError(String);
+
+impl TryFrom<f64> for Probability {
+    type Error = ProbabilityError;
+
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        if (0.0..=1.0).contains(&value) {
+            // `-0.0` passes the range check but sorts apart from `0.0` under `total_cmp`; adding
+            // `0.0` turns it into `0.0` and leaves every other value as it is.
+            Ok(Self(value + 0.0))
+        } else {
+            Err(ProbabilityError(value.to_string()))
+        }
+    }
+}
+
+impl Probability {
+    /// The number.
+    #[must_use]
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+}
 
 /// One answered decision with a usable label: the probability the thresholds applied to, and
 /// whether the predicted event happened (noul and score: `yes`; choice: the top option).
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Sample {
+pub struct Sample {
     probability: f64,
     positive: bool,
 }
 
 impl Sample {
-    /// A sample; `probability` is within 0..=1 (the log reader checks it).
+    /// A sample of `probability` whose predicted event happened when `positive`.
+    #[must_use]
+    pub const fn of(probability: Probability, positive: bool) -> Self {
+        Self {
+            probability: probability.get(),
+            positive,
+        }
+    }
+
+    /// A sample from a number the caller has not checked: the moved tests' fixtures, written
+    /// with literals inside 0..=1.
+    #[cfg(test)]
     pub(crate) const fn new(probability: f64, positive: bool) -> Self {
         Self {
             probability,
@@ -35,7 +77,7 @@ impl Sample {
 
 /// One reliability bin: `[lower, upper)`, the last closed at 1.0.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub(crate) struct Bin {
+pub struct Bin {
     lower: f64,
     upper: f64,
     count: u32,
@@ -48,7 +90,7 @@ pub(crate) struct Bin {
 /// Which error of a threshold is the false accept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum FalseAccept {
+pub enum FalseAccept {
     /// A positive below the threshold: the point let it through (D1 destructive, D2 one-way
     /// door, D5 defect risk, D7 a decision for the human).
     BelowThreshold,
@@ -59,7 +101,7 @@ pub(crate) enum FalseAccept {
 
 /// The cost model of one point: which side is the false accept, and what each error costs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub(crate) struct Costs {
+pub struct Costs {
     false_accept: FalseAccept,
     false_accept_cost: u32,
     needless_cost: u32,
@@ -68,7 +110,8 @@ pub(crate) struct Costs {
 impl Costs {
     /// The costs with `false_accept` as the false accept, at [`FALSE_ACCEPT_COST`] and
     /// [`NEEDLESS_COST`].
-    pub(crate) const fn new(false_accept: FalseAccept) -> Self {
+    #[must_use]
+    pub const fn new(false_accept: FalseAccept) -> Self {
         Self {
             false_accept,
             false_accept_cost: FALSE_ACCEPT_COST,
@@ -90,11 +133,11 @@ impl Costs {
 
 /// The threshold that minimises the total cost, and that cost.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
-pub(crate) struct Proposal {
+pub struct Proposal {
     /// The threshold (`at_least`).
-    pub(crate) threshold: f64,
+    pub threshold: f64,
     /// The total cost on the labelled set at that threshold.
-    pub(crate) total_cost: u32,
+    pub total_cost: u32,
 }
 
 /// Positives and negatives in a set of samples.
@@ -130,12 +173,14 @@ impl Tally {
 }
 
 /// `len` as a count, saturating (see the module documentation).
-pub(crate) fn count(len: usize) -> u32 {
+#[must_use]
+pub fn count(len: usize) -> u32 {
     u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 /// The mean of `(p - o)^2`, with `o` 1 for a positive and 0 otherwise; `None` for no samples.
-pub(crate) fn brier(samples: &[Sample]) -> Option<f64> {
+#[must_use]
+pub fn brier(samples: &[Sample]) -> Option<f64> {
     let n = count(samples.len());
     if n == 0 {
         return None;
@@ -147,8 +192,9 @@ pub(crate) fn brier(samples: &[Sample]) -> Option<f64> {
     Some(sum / f64::from(n))
 }
 
-/// The [`BINS`] reliability bins, `[k/10, (k+1)/10)` with 1.0 in the last.
-pub(crate) fn bins(samples: &[Sample]) -> Vec<Bin> {
+/// The ten reliability bins, `[k/10, (k+1)/10)` with 1.0 in the last.
+#[must_use]
+pub fn bins(samples: &[Sample]) -> Vec<Bin> {
     (0..BINS)
         .map(|k| {
             let lower = f64::from(k) / f64::from(BINS);
@@ -176,6 +222,7 @@ pub(crate) fn bins(samples: &[Sample]) -> Vec<Bin> {
 }
 
 /// The total cost of `threshold` on `samples`.
+#[must_use]
 pub(crate) fn total_cost(samples: &[Sample], costs: Costs, threshold: f64) -> u32 {
     let below = Tally::of(samples.iter().filter(|s| s.probability < threshold));
     let above = Tally::of(samples.iter().filter(|s| s.probability >= threshold));
@@ -183,7 +230,8 @@ pub(crate) fn total_cost(samples: &[Sample], costs: Costs, threshold: f64) -> u3
 }
 
 /// The cost of `threshold` per labelled decision; `None` for no samples.
-pub(crate) fn expected_cost(samples: &[Sample], costs: Costs, threshold: f64) -> Option<f64> {
+#[must_use]
+pub fn expected_cost(samples: &[Sample], costs: Costs, threshold: f64) -> Option<f64> {
     let n = count(samples.len());
     (n > 0).then(|| f64::from(total_cost(samples, costs, threshold)) / f64::from(n))
 }
@@ -197,7 +245,8 @@ pub(crate) fn expected_cost(samples: &[Sample], costs: Costs, threshold: f64) ->
 /// observed probability under the ceiling and the ceiling (1.0 without one), which acts on
 /// none of them (rounded to 4 decimal places when that stays strictly between the two). Among
 /// candidates a tie goes to the higher threshold, which acts on fewer decisions.
-pub(crate) fn propose(
+#[must_use]
+pub fn propose(
     samples: &[Sample],
     costs: Costs,
     current: f64,
