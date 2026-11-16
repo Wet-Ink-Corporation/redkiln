@@ -1,5 +1,7 @@
 # Performance noise
 
+> Frozen (Move 2 step 5; blueprint, Bench "Freezes"): security and correctness fixes only until Ship exists.
+
 ```text
 anneal perf sample [-n <N>] [--timeout <secs>] --out <file> -- <command> [args...]
 anneal perf noise  [-n <N>] [--timeout <secs>] --baseline <file> -- <command> [args...]

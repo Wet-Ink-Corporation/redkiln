@@ -1,3 +1,5 @@
+//! Frozen (Move 2 step 5; blueprint, Bench "Freezes"): security and correctness fixes only until Ship exists.
+//!
 //! `bench perf sample|noise`: tell a performance change from run-to-run noise.
 //!
 //! `sample -n <N> --out <file> -- <cmd>` runs the command `N` times and saves the run times

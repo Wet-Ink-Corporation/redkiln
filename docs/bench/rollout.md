@@ -1,5 +1,7 @@
 # Rollout decisions
 
+> Frozen (Move 2 step 5; blueprint, Bench "Freezes"): security and correctness fixes only until Ship exists.
+
 ```text
 anneal rollout decide --metrics '<json object of numbers>' --bands <file>
 ```

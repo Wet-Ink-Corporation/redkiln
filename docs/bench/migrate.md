@@ -1,5 +1,7 @@
 # Migration wave tracker
 
+> Frozen (Move 2 step 5; blueprint, Bench "Freezes"): security and correctness fixes only until Ship exists.
+
 ```text
 anneal migrate start    --migration <id> --wave <n> [--session <id>]
 anneal migrate done     --migration <id> --wave <n> [--session <id>]
