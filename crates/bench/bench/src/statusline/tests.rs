@@ -26,8 +26,10 @@ fn status_line(input: &str, home: &Path, window: Option<&str>) -> (u8, String, S
     )
 }
 
+/// Session `session`'s reading in the status line's file in Bench's folder of the user scope
+/// whose root is `home`.
 fn saved(home: &Path, session: &str) -> Option<Snapshot> {
-    let path = context::in_home(home, context::USAGE_FILE);
+    let path = context::in_home(&home.join("bench"), context::USAGE_FILE);
     SessionFile::<Snapshot>::load(&path, context::USAGE_KIND)
         .expect("the usage file loads")
         .get(session)
@@ -72,7 +74,7 @@ fn a_saved_reading_is_stamped_as_the_status_line_s_with_its_time() {
         clock: &Fixed,
     };
     run_with(env, Vec::new(), Vec::new()).expect("Vecs accept writes");
-    let path = context::in_home(home.path(), context::USAGE_FILE);
+    let path = context::in_home(&home.path().join("bench"), context::USAGE_FILE);
     let saved = SessionFile::<Saved>::load(&path, context::USAGE_KIND)
         .expect("the usage file loads")
         .get("s1")

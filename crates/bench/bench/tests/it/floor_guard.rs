@@ -42,8 +42,17 @@ fn floor_guard(cwd: &Path, args: &[&str]) -> Result<Output, Box<dyn Error>> {
 
 /// The envelope after checking the exit code and an empty stderr.
 fn envelope(output: &Output, code: i32) -> Result<Value, Box<dyn Error>> {
+    envelope_with(output, code, "")
+}
+
+/// The envelope after checking the exit code and that stderr is exactly `stderr`.
+fn envelope_with(output: &Output, code: i32, stderr: &str) -> Result<Value, Box<dyn Error>> {
     assert_eq!(output.status.code(), Some(code), "{output:?}");
-    assert!(output.stderr.is_empty(), "nothing on stderr: {output:?}");
+    assert_eq!(
+        std::str::from_utf8(&output.stderr)?,
+        stderr,
+        "stderr: {output:?}"
+    );
     crate::support::envelope(output)
 }
 
@@ -62,10 +71,15 @@ fn findings(envelope: &Value) -> Vec<(Value, Value, Value)> {
         .unwrap_or_default()
 }
 
-/// Runs floor-guard in `dir` and expects exit 1 with exactly `expected`.
+/// Runs floor-guard in `dir` and expects exit 1 with exactly `expected` and nothing on stderr.
 fn assert_lowered(dir: &Path, expected: (&str, &str, Value)) -> TestResult {
+    assert_lowered_with(dir, expected, "")
+}
+
+/// Runs floor-guard in `dir` and expects exit 1 with exactly `expected`, and `stderr`.
+fn assert_lowered_with(dir: &Path, expected: (&str, &str, Value), stderr: &str) -> TestResult {
     let output = floor_guard(dir, &[])?;
-    let envelope = envelope(&output, 1)?;
+    let envelope = envelope_with(&output, 1, stderr)?;
     assert_eq!(envelope.get("ok"), Some(&json!(false)), "{envelope}");
     let (category, file, line) = expected;
     assert_eq!(
@@ -268,7 +282,11 @@ fn a_raised_down_ratchet_is_lowered_at_its_line() -> TestResult {
     let dir = repo(&[(RATCHETS, &ratchets(10.0, 80.0))])?;
     write(dir.path(), &[(RATCHETS, &ratchets(12.0, 80.0))])?;
 
-    assert_lowered(dir.path(), ("ratchet_loosened", RATCHETS, json!(4)))
+    assert_lowered_with(
+        dir.path(),
+        ("ratchet_loosened", RATCHETS, json!(4)),
+        FALLBACK_WARNING,
+    )
 }
 
 #[test]
@@ -277,7 +295,7 @@ fn a_lowered_up_ratchet_is_lowered_with_a_message_naming_it() -> TestResult {
     let dir = repo(&[(RATCHETS, &ratchets(10.0, 80.0))])?;
     write(dir.path(), &[(RATCHETS, &ratchets(10.0, 79.5))])?;
 
-    let envelope = envelope(&floor_guard(dir.path(), &[])?, 1)?;
+    let envelope = envelope_with(&floor_guard(dir.path(), &[])?, 1, FALLBACK_WARNING)?;
 
     assert_eq!(
         envelope.pointer("/data/findings/0/message"),
@@ -295,7 +313,7 @@ fn tightened_ratchets_exit_0() -> TestResult {
     let dir = repo(&[(RATCHETS, &ratchets(10.0, 80.0))])?;
     write(dir.path(), &[(RATCHETS, &ratchets(8.0, 82.0))])?;
 
-    let envelope = envelope(&floor_guard(dir.path(), &[])?, 0)?;
+    let envelope = envelope_with(&floor_guard(dir.path(), &[])?, 0, FALLBACK_WARNING)?;
 
     assert_eq!(findings(&envelope), Vec::new(), "{envelope}");
     Ok(())
@@ -307,7 +325,11 @@ fn a_ratchet_file_that_no_longer_parses_is_lowered() -> TestResult {
     let dir = repo(&[(RATCHETS, &ratchets(10.0, 80.0))])?;
     write(dir.path(), &[(RATCHETS, "{\"version\": 1}\n")])?;
 
-    assert_lowered(dir.path(), ("ratchet_loosened", RATCHETS, Value::Null))
+    assert_lowered_with(
+        dir.path(),
+        ("ratchet_loosened", RATCHETS, Value::Null),
+        FALLBACK_WARNING,
+    )
 }
 
 #[test]
@@ -365,7 +387,7 @@ fn an_invalid_base_ratchet_file_is_skipped_not_judged() -> TestResult {
     let dir = repo(&[(RATCHETS, "{\"version\": 1, \"ratchets\": [\n")])?;
     write(dir.path(), &[(RATCHETS, &ratchets(10.0, 80.0))])?;
 
-    let envelope = envelope(&floor_guard(dir.path(), &[])?, 0)?;
+    let envelope = envelope_with(&floor_guard(dir.path(), &[])?, 0, FALLBACK_WARNING)?;
 
     assert_ratchets_skipped(
         &envelope,
@@ -381,7 +403,7 @@ fn a_base_ratchet_file_over_1_mib_is_skipped_not_judged() -> TestResult {
     let dir = repo(&[(RATCHETS, &padded)])?;
     write(dir.path(), &[(RATCHETS, &ratchets(10.0, 80.0))])?;
 
-    let envelope = envelope(&floor_guard(dir.path(), &[])?, 0)?;
+    let envelope = envelope_with(&floor_guard(dir.path(), &[])?, 0, FALLBACK_WARNING)?;
 
     assert_ratchets_skipped(
         &envelope,
@@ -469,7 +491,7 @@ fn a_new_ratchet_file_is_not_judged() -> TestResult {
     let dir = repo(&[("src/lib.rs", "fn a() {}\n")])?;
     write(dir.path(), &[(RATCHETS, &ratchets(10.0, 80.0))])?;
 
-    let envelope = envelope(&floor_guard(dir.path(), &[])?, 0)?;
+    let envelope = envelope_with(&floor_guard(dir.path(), &[])?, 0, FALLBACK_WARNING)?;
 
     assert_eq!(findings(&envelope), Vec::new(), "{envelope}");
     Ok(())

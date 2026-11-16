@@ -72,11 +72,22 @@ fn a_glob_configured_in_the_repository_adds_a_sensitive_path() -> TestResult {
         r#"{"ship": {"sensitive_globs": ["src/lib.rs"]}}"#,
     )?;
 
-    let envelope = repo.envelope(&["ship", "skip-rule"], 1)?;
+    let output = repo.anneal(&["ship", "skip-rule"])?;
 
+    let envelope = crate::support::envelope(&output)?;
     assert_eq!(
-        &envelope["data"]["reasons"][0]["category"],
-        &json!("configured"),
+        (
+            output.status.code(),
+            std::str::from_utf8(&output.stderr)?,
+            &envelope["data"]["reasons"][0]["category"],
+        ),
+        (
+            Some(1),
+            "bench: warning: .anneal/config.json is read because .redkiln/bench/config.json \
+             does not exist; bench reads anneal's .anneal/ only as a 0.x fallback, so move the \
+             file there\n",
+            &json!("configured"),
+        ),
         "{envelope}"
     );
     Ok(())

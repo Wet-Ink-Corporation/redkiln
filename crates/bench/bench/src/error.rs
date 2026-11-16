@@ -228,7 +228,10 @@ mod tests {
                 },
                 64,
             ),
-            (CliError::Path(PathError::NoHome), 70),
+            (
+                CliError::Path(PathError::Git(io::Error::other("no git"))),
+                70,
+            ),
             (CliError::Output(io::Error::other("closed")), 74),
         ];
         for (error, expected) in cases {

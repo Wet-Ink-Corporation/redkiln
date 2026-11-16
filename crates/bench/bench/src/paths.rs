@@ -29,9 +29,6 @@ use crate::process::{self, WaitError};
 /// How long a `git` call may take before it is killed (H-13).
 pub const GIT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The environment variable that overrides the anneal home directory.
-pub const ANNEAL_HOME_VAR: &str = "ANNEAL_HOME";
-
 /// anneal's variable naming its ledger file; read below `$REDKILN_STORE` (D5).
 pub const ANNEAL_STORE_VAR: &str = "ANNEAL_STORE";
 
@@ -79,17 +76,6 @@ pub enum PathError {
     /// git printed a path that is not UTF-8.
     #[error("git printed a path that is not UTF-8")]
     NonUtf8Output(#[source] std::string::FromUtf8Error),
-    /// None of `ANNEAL_HOME`, `HOME` or `USERPROFILE` is set.
-    #[error("cannot find a home directory: set ANNEAL_HOME, HOME or USERPROFILE")]
-    NoHome,
-    /// The variable holds a relative path, which would move with the working directory.
-    #[error("{var} must be an absolute path, got {value}", value = value.display())]
-    RelativeHome {
-        /// The variable that was read.
-        var: &'static str,
-        /// Its value.
-        value: PathBuf,
-    },
 }
 
 /// The git common dir for `cwd`: the main repository's `.git` directory, shared by every linked
@@ -293,45 +279,6 @@ pub fn ledger_store_within(
     git_timeout: Duration,
 ) -> Result<StoreLocation, PathError> {
     location::locate(flag, lookup, cwd, git_timeout)
-}
-
-/// The anneal home directory from the process environment; see [`anneal_home_from`].
-///
-/// # Errors
-/// As [`anneal_home_from`].
-pub fn anneal_home() -> Result<PathBuf, PathError> {
-    anneal_home_from(|var| std::env::var_os(var))
-}
-
-/// The anneal home directory: `$ANNEAL_HOME` if set, else `$HOME/.anneal`, else
-/// `%USERPROFILE%\.anneal`. Empty values count as unset. `lookup` reads one variable.
-///
-/// Since PR 5.6 no command calls it: Bench's state is in `BenchHome`, which names anneal's
-/// home through the user scope. It stays, with its tests, until deleting them is decided
-/// (H-16), as skillcheck's copy was (wi-ad764d8531).
-///
-/// # Errors
-/// [`PathError::NoHome`] when none is set; [`PathError::RelativeHome`] when the chosen value is
-/// not absolute.
-pub fn anneal_home_from(lookup: impl Fn(&str) -> Option<OsString>) -> Result<PathBuf, PathError> {
-    let read = |var: &'static str| {
-        lookup(var)
-            .filter(|value| !value.is_empty())
-            .map(|value| (var, PathBuf::from(value)))
-    };
-    let (var, path) = if let Some((var, home)) = read(ANNEAL_HOME_VAR) {
-        (var, home)
-    } else {
-        let (var, home) = read("HOME")
-            .or_else(|| read("USERPROFILE"))
-            .ok_or(PathError::NoHome)?;
-        (var, home.join(".anneal"))
-    };
-    if path.is_absolute() {
-        Ok(path)
-    } else {
-        Err(PathError::RelativeHome { var, value: path })
-    }
 }
 
 #[cfg(test)]

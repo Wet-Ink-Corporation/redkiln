@@ -5,11 +5,11 @@
   "data": {
     "base": "main",
     "base_commit": "<sha>",
-    "brief": ".anneal/briefs/36.md",
+    "brief": ".redkiln/bench/briefs/36.md",
     "diff_omitted": false,
     "empty_fields": [],
     "head": "<sha>",
-    "review_package": ".anneal/briefs/36.review.md",
+    "review_package": ".redkiln/bench/briefs/36.review.md",
     "ticket": "36",
     "waits_on_ci": false
   },

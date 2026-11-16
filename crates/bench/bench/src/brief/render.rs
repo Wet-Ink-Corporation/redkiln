@@ -304,7 +304,7 @@ mod tests {
             .collect();
         assert_eq!(brief_lines, Vec::<&str>::new(), "{text}");
         assert!(
-            text.contains("Brief file: `.anneal/briefs/36.md`"),
+            text.contains("Brief file: `.redkiln/bench/briefs/36.md`"),
             "it still names its brief: {text}"
         );
     }

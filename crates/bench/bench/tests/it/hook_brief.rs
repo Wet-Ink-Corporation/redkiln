@@ -155,8 +155,8 @@ fn a_spawn_without_a_brief_line_is_denied() -> TestResult {
         reason.as_deref(),
         Some(
             "ERROR brief: the prompt names no brief; write one with `bench brief build \
-             --ticket <id> --base <ref>` and add a line `Brief: .anneal/briefs/<id>.md` to the \
-             prompt"
+             --ticket <id> --base <ref>` and add a line `Brief: .redkiln/bench/briefs/<id>.md` \
+             to the prompt"
         ),
         "names the command that writes one"
     );
@@ -189,23 +189,31 @@ fn a_spawn_whose_brief_fails_lint_brief_is_denied_naming_the_fields() -> TestRes
 #[cfg_attr(miri, ignore = "runs git and the binary")]
 fn a_brief_path_outside_the_briefs_directory_or_missing_is_denied() -> TestResult {
     let dir = repo()?;
-    let absolute = dir.path().join(".anneal").join("briefs").join("36.md");
+    let absolute = dir
+        .path()
+        .join(".redkiln")
+        .join("bench")
+        .join("briefs")
+        .join("36.md");
     let not_under = |path: &str| {
         format!(
-            "ERROR brief: the brief {path:?} is not a relative path under .anneal/briefs/ (no \
-             `..`, `.`, `\\` or absolute paths)"
+            "ERROR brief: the brief {path:?} is not a relative path under .redkiln/bench/briefs/ \
+             (no `..`, `.`, `\\` or absolute paths)"
         )
     };
     let cases = [
         ("../36.md".to_owned(), not_under("../36.md")),
         (
-            ".anneal/briefs/../../README.md".to_owned(),
-            not_under(".anneal/briefs/../../README.md"),
+            ".redkiln/bench/briefs/../../README.md".to_owned(),
+            not_under(".redkiln/bench/briefs/../../README.md"),
         ),
-        (".anneal/notes.md".to_owned(), not_under(".anneal/notes.md")),
         (
-            ".anneal/briefs/37.md".to_owned(),
-            "ERROR brief: the brief .anneal/briefs/37.md does not exist; write it with \
+            ".redkiln/bench/notes.md".to_owned(),
+            not_under(".redkiln/bench/notes.md"),
+        ),
+        (
+            ".redkiln/bench/briefs/37.md".to_owned(),
+            "ERROR brief: the brief .redkiln/bench/briefs/37.md does not exist; write it with \
              `bench brief build`"
                 .to_owned(),
         ),
@@ -265,7 +273,7 @@ fn a_spawn_from_inside_a_subagent_is_denied_even_with_a_valid_brief() -> TestRes
         reason.as_deref(),
         Some(
             "ERROR brief: a subagent (\"Explore\") may not spawn subagents; only the orchestrate \
-             leads may (orchestrate.leads in .anneal/config.json: orchestrate-lead)"
+             leads may (orchestrate.leads in .redkiln/bench/config.json: orchestrate-lead)"
         ),
         "names the agent and the allowlist"
     );
@@ -285,7 +293,8 @@ fn a_spawn_from_inside_a_subagent_that_names_no_agent_type_is_denied() -> TestRe
     let empty = judge(dir.path(), &blank)?;
 
     let expected = "ERROR brief: a subagent that names no agent_type may not spawn subagents; \
-                    only the orchestrate leads may (orchestrate.leads in .anneal/config.json)";
+                    only the orchestrate leads may (orchestrate.leads in \
+                    .redkiln/bench/config.json)";
     assert_eq!(missing.as_deref(), Some(expected), "no agent_type");
     assert_eq!(empty.as_deref(), Some(expected), "an empty agent_type");
     Ok(())

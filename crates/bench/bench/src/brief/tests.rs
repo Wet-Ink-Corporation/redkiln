@@ -39,8 +39,8 @@ fn a_briefs_directory_resolving_elsewhere_is_internal_and_names_where() {
 
     assert_eq!(
         error.to_string(),
-        ".anneal/briefs resolves to /elsewhere/briefs, not this worktree's own .anneal/briefs; \
-         make it a plain directory",
+        ".redkiln/bench/briefs resolves to /elsewhere/briefs, not this worktree's own \
+         .redkiln/bench/briefs; make it a plain directory",
         "where it leads, and the fix"
     );
     assert_eq!(

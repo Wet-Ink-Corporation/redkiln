@@ -68,12 +68,16 @@ fn write(input: &str, home: Option<&Path>, window: Option<&str>) -> Outcome {
     }
 }
 
-/// Session `session`'s snapshot in the usage file `file` in `home`.
+/// Session `session`'s snapshot in the usage file `file` in Bench's folder of the user scope
+/// whose root is `home`.
 fn saved(home: &Path, file: &str, session: &str) -> Option<Saved> {
-    SessionFile::<Saved>::load(&context::in_home(home, file), context::USAGE_KIND)
-        .expect("the usage file loads")
-        .get(session)
-        .copied()
+    SessionFile::<Saved>::load(
+        &context::in_home(&home.join("bench"), file),
+        context::USAGE_KIND,
+    )
+    .expect("the usage file loads")
+    .get(session)
+    .copied()
 }
 
 /// The time [`Fixed`] reads.
@@ -104,7 +108,7 @@ fn a_snapshot_is_saved_as_the_mod_s_for_its_session() {
         "the mod's snapshot, stamped with the time"
     );
     assert!(
-        !context::in_home(home.path(), context::USAGE_FILE).exists(),
+        !context::in_home(&home.path().join("bench"), context::USAGE_FILE).exists(),
         "the status line's file is the status line's"
     );
     assert_eq!(
@@ -219,7 +223,7 @@ fn invalid_input_is_a_usage_error_that_writes_nothing() {
         );
     }
     assert!(
-        !context::in_home(home.path(), context::MOD_USAGE_FILE).exists(),
+        !context::in_home(&home.path().join("bench"), context::MOD_USAGE_FILE).exists(),
         "nothing was written"
     );
 }

@@ -75,7 +75,12 @@ fn a_written_snapshot_is_the_mod_s_and_the_monitor_warns_on_it() -> TestResult {
         Some(&json!("mod")),
         "the envelope says whose: {envelope}"
     );
-    let saved = std::fs::read_to_string(dir.path().join("home").join("context-usage-mod.json"))?;
+    let saved = std::fs::read_to_string(
+        dir.path()
+            .join("home")
+            .join("bench")
+            .join("context-usage-mod.json"),
+    )?;
     assert!(
         saved.contains("\"source\": \"mod\""),
         "the mod's file: {saved}"
@@ -112,6 +117,7 @@ fn invalid_input_exits_2_with_one_error_line_and_nothing_on_stdout() -> TestResu
     assert!(
         !dir.path()
             .join("home")
+            .join("bench")
             .join("context-usage-mod.json")
             .exists(),
         "nothing saved"
