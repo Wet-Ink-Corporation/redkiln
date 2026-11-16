@@ -200,11 +200,13 @@ The entry in `plugin/hooks/hooks.json`:
 
 ```json
 { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
-  "args": ["hook", "preconditions", "--fail-closed"], "timeout": 5, "onFailure": "block" }
+  "args": ["hook", "preconditions", "--fail-closed"], "timeout": 5, "onFailure": "continue" }
 ```
 
-A crash, a timeout or output Claude Code cannot read blocks the edit (`onFailure: "block"`). With
-no binary at all the launcher exits 0 and the hook is off, as the session start warns. The hook
+A crash, a timeout or output Claude Code cannot read lets the edit through (`onFailure: "continue"`,
+SPEC HK-11), so the hook denies before its 3.5 s budget runs out. With no binary at all the launcher
+exits 0 and the hook is off, as the session start warns (on Windows the hook fails to start, which
+Claude Code reports and lets through). The hook
 itself denies what it cannot judge:
 
 | Failure | Result |

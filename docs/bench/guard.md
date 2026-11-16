@@ -12,7 +12,7 @@ and wrappers do not get a command past it.
 
 ```json
 { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/libexec/anneal",
-  "args": ["hook", "guard", "--fail-closed"], "timeout": 5, "onFailure": "block" }
+  "args": ["hook", "guard", "--fail-closed"], "timeout": 5, "onFailure": "continue" }
 ```
 
 - **Allowed:** no output and exit 0.
@@ -52,7 +52,7 @@ Whatever the guard cannot judge, it denies:
 | the decision cannot be written to stdout | exit 2 with one `bench: error:` line on stderr (`docs/exit-codes.md`) |
 | bad arguments (a usage error) | exit 2 |
 | no anneal binary is installed | the launcher exits 0 and the guard is off; the session start warns (`docs/hooks.md`) |
-| a crash, a timeout (5 s), any other exit code, or invalid JSON | Claude Code blocks the call (`onFailure: "block"`, Claude Code 2.1.295 or later) |
+| a crash, a timeout (5 s), any other exit code, invalid JSON, or no binary to start | Claude Code lets the call through (`onFailure: "continue"`, SPEC HK-11): the guard fails closed inside its binary, and `"block"` would block every call on a Windows copy with no build |
 
 Claude Code reads exit 2 as "block". Tests pin these cases: `cargo test -p anneal-cli guard`,
 `tests/it/hook_guard.rs`, `tests/it/hooks_manifest.rs` and `scripts/test-launcher.sh`.

@@ -482,6 +482,20 @@ fn no_entry_blocks_on_failure_not_even_a_guard() -> TestResult {
 }
 
 #[test]
+fn an_entry_passes_fail_closed_exactly_when_its_hook_is_a_guard() -> TestResult {
+    for (hook, _) in rows() {
+        let Placed { hook: entry, .. } = only_entry(hook)?;
+        assert_eq!(
+            entry.args.iter().any(|arg| arg == "--fail-closed"),
+            hook.is_guard(),
+            "{:?}: --fail-closed and the guard role go together",
+            entry.args
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn the_bootstrap_hook_runs_on_every_session_start_and_fails_open() -> TestResult {
     let bootstrap: Vec<Entry> = entries()?
         .into_iter()

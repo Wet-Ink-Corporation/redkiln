@@ -7,8 +7,8 @@ CLI's hook metadata table (`crates/anneal-cli/src/hook/metadata.rs`). Each hook 
 ## `hooks.json`
 
 Every entry is **exec form**: `command` is the launcher by path and `args` are its arguments, so
-no shell parses them. Every entry also declares `onFailure` (`continue` to fail open, `block` for
-a guard) and an explicit `timeout` in seconds. `onFailure` needs Claude Code 2.1.295 or later;
+no shell parses them. Every entry also declares `onFailure` (`continue`, guards included: a guard
+fails closed inside its binary, SPEC HK-11) and an explicit `timeout` in seconds. `onFailure` needs Claude Code 2.1.295 or later;
 older versions ignore it.
 
 ```json
@@ -37,8 +37,8 @@ a file in the plugin, so a new hook does not compile without its row and the plu
 exec form with `onFailure` and a timeout, every entry has exactly one row (same id, event,
 matcher, fingerprint and failure policy) and every row an entry, every id is an `anneal hook`
 subcommand the binary accepts, and every row's id, fingerprint and model generation are well
-formed and its source is named. It also checks that an entry has `onFailure: "block"` exactly
-when its arguments include `--fail-closed`. When a test reports a new fingerprint after you
+formed and its source is named. It also checks that no entry has `onFailure: "block"` (SPEC HK-11), and that an
+entry's arguments include `--fail-closed` exactly when its hook is a guard. When a test reports a new fingerprint after you
 change an entry, copy it into the row.
 
 ## Failing open, and guards failing closed
@@ -55,7 +55,11 @@ Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "co
 `"block"` (SPEC HK-11): Claude Code counts a hook that cannot start as a failure, so `"block"` would
 block every Bash, Edit, Write and Agent call on a Windows copy with no build, where there is no
 `libexec/bench.exe` to spawn. A guard killed or past its timeout therefore lets the call through;
-guards are tripwires (HK-12), and each names the control behind it.
+guards are tripwires (HK-12). *Not yet met:* HK-12 asks each guard's documentation to name the
+control that is authoritative behind it (a required check, a ruleset, a sandbox); `guard.md`,
+`merge-gate`, `preconditions.md` and `brief` do not yet, and HK-7's stand-down on `Status: WIP` or
+`BLOCKED` is not built in `completeness` (its tests pin that a `BLOCKED` report with a success
+claim still blocks). Both are due before `rk-bench` 0.1.0.
 
 With no binary at all, the launcher exits 0 for every hook, one passed `--fail-closed` included:
 a missing install warns rather than blocks every tool call. For `hook bootstrap` it prints the
@@ -139,7 +143,7 @@ versions older than 2.1.295.
 
 ## `guard` (PreToolUse)
 
-Matcher `Bash`, `timeout` 5 s, `onFailure: "block"`, arguments `hook guard --fail-closed`. It
+Matcher `Bash`, `timeout` 5 s, `onFailure: "continue"`, arguments `hook guard --fail-closed`. It
 reads Claude Code's `PreToolUse` input on stdin (at most 1 MiB; it uses `tool_name`,
 `tool_input.command`, `session_id` and `cwd`), lexes the command the way a shell does, and
 checks it against a deterministic denylist: force pushes to protected branches, `rm -rf` outside
@@ -162,7 +166,7 @@ D1 are documented in `docs/guard.md`.
 
 ## `merge-gate` (PreToolUse)
 
-Matcher `Bash`, `timeout` 5 s, `onFailure: "block"`, arguments `hook merge-gate --fail-closed`,
+Matcher `Bash`, `timeout` 5 s, `onFailure: "continue"`, arguments `hook merge-gate --fail-closed`,
 in the same matcher group as the guard. It reads Claude Code's `PreToolUse` input on stdin (at
 most 1 MiB; it uses `tool_name`, `tool_input.command`, `session_id` and `cwd`). A merge is judged
 only as the canonical command, `gh pr merge <n> --match-head-commit <full commit> --repo
@@ -188,7 +192,7 @@ are denied; git and ledger reads share 3.5 s from the hook's start. See `docs/ve
 
 ## `preconditions` (PreToolUse)
 
-Matcher `Edit|Write|MultiEdit|NotebookEdit`, `timeout` 5 s, `onFailure: "block"`, arguments
+Matcher `Edit|Write|MultiEdit|NotebookEdit`, `timeout` 5 s, `onFailure: "continue"`, arguments
 `hook preconditions --fail-closed`. It reads Claude Code's `PreToolUse` input on stdin (at most
 1 MiB; it uses `tool_name`, `tool_input.file_path`, `tool_input.notebook_path`, each
 `tool_input.edits[].file_path`, `session_id` and `cwd`) and the worktree's anneal mode (`anneal
@@ -620,7 +624,7 @@ the note and in one `ERROR` line as the `systemMessage` (which Claude Code disca
 
 ## `brief` (PreToolUse)
 
-Matcher `Agent`, `timeout` 5 s, `onFailure: "block"`, arguments `hook brief --fail-closed`. It
+Matcher `Agent`, `timeout` 5 s, `onFailure: "continue"`, arguments `hook brief --fail-closed`. It
 reads Claude Code's `PreToolUse` input on stdin (at most 4 MiB; it uses `tool_name`,
 `tool_input.prompt`, `agent_id`, `agent_type`, `session_id` and `cwd`). Any other tool is
 allowed silently. No brief, no spawn: the prompt must hold exactly one `Brief: <path>` line

@@ -13,13 +13,25 @@
 //     reports as a hook error and lets through, since the entry does not block on failure.
 // CI runs it in the launcher job on all three platforms (ci.yml).
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 const root = resolve(process.argv[2] ?? "plugins");
 const windows = process.platform === "win32";
 const cwd = mkdtempSync(join(tmpdir(), "no-build-"));
+// A launcher falls back to a binary of the same name on PATH, so leave out any PATH entry that
+// holds one: the check is about a copy with no build anywhere.
+const binaries = new Set();
+for (const plugin of readdirSync(root)) {
+  const libexec = join(root, plugin, "libexec");
+  if (!existsSync(libexec)) continue;
+  for (const entry of readdirSync(libexec)) if (!entry.includes(".")) binaries.add(entry);
+}
+const path = (process.env.PATH ?? "")
+  .split(delimiter)
+  .filter((dir) => dir && ![...binaries].some((b) => existsSync(join(dir, b)) || existsSync(join(dir, `${b}.exe`))))
+  .join(delimiter);
 let failed = false;
 let checked = 0;
 const fail = (message) => {
@@ -54,7 +66,8 @@ for (const plugin of readdirSync(root).sort()) {
         const run = spawnSync(command, hook.args, {
           input,
           cwd,
-          env: { ...process.env, CLAUDE_PLUGIN_ROOT: dir },
+          // On Windows the spawn never reaches a launcher, and its `Path` key is spelled otherwise.
+          env: windows ? { ...process.env, CLAUDE_PLUGIN_ROOT: dir } : { ...process.env, PATH: path, CLAUDE_PLUGIN_ROOT: dir },
           timeout: 30_000,
         });
         if (windows) {
@@ -73,4 +86,5 @@ for (const plugin of readdirSync(root).sort()) {
   }
 }
 if (checked === 0) fail(`no hooks.json command entries under ${root}`);
+rmSync(cwd, { recursive: true, force: true });
 process.exit(failed ? 1 : 0);
