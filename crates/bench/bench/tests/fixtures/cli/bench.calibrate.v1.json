@@ -27,10 +27,10 @@
       }
     ],
     "files": [
-      "<root>/decisions/decisions.1.jsonl",
-      "<root>/decisions/decisions.jsonl"
+      "<root>/calibrate/bench/decisions.1.jsonl",
+      "<root>/calibrate/bench/decisions.jsonl"
     ],
-    "log": "<root>/decisions/decisions.jsonl",
+    "log": "<root>/calibrate/bench/decisions.jsonl",
     "points": [
       {
         "history": [
@@ -150,7 +150,7 @@
         "verdict": "stay-shadow"
       }
     ],
-    "proposals": "<root>/decisions/proposals.json",
+    "proposals": "<root>/calibrate/bench/proposals.json",
     "skipped_rows": 1,
     "thresholds": null,
     "unmatched_labels": 1,

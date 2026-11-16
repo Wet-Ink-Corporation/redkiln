@@ -11,6 +11,8 @@ fn rows_only_in_the_old_folder_are_calibrated_and_the_run_warns_once() -> TestRe
     let home = tempfile::tempdir()?;
     hand_log(home.path())?;
     let old = home.path().join("decisions");
+    fs::rename(home.path().join("calibrate").join("bench"), &old)?;
+    fs::remove_dir(home.path().join("calibrate"))?;
     let before = fs::read(old.join("decisions.jsonl"))?;
 
     let ran = calibrate(home.path(), &["--point", "D1"]);
@@ -75,6 +77,7 @@ fn a_label_in_the_new_folder_matches_a_decision_in_the_old_one() -> TestResult {
 #[test]
 fn without_the_old_folder_there_is_no_warning() -> TestResult {
     let home = tempfile::tempdir()?;
+    hand_log(home.path())?;
 
     let ran = calibrate(home.path(), &[]);
 

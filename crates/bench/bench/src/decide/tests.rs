@@ -81,8 +81,13 @@ fn decide(
     } else {
         serde_json::from_slice(&out).expect("one JSON envelope")
     };
-    let log = std::fs::read_to_string(home.path().join("decisions").join("decisions.jsonl"))
-        .unwrap_or_default();
+    let log = std::fs::read_to_string(
+        home.path()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl"),
+    )
+    .unwrap_or_default();
     (code, envelope, log)
 }
 

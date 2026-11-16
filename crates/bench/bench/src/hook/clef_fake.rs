@@ -68,7 +68,7 @@ impl Clock for Stepping {
 /// Puts a directory where the decision log's file goes, so no row can be appended while the
 /// counts still read.
 pub(crate) fn block_the_log(home: &Path) -> TestResult {
-    std::fs::create_dir_all(home.join("decisions").join("decisions.jsonl"))?;
+    std::fs::create_dir_all(home.join("calibrate").join("bench").join("decisions.jsonl"))?;
     Ok(())
 }
 
@@ -181,7 +181,11 @@ impl World {
 
     /// The decision log's rows, oldest first; none when there is no log.
     pub(crate) fn rows(&self) -> TestResult<Vec<Value>> {
-        let path = self.home().join("decisions").join("decisions.jsonl");
+        let path = self
+            .home()
+            .join("calibrate")
+            .join("bench")
+            .join("decisions.jsonl");
         if !path.exists() {
             return Ok(Vec::new());
         }

@@ -121,7 +121,7 @@ fn label(id: &str, outcome: &str) -> Value {
 }
 
 fn write_log(home: &Path, file: &str, rows: &[Value]) -> io::Result<PathBuf> {
-    let dir = home.join("decisions");
+    let dir = home.join("calibrate").join("bench");
     fs::create_dir_all(&dir)?;
     let path = dir.join(file);
     let text: String = rows.iter().map(|row| row.to_string() + "\n").collect();
@@ -207,7 +207,11 @@ fn the_proposals_file_holds_every_point_even_when_one_is_selected() -> TestResul
 
     let ran = calibrate(home.path(), &["--point", "D7"]);
 
-    let proposals = home.path().join("decisions").join("proposals.json");
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join("proposals.json");
     assert_eq!(
         ran.envelope["data"]["proposals"],
         json!(proposals.to_str().expect("a UTF-8 temporary path"))
@@ -293,7 +297,11 @@ fn the_summary_on_stderr_names_each_verdict_and_where_the_proposal_is() -> TestR
 
     let ran = calibrate(home.path(), &["--point", "D1"]);
 
-    let proposals = home.path().join("decisions").join("proposals.json");
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join("proposals.json");
     let lines: Vec<&str> = ran.stderr.lines().collect();
     assert!(lines.len() <= 8, "short: {lines:?}");
     assert!(lines.contains(&"D1: stay-shadow"), "{lines:?}");

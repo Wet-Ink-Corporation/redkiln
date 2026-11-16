@@ -10,7 +10,7 @@ use std::process::{Output, Stdio};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-use crate::support::{anneal_home_in, anneal_in, git};
+use crate::support::{anneal_home_in, anneal_in, bench_dir, git};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -139,13 +139,11 @@ fn context(decision: &Value) -> &str {
 }
 
 /// The log the counting `check:fast` appends one line to per run: `bench decide label`'s,
-/// under the anneal home the hook (and so `check:fast`) gets in `repo`. A label is one small
+/// in Bench's folder of the user scope the hook (and so `check:fast`) gets in `repo`. A label is one small
 /// file append, so the count finishes at once, well inside `check:fast`'s 5 s limit; a ledger
 /// append, which creates a SQLite store, once took longer than that on a Windows runner.
 fn counter(repo: &Path) -> PathBuf {
-    anneal_home_in(repo)
-        .join("decisions")
-        .join("decisions.jsonl")
+    bench_dir(&anneal_home_in(repo)).join("decisions.jsonl")
 }
 
 #[test]

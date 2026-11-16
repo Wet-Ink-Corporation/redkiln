@@ -56,7 +56,7 @@ fn d1_answered(home: &Path, answered: u64) -> io::Result<()> {
         "kind": "anneal-decision-counts", "version": 1, "answered": {"D1": answered},
     });
     fs::write(
-        home.join("decisions").join("counts.json"),
+        home.join("calibrate").join("bench").join("counts.json"),
         counts.to_string(),
     )
 }
@@ -120,7 +120,11 @@ fn a_run_that_would_write_the_same_proposals_leaves_the_file_alone() -> TestResu
     let home = tempfile::tempdir()?;
     hand_log(home.path())?;
     calibrate(home.path(), &[]);
-    let proposals = home.path().join("decisions").join(PROPOSALS_FILE);
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join(PROPOSALS_FILE);
     let before = fs::read(&proposals)?;
     let old = age(&proposals)?;
 
@@ -137,10 +141,18 @@ fn a_run_whose_proposals_change_rewrites_the_file() -> TestResult {
     let home = tempfile::tempdir()?;
     hand_log(home.path())?;
     calibrate(home.path(), &[]);
-    let proposals = home.path().join("decisions").join(PROPOSALS_FILE);
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join(PROPOSALS_FILE);
     let old = age(&proposals)?;
     // Relabelling the decision at 0.3 makes 0.3 no longer the cheapest threshold.
-    let live = home.path().join("decisions").join("decisions.jsonl");
+    let live = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join("decisions.jsonl");
     let mut rows = fs::read_to_string(&live)?;
     rows.push_str(&(label("d1-1-1", "no").to_string() + "\n"));
     fs::write(&live, rows)?;
@@ -182,7 +194,11 @@ fn the_proposals_file_carries_neither_mode_nor_history() -> TestResult {
 
     calibrate(home.path(), &[]);
 
-    let proposals = home.path().join("decisions").join(PROPOSALS_FILE);
+    let proposals = home
+        .path()
+        .join("calibrate")
+        .join("bench")
+        .join(PROPOSALS_FILE);
     let file: Value = serde_json::from_slice(&fs::read(proposals)?)?;
     let d1 = &file["points"][0];
     assert_eq!((d1.get("mode"), d1.get("history")), (None, None), "{d1}");

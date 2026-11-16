@@ -8,7 +8,7 @@
     "enforce": false,
     "id": "<varies>",
     "latency_ms": "<varies>",
-    "log": "<root>/decisions/decisions.jsonl",
+    "log": "<root>/calibrate/bench/decisions.jsonl",
     "mode": "shadow",
     "model": "@cf/wet-ink/clef-flash",
     "point": "D1",

@@ -10,7 +10,7 @@ use std::process::{Command, Output};
 
 use serde_json::{Value, json};
 
-use crate::support::anneal_in;
+use crate::support::{anneal_in, bench_dir};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -29,7 +29,7 @@ const D1: [&str; 7] = [
     r#"{"tool":"Bash","input":{"command":"rm -r build"},"phase":"build"}"#,
 ];
 
-/// `anneal` in `cwd` with no plugin configuration or anneal home from the caller.
+/// `anneal` in `cwd` with no plugin configuration, anneal home or user scope from the caller.
 fn anneal(cwd: &Path) -> Command {
     let mut command = anneal_in(cwd);
     for var in [
@@ -37,6 +37,7 @@ fn anneal(cwd: &Path) -> Command {
         TOKEN_VAR,
         MODE_VAR,
         "ANNEAL_HOME",
+        "REDKILN_HOME",
         "CLAUDE_PLUGIN_ROOT",
         "CLAUDE_PLUGIN_DATA",
     ] {
@@ -70,13 +71,14 @@ fn unreachable_clef_exits_5_and_logs_the_row_as_unreachable() -> TestResult {
     let output = anneal(home.path())
         .args(D1)
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .env(ACCOUNT_VAR, "acct0123")
         .env(TOKEN_VAR, SECRET)
         .output()?;
 
     assert_eq!(output.status.code(), Some(5), "{output:?}");
     assert_eq!(envelope(&output)?["data"]["fallback"], json!("ask"));
-    let rows = rows(&home.path().join("decisions").join("decisions.jsonl"))?;
+    let rows = rows(&bench_dir(home.path()).join("decisions.jsonl"))?;
     assert_eq!(rows.len(), 1, "one row");
     assert_eq!(rows[0]["unreachable"], json!(true));
     assert_eq!(rows[0]["error"], json!("unreachable"));
@@ -102,6 +104,7 @@ fn a_thresholds_file_in_the_plugin_root_is_ignored_for_the_built_in_table() -> T
     let output = anneal(home.path())
         .args(D1)
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .env("CLAUDE_PLUGIN_ROOT", plugin.path())
         .env(ACCOUNT_VAR, "acct0123")
         .env(TOKEN_VAR, SECRET)
@@ -124,12 +127,14 @@ fn the_token_is_never_on_stdout_stderr_or_in_the_log() -> TestResult {
     let output = anneal(home.path())
         .args(D1)
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .env(ACCOUNT_VAR, "acct0123")
         .env(TOKEN_VAR, SECRET)
         .output()?;
     let refused = anneal(home.path())
         .args(D1)
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .env(ACCOUNT_VAR, "acct0123")
         .env(TOKEN_VAR, SECRET)
         .env(MODE_VAR, "loud")
@@ -144,7 +149,7 @@ fn the_token_is_never_on_stdout_stderr_or_in_the_log() -> TestResult {
         Some(5),
         "a bad mode falls back: {refused:?}"
     );
-    let log = std::fs::read_to_string(home.path().join("decisions").join("decisions.jsonl"))?;
+    let log = std::fs::read_to_string(bench_dir(home.path()).join("decisions.jsonl"))?;
     assert!(!log.contains(SECRET), "{log}");
     Ok(())
 }
@@ -157,11 +162,12 @@ fn without_an_account_clef_is_off_exit_3_and_nothing_is_logged() -> TestResult {
     let output = anneal(home.path())
         .args(D1)
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .output()?;
 
     assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert_eq!(envelope(&output)?["data"]["reason"], json!("no_account"));
-    assert!(!home.path().join("decisions").exists(), "nothing logged");
+    assert!(!bench_dir(home.path()).exists(), "nothing logged");
     Ok(())
 }
 
@@ -182,12 +188,8 @@ fn the_log_lives_in_the_anneal_home_not_in_the_plugins_directories() -> TestResu
         .output()?;
 
     assert_eq!(output.status.code(), Some(5), "{output:?}");
-    let log = home
-        .path()
-        .join(".anneal")
-        .join("decisions")
-        .join("decisions.jsonl");
-    assert_eq!(rows(&log)?.len(), 1, "the row is under ~/.anneal");
+    let log = bench_dir(&home.path().join(".redkiln")).join("decisions.jsonl");
+    assert_eq!(rows(&log)?.len(), 1, "the row is under ~/.redkiln");
     assert_eq!(
         std::fs::read_dir(data.path())?.count(),
         0,
@@ -208,6 +210,7 @@ fn label_appends_an_outcome_row() -> TestResult {
     let output = anneal(home.path())
         .args(["decide", "label", "d1760000000000-7-0", "destructive"])
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .output()?;
 
     assert_eq!(output.status.code(), Some(0), "{output:?}");
@@ -217,7 +220,7 @@ fn label_appends_an_outcome_row() -> TestResult {
         &[home.path()],
         &[],
     )?;
-    let rows = rows(&home.path().join("decisions").join("decisions.jsonl"))?;
+    let rows = rows(&bench_dir(home.path()).join("decisions.jsonl"))?;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0]["kind"], json!("label"));
     assert_eq!(rows[0]["id"], json!("d1760000000000-7-0"));
@@ -240,16 +243,13 @@ fn an_unknown_via_is_a_usage_error_that_appends_nothing() -> TestResult {
             "phone",
         ])
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .output()?;
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        !home
-            .path()
-            .join("decisions")
-            .join("decisions.jsonl")
-            .exists(),
+        !bench_dir(home.path()).join("decisions.jsonl").exists(),
         "no row appended"
     );
     Ok(())
@@ -270,16 +270,13 @@ fn an_unknown_actor_is_a_usage_error_that_appends_nothing() -> TestResult {
             "robot",
         ])
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .output()?;
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");
     assert!(output.stdout.is_empty(), "nothing on stdout");
     assert!(
-        !home
-            .path()
-            .join("decisions")
-            .join("decisions.jsonl")
-            .exists(),
+        !bench_dir(home.path()).join("decisions.jsonl").exists(),
         "no row appended"
     );
     Ok(())
@@ -293,6 +290,7 @@ fn a_missing_state_is_a_usage_error_with_nothing_on_stdout() -> TestResult {
     let output = anneal(home.path())
         .args(["decide", "--point", "D1", "--question", "noul"])
         .env("ANNEAL_HOME", home.path())
+        .env("REDKILN_HOME", home.path())
         .output()?;
 
     assert_eq!(output.status.code(), Some(2), "{output:?}");

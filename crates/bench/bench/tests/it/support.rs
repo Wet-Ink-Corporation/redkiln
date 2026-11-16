@@ -222,6 +222,12 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> Result<String, std::fmt::Error> {
     Ok(hex)
 }
 
+/// Bench's decision-log folder in the user scope whose root is `root` (`$REDKILN_HOME`):
+/// `<root>/calibrate/bench`, where rows, `counts.json` and `proposals.json` are written.
+pub(crate) fn bench_dir(root: &Path) -> PathBuf {
+    root.join("calibrate").join("bench")
+}
+
 /// Copies the directory tree at `from` to `to`, creating `to`.
 pub(crate) fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
     std::fs::create_dir_all(to)?;
