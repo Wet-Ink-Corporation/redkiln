@@ -17,6 +17,7 @@ The SPEC is the part of Redkiln Core that is text: the formats every Redkiln bin
 | [journals.md](journals.md) | The JSONL export of durable facts, its checkpoint and idempotent import | JR |
 | [cli.md](cli.md) | The CLI result envelope, exit codes, stderr, hooks and `status --json` | CLI |
 | [hooks.md](hooks.md) | Hook conventions: never off without a word, guards as tripwires that fail closed in their binary, time budgets, input caps, the shared Stop allowance, independence | HK |
+| [turns.md](turns.md) | The end-of-turn grammar: the `Status:` report, its sections and fenced plugin blocks | ET |
 
 [`fixtures/`](fixtures/) holds a golden file for every JSON document these sections define (`status --json` included, from weighin's, Move 1 step 6), and [`schemas/`](schemas/) a JSON Schema for each (Draft 2020-12); `redkiln-core`'s tests read both, and [`fixtures/README.md`](fixtures/README.md) indexes them.
 
@@ -30,7 +31,6 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 
 | Part | Arrives with | Source |
 | --- | --- | --- |
-| End-of-turn grammar (`Status:` line, optional lines, fenced plugin blocks) | Move 2 (Bench reads Rust's `WIP`) | temper's Status grammar; weigh-in's marker block |
 | `.redkiln/suite.toml` in full (pins, surfaces, per-plugin tables) | Move 1 for the keys here; the rest with the bundle | Blueprint, Data and state; pressure test, Version skew |
 | Artifact rendering (Layout C) and spec artifact homes | Move 4 | Loop ADR-0005, ADR-0189; pressure-test call E |
 | Process-catalog format | Move 4 | Loop's catalog; pressure-test recommendation 16 |

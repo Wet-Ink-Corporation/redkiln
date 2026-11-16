@@ -13,7 +13,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 
 ## Public surface
-Modules `store`, `location`, `suite`, `envelope`, `trust`, `approval`, `ids`, `canonical`, `subject`, `journal` (with `journal::refs`) and `legacy`, plus happenstance's `EventId` and `StoreId` re-exported at the root (ID-01, ID-02). The item list is [`docs/core/crates/redkiln-core.md`](../../../docs/core/crates/redkiln-core.md). Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published.
+Modules `store`, `location`, `suite`, `envelope`, `trust`, `approval`, `ids`, `canonical`, `subject`, `journal` (with `journal::refs`), `turn` (the end-of-turn report, ET) and `legacy`, plus happenstance's `EventId` and `StoreId` re-exported at the root (ID-01, ID-02). The item list is [`docs/core/crates/redkiln-core.md`](../../../docs/core/crates/redkiln-core.md). Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published.
 
 ## Invariants
 - The store runs under TRUNCATE, never WAL or DELETE. Nothing here deletes a file beside the store; files are set aside by renaming (ST-05). No SQLite connection Core opens can delete or play back a stale `-journal`: it is probed through a read-only read lock and renamed aside before any read-write connection sees the file, and renamed back when a writer holds it.
@@ -34,6 +34,7 @@ Modules `store`, `location`, `suite`, `envelope`, `trust`, `approval`, `ids`, `c
 - The library reads no clock: a `Timestamp` comes from the caller's `SystemTime` or text.
 - patch-id is ID-09's pinned recipe only: git 2.39 or later, the pinned flags and `-c` values, the diff variables unset, and no id for a shallow boundary, other than one merge base, or an empty change. A failure is a `NoPatchId` naming why, never a fallback id.
 - Only an import (`import`, `import_file`, `import_refs`, `import_mapped`) writes under a foreign identity (the crate-internal `Store::ingest`), at `asserted` with the line's level in `claimed`, reading its source only; an origin past position 2^63 - 1 is a malformed line.
+- `turn::read` is pure and never fails on a message's form (ET-09); the caller caps the message (HK-6).
 - The canonical digest is RFC 8785 over a JSON value; an integer beyond +-2^53 is refused, never rounded (I-JSON, which RFC 8785 requires).
 
 ## Errors

@@ -1,6 +1,7 @@
 //! Property tests for `weighin-core`, compiled as one binary. Each property drives the public API
 //! with a few thousand generated cases from a fixed-seed PRNG in `support`, so runs are
-//! reproducible without a property-testing dependency.
+//! reproducible without a property-testing dependency. `turn_blocks` pins the marker parser to
+//! the SPEC's end-of-turn fixtures (ET-08).
 
 #[cfg(test)]
 mod atom_props;
@@ -14,3 +15,5 @@ mod projection_props;
 mod review_props;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod turn_blocks;

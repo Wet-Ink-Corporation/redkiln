@@ -1,0 +1,1 @@
+{"status":"done_with_concerns","word":"DONE_WITH_CONCERNS","sections":{"Gate":"fmt ok | clippy ok | test ok (42 passed) | doc ok","Review":"approved","Changed":"crates/retention/src/policy.rs (+40/-2)","Decisions needed":"retention per series or per record (the block below)","Declined":"none","Not verified":"the Windows leg"},"blocks":["weigh-in"]}

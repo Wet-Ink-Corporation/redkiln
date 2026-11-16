@@ -1,7 +1,7 @@
 //! Each SPEC example that has a golden equals it byte for byte: the text inside the fenced block
 //! after the requirement's paragraph is the golden without its final `\n`.
 
-use super::{one_line, spec_dir};
+use super::{golden, one_line, spec_dir};
 
 /// The first fenced block after the line starting with `anchor` in `spec/<file>`, without its
 /// final newline.
@@ -71,4 +71,24 @@ fn dr_02_example_is_its_golden() {
 #[test]
 fn cli_02_example_is_its_golden() {
     is_golden("cli.md", "**CLI-02", "cli/valid/gate-failed.json");
+}
+
+#[test]
+fn et_10_example_is_the_golden() {
+    // The example is a whole message with fences of its own, so it sits in a four-backtick fence.
+    let text = std::fs::read_to_string(spec_dir().join("turns.md")).expect("the SPEC section");
+    let mut lines = text
+        .lines()
+        .skip_while(|line| !line.starts_with("**ET-10"))
+        .skip_while(|line| !line.starts_with("````"));
+    assert_eq!(lines.next(), Some("````markdown"), "ET-10 has an example");
+    let block: String = lines
+        .take_while(|line| *line != "````")
+        .flat_map(|line| [line, "\n"])
+        .collect();
+    assert_eq!(
+        block,
+        String::from_utf8(golden("turn/et-10-example.md")).expect("UTF-8"),
+        "turns.md ET-10 and turn/et-10-example.md"
+    );
 }

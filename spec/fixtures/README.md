@@ -1,12 +1,12 @@
 # Conformance fixtures
 
-Golden files for every JSON document the SPEC defines, and the JSON Schemas (Draft 2020-12) beside them in [`../schemas/`](../schemas/). They belong to the SPEC, not to one crate: kits, contract crates and code in other languages (the suite mod) read them. `redkiln-core`'s tests read every file here (`crates/core/redkiln-core/tests/it/conformance.rs` and `conformance/`), and a file that no table there lists fails `every_fixture_and_schema_is_listed`. `patch-id/` is ID-09's recipe check, run by CI as a script (`patch-id/check.sh`).
+Golden files for every JSON document the SPEC defines, and the JSON Schemas (Draft 2020-12) beside them in [`../schemas/`](../schemas/). They belong to the SPEC, not to one crate: kits, contract crates and code in other languages (the suite mod) read them. `redkiln-core`'s tests read every file here (`crates/core/redkiln-core/tests/it/conformance.rs` and `conformance/`), and a file that no table there lists fails `every_fixture_and_schema_is_listed`. `patch-id/` is ID-09's recipe check, run by CI as a script (`patch-id/check.sh`). `turn/` holds end-of-turn messages and their readings (below), which are test files, not SPEC documents, so they have no schema.
 
 A golden is a conforming example, not the only conforming document. The CLI error golden, for example, is weighin's exit-70 form (`data: {}`, one `internal` finding), which conforms; it does not make `internal` a rule for every binary (decisions row D5, 2026-11-08).
 
 ## Bytes
 
-Each file is the exact bytes. A `.json` golden is one compact JSON line ended by `\n`. A `.jsonl` file is a journal, every line ended by `\n` unless its scenario says otherwise. Everything is LF (`.gitattributes`); the CRLF case of JR-03 is built in the test from the LF golden. Where the SPEC gives an example, its golden is that example byte for byte (the text in the fenced block, plus `\n`), and `conformance/spec_text.rs` checks it: EV-01, AP-01, JR-02, DR-02 and CLI-02.
+Each file is the exact bytes. A `.json` golden is one compact JSON line ended by `\n`. A `.jsonl` file is a journal, every line ended by `\n` unless its scenario says otherwise. Everything is LF (`.gitattributes`); the CRLF case of JR-03 is built in the test from the LF golden. Where the SPEC gives an example, its golden is that example byte for byte (the text in the fenced block, plus `\n`), and `conformance/spec_text.rs` checks it: EV-01, AP-01, JR-02, DR-02 and CLI-02. ET-10's golden is a whole message, `turn/et-10-example.md`: the lines of its four-backtick fence, each ended by `\n`.
 
 ## Classes
 
@@ -17,6 +17,7 @@ Each file is the exact bytes. A `.json` golden is one compact JSON line ended by
 | `invalid/` | fails at exactly the `(instance path, keyword)` pairs its table row lists | refuses it, where Core reads the shape |
 | `invalid-data/` | the `data` of Core's own types, failing that type's schema | refuses the `core.import_completed` ones; Core has no reader of `core.approval_recorded` yet |
 | `scenario/` | not checked as a whole | journals of several lines, some malformed or torn on purpose |
+| `turn/` (readings) | none: a message (`<case>.md`) and the reading it gives (`<case>.reading.json`) | reads each message as its reading says (ET-02 to ET-07); `weighin-core` finds its `blocks` (ET-08) |
 
 A schema describes what a writer writes (EV-05): optional keys absent, never `null`, and no key the SPEC does not define. `data` stays an open object in `envelope-1` and `cli-envelope-1`, since its type's owner defines it; Core's own types have a schema for their `data`.
 
@@ -58,6 +59,8 @@ Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-
 | `status/valid/weighin-ok.json` | CLI-12: weighin's `status --json` with a located store and one finished `Stop` hook; weighin's own keys (`hook_errors`, `hooks`) beside the common ones | `status.rs`, `schema.rs`; `weighin-contract`'s `status` tests |
 | `status/valid/weighin-off.json` | CLI-12: a store that cannot be located, its keys `null` and one error finding (decision D7) | `status.rs`, `schema.rs` |
 | `status/invalid/*.json` | CLI-12 `data` only: `health` missing or unknown, `store_schema` not `<major>.<minor>` | `schema.rs` |
+| `turn/<case>.md` | ET-01 to ET-10: one end-of-turn message each, LF: ET-10's example, temper's fenced template, Bench's emphasis list, headings and quotes, a reason after the word, lower case, an unknown word, no report, the last line winning, a prose last line (ET-05), continuations, `Declined` ending `Decisions needed`, `_` emphasis not read, and blocks after a report, inside an example fence, after an unclosed fence and after a four-space indent | `turn.rs`, `spec_text.rs` (ET-10); `weighin-core`'s `turn_blocks` tests |
+| `turn/<case>.reading.json` | Its reading, `{"status","word","sections","blocks"}`: `status` the known word in lower case or `null`, `word` the word as Core keeps it (the SPEC's for a known word, as written for an unknown one, `null` with no report), `sections` each present section's text by key, `blocks` the registered name of each block found, in order | `turn.rs`; `weighin-core`'s `turn_blocks` tests |
 
 The tables in `conformance/schema.rs` give each `invalid/` and `lenient/` file's exact violations. weighin's integration tests (`crates/weigh-in/weighin/tests/it/cli_conformance.rs`) validate its real `--json` output against `cli-envelope-1`.
 

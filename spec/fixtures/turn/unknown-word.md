@@ -1,0 +1,6 @@
+Status: IN_PROGRESS
+Gate: fmt ok | clippy ok | test ok (3 passed) | doc ok
+Review: approved
+Changed: crates/x (+1/-0)
+Decisions needed: none
+Not verified: none
