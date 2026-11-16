@@ -157,21 +157,19 @@ fn a_relative_tmpdir_is_taken_from_the_current_directory() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn a_relative_anneal_home_the_default_work_dir_needs_stops_the_run() -> TestResult {
+fn a_relative_anneal_home_does_not_stop_a_run_whose_default_work_dir_needs_only_the_root()
+-> TestResult {
     let run = FakeRun::with_args(&[("TMPDIR", ""), ("ANNEAL_HOME", "rel/home")], &[])?;
 
+    let envelope = envelope(&run.output)?;
     assert_eq!(
         (
             run.output.status.code(),
             std::str::from_utf8(&run.output.stderr)?,
-            run.log().is_err(),
+            run.log().is_ok(),
         ),
-        (
-            Some(70),
-            "skillcheck: error: eval: finding the default work directory: ANNEAL_HOME must be an absolute \
-             path, got rel/home\n",
-            true
-        )
+        (Some(0), "", true),
+        "{envelope}"
     );
     Ok(())
 }

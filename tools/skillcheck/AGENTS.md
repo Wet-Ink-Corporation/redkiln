@@ -7,7 +7,7 @@ Skill QA for Redkiln plugins, run as `cargo run -p skillcheck -- <command>`: `li
 Tool (`tools/`). A library (`src/lib.rs`, for the tests) plus a thin binary (`src/main.rs`, which passes the process's arguments and locked streams to `cli::run`).
 
 ## Allowed dependencies
-- Workspace crates: contract crates, read through a plugin's `Profile` (`src/profile.rs`); today `bench-contract`, without features (its `cli` and `plugin` lists). Core: `redkiln-calibrate` for its `UserScope`, whose root holds `eval uplift`'s default work directory `<root>/tmp` (`$REDKILN_HOME`, else `~/.redkiln`; PR 5.4, wi-6b797a85db). Never a plugin's internal crates.
+- Workspace crates: contract crates, read through a plugin's `Profile` (`src/profile.rs`); today `bench-contract`, without features (its `cli` and `plugin` lists). Core: `redkiln-calibrate` for the user scope's root (`scope::user_root`, which never reads `$ANNEAL_HOME`; PR 5.6, wi-ad764d8531 A), which holds `eval uplift`'s default work directory `<root>/tmp` (`$REDKILN_HOME`, else `~/.redkiln`; PR 5.4, wi-6b797a85db). Never a plugin's internal crates.
 - Third-party: `clap`, `serde`, `serde_json`, `sha2` (the lint snapshot's content hash), `thiserror`. Dev: `jsonschema` (envelopes against `spec/schemas/cli-envelope-1.schema.json`), `tempfile`.
 
 ## Public surface

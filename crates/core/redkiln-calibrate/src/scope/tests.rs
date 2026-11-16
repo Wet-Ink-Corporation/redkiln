@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use super::{DecisionDirs, ScopeError, UserScope};
+use super::{DecisionDirs, ScopeError, UserScope, user_root};
 
 /// A lookup over `vars` only: no real environment (TST-10).
 fn lookup(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
@@ -165,6 +165,33 @@ fn anneal_s_home_is_anneal_home_then_home_dot_anneal_and_none_without_a_home() {
             Some(anneal.as_path()),
             Some(home.join(".anneal").as_path()),
             None
+        )
+    );
+}
+
+#[test]
+fn the_root_alone_ignores_a_relative_anneal_home_and_resolves_as_the_scope_does() {
+    let (over, home) = (absolute("over"), absolute("me"));
+
+    let over_wins = user_root(lookup(&[
+        ("REDKILN_HOME", text(&over)),
+        ("HOME", text(&home)),
+        ("ANNEAL_HOME", "rel/anneal"),
+    ]));
+    let from_home = user_root(lookup(&[("HOME", text(&home)), ("ANNEAL_HOME", "")]));
+    let none = user_root(lookup(&[("ANNEAL_HOME", text(&absolute("anneal")))]));
+    let relative = user_root(lookup(&[("REDKILN_HOME", "rel/dir")]));
+
+    assert_eq!(
+        (over_wins, from_home, none, relative),
+        (
+            Ok(over),
+            Ok(home.join(".redkiln")),
+            Err(ScopeError::NoHome),
+            Err(ScopeError::RelativeHome {
+                var: "REDKILN_HOME",
+                value: PathBuf::from("rel/dir"),
+            })
         )
     );
 }

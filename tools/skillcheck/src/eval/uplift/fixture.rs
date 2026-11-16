@@ -125,12 +125,9 @@ fn find_root(suites: &Path) -> Result<PathBuf, String> {
                 timeout.as_secs()
             ));
         }
-        Err(
-            PathError::GitFailed { .. }
-            | PathError::NonUtf8Output(_)
-            | PathError::NoHome
-            | PathError::RelativeHome { .. },
-        ) => return Err("git failed to name the suites' repository".to_owned()),
+        Err(PathError::GitFailed { .. } | PathError::NonUtf8Output(_)) => {
+            return Err("git failed to name the suites' repository".to_owned());
+        }
     };
     resolved
         .ancestors()

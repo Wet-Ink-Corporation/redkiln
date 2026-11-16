@@ -12,7 +12,7 @@ use crate::eval::real::args::{
     DEFAULT_CONCURRENCY, DEFAULT_MAX_COST_USD, DEFAULT_TIMEOUT, cost_cap,
 };
 use crate::eval::real::claude::Options;
-use redkiln_calibrate::scope::{ScopeError, UserScope};
+use redkiln_calibrate::scope::{self, ScopeError};
 
 use super::runs::Runs;
 use super::sandbox::denies_bash_writes;
@@ -144,9 +144,9 @@ const TMP_DIR: &str = "tmp";
 /// home set, the system's temporary directory. `lookup` reads one variable.
 ///
 /// # Errors
-/// [`ScopeError::RelativeHome`] when the default needs the user scope and a variable it reads
-/// (`REDKILN_HOME`, `HOME`, `USERPROFILE`, or `ANNEAL_HOME`, which the scope also checks)
-/// holds a relative path.
+/// [`ScopeError::RelativeHome`] when the default needs the user scope's root and a variable it
+/// reads (`REDKILN_HOME`, `HOME`, `USERPROFILE`) holds a relative path; `ANNEAL_HOME` is not
+/// read (wi-ad764d8531, option A).
 pub(crate) fn default_work_dir(
     lookup: impl Fn(&str) -> Option<OsString>,
 ) -> Result<PathBuf, ScopeError> {
@@ -155,8 +155,8 @@ pub(crate) fn default_work_dir(
     {
         return Ok(PathBuf::from(dir));
     }
-    match UserScope::from_lookup(lookup) {
-        Ok(scope) => Ok(scope.root().join(TMP_DIR)),
+    match scope::user_root(lookup) {
+        Ok(root) => Ok(root.join(TMP_DIR)),
         // No home to put it in: this is only a default, and the system's temporary directory
         // still runs every case, only without Bash writes on Linux, which the run's
         // `eval/uplift/read-only-sandbox` finding then says.
