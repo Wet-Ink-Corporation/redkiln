@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:core.judgement_labelled:1",
+  "title": "The data of core.judgement_labelled, version 1 (SPEC CA-02)",
+  "type": "object",
+  "required": [
+    "producer",
+    "judgement",
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "judgement": {
+      "$ref": "#/$defs/word"
+    },
+    "outcome": {
+      "$ref": "#/$defs/word"
+    },
+    "by": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "enum": [
+            "human",
+            "model"
+          ]
+        },
+        "via": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "producer": {
+      "description": "ST-17: one plain folder name.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "word": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+    }
+  }
+}

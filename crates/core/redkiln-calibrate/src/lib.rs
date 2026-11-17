@@ -5,7 +5,10 @@
 //! - [`scope`]: the user scope `~/.redkiln/` (`$REDKILN_HOME`) and each producer's decision
 //!   folder in it, with anneal's old `~/.anneal/decisions/` named to read alongside (D1).
 //! - [`log`]: the rotating, capped, append-only decision log in one folder.
-//! - [`rows`]: anneal's v1 decision and label rows read from one or more logs.
+//! - [`record`]: the calibration records of SPEC CA-02, `core.judgement_recorded` and
+//!   `core.judgement_labelled`.
+//! - [`rows`]: those records and anneal's v1 decision and label rows, read alike from one or
+//!   more logs (CA-04).
 //! - [`score`]: the Brier score, reliability bins, expected cost and the proposed threshold.
 //! - [`promotion`]: the bar a question clears to leave shadow mode; only ever reported.
 //!
@@ -14,6 +17,7 @@
 
 pub mod log;
 pub mod promotion;
+pub mod record;
 pub mod rows;
 pub mod scope;
 pub mod score;

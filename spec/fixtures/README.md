@@ -15,8 +15,9 @@ Each file is the exact bytes. A `.json` golden is one compact JSON line ended by
 | `valid/` | passes | reads it; where Core writes the shape, writes these bytes back |
 | `lenient/` | fails | reads it: a writer must not write it, a reader takes it (EV-01 `null`, EV-09, JR-10) |
 | `invalid/` | fails at exactly the `(instance path, keyword)` pairs its table row lists | refuses it, where Core reads the shape |
-| `invalid-data/` | the `data` of Core's own types, failing that type's schema | refuses the `core.import_completed` ones; Core has no reader of `core.approval_recorded` yet |
+| `invalid-data/` | the `data` of Core's own types, failing that type's schema | refuses the `core.import_completed` ones, and `redkiln-calibrate` the `core.judgement_*` ones; Core has no reader of `core.approval_recorded` yet |
 | `scenario/` | not checked as a whole | journals of several lines, some malformed or torn on purpose |
+| `calibrate/` | each version-1 record line passes `envelope-1` and its type's schema | user-scope calibration files (CA-04): v1 rows and records interleaved, some skipped and torn on purpose, read as types by `redkiln-calibrate` |
 | `turn/` (readings) | none: a message (`<case>.md`) and the reading it gives (`<case>.reading.json`) | reads each message as its reading says (ET-02 to ET-07); `weighin-core` finds its `blocks` (ET-08) |
 
 A schema describes what a writer writes (EV-05): optional keys absent, never `null`, and no key the SPEC does not define. `data` stays an open object in `envelope-1` and `cli-envelope-1`, since its type's owner defines it; Core's own types have a schema for their `data`.
@@ -37,10 +38,14 @@ Two writer conventions in the schemas go beyond the SPEC's text (D4): `envelope-
 | `envelope/valid/import-completed-path.json` | JR-13, a path source: what `journal::import` writes for `journal/valid/jr-02-item-raised.jsonl` | `records.rs` |
 | `envelope/valid/import-completed-ref.json`, `-artifact.json` | JR-13, a ref and commit, an artifact | `records.rs` |
 | `envelope/valid/import-completed-legacy.json` | ST-15's old source with its store id: what `journal::import_mapped` writes for one unmapped record | `records.rs` |
+| `envelope/valid/judgement-recorded-answered.json` | CA-02: an answered judgement with options, an action, `asked`, a subject and the producer's `detail` | `schema.rs`; `redkiln-calibrate`'s `record` tests |
+| `envelope/valid/judgement-recorded-failed.json` | CA-02: a failed judgement, `failure` with its reason and no answer keys | `schema.rs`; `redkiln-calibrate`'s `record` tests |
+| `envelope/valid/judgement-labelled.json` | CA-02: a label with `by.actor` and `by.via` | `schema.rs`; `redkiln-calibrate`'s `record` tests |
 | `envelope/lenient/null-optional-keys.json` | EV-01: optional keys and trust evidence as `null` read as absent | `envelope.rs`, `schema.rs` |
 | `envelope/lenient/unknown-keys.json` | EV-09: unknown keys in the envelope and in `data` | `envelope.rs`, `schema.rs` |
 | `envelope/invalid/*.json` | OW-3 (`data-flattened`), EV-01 forms (`version-zero`, `ts-offset`, `data-not-object`), TR-01 (`trust-*`), ID-06, ID-03, a key named twice | `envelope.rs`, `schema.rs` |
-| `envelope/invalid-data/*.json` | AP-01's verdict and subject hash, JR-13's one source and ID-01's store id form | `schema.rs` |
+| `envelope/invalid-data/*.json` | AP-01's verdict and subject hash, JR-13's one source and ID-01's store id form; CA-02's answer given or failed (`judgement-both-probability-and-failure`, `judgement-both-with-options`, `judgement-asked-without-probability`), a probability above 1 and an outcome out of form | `schema.rs`; `redkiln-calibrate`'s `record` tests for the `judgement-*` and `labelled-*` files |
+| `calibrate/mixed.jsonl` | CA-04: v1 rows and records interleaved, a label record of a v1 decision and the reverse, a record of a newer version, one of an unknown type, one of another producer and a torn last line | `schema.rs` (its version-1 records); `redkiln-calibrate`'s `rows` tests |
 | `journal/valid/<line>.jsonl` | JR-02: the example, an EV-01 line with `origin` before `cites`, a line with caller `tags` | `journal.rs` |
 | `journal/valid/<line>.imported.json` | JR-12, TR-06, EV-02: the stored envelope, `asserted` with the line's level in `claimed`, without `origin` or `tags` | `journal.rs` |
 | `journal/valid/<line>.reexported.jsonl` | that event exported again: a fixed point of import then export | `journal.rs` |
@@ -72,6 +77,8 @@ The tables in `conformance/schema.rs` give each `invalid/` and `lenient/` file's
 | `journal-line-1.schema.json` | a journal line: the envelope with `origin` required and `tags` | JR-02 |
 | `core.approval_recorded-1.schema.json` | the `data` of `core.approval_recorded` | AP-01, ID-09 |
 | `core.import_completed-1.schema.json` | the `data` of `core.import_completed` | JR-13, ST-15 |
+| `core.judgement_recorded-1.schema.json` | the `data` of `core.judgement_recorded` | CA-02, ID-09 |
+| `core.judgement_labelled-1.schema.json` | the `data` of `core.judgement_labelled` | CA-02 |
 | `decision-request-1.schema.json` | the decision request record | DR-02 |
 | `cli-envelope-1.schema.json` | the CLI result envelope | CLI-02, CLI-03 |
 | `status-1.schema.json` | the `data` of `status --json` | CLI-12 |

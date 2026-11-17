@@ -1,0 +1,1 @@
+{"producer":"bench","id":"d1763287200008-41-3","point":"D1","question":"noul","model":"@cf/wet-ink/clef-flash","mode":"shadow","probability":0.5,"options":{"no":0.5,"yes":0.5},"asked":false,"failure":{"kind":"timed_out"}}

@@ -8,7 +8,7 @@ The SPEC is the part of Redkiln Core that is text: the formats every Redkiln bin
 
 | File | Covers | Ids |
 | --- | --- | --- |
-| [store.md](store.md) | Where the event log lives, how it is opened, its schema version, writers, projections, repo class, importing old ledgers | ST |
+| [store.md](store.md) | Where the event log lives, how it is opened, its schema version, writers, projections, repo class, importing old ledgers, the user scope | ST |
 | [events.md](events.md) | The event envelope, `<plugin>.<type>` names, per-type versions, tags, lenient reads, order, durable facts and telemetry | EV |
 | [ids.md](ids.md) | Store and event identity, content-hash ids, worktree ids, digests and the hash methods | ID |
 | [trust.md](trust.md) | The three trust levels every event carries, and what each may satisfy | TR |
@@ -18,6 +18,7 @@ The SPEC is the part of Redkiln Core that is text: the formats every Redkiln bin
 | [cli.md](cli.md) | The CLI result envelope, exit codes, stderr, hooks and `status --json` | CLI |
 | [hooks.md](hooks.md) | Hook conventions: never off without a word, guards as tripwires that fail closed in their binary, time budgets, input caps, the shared Stop allowance, independence | HK |
 | [turns.md](turns.md) | The end-of-turn grammar: the `Status:` report, its sections and fenced plugin blocks | ET |
+| [calibration.md](calibration.md) | Calibration records: judgements and their labels, where they live, anneal's v1 rows read alongside | CA |
 
 [`fixtures/`](fixtures/) holds a golden file for every JSON document these sections define (`status --json` included, from weighin's, Move 1 step 6), and [`schemas/`](schemas/) a JSON Schema for each (Draft 2020-12); `redkiln-core`'s tests read both, and [`fixtures/README.md`](fixtures/README.md) indexes them.
 
@@ -34,7 +35,7 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 | `.redkiln/suite.toml` in full (pins, surfaces, per-plugin tables) | Move 1 for the keys here; the rest with the bundle | Blueprint, Data and state; pressure test, Version skew |
 | Artifact rendering (Layout C) and spec artifact homes | Move 4 | Loop ADR-0005, ADR-0189; pressure-test call E |
 | Process-catalog format | Move 4 | Loop's catalog; pressure-test recommendation 16 |
-| Capacity leases and calibration records (`core.*` types) | Move 2 (calibration), Move 3 (capacity) | Blueprint, Redkiln Core |
+| Capacity leases (`core.*` types) | Move 3 | Blueprint, Redkiln Core |
 
 ## One-way items
 

@@ -1,0 +1,1 @@
+{"type":"core.judgement_labelled","version":1,"ts":"2025-11-16T10:05:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.1.0","spec":"1.0.0"},"data":{"producer":"bench","judgement":"d1763287200003-41-0","outcome":"no","by":{"actor":"human","via":"mod"}}}
