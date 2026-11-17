@@ -11,6 +11,7 @@ mod records;
 mod schema;
 mod spec_text;
 mod status;
+mod turn;
 
 use std::collections::BTreeSet;
 use std::num::NonZeroUsize;
@@ -145,7 +146,7 @@ fn every_fixture_and_schema_is_listed() {
     on_disk.remove("fixtures/README.md");
     on_disk.retain(|rel| !rel.starts_with("fixtures/patch-id/"));
     files_under(&spec_dir().join("schemas"), "schemas/", &mut on_disk);
-    let listed: BTreeSet<String> = schema::listed().collect();
+    let listed: BTreeSet<String> = schema::listed().chain(turn::listed()).collect();
     assert_eq!(
         on_disk, listed,
         "every file is in a table, every table entry is a file"

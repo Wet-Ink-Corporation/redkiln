@@ -1,9 +1,10 @@
 //! The worktrees one hook call meets, each found and read once: git is asked once per
 //! directory, and each worktree's ledger, mode and preconditions are read once, however many
 //! files and readings of them the call names. Every step that waits (git, a ledger lock) runs
-//! within the hook's [`Budget`]: a store step starts only when its whole lock wait fits in what
-//! is left, and git before an open gets only what the waits after it leave. Once it is spent the
-//! edit is denied.
+//! within the hook's [`Budget`]: git before an open gets what leaves the store's steps their
+//! floor, the store is opened with a lock wait that shares what git left among its steps
+//! ([`WORKTREE_STEPS`]), and a later step starts only when that wait still fits in what is left.
+//! Once it is spent the edit is denied.
 
 use std::ffi::OsString;
 use std::io;
@@ -11,45 +12,36 @@ use std::mem;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::store::{Store, Wait};
+use crate::store::Store;
 
 use super::{
-    Check, Denial, GIT_TIMEOUT, Ledger, RecordError, Verdict, build, mode_denial, relative_in,
-    unjudged,
+    Check, Denial, Ledger, RecordError, Verdict, build, mode_denial, relative_in, unjudged,
 };
-use crate::existing_ledger;
 use crate::hook::HOOK_BUDGET;
-use crate::hook::store_wait::{self, OutOfTime, STORE_WAIT};
+use crate::hook::store_wait::{self, OpenRefused, Steps};
 use crate::mode::scope::{self, PathKind};
 use crate::mode::{self, Active, Entered};
 use crate::paths::{self, PathError};
 use crate::pr_diff::Budget;
 
-/// What reading a worktree's mode may take: `mode::active`'s one read, one store wait.
-pub(super) const MODE_NEEDS: Duration = STORE_WAIT;
+/// How many reads a mode's preconditions may take: build mode's grill confirmations and plan
+/// approval; diagnose mode reads one.
+const PRECONDITION_READS: u32 = 2;
 
-/// What reading a mode's preconditions may take: at most two reads (build mode's grill
-/// confirmations and plan approval; diagnose mode reads one), each one store wait.
-pub(super) const PRECONDITIONS_NEEDS: Duration = store_wait::waits(2);
+/// The store steps of a worktree's ledger: the open, the mode read ([`mode::active`]'s one
+/// read), the preconditions' reads ([`PRECONDITION_READS`]) and the append of a denial, which
+/// share what git leaves of the budget.
+pub(super) const WORKTREE_STEPS: Steps = Steps {
+    count: 2 + PRECONDITION_READS + 1,
+    after: Duration::ZERO,
+};
 
-/// How long git may take to find a worktree's ledger with `remaining` left: what the open's
-/// one store wait leaves, at most [`GIT_TIMEOUT`].
-///
-/// # Errors
-/// [`OutOfTime`] when too little is left, and neither git nor the open is started.
-pub(super) fn open_git(remaining: Duration) -> Result<Duration, OutOfTime> {
-    store_wait::git_before(remaining, 1, GIT_TIMEOUT)
-}
-
-/// How long git may take to find the ledger a denial found before any worktree was read is
-/// recorded in, with `remaining` left: what the open's and the append's store waits leave, at
-/// most [`GIT_TIMEOUT`].
-///
-/// # Errors
-/// [`OutOfTime`] when too little is left, and the denial is not recorded.
-pub(super) fn record_git(remaining: Duration) -> Result<Duration, OutOfTime> {
-    store_wait::git_before(remaining, 2, GIT_TIMEOUT)
-}
+/// The store steps of the ledger a denial found before any worktree was read is recorded in:
+/// the open and the append.
+pub(super) const RECORD_STEPS: Steps = Steps {
+    count: 2,
+    after: Duration::ZERO,
+};
 
 /// The worktrees met so far in one hook call, and the time left to meet more.
 pub(super) struct Worktrees<L> {
@@ -179,14 +171,16 @@ where
         if let Some(index) = self.met.iter().position(|known| known.root == root) {
             return Place::Worktree(index);
         }
-        let Ok(git) = open_git(store_wait::left(&self.budget)) else {
-            return Place::Denied(Verdict::deny(no_time_left(), Err(RecordError::OutOfTime)));
-        };
-        let gate = match existing_ledger::open_existing(anchor, &self.lookup, git, Wait::Hook) {
+        let opened = store_wait::open_existing(anchor, &self.lookup, &self.budget, WORKTREE_STEPS);
+        let gate = match opened {
+            Err(OpenRefused::OutOfTime(_)) => {
+                return Place::Denied(Verdict::deny(no_time_left(), Err(RecordError::OutOfTime)));
+            }
             // No ledger: no mode was ever entered in the edited file's repository.
             Ok(None) => Gate::Open,
             Ok(Some(store))
-                if store_wait::fits(store_wait::left(&self.budget), MODE_NEEDS).is_err() =>
+                if store_wait::step(&self.budget, store.busy_timeout(), Duration::ZERO)
+                    .is_err() =>
             {
                 return Place::Denied(Verdict::deny(no_time_left(), Ok(Some(store))));
             }
@@ -202,7 +196,7 @@ where
                     return Place::Denied(Verdict::deny(denial, Ok(Some(store))));
                 }
             },
-            Err(error) => {
+            Err(OpenRefused::Ledger(error)) => {
                 let denial = unjudged("the ledger cannot be read", &error);
                 return Place::Denied(Verdict::deny(denial, Err(RecordError::Ledger(error))));
             }
@@ -230,7 +224,8 @@ where
         if *held {
             return Ok(None);
         }
-        if store_wait::fits(store_wait::left(&budget), PRECONDITIONS_NEEDS).is_err() {
+        let reads = store.busy_timeout().saturating_mul(PRECONDITION_READS);
+        if store_wait::step(&budget, reads, Duration::ZERO).is_err() {
             return Err(no_time_left());
         }
         let denial = mode_denial(store, root, entered);
@@ -278,18 +273,18 @@ fn is_gated(entered: &Entered, relative: &str) -> bool {
     }
 }
 
-/// The ledger seen from `dir` when it exists, to record a denial in: opened only when git, the
-/// open's lock wait and the append's fit in what is left of `budget` ([`record_git`]).
+/// The ledger seen from `dir` when it exists, to record a denial in: opened only when git and
+/// the floors of the open and the append fit in what is left of `budget`, the two sharing what
+/// git leaves ([`RECORD_STEPS`]), each at most Core's hook wait (2 s, D6).
 pub(super) fn open_within(
     dir: &Path,
     lookup: impl Fn(&str) -> Option<OsString>,
     budget: Budget,
 ) -> Ledger {
-    let Ok(git) = record_git(store_wait::left(&budget)) else {
-        return Err(RecordError::OutOfTime);
-    };
-    // A hook's store steps each wait Core's hook wait (2 s, D6), held back by `record_git`.
-    existing_ledger::open_existing(dir, lookup, git, Wait::Hook).map_err(RecordError::Ledger)
+    store_wait::open_existing(dir, lookup, &budget, RECORD_STEPS).map_err(|refused| match refused {
+        OpenRefused::OutOfTime(_) => RecordError::OutOfTime,
+        OpenRefused::Ledger(error) => RecordError::Ledger(error),
+    })
 }
 
 /// The denial for an edit the hook's budget left no time to judge.

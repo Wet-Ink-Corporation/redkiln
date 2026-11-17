@@ -16,8 +16,9 @@ mod denylist;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::pr_diff::Budget;
 use crate::store::{
     EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError, Wait,
 };
@@ -43,15 +44,18 @@ pub(crate) const MAX_INPUT_BYTES: u64 = 1024 * 1024;
 
 /// The most git may take to find the ledger in a hook (`bench ledger` allows 10 s). The
 /// preconditions hook, the merge gate and the brief hook, under the same 5 s budget, share it.
-/// The guard's own record leaves git less: see [`git_budget`].
+/// A guard's record gives git less when the floors of its store steps leave less: see
+/// [`git_budget`].
 pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// How many full store waits ([`store_wait::STORE_WAIT`], Core's `Wait::Hook`, 2 s) a record can meet: the
-/// open's and the append's. [`git_budget`] holds both back, so a record that meets a lock held
-/// that long at each still ends inside the guard's budget, and the deny is written before the
-/// hook's 5 s `timeout`, past which Claude Code lets the call through (`onFailure: "continue"`,
-/// SPEC HK-11). With nothing spent git gets the 500 ms the waits leave.
-const RECORD_LOCK_WAITS: u32 = 2;
+/// The store steps of a record: the open and the append, which share what git leaves of the
+/// budget (`store_wait::share`), so a record that meets a lock held at each still ends inside
+/// the guard's budget, and the deny is written before the hook's 5 s `timeout`, past which
+/// Claude Code lets the call through (`onFailure: "continue"`, SPEC HK-11).
+const RECORD_STEPS: store_wait::Steps = store_wait::Steps {
+    count: 2,
+    after: Duration::ZERO,
+};
 
 /// The `point` of the guard's `gate_blocked` events, before the rule's id.
 const POINT_PREFIX: &str = "guard.";
@@ -164,10 +168,16 @@ enum RecordError {
     Locate(#[source] PathError),
     #[error("reading the clock")]
     Clock(#[source] TimestampError),
+    #[error("opening the ledger")]
+    Open(#[source] StoreError),
     #[error("appending gate_blocked")]
     Append(#[source] StoreError),
     #[error("no time left in the hook's budget")]
     NoTime,
+    /// Less than the open's share of the lock waits was left once git had found the ledger,
+    /// or than the append's once it was open.
+    #[error(transparent)]
+    OutOfTime(store_wait::OutOfTime),
 }
 
 /// Runs the guard: reads the input from `env.stdin`, decides (the denylist, then Clef D1 for a
@@ -223,8 +233,11 @@ where
         Decision::Ask(reason) => write_ask(out, &reason),
         Decision::Deny(denial) => {
             let spent = ports.clock.monotonic().saturating_sub(started);
-            let recorded = match git_budget(HOOK_BUDGET.saturating_sub(spent)) {
-                Some(git_timeout) => record(&denial, input.ok(), |cwd| {
+            let remaining = HOOK_BUDGET.saturating_sub(spent);
+            // What is left from here on the real clock: the record's open and append share it.
+            let budget = Budget::within(Instant::now(), remaining, GIT_TIMEOUT);
+            let recorded = match git_budget(remaining) {
+                Some(git_timeout) => record(&denial, input.ok(), &budget, |cwd| {
                     ledger_path(cwd, env.current_dir, &env.lookup, git_timeout)
                 }),
                 None => Err(RecordError::NoTime),
@@ -235,13 +248,13 @@ where
 }
 
 /// How long git may take to find the ledger when `remaining` of [`HOOK_BUDGET`] is left: what
-/// is left after both of the record's store waits ([`RECORD_LOCK_WAITS`]), at most
+/// leaves both of the record's store steps ([`RECORD_STEPS`]) their floor, at most
 /// [`GIT_TIMEOUT`]; `None` when that is under `store_wait::MIN_GIT_TIMEOUT`, and the record is
 /// skipped so the deny still arrives in time. The guard's budget counts from when it starts
-/// reading its input, and Clef D1 takes up to 2 s of it, so a deny after D1 leaves too little
-/// for the record, which is then skipped and the deny says so.
+/// reading its input, and Clef D1 takes up to 2 s of it, so a deny after D1 leaves the record
+/// less, and the open and the append share what git leaves.
 fn git_budget(remaining: Duration) -> Option<Duration> {
-    store_wait::git_before(remaining, RECORD_LOCK_WAITS, GIT_TIMEOUT).ok()
+    store_wait::git_timeout(remaining, RECORD_STEPS, GIT_TIMEOUT).ok()
 }
 
 /// The command of a Bash call, if `input` is one.
@@ -311,6 +324,7 @@ fn ledger_path(
 fn record(
     denial: &Denial,
     input: Option<Input>,
+    budget: &Budget,
     ledger: impl FnOnce(Option<PathBuf>) -> Result<PathBuf, RecordError>,
 ) -> Result<(), RecordError> {
     let (session_id, cwd) = input.map_or((None, None), |input| (input.session_id, input.cwd));
@@ -323,10 +337,15 @@ fn record(
     let mut envelope =
         EventEnvelope::new(event, "hook", Timestamp::now().map_err(RecordError::Clock)?);
     envelope.session_id = session_id;
-    // Core's hook wait (2 s, D6) for the open and again for the append, both held back by
-    // [`git_budget`] ([`RECORD_LOCK_WAITS`]).
-    Store::open_with(&path, Wait::Hook)
-        .and_then(|ledger| ledger.append(&envelope))
+    // The open and the append share what git left ([`RECORD_STEPS`]), each at most Core's hook
+    // wait (2 s, D6).
+    let wait = store_wait::share(store_wait::left(budget), RECORD_STEPS)
+        .map_err(RecordError::OutOfTime)?;
+    let ledger = Store::open_within(&path, Wait::Hook, wait).map_err(RecordError::Open)?;
+    store_wait::step(budget, ledger.busy_timeout(), Duration::ZERO)
+        .map_err(RecordError::OutOfTime)?;
+    ledger
+        .append(&envelope)
         .map(drop)
         .map_err(RecordError::Append)
 }

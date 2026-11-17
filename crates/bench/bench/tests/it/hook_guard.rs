@@ -378,9 +378,8 @@ fn a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget() -> 
     assert!(
         reason.starts_with("ERROR guard rm-rf: ")
             && reason.contains("not recorded in the ledger")
-            // What the record's two store waits leave of the budget: under 500 ms.
-            && reason.contains("git did not answer within ")
-            && reason.ends_with("ms)"),
+            // Git's usual timeout: the record's store steps share what git leaves.
+            && reason.contains("git did not answer within 1s"),
         "denied, with a note that the block was not recorded: {reason}"
     );
     assert!(
@@ -421,9 +420,8 @@ fn a_git_whose_grandchild_holds_its_output_still_gets_the_deny_out_within_the_ho
     let reason = deny_reason(&output)?;
     assert!(
         reason.starts_with("ERROR guard rm-rf: ")
-            // What the record's two store waits leave of the budget: under 500 ms.
-            && reason.contains("git did not answer within ")
-            && reason.ends_with("ms)"),
+            // Git's usual timeout: the record's store steps share what git leaves.
+            && reason.contains("git did not answer within 1s"),
         "denied, naming the limit git was given: {reason}"
     );
     assert!(

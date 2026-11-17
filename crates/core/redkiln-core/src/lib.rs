@@ -14,6 +14,8 @@
 //! - [`approval`] is `core.approval_recorded`'s payload, the one approval record (AP-01).
 //! - [`ids`] holds the SPEC's ids and digests (ID-01 to ID-07), and [`canonical`] the canonical
 //!   JSON digest (ID-08, RFC 8785).
+//! - [`turn`] reads the end-of-turn report: the last `Status:` line and its sections (ET-02 to
+//!   ET-07).
 //! - [`legacy`] reads an old plugin ledger (weighin 0.1.x to 1.x) from a copy, never touching
 //!   the file itself, so the import (ST-15) can read it while a 1.x binary still uses it.
 //!
@@ -32,5 +34,6 @@ pub mod store;
 pub mod subject;
 pub mod suite;
 pub mod trust;
+pub mod turn;
 
 pub use happenstance_core::{EventId, StoreId};

@@ -13,6 +13,7 @@ Moved from `crates/core/redkiln-core/AGENTS.md` on 2026-11-14 (Move 2 step 5.0),
 - `canonical`: `canonical_json`, `digest`, `digest_of`, `CanonicalError`, `MAX_DEPTH`.
 - `subject`: `Subject`, `Method`, `SubjectError`, `sha256_file`, `git_commit`, `git_tree`, `patch_id`, `PatchId`, `NoPatchId`.
 - `journal`: `checkpoint`, `Checkpoint`, `Exported`, `JournalError`, `import`, `import_file`, `import_mapped`, `Mapped`, `MappedImport`, `Recording`, `ImportSource`, `ImportCompleted`, `ImportReport`, `Problem`, `ImportError`, `Line`, `lines`, `encode_line`, `read_line`, `ReadLine`, `LineError`, `JournalName`, `NameError`, limits; `journal::refs`: `checkpoint_refs[_since]`, `sweep_refs_since`, `RefsScope`, `relay`, `import_refs`, `read_local`, outcomes, `RefsTarget`, `Breach`, `RefsError`, `RETRIES`, prefixes.
+- `turn` (ET-02 to ET-07, Move 2 PR 6.2): `read`, `Report`, `TurnStatus`, `Section`, `UnknownStatus`.
 - `legacy`: `read_ledger`, `LegacyLedger`, `LegacyError`, `ATTEMPTS`, `MAX_LEDGER_BYTES`.
 - At the root: happenstance's `EventId` and `StoreId`, re-exported, since they are the SPEC's identities (ID-01, ID-02).
 

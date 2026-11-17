@@ -618,29 +618,29 @@ fn a_bash_input_without_a_command_is_denied() {
 fn every_store_step_the_gate_starts_ends_within_the_hook_budget() {
     use crate::hook::HOOK_BUDGET;
     use crate::hook::guard::GIT_TIMEOUT;
-    use crate::hook::store_wait::{STORE_WAIT, every_remaining, fits};
+    use crate::hook::store_wait::{FLOOR, every_remaining, git_timeout, share};
 
+    let steps = super::LEDGER_STEPS;
+    assert_eq!(
+        (steps.count, steps.after),
+        (3, GIT_TIMEOUT),
+        "the open, the read and the append; git resolving the head before the read"
+    );
     for left in every_remaining(HOOK_BUDGET) {
-        if let Ok(git) = super::open_git(left) {
-            assert!(git + STORE_WAIT <= left, "the open, {left:?} left");
+        if let Ok(git) = git_timeout(left, steps, GIT_TIMEOUT) {
+            assert!(
+                git + FLOOR * steps.count + GIT_TIMEOUT <= left,
+                "git, the steps' floors and the read's git, {left:?} left"
+            );
         }
-        if fits(left, super::READ_NEEDS).is_ok() {
+        if let Ok(wait) = share(left, steps) {
             // git resolves the head, at most its timeout, before the read waits.
-            assert!(GIT_TIMEOUT + STORE_WAIT <= left, "the read, {left:?} left");
-        }
-        if fits(left, super::APPEND_NEEDS).is_ok() {
-            assert!(STORE_WAIT <= left, "the append, {left:?} left");
+            assert!(
+                wait * steps.count + GIT_TIMEOUT <= left,
+                "the open, the read and the append at their capped wait, {left:?} left after git"
+            );
         }
     }
-}
-
-#[test]
-fn the_gate_plans_against_the_hook_budget_and_one_store_wait_per_step() {
-    use crate::hook::guard::GIT_TIMEOUT;
-    use crate::hook::store_wait::STORE_WAIT;
-
-    assert_eq!(super::READ_NEEDS, GIT_TIMEOUT + STORE_WAIT);
-    assert_eq!(super::APPEND_NEEDS, STORE_WAIT);
 }
 
 #[test]
@@ -655,8 +655,8 @@ fn with_no_time_left_for_the_ledger_a_merge_is_still_denied_and_says_so() {
     let store = dir.path().join("ledger.sqlite3");
     crate::store::Store::open(&store).expect("a ledger");
     let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(&store));
-    // Less than the open's store wait is left.
-    let budget = Budget::within(Instant::now(), Duration::from_millis(1_900), GIT_TIMEOUT);
+    // Under git's least timeout and one step's floor: neither git nor the open starts.
+    let budget = Budget::within(Instant::now(), Duration::from_millis(250), GIT_TIMEOUT);
     let input = format!(
         r#"{{"tool_name": "Bash", "cwd": {cwd:?}, "{TOOL_INPUT}": {{"command": "gh pr merge 7"}}}}"#,
         cwd = dir.path().display().to_string()

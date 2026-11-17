@@ -1,0 +1,11 @@
+Implemented the parser.
+
+```text
+Status: DONE
+Gate: fmt ok | clippy ok | test ok (12 passed) | doc ok
+Review: approved
+Changed: crates/x/src/lib.rs (+40/-2)
+Decisions needed: none
+Declined: none
+Not verified: none
+```

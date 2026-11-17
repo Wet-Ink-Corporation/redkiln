@@ -38,7 +38,7 @@ Everything here describes Claude Code's hook protocol (CLI-13): its payload on s
 **HK-7. A Stop gate has honest exits, a loop breaker and its own cap.** Claude Code ends the turn anyway after eight Stop blocks in a row with no tool call between them (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`), and every installed plugin's Stop gates draw on that one allowance. So a Stop gate:
 
 - runs only when the turn changed what it gates;
-- reads the end-of-turn `Status:` line (the end-of-turn grammar, a later SPEC section until it lands) and stands down on `WIP` or `BLOCKED` with a notice, and names that exit in every block message, so an agent with a genuinely blocked task has an honest way out;
+- reads the end-of-turn `Status:` line ([turns.md](turns.md), ET-04) and stands down on `WIP` or `BLOCKED` with a notice, and names that exit in every block message, so an agent with a genuinely blocked task has an honest way out;
 - does nothing when `stop_hook_active` is true and the same tree is blocked for the same reason again, and says so loudly instead of looping;
 - blocks at most **2** times in a row per session, resetting only on real progress (a tool call, or a stop with nothing to block), so that four plugins' gates together stay under the shared eight;
 - treats an end the harness forced as an unhonest end, recorded so the next `SessionStart` can report it (HK-2).

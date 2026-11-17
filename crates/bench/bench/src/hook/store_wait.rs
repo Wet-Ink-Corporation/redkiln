@@ -1,40 +1,74 @@
-//! What a guard holds back for the store's lock waits, so that its decision is written before
-//! its 5 s `hooks.json` `timeout` even when every store wait it meets runs to its full timeout
-//! (SPEC HK-5). A guard's entry sets `onFailure: "continue"` (HK-11), so a guard past its
+//! How a guard bounds the store's lock waits by what is left of its budget, so that its
+//! decision is written before its 5 s `hooks.json` `timeout` even when every lock it meets is
+//! held (SPEC HK-5). A guard's entry sets `onFailure: "continue"` (HK-11), so a guard past its
 //! timeout lets the call through, losing a deny it had already decided.
 //!
-//! Each store step of a hook (an open, a read, an append) can wait Core's hook wait
-//! ([`STORE_WAIT`], `Wait::Hook`, ST-09) for another process's lock. A guard starts a store step
-//! only when that whole wait fits in what is left of its [`HOOK_BUDGET`](super::HOOK_BUDGET),
-//! and gives git, before it, only what the waits after it leave.
+//! Each store step of a hook (an open, a read, an append) can wait for another process's lock.
+//! A guard opens its store with a lock wait of its own: what is left of its
+//! [`HOOK_BUDGET`](super::HOOK_BUDGET), less what must follow, shared among the steps that
+//! connection serves ([`share`]), at most Core's hook wait ([`STORE_WAIT`], `Wait::Hook`,
+//! ST-09) and at least [`FLOOR`]. Git before the open gets what leaves each of those steps its
+//! floor, at most its own cap ([`git_timeout`]). Before each later step the guard checks that
+//! the step's wait, the open's share, still fits in what is left ([`step`]); when it does not,
+//! the step is skipped or the call denied, as each guard says.
 //!
-//! Each Core store call is counted as one `Wait::Hook`. Inside one call SQLite can wait more
-//! than once (happenstance's identity re-read at hand-over, a commit's lock escalation), so
-//! under a lock held for the full wait at each of those a guard can still pass its timeout.
+//! A later step's wait is the open's share, not what is left at that moment. Core fixes the
+//! busy timeout when it hands the connection to happenstance, and happenstance 0.6.0 has no
+//! setter on an open store. A SQLite busy handler installed before the hand-over could change
+//! it later, but it would reset `PRAGMA busy_timeout`, which Core's open pins. A setter in
+//! happenstance is a possible follow-up.
+//!
+//! Each Core store call is counted as one wait. Inside one call SQLite can wait more than once
+//! (happenstance's identity re-read at hand-over, a commit's lock escalation), each time up to
+//! the open's share, so under a lock held for the full share at each of those a guard can still
+//! pass its timeout.
 
+use std::ffi::OsString;
+use std::path::Path;
 use std::time::Duration;
 
+use crate::existing_ledger::{self, LedgerError};
 use crate::pr_diff::Budget;
-use crate::store::Wait;
+use crate::store::{Store, Wait};
 
 /// The longest one store step of a hook waits for another process's lock: Core's hook wait.
 pub(crate) const STORE_WAIT: Duration = Wait::Hook.timeout();
 
-/// The least time worth giving git to find the ledger; with less, the store step after it is
+/// The least time worth giving git to find the ledger; with less, the store steps after it are
 /// not started.
 pub(crate) const MIN_GIT_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// The least lock wait worth giving a store step: with less left, after what must follow it,
+/// the step is not started.
+pub(crate) const FLOOR: Duration = Duration::from_millis(100);
 
 /// Why a store step was not started: less than it may take is left of the hook's budget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("no time is left in the hook's budget to wait {needed:?} for the ledger's lock")]
 pub(crate) struct OutOfTime {
-    /// What the step may take: its lock waits, and git before them when there is git.
+    /// What the step may take: its lock wait, and what must follow it or git before it.
     needed: Duration,
 }
 
-/// What `waits` full store waits may take.
-pub(crate) const fn waits(waits: u32) -> Duration {
-    STORE_WAIT.saturating_mul(waits)
+/// What a store a hook opens will serve: its steps, the open among them, and what the hook
+/// needs besides them once the open has started (git before a later read, say).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Steps {
+    /// The store steps the connection serves, the open included.
+    pub(crate) count: u32,
+    /// What the hook needs besides the steps' lock waits.
+    pub(crate) after: Duration,
+}
+
+/// Why a hook did not open the ledger.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum OpenRefused {
+    /// Less than git and the steps' floors was left of the hook's budget.
+    #[error(transparent)]
+    OutOfTime(OutOfTime),
+    /// It could not be found or opened.
+    #[error(transparent)]
+    Ledger(LedgerError),
 }
 
 /// What is left of `budget`: `Duration::MAX` for a budget with no deadline (a command).
@@ -42,36 +76,109 @@ pub(crate) fn left(budget: &Budget) -> Duration {
     budget.cap(Duration::MAX)
 }
 
-/// Whether a step that may take `needed` fits in `remaining`.
+/// The longest the next store step may wait when `after` must follow it: what is left of
+/// `budget`, less `after`.
 ///
 /// # Errors
-/// [`OutOfTime`] when it does not, and the step is not started.
-pub(crate) fn fits(remaining: Duration, needed: Duration) -> Result<(), OutOfTime> {
-    if needed <= remaining {
-        Ok(())
-    } else {
-        Err(OutOfTime { needed })
+/// [`OutOfTime`] when that is under [`FLOOR`]: the step is not started.
+pub(crate) fn cap(budget: &Budget, after: Duration) -> Result<Duration, OutOfTime> {
+    within(left(budget), after)
+}
+
+/// [`cap`], with `remaining` left.
+fn within(remaining: Duration, after: Duration) -> Result<Duration, OutOfTime> {
+    remaining
+        .checked_sub(after)
+        .filter(|wait| *wait >= FLOOR)
+        .ok_or_else(|| OutOfTime {
+            needed: after.saturating_add(FLOOR),
+        })
+}
+
+impl Steps {
+    /// The least the steps need once git has answered: each step's [`FLOOR`], and `after`.
+    pub(crate) const fn floors(self) -> Duration {
+        FLOOR.saturating_mul(self.count).saturating_add(self.after)
     }
 }
 
-/// How long git may take to find the ledger when `remaining` is left and `count` store waits
-/// follow it: what those waits leave, at most `cap`.
+/// How long git may take to find the ledger with `remaining` left when `steps` follow it: what
+/// leaves them their [`Steps::floors`], at most `cap`.
 ///
 /// # Errors
-/// [`OutOfTime`] when that is under [`MIN_GIT_TIMEOUT`]: neither git nor the waits are started.
-pub(crate) fn git_before(
+/// [`OutOfTime`] when that is under [`MIN_GIT_TIMEOUT`]: neither git nor the steps are
+/// started.
+pub(crate) fn git_timeout(
     remaining: Duration,
-    count: u32,
+    steps: Steps,
     cap: Duration,
 ) -> Result<Duration, OutOfTime> {
-    let reserve = waits(count);
     remaining
-        .checked_sub(reserve)
+        .checked_sub(steps.floors())
         .filter(|git| *git >= MIN_GIT_TIMEOUT)
         .map(|git| git.min(cap))
         .ok_or_else(|| OutOfTime {
-            needed: reserve.saturating_add(MIN_GIT_TIMEOUT),
+            needed: steps.floors().saturating_add(MIN_GIT_TIMEOUT),
         })
+}
+
+/// The lock wait a store is opened with, with `remaining` left: what is left less
+/// `steps.after`, shared among `steps.count`, at most [`STORE_WAIT`].
+///
+/// # Errors
+/// [`OutOfTime`] when a step's share is under [`FLOOR`] (or there is no step): the store is
+/// not opened.
+pub(crate) fn share(remaining: Duration, steps: Steps) -> Result<Duration, OutOfTime> {
+    within(remaining, steps.after)
+        .ok()
+        .and_then(|left| left.checked_div(steps.count))
+        .filter(|wait| *wait >= FLOOR)
+        .map(|wait| wait.min(STORE_WAIT))
+        .ok_or_else(|| OutOfTime {
+            needed: steps.floors(),
+        })
+}
+
+/// Whether a later step of a store opened with `wait` fits in what is left of `budget`, with
+/// `besides` (git before it, or what must follow it) taken too.
+///
+/// # Errors
+/// [`OutOfTime`] when it does not, and the step is not started.
+pub(crate) fn step(budget: &Budget, wait: Duration, besides: Duration) -> Result<(), OutOfTime> {
+    match cap(budget, besides) {
+        Ok(cap) if wait <= cap => Ok(()),
+        Ok(_) | Err(_) => Err(OutOfTime {
+            needed: wait.saturating_add(besides),
+        }),
+    }
+}
+
+/// The store seen from `cwd` when there is one, opened for `steps` within `budget`: git gets
+/// [`git_timeout`] (at most `budget`'s per-call cap), then the store [`share`] of what git
+/// left.
+///
+/// # Errors
+/// [`OpenRefused::OutOfTime`] when too little is left for git or the open, which is then not
+/// started; [`OpenRefused::Ledger`] when the ledger cannot be found or opened.
+pub(crate) fn open_existing(
+    cwd: &Path,
+    lookup: impl Fn(&str) -> Option<OsString>,
+    budget: &Budget,
+    steps: Steps,
+) -> Result<Option<Store>, OpenRefused> {
+    let refused = OutOfTime {
+        needed: steps.floors().saturating_add(MIN_GIT_TIMEOUT),
+    };
+    let git = match budget.next() {
+        Ok(per_call) => git_timeout(left(budget), steps, per_call),
+        // Under git's least call is left: under its floor too.
+        Err(_spent) => Err(refused),
+    }
+    .map_err(OpenRefused::OutOfTime)?;
+    let path = existing_ledger::locate(cwd, lookup, git).map_err(OpenRefused::Ledger)?;
+    let wait = share(left(budget), steps).map_err(OpenRefused::OutOfTime)?;
+    Store::open_existing_within(&path, Wait::Hook, wait)
+        .map_err(|error| OpenRefused::Ledger(LedgerError::Open(error)))
 }
 
 /// Every `remaining` from zero to `budget` in 10 ms steps: the times a test checks a step at.
@@ -82,54 +189,4 @@ pub(crate) fn every_remaining(budget: Duration) -> impl Iterator<Item = Duration
 }
 
 #[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::{MIN_GIT_TIMEOUT, OutOfTime, STORE_WAIT, every_remaining, fits, git_before, waits};
-    use crate::hook::HOOK_BUDGET;
-
-    #[test]
-    fn a_hook_store_wait_is_two_seconds() {
-        assert_eq!(STORE_WAIT, Duration::from_secs(2));
-    }
-
-    #[test]
-    fn git_and_the_waits_after_it_never_pass_what_is_left() {
-        for count in 0..=3 {
-            let overrun = every_remaining(HOOK_BUDGET)
-                .filter_map(|left| {
-                    git_before(left, count, Duration::from_secs(1))
-                        .ok()
-                        .map(|git| (left, git))
-                })
-                .find(|(left, git)| *git + waits(count) > *left);
-            assert_eq!(overrun, None, "{count} waits: (time left, git's timeout)");
-        }
-    }
-
-    #[test]
-    fn git_gets_what_the_waits_leave_at_most_its_cap() {
-        let cap = Duration::from_secs(1);
-        assert_eq!(git_before(HOOK_BUDGET, 0, cap), Ok(cap));
-        assert_eq!(
-            git_before(HOOK_BUDGET, 2, cap),
-            Ok(Duration::from_millis(500))
-        );
-        assert_eq!(
-            git_before(waits(2) + Duration::from_millis(199), 2, cap),
-            Err(OutOfTime {
-                needed: waits(2) + MIN_GIT_TIMEOUT
-            }),
-            "less than the least worth giving git"
-        );
-    }
-
-    #[test]
-    fn a_step_fits_only_when_all_it_may_take_is_left() {
-        assert_eq!(fits(STORE_WAIT, STORE_WAIT), Ok(()));
-        assert_eq!(
-            fits(Duration::from_millis(1_999), STORE_WAIT),
-            Err(OutOfTime { needed: STORE_WAIT })
-        );
-    }
-}
+mod tests;
