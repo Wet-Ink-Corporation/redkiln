@@ -168,6 +168,8 @@ enum RecordError {
     Locate(#[source] PathError),
     #[error("reading the clock")]
     Clock(#[source] TimestampError),
+    #[error("opening the ledger")]
+    Open(#[source] StoreError),
     #[error("appending gate_blocked")]
     Append(#[source] StoreError),
     #[error("no time left in the hook's budget")]
@@ -339,7 +341,7 @@ fn record(
     // wait (2 s, D6).
     let wait = store_wait::share(store_wait::left(budget), RECORD_STEPS)
         .map_err(RecordError::OutOfTime)?;
-    let ledger = Store::open_within(&path, Wait::Hook, wait).map_err(RecordError::Append)?;
+    let ledger = Store::open_within(&path, Wait::Hook, wait).map_err(RecordError::Open)?;
     store_wait::step(budget, ledger.busy_timeout(), Duration::ZERO)
         .map_err(RecordError::OutOfTime)?;
     ledger

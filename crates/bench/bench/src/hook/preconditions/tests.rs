@@ -339,7 +339,8 @@ fn with_a_second_of_the_budget_spent_an_uncontended_edit_is_still_judged()
     // A slow start (a loaded Windows runner): a second of the hook's budget is already gone.
     let left = HOOK_BUDGET.saturating_sub(Duration::from_secs(1));
     let mut worktrees = Worktrees::new(&lookup, Budget::within(Instant::now(), left, GIT_TIMEOUT));
-    let target = dir.path().join("src").join("a.rs");
+    // Resolved as the hook resolves it: macOS's temporary folder is under a symlink.
+    let target = dir.path().canonicalize()?.join("src").join("a.rs");
     let anchor = target.parent().ok_or("a parent")?;
 
     let verdict = worktrees.judge(anchor, &target, Ok(&target));
