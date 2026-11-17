@@ -20,12 +20,13 @@ fn a_hook_store_wait_is_two_seconds() {
 #[test]
 fn a_step_waits_what_is_left_after_what_follows_it() {
     let after = Duration::from_millis(500);
-    let wait = cap(&left(HOOK_BUDGET), after).expect("plenty left");
-    // 4.5 s less the 500 ms that follows, less a little for the time this test took.
-    assert!(
-        wait <= Duration::from_millis(4_000) && wait > Duration::from_millis(3_900),
-        "{wait:?}"
+    assert_eq!(
+        super::within(HOOK_BUDGET, after),
+        Ok(Duration::from_millis(4_000)),
+        "4.5 s left less the 500 ms that follows"
     );
+    let wait = cap(&left(HOOK_BUDGET), after).expect("plenty left");
+    assert!(wait <= Duration::from_millis(4_000), "never more: {wait:?}");
     assert_eq!(
         cap(&left(after + Duration::from_millis(50)), after),
         Err(OutOfTime {

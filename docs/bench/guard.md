@@ -471,7 +471,7 @@ out. A deny after a Clef call (up to 2 s) has its record's waits cut to what is 
 `onFailure: "continue"` (SPEC HK-11), so a guard past its 5 s timeout lets the call through:
 the deny must be written before then even when every store wait runs to its end (Ryan,
 2026-11-16, decision card, option A; the waits capped by what is left since the PR 6.1
-follow-up, decision pending).
+follow-up, Ryan, 2026-11-17, option A).
 
 | D1 for the call | Guard's answer |
 |---|---|
