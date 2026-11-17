@@ -120,6 +120,8 @@ fn missing_from(report: &Report) -> Vec<String> {
 /// same key rule (ET-02, ET-03).
 fn missing_anywhere(message: &str) -> Vec<String> {
     let whole = format!("{BARE_STATUS_LINE}{message}");
+    // `whole` starts with a Status line, so `read` always gives a report; the fallback, every
+    // section missing, is only the conservative answer should that ever change.
     turn::read(&whole).map_or_else(
         || SECTIONS.map(|section| section.key().to_owned()).to_vec(),
         |report| missing_from(&report),
