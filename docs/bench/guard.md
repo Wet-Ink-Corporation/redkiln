@@ -31,9 +31,9 @@ and wrappers do not get a command past it.
   event, the command is still denied, and the reason ends with
   `(the block was not recorded in the ledger: ...)`. Recording is bounded so the deny is
   written before the hook's 5 s `timeout` even under a lock held to the end of every wait:
-  opening the store and the append each wait at most Core's hook wait (2 s, `Wait::Hook`) for
-  another process's lock, the guard holds both back, and git gets what is left, at most 500 ms
-  with nothing else spent (`a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget`).
+  git gets at most 1 s, leaving the open and the append their 100 ms floors, and the two then
+  share what git left as one lock wait, at most Core's hook wait (2 s, `Wait::Hook`)
+  (`a_git_that_never_answers_still_gets_the_deny_out_within_the_hook_budget`).
   Past its timeout Claude Code lets the command through (`onFailure: "continue"`, SPEC HK-11),
   losing the deny, which is why the record never gambles on the waits being short.
 
@@ -458,17 +458,20 @@ clef-thresholds`), modes, 50-decision shadow period and decision log (`docs/deci
 it starts reading its input (the other 500 ms cover process start-up and writing the decision).
 Reading the input, lexing and the denylist take milliseconds; the Clef call takes at most 2 s
 (`decide`'s timeout), plus local reads and writes of `counts.json` and the
-log. A deny then records `gate_blocked` with only what is left. Opening the ledger and the
-append can each wait Core's hook wait (2 s) for another process's lock, so 4 s is held back for
-both waits and git gets the rest, at most 1 s: 500 ms when nothing else was spent
+log. A deny then records `gate_blocked` with only what is left. Git gets at most 1 s, and only
+what leaves the open and the append a 100 ms floor each; the ledger is then opened with a lock
+wait of half what git left, at most Core's hook wait (2 s), and the append starts only when that
+wait still fits in what is left
 (`git_and_every_lock_wait_of_the_record_fit_in_what_is_left_of_the_budget`,
-`with_no_time_spent_on_clef_git_gets_what_both_store_waits_leave`). With less than 200 ms left
-for git the record is skipped and the deny's reason ends with `(the block was not recorded in
-the ledger: no time left in the hook's budget)`; the deny itself always goes out. A deny after a
-Clef call (up to 2 s) therefore usually goes out unrecorded. The guard's entry sets
+`with_no_time_spent_on_clef_git_gets_its_usual_timeout`). The append's wait is the open's share,
+not what is left when it starts (`docs/hooks.md`, Guards fail closed). With less than 200 ms
+left for git after the floors the record is skipped and the deny's reason ends with `(the block
+was not recorded in the ledger: no time left in the hook's budget)`; the deny itself always goes
+out. A deny after a Clef call (up to 2 s) has its record's waits cut to what is left. The guard's entry sets
 `onFailure: "continue"` (SPEC HK-11), so a guard past its 5 s timeout lets the call through:
 the deny must be written before then even when every store wait runs to its end (Ryan,
-2026-11-16, decision card, option A).
+2026-11-16, decision card, option A; the waits capped by what is left since the PR 6.1
+follow-up, Ryan, 2026-11-17, option A).
 
 | D1 for the call | Guard's answer |
 |---|---|

@@ -10,8 +10,10 @@
 //! (from the longest existing ancestor directory of where it lands, not the session's working
 //! directory) and that worktree's bench mode in the ledger (`mode::active`), each worktree
 //! found and read once per call (`worktrees`), all within [`HOOK_BUDGET`], past which the edit
-//! is denied; a store step (an open, a read, the append) starts only when its whole lock wait
-//! fits in what is left (`store_wait`), so the decision is written before the 5 s `timeout`. A file in no repository, no ledger, no mode or mode `off` is allowed
+//! is denied; each ledger is opened with a lock wait that shares what git left among its store
+//! steps (the open, the reads, the append), and a later step starts only when that wait still
+//! fits in what is left (`store_wait`), so the decision is written before the 5 s `timeout`. A
+//! file in no repository, no ledger, no mode or mode `off` is allowed
 //! silently, and it never creates a ledger; the one exception is `.anneal/config.json`,
 //! anneal's own settings, which it denies in every mode and none (`Check::Settings`). In a
 //! mode it allows test files, the build's plan and design tree, scratch directories and prose
@@ -47,7 +49,7 @@ use bench_contract::event::GateBlocked;
 use crate::error_chain::reason;
 use crate::existing_ledger::LedgerError;
 use crate::hook::guard::{GIT_TIMEOUT, MAX_INPUT_BYTES};
-use crate::hook::store_wait::{self, STORE_WAIT};
+use crate::hook::store_wait;
 use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, write_deny};
 use crate::mode::scope;
 use crate::mode::{self, Active, Entered};
@@ -55,10 +57,6 @@ use crate::pr_diff::Budget;
 
 use self::input::{Input, Tool};
 use self::worktrees::{Worktrees, open_within};
-
-/// What the append of `gate_blocked` may take: one store wait. It is skipped, and the deny says
-/// so, when less is left of [`HOOK_BUDGET`].
-const APPEND_NEEDS: Duration = STORE_WAIT;
 
 /// The `point` of the hook's `gate_blocked` events, before the check's id.
 const POINT_PREFIX: &str = "preconditions.";
@@ -238,7 +236,7 @@ where
         return Ok(());
     };
     let unrecorded = match ledger {
-        Ok(Some(store)) => store_wait::fits(store_wait::left(&budget), APPEND_NEEDS)
+        Ok(Some(store)) => store_wait::step(&budget, store.busy_timeout(), Duration::ZERO)
             .map_err(RecordError::NoTimeToAppend)
             .and_then(|()| record(&store, &denial, session))
             .err(),

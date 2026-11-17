@@ -4,7 +4,7 @@
 
 use std::ffi::OsString;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::paths::{self, PathError, StoreLocation};
@@ -39,6 +39,21 @@ pub(crate) fn open_existing(
     wait: Wait,
 ) -> Result<Option<Store>, LedgerError> {
     located(cwd, lookup, git_timeout, wait).map(|(_, store)| store)
+}
+
+/// Where git, given `git_timeout`, finds the store seen from `cwd`: for a hook, which opens it
+/// with a lock wait it works out once git has answered (`hook::store_wait`).
+///
+/// # Errors
+/// [`LedgerError::Locate`] when git cannot say.
+pub(crate) fn locate(
+    cwd: &Path,
+    lookup: impl Fn(&str) -> Option<OsString>,
+    git_timeout: Duration,
+) -> Result<PathBuf, LedgerError> {
+    paths::ledger_store_within(None, lookup, cwd, git_timeout)
+        .map(|location| location.path)
+        .map_err(LedgerError::Locate)
 }
 
 /// [`open_existing`], with where the store was located: for `bench status`, which also reports
