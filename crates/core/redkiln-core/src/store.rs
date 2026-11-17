@@ -531,7 +531,37 @@ impl Store {
     /// major ([`OpenError::NewerMajor`]), an old plugin ledger ([`OpenError::OldLedger`]) or not
     /// a store ([`OpenError::NotAStore`]), each left as it was.
     pub fn open(path: &Path, wait: Wait) -> Result<Self, StoreError> {
-        Self::open_in(path, wait, open::Mode::Create)
+        Self::open_in(path, wait.timeout(), open::Mode::Create)
+    }
+
+    /// [`Store::open`], every wait of the open and of each statement after it at most `cap`
+    /// when that is shorter than `wait`'s timeout: for a hook that bounds its store steps by
+    /// what is left of its own time budget (SPEC HK-5). Never longer than `wait`'s timeout.
+    ///
+    /// # Errors
+    /// As [`Store::open`].
+    pub fn open_within(path: &Path, wait: Wait, cap: Duration) -> Result<Self, StoreError> {
+        Self::open_in(path, wait.timeout().min(cap), open::Mode::Create)
+    }
+
+    /// [`Store::open_existing`], every wait at most `cap`, as [`Store::open_within`] bounds it.
+    ///
+    /// # Errors
+    /// As [`Store::open_existing`].
+    pub fn open_existing_within(
+        path: &Path,
+        wait: Wait,
+        cap: Duration,
+    ) -> Result<Option<Self>, StoreError> {
+        Self::existing(path, wait.timeout().min(cap))
+    }
+
+    /// How long each statement of this store waits for another process's lock: the open's
+    /// wait, or its cap when that was shorter ([`Store::open_within`]). It is fixed at the
+    /// open.
+    #[must_use]
+    pub const fn busy_timeout(&self) -> Duration {
+        self.wait
     }
 
     /// Opens the store at `path` only when there is one, as [`Store::open`] does otherwise:
@@ -542,7 +572,12 @@ impl Store {
     /// As [`Store::open`]: an old plugin ledger, a database that is not a store and a newer
     /// major are the same refusals, each left as it was, never `None`.
     pub fn open_existing(path: &Path, wait: Wait) -> Result<Option<Self>, StoreError> {
-        match Self::open_in(path, wait, open::Mode::Existing) {
+        Self::existing(path, wait.timeout())
+    }
+
+    /// [`Store::open_existing`] with `busy` as every wait.
+    fn existing(path: &Path, busy: Duration) -> Result<Option<Self>, StoreError> {
+        match Self::open_in(path, busy, open::Mode::Existing) {
             Ok(store) => Ok(Some(store)),
             Err(StoreError::Open {
                 source: OpenError::NoStore,
@@ -552,7 +587,7 @@ impl Store {
         }
     }
 
-    fn open_in(path: &Path, wait: Wait, mode: open::Mode) -> Result<Self, StoreError> {
+    fn open_in(path: &Path, busy: Duration, mode: open::Mode) -> Result<Self, StoreError> {
         refuse_inside_runtime()?;
         // Absolute, so the telemetry connection opens the same file whatever the working
         // directory becomes; not canonicalised, so Windows keeps the form SQLite was given.
@@ -560,7 +595,7 @@ impl Store {
         let opened = std::path::absolute(path)
             .map_err(OpenError::AbsolutePath)
             .and_then(|absolute| {
-                let (inner, schema) = open::open_store(path, wait.timeout(), mode)?;
+                let (inner, schema) = open::open_store(path, busy, mode)?;
                 let runtime = Driver::new().map_err(OpenError::Runtime)?;
                 Ok((inner, schema, runtime, absolute))
             });
@@ -570,7 +605,7 @@ impl Store {
                 schema,
                 runtime,
                 path,
-                wait: wait.timeout(),
+                wait: busy,
                 telemetry: None,
                 dropped: 0,
                 give_way: give_way::GiveWay::new(),

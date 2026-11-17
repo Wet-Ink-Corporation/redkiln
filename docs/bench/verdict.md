@@ -316,10 +316,12 @@ and `unjudged`) in the ledger when one exists; the gate never creates a ledger, 
 every pull request has no verdict. Unreadable input or commands, a merge naming no number, and a
 ledger, git or settings file it cannot read are denied. git and ledger reads share 4.5 s
 from the hook's start (the other 500 ms are for process start-up and the output), each git call
-at most 1 s. Each store step can wait Core's hook wait (2 s) for another process's lock and starts
-only when it can finish in what is left: the open (git before it gets only what the wait leaves),
-the verdict read (only with 3 s left, git resolving the head first), and the append of
-`gate_blocked` (skipped, and the deny says so, with less than 2 s left). So the decision is
+at most 1 s. The ledger is opened with one lock wait shared by its three store steps: what git
+left, less 1 s for git resolving the head before the verdict read, divided by three, at most
+Core's hook wait (2 s) and at least 100 ms (git before the open gets only what leaves that). The
+verdict read starts only when 1 s for git and that wait fit in what is left, and the append of
+`gate_blocked` only when the wait does (else it is skipped, and the deny says so). A later
+step's wait is the open's share, not what is left when it starts (`docs/hooks.md`). So the decision is
 written before the 5 s timeout even when every wait runs to its end; past it Claude Code lets the
 merge through (`onFailure: "continue"`, SPEC HK-11).
 

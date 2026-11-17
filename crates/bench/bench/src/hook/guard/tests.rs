@@ -10,9 +10,11 @@ use crate::store::{EventKind, Filter, LedgerEvent, Store};
 use bench_contract::event::GateBlocked;
 use serde_json::{Value, json};
 
-use super::{Decision, Fallback, HOOK_BUDGET, MAX_INPUT_BYTES, RECORD_LOCK_WAITS, git_budget, run};
+use super::{
+    Decision, Fallback, GIT_TIMEOUT, HOOK_BUDGET, MAX_INPUT_BYTES, RECORD_STEPS, git_budget, run,
+};
 use crate::hook::HookEnv;
-use crate::hook::store_wait::STORE_WAIT;
+use crate::hook::store_wait::{FLOOR, every_remaining, share};
 
 /// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout.
 fn guard(stdin: &[u8], store: &Path) -> String {
@@ -246,24 +248,26 @@ fn a_failed_read_of_stdin_is_denied() {
 }
 
 #[test]
-fn the_record_holds_back_both_of_its_store_waits() {
-    assert_eq!(RECORD_LOCK_WAITS, 2, "the open's and the append's");
-}
-
-#[test]
 fn git_and_every_lock_wait_of_the_record_fit_in_what_is_left_of_the_budget() {
-    let worst_lock_waits = STORE_WAIT * RECORD_LOCK_WAITS;
-    let steps = u32::try_from(HOOK_BUDGET.as_millis() / 10).expect("a few hundred steps");
+    let floors = FLOOR * RECORD_STEPS.count;
 
-    let first_overrun = (0..=steps)
-        .map(|n| Duration::from_millis(10) * n)
+    let git_overrun = every_remaining(HOOK_BUDGET)
         .filter_map(|remaining| git_budget(remaining).map(|git| (remaining, git)))
-        .find(|(remaining, git)| *git + worst_lock_waits > *remaining);
+        .find(|(remaining, git)| *git + floors > *remaining);
+    // Whatever git took, the open and the append wait at most their share of what it left.
+    let wait_overrun = every_remaining(HOOK_BUDGET)
+        .filter_map(|left| share(left, RECORD_STEPS).ok().map(|wait| (left, wait)))
+        .find(|(left, wait)| *wait * RECORD_STEPS.count > *left);
 
-    assert_eq!(first_overrun, None, "(time left, git's timeout)");
+    assert_eq!(git_overrun, None, "(time left, git's timeout)");
+    assert_eq!(
+        wait_overrun, None,
+        "(time left after git, each step's wait)"
+    );
 }
 
 #[test]
-fn with_no_time_spent_on_clef_git_gets_what_both_store_waits_leave() {
-    assert_eq!(git_budget(HOOK_BUDGET), Some(Duration::from_millis(500)));
+fn with_no_time_spent_on_clef_git_gets_its_usual_timeout() {
+    assert_eq!(git_budget(HOOK_BUDGET), Some(GIT_TIMEOUT));
+    assert_eq!(GIT_TIMEOUT, Duration::from_secs(1));
 }

@@ -11,8 +11,9 @@
 //! `gate_blocked` event (`brief.<check>`) in an existing ledger; the hook never creates one.
 //! Input it cannot read, a worktree, setting or brief it cannot read, deny. git and the ledger
 //! get [`HOOK_BUDGET`] from the hook's start, each git call at most [`GIT_TIMEOUT`]; the record
-//! (git, the open's and the append's lock waits) starts only when all of it fits in what is
-//! left (`store_wait`), so the decision is written before the 5 s `timeout`. See
+//! opens the ledger with a lock wait that shares what git left between the open and the append,
+//! and starts the append only when that wait still fits (`store_wait`), so the decision is
+//! written before the 5 s `timeout`. See
 //! `docs/hooks.md` and `docs/brief.md`.
 
 mod reference;
@@ -26,15 +27,15 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp, Wait};
+use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
 use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
 use crate::error_chain::reason;
-use crate::existing_ledger::{self, LedgerError};
+use crate::existing_ledger::LedgerError;
 use crate::harness::claude_code::SubagentToolUse;
 use crate::hook::guard::GIT_TIMEOUT;
-use crate::hook::store_wait::{self, OutOfTime, STORE_WAIT};
+use crate::hook::store_wait::{self, OpenRefused, OutOfTime, Steps};
 use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, write_deny};
 use crate::lint::brief::{BriefFinding, Rule, check};
 use crate::paths::{self, PathError};
@@ -48,8 +49,11 @@ const MAX_INPUT_BYTES: u64 = 4 * 1024 * 1024;
 /// The most bytes of a brief read; a larger one is denied.
 const MAX_BRIEF_BYTES: u64 = 256 * 1024;
 
-/// What the append of `gate_blocked` may take once the ledger is open: one store wait.
-const APPEND_NEEDS: Duration = STORE_WAIT;
+/// The store steps of a record, the open and the append, which share what git leaves.
+const RECORD_STEPS: Steps = Steps {
+    count: 2,
+    after: Duration::ZERO,
+};
 
 /// The tool the hook judges.
 const AGENT_TOOL: &str = "Agent";
@@ -195,7 +199,7 @@ where
         }
     };
     let unrecorded = match open_ledger(cwd, lookup, budget) {
-        Ok(Some(store)) => store_wait::fits(store_wait::left(&budget), APPEND_NEEDS)
+        Ok(Some(store)) => store_wait::step(&budget, store.busy_timeout(), Duration::ZERO)
             .map_err(RecordError::OutOfTime)
             .and_then(|()| record(&store, &denial, session))
             .err(),
@@ -213,26 +217,21 @@ where
     write_deny(out, &line)
 }
 
-/// The ledger seen from `cwd` when one exists, to record a denial in: opened only when git, the
-/// open's lock wait and the append's fit in what is left of `budget` ([`record_git`]).
+/// The ledger seen from `cwd` when one exists, to record a denial in: opened only when git and
+/// the floors of the open and the append fit in what is left of `budget`, the two sharing what
+/// git leaves ([`RECORD_STEPS`]).
 fn open_ledger(
     cwd: io::Result<PathBuf>,
     lookup: impl Fn(&str) -> Option<OsString>,
     budget: Budget,
 ) -> Result<Option<Store>, RecordError> {
     let cwd = cwd.map_err(|error| RecordError::Ledger(LedgerError::CurrentDir(error)))?;
-    let git = record_git(store_wait::left(&budget)).map_err(RecordError::OutOfTime)?;
-    // Core's hook wait (2 s, D6) for the open and again for the append, both held back above.
-    existing_ledger::open_existing(&cwd, lookup, git, Wait::Hook).map_err(RecordError::Ledger)
-}
-
-/// How long git may take to find the ledger with `remaining` left: what the open's and the
-/// append's store waits leave, at most [`GIT_TIMEOUT`].
-///
-/// # Errors
-/// [`OutOfTime`] when too little is left, and the denial is not recorded.
-fn record_git(remaining: Duration) -> Result<Duration, OutOfTime> {
-    store_wait::git_before(remaining, 2, GIT_TIMEOUT)
+    store_wait::open_existing(&cwd, lookup, &budget, RECORD_STEPS).map_err(
+        |refused| match refused {
+            OpenRefused::OutOfTime(error) => RecordError::OutOfTime(error),
+            OpenRefused::Ledger(error) => RecordError::Ledger(error),
+        },
+    )
 }
 
 /// Reads and parses at most [`MAX_INPUT_BYTES`] of `stdin`.

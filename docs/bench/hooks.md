@@ -49,9 +49,21 @@ manifest test runs every entry's arguments through the binary.
 
 Guards fail closed. A guard (`hook guard`, `hook preconditions`, `hook merge-gate`, `hook brief`,
 or any hook passed `--fail-closed`) denies what it
-cannot judge, and writes its decision before its 5 s `timeout` even when every store wait it
-meets runs to its full 2 s: each plans against 4.5 s from its start and starts a store step (an
-open, a read, an append) only when the whole wait fits in what is left (`hook::store_wait`). Each Core store call is counted as one `Wait::Hook`; inside one call SQLite can wait more than once (happenstance's identity re-read at hand-over, a commit's lock escalation), so under a lock held 2 s at each of those a guard can still pass its timeout. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
+cannot judge, and writes its decision before its 5 s `timeout` even when every lock it meets
+is held: each plans against 4.5 s from its start. Git before the ledger's open gets at most its
+1 s, and only what leaves each store step its 100 ms floor. The ledger is then opened with one
+lock wait shared among the store steps that connection serves (the open, its reads, the append):
+what is left, less what must follow (git before the merge gate's verdict read), divided by the
+steps, at most Core's 2 s hook wait (`Wait::Hook`) and at least the floor. Before each later step
+the guard checks that this wait still fits in what is left, and skips the step (an append) or
+denies (a read) when it does not (`hook::store_wait`). A later step's wait is the open's share,
+not what is left at that moment: Core fixes the busy timeout when it hands the connection to
+happenstance, happenstance 0.6.0 has no setter on an open store, and a SQLite busy handler
+installed before the hand-over would reset `PRAGMA busy_timeout`, which Core's open pins. A
+setter in happenstance is a possible follow-up. Each Core store call is counted as one wait;
+inside one call SQLite can wait more than once (happenstance's identity re-read at hand-over, a
+commit's lock escalation), each time up to the open's share, so under a lock held that long at
+each of those a guard can still pass its timeout. When its output cannot be written it exits 2 with one `bench: error:` line, which Claude
 Code reads as "block". Its entry passes `--fail-closed` and sets `onFailure: "continue"`, not
 `"block"` (SPEC HK-11): Claude Code counts a hook that cannot start as a failure, so `"block"` would
 block every Bash, Edit, Write and Agent call on a Windows copy with no build, where there is no
@@ -153,9 +165,9 @@ the temporary and scratch directories, `git add -f`, and Bash writes to lint or 
 An allowed command gets no output. A denied one gets
 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
 "permissionDecisionReason": "ERROR guard <rule>: <reason>"}}` and a `gate_blocked` event in the
-ledger (`point` is `guard.<rule>`), recorded within the hook's budget (both 2 s store waits
-held back, git the rest: 500 ms with nothing else spent, or the record is skipped and the deny
-says so). Unreadable input, and commands it cannot read or model, are denied. What
+ledger (`point` is `guard.<rule>`), recorded within the hook's budget (git at most 1 s, leaving
+the open and the append their floors, then the two sharing what git left; with too little left
+the record is skipped and the deny says so). Unreadable input, and commands it cannot read or model, are denied. What
 the denylist does not decide is asked of Clef D1 (`noul destructive_or_irreversible`, #30) in
 process, its command redacted: in shadow mode (the default, and the mode in effect for each
 point's first 50 answered decisions, even when `enforce` is configured) the would-be action is
@@ -190,8 +202,9 @@ with `--actor human`; `via` does not matter). A denial is the guard's deny decis
 `ERROR merge-gate: ...` line naming what is missing and the `anneal verdict set` command that
 records it, plus a `gate_blocked` event (`point` is `merge-gate.<check>`) in an existing ledger;
 it never creates one. Unreadable input or commands, and a ledger, git or setting it cannot read,
-are denied; git and ledger reads share 4.5 s from the hook's start, and a store step starts only
-when its whole 2 s wait fits. See `docs/verdict.md`.
+are denied; git and ledger reads share 4.5 s from the hook's start, the ledger's open, verdict
+read and append share one lock wait, and a later step starts only when that wait still fits. See
+`docs/verdict.md`.
 
 ## `preconditions` (PreToolUse)
 
@@ -204,7 +217,8 @@ writes it (symlinks followed, dangling ones too, before `..` is taken) and where
 takes `..` lexically first writes it, either reading's denial denying; the worktree is that
 reading's own, found from the longest existing ancestor directory of where it lands, not the
 hook's cwd. Each worktree is found and read once per call, and the whole call is judged within
-4.5 s of the hook's start, each store step starting only when its whole 2 s wait fits; past that
+4.5 s of the hook's start, each ledger's store steps sharing one lock wait and each later step
+starting only when that wait still fits; past that
 the edit is denied. For a file in no git repository, with no ledger, no mode or mode `off` it allows silently and never creates a ledger. In build mode it
 denies source edits until the plan's spec passes `lint spec`, the design tree is confirmed at its
 current hash, the tree was clean at entry and the plan is approved and current; in diagnose mode
@@ -645,8 +659,9 @@ unless its `agent_type` is listed in `orchestrate.leads` of `.redkiln/bench/conf
 `no-brief`, `path`, `invalid`, `bad-input` or `unjudged`) in an existing ledger; it never
 creates one. Unreadable input, a cwd outside a git worktree, and a setting or brief it cannot
 read are denied; git and ledger reads share 4.5 s from the hook's start, and the record (git,
-then the open's and the append's 2 s store waits) starts only when all of it fits in what is
-left, else the deny says it was not recorded. See [brief.md](brief.md).
+then the open and the append sharing one lock wait) starts only when git and both floors fit in
+what is left, and the append only when the shared wait still does, else the deny says it was not
+recorded. See [brief.md](brief.md).
 
 ## `standing-orders` (SubagentStart)
 

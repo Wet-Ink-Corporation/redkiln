@@ -247,55 +247,39 @@ fn near_misses_of_the_settings_file_are_not_it() {
 #[test]
 fn every_store_step_the_hook_starts_ends_within_the_hook_budget() {
     use crate::hook::HOOK_BUDGET;
-    use crate::hook::store_wait::{STORE_WAIT, every_remaining, fits};
+    use crate::hook::store_wait::{FLOOR, every_remaining, git_timeout, share};
 
-    for left in every_remaining(HOOK_BUDGET) {
-        if let Ok(git) = super::worktrees::open_git(left) {
-            assert!(git + STORE_WAIT <= left, "a worktree's open, {left:?} left");
-        }
-        if let Ok(git) = super::worktrees::record_git(left) {
-            assert!(
-                git + STORE_WAIT * 2 <= left,
-                "the record's open and append, {left:?} left"
-            );
-        }
-        for (needs, step) in [
-            (super::worktrees::MODE_NEEDS, "the mode read"),
-            (
-                super::worktrees::PRECONDITIONS_NEEDS,
-                "the preconditions' reads",
-            ),
-            (super::APPEND_NEEDS, "the append"),
-        ] {
-            if fits(left, needs).is_ok() {
-                assert!(needs <= left, "{step}, {left:?} left");
+    let worktree = super::worktrees::WORKTREE_STEPS;
+    let record = super::worktrees::RECORD_STEPS;
+    assert_eq!(
+        (worktree.count, record.count),
+        (5, 2),
+        "a worktree's open, mode read, two precondition reads and append; a record's open and \
+         append"
+    );
+    for steps in [worktree, record] {
+        for left in every_remaining(HOOK_BUDGET) {
+            if let Ok(git) = git_timeout(left, steps, GIT_TIMEOUT) {
+                assert!(
+                    git + FLOOR * steps.count <= left,
+                    "{steps:?}: git and the steps' floors, {left:?} left"
+                );
+            }
+            if let Ok(wait) = share(left, steps) {
+                assert!(
+                    wait * steps.count <= left,
+                    "{steps:?}: every step at its capped wait, {left:?} left after git"
+                );
             }
         }
     }
 }
 
 #[test]
-fn the_hook_holds_back_one_store_wait_per_read_it_can_meet() {
-    use crate::hook::store_wait::STORE_WAIT;
-
-    assert_eq!(
-        super::worktrees::MODE_NEEDS,
-        STORE_WAIT,
-        "mode::active's one read"
-    );
-    assert_eq!(
-        super::worktrees::PRECONDITIONS_NEEDS,
-        STORE_WAIT * 2,
-        "build mode reads the grill confirmations and the plan's approval"
-    );
-    assert_eq!(super::APPEND_NEEDS, STORE_WAIT);
-}
-
-#[test]
 fn with_too_little_left_for_a_store_wait_the_ledger_is_not_opened() {
     let dir = tempfile::tempdir().expect("a temporary directory");
-    // Less than git's least and the open's and append's waits.
-    let short = Budget::within(Instant::now(), Duration::from_millis(4_100), GIT_TIMEOUT);
+    // Under git's least timeout and one step's floor: neither git nor the open starts.
+    let short = Budget::within(Instant::now(), Duration::from_millis(250), GIT_TIMEOUT);
 
     let ledger = super::worktrees::open_within(dir.path(), |_: &str| None, short);
 
@@ -304,4 +288,67 @@ fn with_too_little_left_for_a_store_wait_the_ledger_is_not_opened() {
         "{:?}",
         ledger.as_ref().err()
     );
+}
+
+/// A git repository with its ledger at `ledger.sqlite3` inside, in diagnose mode with its
+/// reproduction recorded: every source edit there is allowed once the preconditions are read.
+fn diagnosing_with_a_repro() -> Result<(tempfile::TempDir, PathBuf), Box<dyn std::error::Error>> {
+    use crate::mode::scope;
+    use crate::paths;
+    use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
+    use bench_contract::event::{Mode, ModeSet, ReproRed};
+
+    let dir = tempfile::tempdir()?;
+    let status = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir.path())
+        .status()?;
+    assert!(status.success(), "git init");
+    std::fs::create_dir_all(dir.path().join("src"))?;
+    let root = paths::worktree_root_within(dir.path(), GIT_TIMEOUT)?;
+    let path = dir.path().join("ledger.sqlite3");
+    let store = Store::open(&path)?;
+    for event in [
+        LedgerEvent::ModeSet(ModeSet {
+            mode: Mode::Diagnose,
+            clean: true,
+            plan: None,
+            tree: None,
+        }),
+        LedgerEvent::ReproRed(ReproRed {
+            task: "bug-1".to_owned(),
+            test: "cargo test".to_owned(),
+        }),
+    ] {
+        let mut envelope = EventEnvelope::new(event, "cli", Timestamp::now()?);
+        envelope.worktree = Some(scope::worktree_id(&root));
+        store.append(&envelope)?;
+    }
+    Ok((dir, path))
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs git")]
+fn with_a_second_of_the_budget_spent_an_uncontended_edit_is_still_judged()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::hook::HOOK_BUDGET;
+    use std::ffi::OsString;
+
+    let (dir, store) = diagnosing_with_a_repro()?;
+    let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(&store));
+    // A slow start (a loaded Windows runner): a second of the hook's budget is already gone.
+    let left = HOOK_BUDGET.saturating_sub(Duration::from_secs(1));
+    let mut worktrees = Worktrees::new(&lookup, Budget::within(Instant::now(), left, GIT_TIMEOUT));
+    // Resolved as the hook resolves it: macOS's temporary folder is under a symlink.
+    let target = dir.path().canonicalize()?.join("src").join("a.rs");
+    let anchor = target.parent().ok_or("a parent")?;
+
+    let verdict = worktrees.judge(anchor, &target, Ok(&target));
+
+    assert!(
+        verdict.is_none(),
+        "the repro holds and no lock is held, so the edit is allowed: {:?}",
+        verdict.and_then(|verdict| verdict.denial)
+    );
+    Ok(())
 }
