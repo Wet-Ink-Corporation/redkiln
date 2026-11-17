@@ -130,7 +130,7 @@ fn a_denial_is_recorded_as_gate_blocked_with_the_session() {
 fn a_ledger_failure_still_denies_and_says_so() {
     let dir = tempfile::tempdir().expect("a temporary directory");
 
-    // A directory is not a ledger file, so the append fails.
+    // A directory is not a ledger file, so opening the ledger fails.
     let stdout = guard(&bash("git add -f target"), dir.path());
 
     let reason = denied(&stdout);
@@ -139,7 +139,7 @@ fn a_ledger_failure_still_denies_and_says_so() {
         "still denied: {reason}"
     );
     assert!(
-        reason.contains("(the block was not recorded in the ledger: "),
+        reason.contains("(the block was not recorded in the ledger: opening the ledger"),
         "the ledger failure is noted: {reason}"
     );
 }

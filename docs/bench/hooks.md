@@ -316,10 +316,11 @@ no plan or task, any short name for the change; `task done` needs nothing to exi
 | grounded | Clef D4, in effect enforce, finds a required section of the reply's status block not present and grounded (P(yes) below 0.50) | `completeness.grounded` |
 
 **Clef D4** is asked after the checks above, in a worktree, and only when the final message holds
-a status block (its last `Status:` line starts with `DONE`, `DONE_WITH_CONCERNS`,
-`NEEDS_CONTEXT`, `BLOCKED` or `WIP`; a prose "Status: …" line is not one). Each required section
-(`Gate`, `Review`, `Changed`, `Decisions needed`, `Not verified`, as
-`hook::status::block::SECTIONS`) is one
+a status block: an end-of-turn report as SPEC `spec/turns.md` reads it (ET-02 to ET-07, through
+Core's `redkiln_core::turn`), whose last `Status:` line carries `DONE`, `DONE_WITH_CONCERNS`,
+`NEEDS_CONTEXT`, `BLOCKED` or `WIP` (a prose "Status: …" line is a malformed report, ET-05). Each
+required section (`Gate`, `Review`, `Changed`, `Decisions needed`, `Not verified`, as
+`hook::status::block::SECTIONS`; a `Declined:` line ends the section above it, ET-07) is one
 `noul present_and_grounded` question on the `clef` model, all asked at once; an absent section is
 asked with empty text, so Clef judges presence as well as grounding. Clef gets the section's text
 and the worktree's 8 newest ledger events (`<type> <subject>`), both redacted and cut to 1,024
@@ -437,13 +438,15 @@ Code's `SubagentStop` input (at most 4 MiB; it uses `session_id`, `cwd`, `agent_
 `subagent_status` to the ledger when one exists (it never creates one). It never blocks and
 writes nothing unless something failed (one `ERROR` line as `systemMessage`).
 
-- **Status block** (`hook::status::block`, values and sections as data): the last line whose
-  text starts `Status:` (list markers, quote markers, `*` and code-span backticks ignored; code
-  fences do not hide it, since temper's template is fenced), with `DONE`, `DONE_WITH_CONCERNS`,
-  `NEEDS_CONTEXT`, `BLOCKED` or temper's `WIP`, then a line starting each of `Gate:`, `Review:`,
-  `Changed:`, `Decisions needed:` and `Not verified:` after it. No status line, an unknown value
-  or a missing section is the event's `violation`, with the sections in `missing`; the status,
-  when known, is still recorded.
+- **Status block** (`hook::status::block`, over Core's `redkiln_core::turn::read`): the
+  end-of-turn report of SPEC `spec/turns.md` ET-02 to ET-07. Its last `Status:` line (list,
+  quote and heading markers, `*` and code-span backticks ignored; code fences do not hide it,
+  since temper's template is fenced) carries `DONE`, `DONE_WITH_CONCERNS`, `NEEDS_CONTEXT`,
+  `BLOCKED` or temper's `WIP`, and Bench requires five of the SPEC's sections after it: a line
+  starting each of `Gate:`, `Review:`, `Changed:`, `Decisions needed:` and `Not verified:`
+  (`Declined:` is read, not required). No status line, an unknown value or a missing section is
+  the event's `violation`, with the sections in `missing` (with no status line, the sections the
+  whole message lacks); the status, when known, is still recorded.
 - **Timing and tokens.** The input has no timing or token fields (checked against Claude Code
   2.1.296), so they come from the subagent's transcript, read whole up to 32 MiB: `duration_ms`
   from its first to its last `timestamp`, and `tokens` summed over its assistant messages, each
