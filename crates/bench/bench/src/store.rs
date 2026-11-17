@@ -34,7 +34,7 @@ use std::collections::{BTreeMap, HashSet};
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use redkiln_core::approval::ApprovalRecorded;
 use redkiln_core::envelope::{
@@ -342,6 +342,38 @@ impl Store {
             .map_err(refused)?
             .map(Self::over)
             .transpose()
+    }
+
+    /// [`Store::open_with`], every wait of the open and of each statement after it at most
+    /// `cap` when that is shorter than `wait`'s (Core's `Store::open_within`): a hook bounds
+    /// them by what is left of its budget.
+    ///
+    /// # Errors
+    /// As [`Store::open`].
+    pub(crate) fn open_within(path: &Path, wait: Wait, cap: Duration) -> Result<Self, StoreError> {
+        let inner = redkiln_core::store::Store::open_within(path, wait, cap).map_err(refused)?;
+        Self::over(inner)
+    }
+
+    /// [`Store::open_existing`], every wait at most `cap`, as [`Store::open_within`] bounds it.
+    ///
+    /// # Errors
+    /// As [`Store::open`].
+    pub(crate) fn open_existing_within(
+        path: &Path,
+        wait: Wait,
+        cap: Duration,
+    ) -> Result<Option<Self>, StoreError> {
+        redkiln_core::store::Store::open_existing_within(path, wait, cap)
+            .map_err(refused)?
+            .map(Self::over)
+            .transpose()
+    }
+
+    /// How long each read or append of this store may wait for another process's lock, fixed
+    /// at the open.
+    pub(crate) const fn busy_timeout(&self) -> Duration {
+        self.inner.busy_timeout()
     }
 
     /// The writer every envelope this store appends names (`bench <version>`).

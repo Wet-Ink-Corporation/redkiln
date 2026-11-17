@@ -847,6 +847,33 @@ mod tests {
     }
 
     #[test]
+    fn a_capped_open_hands_over_its_cap_and_never_more_than_its_wait() {
+        use crate::store::{Store, Wait};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("events.sqlite3");
+        let cap = Duration::from_millis(300);
+
+        let short = Store::open_within(&path, Wait::Hook, cap).expect("created");
+        let long = Store::open_existing_within(&path, Wait::Hook, Duration::from_secs(10))
+            .expect("opened")
+            .expect("it exists");
+
+        let handed = |store: &Store| {
+            (
+                store.busy_timeout(),
+                store.inner.settings().expect("settings").busy_timeout_ms(),
+            )
+        };
+        assert_eq!(handed(&short), (cap, 300), "the cap, on the connection too");
+        assert_eq!(
+            handed(&long),
+            (Wait::Hook.timeout(), 2000),
+            "a cap past the wait leaves the wait"
+        );
+    }
+
+    #[test]
     fn the_connection_handed_over_keeps_the_whole_busy_timeout() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("a").join("events.sqlite3");

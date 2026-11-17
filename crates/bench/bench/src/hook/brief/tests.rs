@@ -41,20 +41,25 @@ fn a_directory_named_as_the_brief_is_not_a_file() {
 #[test]
 fn the_record_starts_only_when_git_and_both_store_waits_fit() {
     use crate::hook::HOOK_BUDGET;
-    use crate::hook::store_wait::{STORE_WAIT, every_remaining, fits};
+    use crate::hook::guard::GIT_TIMEOUT;
+    use crate::hook::store_wait::{FLOOR, every_remaining, git_timeout, share};
 
+    let steps = super::RECORD_STEPS;
+    assert_eq!(steps.count, 2, "the open and the append");
     for left in every_remaining(HOOK_BUDGET) {
-        if let Ok(git) = super::record_git(left) {
+        if let Ok(git) = git_timeout(left, steps, GIT_TIMEOUT) {
             assert!(
-                git + STORE_WAIT * 2 <= left,
-                "the open and the append, {left:?} left"
+                git + FLOOR * steps.count <= left,
+                "git and the floors of the open and the append, {left:?} left"
             );
         }
-        if fits(left, super::APPEND_NEEDS).is_ok() {
-            assert!(STORE_WAIT <= left, "the append, {left:?} left");
+        if let Ok(wait) = share(left, steps) {
+            assert!(
+                wait * steps.count <= left,
+                "the open and the append at their capped wait, {left:?} left after git"
+            );
         }
     }
-    assert_eq!(super::APPEND_NEEDS, STORE_WAIT);
 }
 
 /// Runs the hook on input it cannot read, with the ledger at `store`, within `budget`.
@@ -84,7 +89,8 @@ fn with_too_little_left_for_both_store_waits_the_deny_goes_out_unrecorded() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let store = dir.path().join("ledger.sqlite3");
     drop(Store::open(&store).expect("a ledger"));
-    let short = Budget::within(Instant::now(), Duration::from_millis(4_100), GIT_TIMEOUT);
+    // Under git's least timeout and one step's floor: neither git nor the open starts.
+    let short = Budget::within(Instant::now(), Duration::from_millis(250), GIT_TIMEOUT);
     let full = Budget::within(Instant::now(), crate::hook::HOOK_BUDGET, GIT_TIMEOUT);
 
     let skipped = denied_within(&store, short);

@@ -35,8 +35,9 @@
 //! missing and the command that records it, plus a `gate_blocked` event in an existing ledger;
 //! the gate never creates a ledger (none means no verdict). Input or a command it cannot read,
 //! and a ledger, git or setting it cannot read, deny. git and the ledger get [`HOOK_BUDGET`]
-//! from the hook's start, each git call at most [`GIT_TIMEOUT`], and a store step (the open,
-//! the verdict read, the append) starts only when its whole lock wait fits in what is left
+//! from the hook's start, each git call at most [`GIT_TIMEOUT`]. The ledger is opened with a
+//! lock wait that shares what git left among its store steps (the open, the verdict read, the
+//! append), and a later step starts only when that wait still fits in what is left
 //! (`store_wait`), so the decision is written before the 5 s `timeout` even when every wait runs
 //! to its end. See `docs/verdict.md`.
 
@@ -51,17 +52,15 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::store::{
-    EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError, Wait,
-};
+use crate::store::{EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError};
 use bench_contract::event::GateBlocked;
 use serde::Deserialize;
 
 use crate::error_chain::reason;
-use crate::existing_ledger::{self, LedgerError};
+use crate::existing_ledger::LedgerError;
 use crate::harness::claude_code::ToolUse;
 use crate::hook::guard::{GIT_TIMEOUT, MAX_INPUT_BYTES, MergeScan, PrMerge, find_pr_merge};
-use crate::hook::store_wait::{self, OutOfTime, STORE_WAIT};
+use crate::hook::store_wait::{self, OpenRefused, OutOfTime, Steps};
 use crate::hook::{HOOK_BUDGET, HookEnv, StdinError, read_stdin, write_deny};
 use crate::paths::{self, PathError};
 use crate::pr_diff::Budget;
@@ -72,13 +71,14 @@ use crate::verdict::assess::{Invalid, Outcome};
 use crate::verdict::pull_request::{self, PullRequest, Query};
 use pull::Pull;
 
-/// What the verdict read may take: git resolving the head (at most [`GIT_TIMEOUT`]), then one
-/// store wait. It starts only when this is left of [`HOOK_BUDGET`].
-const READ_NEEDS: Duration = GIT_TIMEOUT.saturating_add(STORE_WAIT);
-
-/// What the append of `gate_blocked` may take: one store wait. It is skipped, and the deny says
-/// so, when less is left.
-const APPEND_NEEDS: Duration = STORE_WAIT;
+/// The store steps of the gate's ledger: the open, the verdict read and the append, which share
+/// what git leaves of [`HOOK_BUDGET`], less git resolving the head before the read (at most
+/// [`GIT_TIMEOUT`]). The read starts only when that git and its wait fit in what is left; the
+/// append is skipped, and the deny says so, when its wait no longer does.
+const LEDGER_STEPS: Steps = Steps {
+    count: 3,
+    after: GIT_TIMEOUT,
+};
 
 /// The `point` of the gate's `gate_blocked` events, before the check's id.
 const POINT_PREFIX: &str = "merge-gate.";
@@ -281,7 +281,7 @@ where
         return Ok(());
     };
     let unrecorded = match ledger {
-        Ok(Some(store)) => store_wait::fits(store_wait::left(&budget), APPEND_NEEDS)
+        Ok(Some(store)) => store_wait::step(&budget, store.busy_timeout(), Duration::ZERO)
             .map_err(RecordError::OutOfTime)
             .and_then(|()| record(&store, &denial, session))
             .err(),
@@ -430,20 +430,14 @@ fn tripped(how: &str) -> Denial {
     )
 }
 
-/// The store seen from `cwd` when there is one, opened only when git and the open's lock wait
-/// fit in what is left of `budget` ([`open_git`]), each step waiting Core's hook wait (2 s, D6).
+/// The store seen from `cwd` when there is one, opened only when git and the floors of its
+/// steps fit in what is left of `budget`, with a lock wait that shares what git left among
+/// them ([`LEDGER_STEPS`]), at most Core's hook wait (2 s, D6).
 fn open_existing(cwd: &Path, lookup: impl Fn(&str) -> Option<OsString>, budget: Budget) -> Ledger {
-    let git = open_git(store_wait::left(&budget)).map_err(OpenError::OutOfTime)?;
-    existing_ledger::open_existing(cwd, lookup, git, Wait::Hook).map_err(OpenError::Ledger)
-}
-
-/// How long git may take to find the ledger with `remaining` left: what the open's one store
-/// wait leaves, at most [`GIT_TIMEOUT`].
-///
-/// # Errors
-/// [`OutOfTime`] when too little is left, and neither git nor the open is started.
-fn open_git(remaining: Duration) -> Result<Duration, OutOfTime> {
-    store_wait::git_before(remaining, 1, GIT_TIMEOUT)
+    store_wait::open_existing(cwd, lookup, &budget, LEDGER_STEPS).map_err(|refused| match refused {
+        OpenRefused::OutOfTime(error) => OpenError::OutOfTime(error),
+        OpenRefused::Ledger(error) => OpenError::Ledger(error),
+    })
 }
 
 /// The denial for `merge` run from `cwd`, with the verdicts in `store`, if any.
@@ -573,8 +567,8 @@ impl Gate<'_> {
     /// The denial for merging pull request `pr` pinned to `head` (the revision, and the flag
     /// that gave it), if any.
     fn judge_pinned(&self, pr: u64, head: (&'static str, &str)) -> Option<Denial> {
-        if self.store.is_some()
-            && let Err(error) = store_wait::fits(store_wait::left(&self.budget), READ_NEEDS)
+        if let Some(store) = self.store
+            && let Err(error) = store_wait::step(&self.budget, store.busy_timeout(), GIT_TIMEOUT)
         {
             return Some(unjudged(
                 &format!("#{pr}'s verdicts cannot be read"),
