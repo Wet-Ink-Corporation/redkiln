@@ -82,6 +82,9 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 # spec/schemas/ and handed over as a value. A dev-dependency only, never a normal one
 # (Ryan, 2026-11-08, docs/decisions.md).
 jsonschema = { version = "0.58.6", default-features = false }
+# Test-only: property tests, `std` only (no fork, timeout or bit-set). redkiln-calibrate's record
+# reader first (Move 2 step 6, CAL-D1..D4 A, Ryan 2026-11-16); the row R2-E named for Rust 2.0.
+proptest = { version = "1.12", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"                                  # H-01

@@ -178,7 +178,7 @@ fn absolute((var, path): (&'static str, PathBuf)) -> Result<PathBuf, ScopeError>
 }
 
 /// Whether `name` is one plain lowercase folder name.
-fn is_plain(name: &str) -> bool {
+pub(crate) fn is_plain(name: &str) -> bool {
     !name.starts_with('-')
         && !name.is_empty()
         && name

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:redkiln:spec:core.judgement_recorded:1",
+  "title": "The data of core.judgement_recorded, version 1 (SPEC CA-02)",
+  "type": "object",
+  "required": [
+    "producer",
+    "id",
+    "point",
+    "question",
+    "model",
+    "mode"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "id": {
+      "$ref": "#/$defs/word"
+    },
+    "point": {
+      "$ref": "#/$defs/word"
+    },
+    "question": {
+      "$ref": "#/$defs/word"
+    },
+    "model": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "shadow",
+        "enforce"
+      ]
+    },
+    "probability": {
+      "$ref": "#/$defs/probability"
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/probability"
+      }
+    },
+    "top": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "asked": {
+      "type": "boolean"
+    },
+    "failure": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "subject": {
+      "description": "ID-09: <method>:<hash>.",
+      "type": "string",
+      "pattern": "^(sha256|git-commit|git-tree|patch-id|rust-fingerprint):[0-9a-f]+$"
+    },
+    "detail": {
+      "description": "CA-03: the producer's own fields; Core reads none.",
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "required": [
+        "probability"
+      ],
+      "not": {
+        "required": [
+          "failure"
+        ]
+      }
+    },
+    {
+      "required": [
+        "failure"
+      ],
+      "properties": {
+        "probability": false,
+        "options": false,
+        "top": false,
+        "action": false
+      }
+    }
+  ],
+  "dependentRequired": {
+    "probability": [
+      "asked"
+    ],
+    "asked": [
+      "probability"
+    ]
+  },
+  "$defs": {
+    "producer": {
+      "description": "ST-17: one plain folder name.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "word": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+    },
+    "probability": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    }
+  }
+}

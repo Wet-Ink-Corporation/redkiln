@@ -37,6 +37,8 @@ const SCHEMAS: &[&str] = &[
     "journal-line-1",
     "core.approval_recorded-1",
     "core.import_completed-1",
+    "core.judgement_recorded-1",
+    "core.judgement_labelled-1",
     "decision-request-1",
     "cli-envelope-1",
     "status-1",
@@ -62,6 +64,15 @@ const VALID: &[(&str, &str)] = &[
         "envelope-1",
     ),
     ("envelope/valid/import-completed-legacy.json", "envelope-1"),
+    (
+        "envelope/valid/judgement-recorded-answered.json",
+        "envelope-1",
+    ),
+    (
+        "envelope/valid/judgement-recorded-failed.json",
+        "envelope-1",
+    ),
+    ("envelope/valid/judgement-labelled.json", "envelope-1"),
     ("journal/valid/jr-02-item-raised.jsonl", "journal-line-1"),
     (
         "journal/valid/jr-02-item-raised.imported.json",
@@ -200,6 +211,38 @@ const INVALID: &[(&str, &str, Expected, Reader)] = &[
         Reader::Refuses,
     ),
     (
+        "envelope/invalid-data/judgement-both-probability-and-failure.json",
+        "core.judgement_recorded-1",
+        &[("", "oneOf")],
+        Reader::NotCoreShape,
+    ),
+    (
+        // Answer keys beside both forms: the first branch alone must refuse `failure`.
+        "envelope/invalid-data/judgement-both-with-options.json",
+        "core.judgement_recorded-1",
+        &[("", "oneOf")],
+        Reader::NotCoreShape,
+    ),
+    (
+        "envelope/invalid-data/judgement-asked-without-probability.json",
+        "core.judgement_recorded-1",
+        // jsonschema reports `dependentRequired` under the keyword `required`.
+        &[("", "required")],
+        Reader::NotCoreShape,
+    ),
+    (
+        "envelope/invalid-data/judgement-probability-above-one.json",
+        "core.judgement_recorded-1",
+        &[("/probability", "maximum")],
+        Reader::NotCoreShape,
+    ),
+    (
+        "envelope/invalid-data/labelled-outcome-bad-chars.json",
+        "core.judgement_labelled-1",
+        &[("/outcome", "pattern")],
+        Reader::NotCoreShape,
+    ),
+    (
         "journal/invalid/no-origin.jsonl",
         "journal-line-1",
         &[("", "required")],
@@ -335,6 +378,10 @@ const SCENARIO: &[&str] = &[
     "journal/scenario/jr-03-torn-tail.jsonl",
 ];
 
+/// User-scope calibration files (CA-04), read as types by `redkiln-calibrate`'s `rows` tests:
+/// v1 rows and records interleaved, some skipped on purpose and the last line torn.
+const CALIBRATE: &[&str] = &["calibrate/mixed.jsonl"];
+
 /// Every file the tables name, as `fixtures/<rel>` or `schemas/<stem>.schema.json`.
 pub(super) fn listed() -> impl Iterator<Item = String> {
     let fixtures = VALID
@@ -343,6 +390,7 @@ pub(super) fn listed() -> impl Iterator<Item = String> {
         .chain(LENIENT.iter().map(|(rel, _, _)| *rel))
         .chain(INVALID.iter().map(|(rel, _, _, _)| *rel))
         .chain(SCENARIO.iter().copied())
+        .chain(CALIBRATE.iter().copied())
         .map(|rel| format!("fixtures/{rel}"));
     let schemas = SCHEMAS
         .iter()
@@ -647,4 +695,28 @@ fn owned(expected: Expected) -> BTreeSet<(String, String)> {
         .iter()
         .map(|(path, keyword)| ((*path).to_owned(), (*keyword).to_owned()))
         .collect()
+}
+
+#[test]
+fn calibration_record_lines_pass_their_schemas() {
+    let mut checked = 0_u32;
+    for rel in CALIBRATE {
+        for line in golden(rel).split(|&b| b == b'\n') {
+            // v1 rows (`kind`) have no schema; the torn line and the lines of an unknown type or
+            // a newer version are what a reader skips (CA-04).
+            let Ok(doc) = serde_json::from_slice::<Value>(line) else {
+                continue;
+            };
+            let known = matches!(
+                doc["type"].as_str(),
+                Some("core.judgement_recorded" | "core.judgement_labelled")
+            );
+            if known && doc["version"] == 1 {
+                assert_valid("envelope-1", &doc, rel);
+                data_conforms(&doc);
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 4, "the four version-1 records of mixed.jsonl");
 }

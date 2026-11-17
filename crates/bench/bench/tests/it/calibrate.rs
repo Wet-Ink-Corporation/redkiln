@@ -346,3 +346,66 @@ fn labelling_one_decision_twice_keeps_both_rows_and_calibrate_uses_the_last() ->
     );
     Ok(())
 }
+
+/// A calibration record (SPEC CA-04): an EV-01 envelope of `event_type` around `data`.
+fn record(event_type: &str, data: &Value) -> String {
+    let envelope = json!({
+        "type": event_type, "version": 1, "ts": "2025-11-16T10:00:00Z", "actor": "hook",
+        "trust": {"level": "asserted"},
+        "writer": {"binary": "bench", "version": "0.1.0", "spec": "1.0.0"},
+        "data": data,
+    });
+    format!("{envelope}\n")
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
+fn bench_calibrate_reads_a_log_holding_records() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let dir = home.path().join("calibrate").join("bench");
+    copy_dir(&fixture(), &dir)?;
+    let judgement = |id: &str, answer: Value| {
+        let mut data = json!({
+            "producer": "bench", "id": id, "point": "D1", "question": "noul",
+            "model": "@cf/wet-ink/clef-flash", "mode": "shadow",
+        });
+        if let (Some(data), Value::Object(answer)) = (data.as_object_mut(), answer) {
+            data.extend(answer);
+        }
+        record("core.judgement_recorded", &data)
+    };
+    let mut log = fs::read_to_string(dir.join("decisions.jsonl"))?;
+    log += &judgement(
+        "r1763287200000-1-0",
+        json!({"probability": 0.9, "options": {"yes": 0.9, "no": 0.1}, "action": "ask", "asked": true}),
+    );
+    log += &judgement(
+        "r1763287200000-1-1",
+        json!({"failure": {"kind": "timed_out"}}),
+    );
+    log += &record(
+        "core.judgement_labelled",
+        &json!({"producer": "bench", "judgement": "r1763287200000-1-0", "outcome": "yes"}),
+    );
+    fs::write(dir.join("decisions.jsonl"), log)?;
+
+    let output = anneal(home.path())
+        .args(["calibrate", "--point", "D1"])
+        .output()?;
+
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let data = &envelope(&output)?["data"];
+    let noul = &data["points"][0]["questions"][0];
+    assert_eq!(
+        [
+            &noul["n"],
+            &noul["labelled"],
+            &noul["unanswered"],
+            &noul["asks"],
+            &data["skipped_rows"]
+        ],
+        [&json!(7), &json!(6), &json!(2), &json!(3), &json!(1)],
+        "the fixture's six answered, one more from a record, its label and one failure: {noul}"
+    );
+    Ok(())
+}
