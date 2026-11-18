@@ -103,15 +103,11 @@ struct EnvelopeDto {
 
 /// The line `bytes` of a log whose folder names `producer`, or `None` when this build cannot
 /// read it.
-///
-/// The bytes are parsed once, into a JSON value, which is then read as a v1 row, else as a
-/// record.
 pub(super) fn parse(bytes: &[u8], producer: Option<&str>) -> Option<Line> {
-    let value: Value = serde_json::from_slice(bytes).ok()?;
-    match RowDto::deserialize(&value) {
+    match serde_json::from_slice(bytes) {
         Ok(RowDto::Decision(decision)) => upcast_decision(decision),
         Ok(RowDto::Label(label)) => upcast_label(label),
-        Err(_not_a_v1_row) => record(value, bytes.len(), producer),
+        Err(_not_a_v1_row) => record(bytes, producer),
     }
 }
 
@@ -193,13 +189,13 @@ fn upcast_label(row: LabelDto) -> Option<Line> {
     })
 }
 
-/// A record line of `producer`'s log, `value` as parsed from its `len` bytes.
-fn record(value: Value, len: usize, producer: Option<&str>) -> Option<Line> {
-    // The row cap counts the line's newline, which `len` leaves out.
-    if u64::try_from(len).map_or(true, |len| len >= ROW_BYTES) {
+/// A record line of `producer`'s log.
+fn record(bytes: &[u8], producer: Option<&str>) -> Option<Line> {
+    // The row cap counts the line's newline, which `bytes` leaves out.
+    if u64::try_from(bytes.len()).map_or(true, |len| len >= ROW_BYTES) {
         return None;
     }
-    let envelope = EnvelopeDto::deserialize(value).ok()?;
+    let envelope: EnvelopeDto = serde_json::from_slice(bytes).ok()?;
     if envelope.version != VERSION {
         return None;
     }

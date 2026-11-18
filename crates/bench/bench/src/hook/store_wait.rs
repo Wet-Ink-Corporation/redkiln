@@ -160,13 +160,13 @@ pub(crate) fn step_within(
     fits(within(remaining, besides), wait, besides)
 }
 
-/// Whether a step's `wait` fits under `cap`, the longest it may wait with `besides` taken.
+/// Whether a step's `wait` fits under `capped`, the longest it may wait with `besides` taken.
 fn fits(
-    cap: Result<Duration, OutOfTime>,
+    capped: Result<Duration, OutOfTime>,
     wait: Duration,
     besides: Duration,
 ) -> Result<(), OutOfTime> {
-    match cap {
+    match capped {
         Ok(cap) if wait <= cap => Ok(()),
         Ok(_) | Err(_) => Err(OutOfTime {
             needed: wait.saturating_add(besides),

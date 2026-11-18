@@ -373,7 +373,9 @@ fn a_record_line_whose_ts_names_a_day_its_month_lacks_is_skipped_and_counted() -
     let text = dated("feb-31", "2026-02-31")
         + &dated("feb-29-common", "2026-02-29")
         + &dated("apr-31", "2026-04-31")
+        + &dated("feb-29-century", "2100-02-29")
         + &dated("feb-29-leap", "2028-02-29")
+        + &dated("feb-29-400", "2000-02-29")
         + &dated("dec-31", "2026-12-31");
     let log = bench_log(dir.path(), &text)?;
 
@@ -383,7 +385,32 @@ fn a_record_line_whose_ts_names_a_day_its_month_lacks_is_skipped_and_counted() -
     read_ids.sort_unstable();
     assert_eq!(
         (read_ids, rows.skipped_rows),
-        (vec!["dec-31", "feb-29-leap"], 3)
+        (vec!["dec-31", "feb-29-400", "feb-29-leap"], 4)
+    );
+    Ok(())
+}
+
+#[test]
+fn a_v1_row_or_record_line_with_a_repeated_key_is_skipped_and_counted() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let label = r#"{"kind": "label", "id": "v1-0", "outcome": "yes", "outcome": "no"}"#;
+    let record = record_line(JUDGEMENT_RECORDED, 1, &answered_data("bench", "twice")).replacen(
+        "\"version\":1",
+        "\"version\":1,\"version\":1",
+        1,
+    );
+    assert!(record.contains("\"version\":1,\"version\":1"), "{record}");
+    let text = format!("{label}\n")
+        + &record
+        + &record_line(JUDGEMENT_RECORDED, 1, &answered_data("bench", "once"));
+    let log = bench_log(dir.path(), &text)?;
+
+    let rows: LogRows<Point, Question> = read([&log])?;
+
+    let read_ids: Vec<&str> = rows.answered.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(
+        (read_ids, rows.labels.len(), rows.skipped_rows),
+        (vec!["once"], 0, 2)
     );
     Ok(())
 }
