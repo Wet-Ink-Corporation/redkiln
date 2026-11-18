@@ -16,7 +16,7 @@ const RSYNC_SHORT_VALUES: [char; 6] = ['e', 'f', 'T', 'B', 'M', '@'];
 
 /// Long options of `rsync` that take a value (`--name VALUE` or `--name=VALUE`). popt reads
 /// long names whole, never abbreviated, so they are matched exactly.
-const RSYNC_LONG_VALUES: [&str; 54] = [
+const RSYNC_LONG_VALUES: [&str; 57] = [
     "--rsh",
     "--rsync-path",
     "--filter",
@@ -71,6 +71,9 @@ const RSYNC_LONG_VALUES: [&str; 54] = [
     "--remote-option",
     "--info",
     "--debug",
+    "--outbuf",
+    "--stderr",
+    "--copy-as",
 ];
 
 /// Short options of GNU tar and bsdtar that take a value.
@@ -221,9 +224,10 @@ impl<'a> TarArgs<'a> {
                 continue;
             }
             if let Some(long) = Long::parse(text) {
-                // `--extract`, `--get` and `--directory`, abbreviated or not.
+                // `--extract`, `--get` and `--directory` (also its alias `--cd`), abbreviated
+                // or not.
                 tar.extract |= long.is("--extract") || long.is("--get");
-                if long.is("--directory") {
+                if long.is("--directory") || long.is("--cd") {
                     if let Some(dir) = long.value() {
                         tar.dirs.push((dir, first.shape()));
                     } else {

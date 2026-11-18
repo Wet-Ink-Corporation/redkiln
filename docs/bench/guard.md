@@ -223,7 +223,7 @@ The writes it checks:
   `cp`'s is, except that a source ending in `/` copies only its contents, so it lands at no
   joined path; with `--remove-source-files`, its sources as `mv`'s are (#117);
 - the directory `tar` (also `gtar`, `bsdtar`) extracts into, when it extracts (`-x`,
-  `--extract`, `--get`): every `-C DIR`, `-CDIR` and `--directory[=]DIR`, and an old-style
+  `--extract`, `--get`): every `-C DIR`, `-CDIR`, `--directory[=]DIR` and `--cd[=]DIR`, and an old-style
   first word's `C` (`tar xfC x.tar DIR`); and `unzip -d DIR` (or `-dDIR`). A config folder
   there is denied, as `cp`'s destination is, because the archive may hold config and the
   guard cannot tell whether the folder exists (#117);
@@ -231,9 +231,12 @@ The writes it checks:
   `--eval` or `--print`, `perl` with `-e` or `-E`, and `ruby` with `-e`. The guard cannot read
   that code, so when any argument names protected config, as a path (`python3 -c ... x
   .redkiln/bench`, `perl -pi -e ... .claude/settings.json`) or as a word of a path inside the
-  code (`.claude`, `.redkiln`, `.anneal`, `.github`, `.cargo`, `hooks`, `clippy.toml`,
-  `.eslintrc...`, ...; `webhooks` and `my.claude` are not one), the call is denied, even when the
-  code only reads it (#117). `sh -c` and `bash -c` code is read as commands, as before;
+  code (`.claude`, `.redkiln`, `.anneal`, `.github`, `.cargo`, `clippy.toml`, `.eslintrc...`,
+  and `hooks` beside a `/` or `\`, ...; `webhooks`, `my.claude` and `import hooks` are not
+  one), the call is denied, even when the code only reads it (#117). An option the guard does
+  not list that is written without `=` is read as taking the next word when that is no option,
+  so the scan reads on past it (`node --disable-warning X -e ...`) rather than stopping at a
+  script file it may not be. `sh -c` and `bash -c` code is read as commands, as before;
 - what `mv` moves away, and what `rm`, `unlink`, `rmdir`, `shred`, `chmod`, `chown` and `chgrp`
   touch. These also deny `.redkiln`, `.redkiln/bench`, `.anneal`, `.claude`, `.github` or `.cargo` itself, because removing or
   re-permissioning that directory changes the config inside it;
@@ -420,6 +423,9 @@ it cannot model instead of modelling every shell feature, and it does not try to
   tree), `tar --transform` or `--one-top-level`, other extractors (`7z`, `bsdcpio`), and an
   `rsync`, `tar` or `unzip` behind a program the guard does not know (`caffeinate rsync ...`),
   since only the programs listed in "Unlisted wrappers" above start a nested read (#117);
+- a copy that rebuilds its sources' paths under the destination: `rsync -R /src/./.claude/x .`
+  and `cp --parents src/.claude/settings.json dest` create a config folder below a destination
+  that is not named as one (#117);
 - other programs that delete or write files (`find -delete`, `git clean`, `dd of=`,
   `curl -o`), and environment variables that make git run a command (`GIT_SSH_COMMAND`,
   `GIT_EDITOR`);

@@ -24,6 +24,11 @@ fn rsync_into_a_config_folder_or_onto_protected_config_is_a_config_write() {
         ("rsync -a --exclude '*.tmp' x/ .cargo/", CONFIG),
         ("rsync -a -e ssh x/ .cargo", CONFIG),
         ("rsync -a -- x/ .redkiln/", CONFIG),
+        // Value options after the operands must not leave their value as the destination
+        // (review F3).
+        ("rsync -a x/ .claude/ --outbuf L", CONFIG),
+        ("rsync -a x/ .claude/ --stderr all", CONFIG),
+        ("rsync -a x/ .claude/ --copy-as user", CONFIG),
         ("cd .redkiln && rsync -a /tmp/x/ bench/", CONFIG),
         ("bash -c 'rsync -a x/ .redkiln/'", CONFIG),
         ("sudo rsync -a x/ .redkiln/", CONFIG),
@@ -76,6 +81,8 @@ fn tar_extracting_into_a_config_folder_is_a_config_write() {
         ("tar -xf x.tar -C build -C .redkiln", CONFIG),
         ("bsdtar -xf x.zip -C .claude", CONFIG),
         ("gtar -xf x.tar -C .redkiln", CONFIG),
+        ("tar -xf x.tar --cd .claude", CONFIG),
+        ("tar -xf x.tar --cd=.redkiln", CONFIG),
         ("cd .redkiln && tar -xf /tmp/x.tar -C bench", CONFIG),
     ]);
 }

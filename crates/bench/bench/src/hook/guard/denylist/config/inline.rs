@@ -27,7 +27,8 @@ struct Interpreter {
     /// One that takes only digits after it (`perl -l`, `-0`) is not one: the digits name no
     /// option, so the cluster reads on past them (`perl -lne`, `-0777e`).
     attached: &'static [char],
-    /// Long options that take the next word as a value when written without `=`.
+    /// Long options that take the next word as a value when written without `=`. Any other
+    /// long option without `=` is read as taking a next word that is no option too.
     long_values: &'static [&'static str],
 }
 
@@ -59,8 +60,9 @@ const NODE: Interpreter = Interpreter {
 const PERL: Interpreter = Interpreter {
     inline: &['e', 'E'],
     long_inline: &[],
-    values: &[],
-    attached: &['i', 'I', 'M', 'm', 'x', 'C', 'd', 'D', 'V'],
+    // `-I DIR` takes the next word when nothing follows it in the cluster.
+    values: &['I'],
+    attached: &['i', 'M', 'm', 'x', 'C', 'd', 'D', 'V'],
     long_values: &[],
 };
 
@@ -117,7 +119,14 @@ impl Interpreter {
                 if self.long_inline.contains(&name) {
                     return true;
                 }
-                if !text.contains('=') && self.long_values.contains(&name) {
+                if text.contains('=') {
+                    continue;
+                }
+                // A listed option takes the next word. An unlisted one may too, so a next
+                // word that is no option is read as its value rather than a script file,
+                // and the scan reads on (fail closed: `node --disable-warning X -e ...`).
+                let unlisted_value = tail.first().is_some_and(|next| !is_option(next));
+                if self.long_values.contains(&name) || unlisted_value {
                     rest = skip_one(rest);
                 }
                 continue;

@@ -73,6 +73,17 @@ fn node_perl_and_ruby_inline_code_naming_config_is_a_config_write() {
             CONFIG,
         ),
         ("perl -E 'open(F, \">.anneal/config.json\")'", CONFIG),
+        // `-I` takes the next word (review F1).
+        ("perl -I lib -e 'open(F, \">.claude/x\")'", CONFIG),
+        // An unlisted long option may take the next word: the scan reads on (review F2).
+        (
+            "node --disable-warning X -e \"fs.writeFileSync('.claude/x', '')\"",
+            CONFIG,
+        ),
+        (
+            "python3 --unlisted X -c 'open(\".claude/x\", \"w\")'",
+            CONFIG,
+        ),
         ("perl -lne 'print' rustfmt.toml", CONFIG),
         (
             "ruby -e 'File.write(\".claude/settings.json\", \"{}\")'",
@@ -97,6 +108,12 @@ fn inline_code_naming_no_config_and_script_files_are_left_to_the_fallback() {
         ("perl -ne 'print' notes.md", ALLOW),
         ("perl script.pl .claude", ALLOW),
         ("ruby -e 'puts 1'", ALLOW),
+        // A dotless name such as `hooks` counts only beside a path separator (review F5).
+        ("python3 -c 'import hooks'", ALLOW),
+        ("python3 -c 'hooks = 1; print(hooks)'", ALLOW),
+        ("pytest -k hooks", ALLOW),
+        ("python3 -c \"open('git/hooks/pre-commit', 'w')\"", CONFIG),
+        ("python3 -c \"open('hooks/x', 'w')\"", CONFIG),
         ("ruby -E utf-8 script.rb .claude", ALLOW),
         ("python3 -c 'print(1)' ..", ALLOW),
     ]);
