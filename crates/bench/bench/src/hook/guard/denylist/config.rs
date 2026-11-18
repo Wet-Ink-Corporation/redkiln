@@ -1,6 +1,8 @@
 //! Bash writes to lint or hook config: redirections, `tee`, `truncate`, `sed -i`, `cp`, `mv`,
 //! `ln`, `install`, `rm` and `chmod` aimed at a protected path, and hard links to one (`ln`
-//! without `-s`, `link`, `cp -l`), since writing the link writes the file.
+//! without `-s`, `link`, `cp -l`), since writing the link writes the file. `rsync`, `tar -x`
+//! and `unzip -d` destinations are read in [`unpack`], inline interpreter code in [`inline`]
+//! (#117).
 //!
 //! Paths are matched on their components by the guard kit ([`redkiln_guard::protect`]) against
 //! Bench's table ([`PROTECTED`]), so `docs/hooks.md` and `myhooks/x` are not `hooks/`. A
