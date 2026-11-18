@@ -242,6 +242,7 @@ fn events(rng: &mut Rng) -> Vec<EventEnvelope> {
                 branch: None,
                 head: None,
                 ts: adversarial(rng, 2),
+                cites: Vec::new(),
             }
         })
         .collect()
@@ -627,6 +628,7 @@ fn statuses(sequence: &[Ev]) -> TestResult<Vec<Status>> {
                 branch: None,
                 head: None,
                 ts: format!("t{position}"),
+                cites: Vec::new(),
             };
             ledger.apply(position, &env);
             let item = ledger

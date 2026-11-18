@@ -24,8 +24,9 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use redkiln_core::envelope::{Actor, Author, Skip, Writer};
-use redkiln_core::store::{Appended, Condition, OpenError, StoreError, Wait};
+use redkiln_core::store::{Appended, Condition, Filter, OpenError, StoreError, Wait};
 use redkiln_core::trust::Trust;
+use weighin_contract::names::REQUEST_RAISED;
 use weighin_core::event::EventEnvelope;
 use weighin_core::{ItemId, Ledger};
 
@@ -182,6 +183,28 @@ impl Store {
                 return Ok(read);
             }
         }
+    }
+
+    /// The ref (ID-03) of the `weighin.request_raised` at `position`: what an answer to the
+    /// request cites (DR-05). A journal-imported request keeps its origin, so the ref is the
+    /// event's identity, not this store's position.
+    ///
+    /// # Errors
+    /// A store error, or no decision request at `position`.
+    pub(crate) fn request_ref(&self, position: u64) -> Result<String> {
+        let filter = Filter::all()
+            .of_type(REQUEST_RAISED.name)
+            .context("the decision request filter")?;
+        let after = position
+            .checked_sub(1)
+            .context("a store position starts at 1")?;
+        self.inner
+            .read(&filter, after, NonZeroUsize::MIN)
+            .context("reading the store")?
+            .into_iter()
+            .find(|stored| stored.position == position)
+            .map(|stored| stored.id.to_string())
+            .with_context(|| format!("no decision request at store position {position}"))
     }
 
     /// The ledger folded from every usable weighin event.

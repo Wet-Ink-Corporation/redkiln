@@ -258,6 +258,7 @@ const BOARD_DECIDED_CAP: usize = 20;
 ///     branch: None,
 ///     head: None,
 ///     ts: "2026-10-05T09:00:00Z".into(),
+///     cites: Vec::new(),
 /// };
 /// let option = |id: &str| CardOption { id: id.into(), title: format!("Option {id}"), ..Default::default() };
 /// let events = [
@@ -709,6 +710,7 @@ mod tests {
             branch: None,
             head: None,
             ts: "2026-09-26T00:00:00Z".into(),
+            cites: Vec::new(),
         }
     }
 

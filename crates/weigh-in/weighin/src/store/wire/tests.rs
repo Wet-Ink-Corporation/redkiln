@@ -468,6 +468,7 @@ fn weighin_never_encodes_a_request() {
         branch: None,
         head: None,
         ts: TS.into(),
+        cites: Vec::new(),
     };
 
     let refused = to_new_event(env, &writer().expect("writer"));
@@ -477,4 +478,62 @@ fn weighin_never_encodes_a_request() {
         format!("{err:#}").contains("weighin does not raise decision requests"),
         "{err:#}"
     );
+}
+
+/// An event ref Core reads (ID-03): a store id and a position there.
+const CITED: &str = "0f3c9a1e6b7d4c2a8e5f1b3d7c9a2e4f:41";
+
+/// The `item_decided` of [`one_of_each`].
+fn decided() -> EventEnvelope {
+    one_of_each()
+        .into_iter()
+        .find(|e| e.event.event_type() == "item_decided")
+        .expect("a decision")
+}
+
+#[test]
+fn cites_round_trip_through_the_store() {
+    let mut citing = decided();
+    citing.cites = vec![CITED.to_owned()];
+
+    let read = stored(vec![citing.clone()]);
+
+    let [event] = read.as_slice() else {
+        panic!("one event: {read:?}");
+    };
+    let text = String::from_utf8_lossy(&event.data);
+    assert!(
+        text.contains(&format!(r#""head":"{HEAD}","cites":["{CITED}"],"data":"#)),
+        "EV-01 puts cites before data: {text}"
+    );
+    assert_eq!(from_stored(event).expect("usable"), citing);
+}
+
+#[test]
+fn an_envelope_with_no_cites_writes_no_key() {
+    let plain = decided();
+
+    let read = stored(vec![plain.clone()]);
+
+    let [event] = read.as_slice() else {
+        panic!("one event: {read:?}");
+    };
+    let text = String::from_utf8_lossy(&event.data);
+    assert!(!text.contains("cites"), "{text}");
+    let canonical = String::from_utf8(plain.to_json().expect("json")).expect("utf-8");
+    assert!(!canonical.contains("cites"), "the 1.x form: {canonical}");
+    assert_eq!(
+        from_stored(event).expect("usable").cites,
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_cite_core_refuses_is_an_error_naming_it() {
+    let mut citing = decided();
+    citing.cites = vec!["not-a-ref".to_owned()];
+
+    let err = to_new_event(citing, &writer().expect("writer")).expect_err("a bad ref");
+
+    assert_eq!(err.to_string(), "the event's cite not-a-ref", "{err:#}");
 }

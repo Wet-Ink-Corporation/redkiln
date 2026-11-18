@@ -160,6 +160,7 @@ mod tests {
                 branch: None,
                 head: None,
                 ts: "2026-10-19T00:00:00Z".into(),
+                cites: Vec::new(),
             })
             .collect();
         Ledger::fold((1_u64..).zip(&envelopes))

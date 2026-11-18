@@ -14,7 +14,8 @@ use serde_json::{Value, json};
 use std::num::NonZeroUsize;
 use std::path::Path;
 use weighin_contract::answer::{Answer, AnswerRefused, accepts};
-use weighin_contract::event::Decided;
+use weighin_contract::event::{Applies, Decided};
+use weighin_contract::names::REQUEST_RAISED;
 use weighin_contract::request::{OptionId, Request, raise_condition, raise_event};
 
 const TS: &str = "2026-11-08T12:00:00Z";
@@ -179,5 +180,14 @@ fn a_request_appended_through_the_contract_is_listed_by_open_json() -> TestResul
         accepts(&request, &Answer::of(&decided.data, Level::Witnessed), None),
         Ok(OptionId::B)
     );
+    // DR-05: the answer to a request says how far it applies, and cites the request it answers.
+    let raised = Store::open(&store, Wait::Command)?.read(
+        &Filter::all().of_type(REQUEST_RAISED.name)?,
+        0,
+        NonZeroUsize::MIN,
+    )?;
+    let raised = raised.first().ok_or("the request")?;
+    assert_eq!(decided.data.applies, Some(Applies::Once));
+    assert_eq!(decided.cites.as_slice(), std::slice::from_ref(&raised.id));
     Ok(())
 }

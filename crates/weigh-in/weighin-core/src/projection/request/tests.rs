@@ -48,6 +48,7 @@ fn requested(item: &ItemId, value: Value, session: Option<&str>) -> EventEnvelop
         branch: Some("main".into()),
         head: None,
         ts: "2026-11-18T10:00:00Z".into(),
+        cites: Vec::new(),
     }
 }
 
@@ -215,6 +216,7 @@ fn deciding_a_request_item_by_option_a_decides_it() {
         branch: None,
         head: None,
         ts: "2026-11-18T11:00:00Z".into(),
+        cites: Vec::new(),
     };
     let ledger = fold(&[requested(&item_id, record(), Some("s1")), decided]);
     let item = only(&ledger);
@@ -302,6 +304,7 @@ fn an_item_with_no_request_serialises_as_before() {
         branch: None,
         head: None,
         ts: "2026-11-18T10:00:00Z".into(),
+        cites: Vec::new(),
     };
     let ledger = fold(&[raised]);
     let item = only(&ledger);

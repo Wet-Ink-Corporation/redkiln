@@ -61,11 +61,19 @@ impl Session<'_> {
                 .as_deref()
                 .and_then(|p| env::seconds_between(p, &now))
         });
+        // An answer to a request always says how far it applies, and cites the request (DR-05).
+        // A captured item's decision keeps its bytes (T1).
+        let (applies, cites) = match &item.request {
+            Some(record) => (
+                Some(applies.unwrap_or(Applies::Once)),
+                vec![self.store()?.request_ref(record.position)?],
+            ),
+            None => (applies, Vec::new()),
+        };
         let tree = self.tree_hash();
         let decider = self.env.human();
-        self.write(
-            &item.id,
-            vec![LedgerEvent::ItemDecided(Decided {
+        let mut envelope = self.env.envelope(
+            LedgerEvent::ItemDecided(Decided {
                 item_id: item.id.clone(),
                 option: d.option.clone(),
                 decider,
@@ -82,8 +90,11 @@ impl Session<'_> {
                 },
                 applies,
                 confirmation: d.confirmation.clone(),
-            })],
-        )?;
+            }),
+            &self.actor,
+        );
+        envelope.cites = cites;
+        self.write_envelopes(&item.id, vec![envelope])?;
         self.decision_receipt(&item.id, &d.option, matched)
     }
 }
@@ -246,6 +257,9 @@ pub(super) fn reopen_event(item: &Item, note: Option<&str>, reason: &str) -> Res
         receipt: format!("reopened {}", item.id),
     })
 }
+
+#[cfg(test)]
+mod request_tests;
 
 #[cfg(test)]
 mod tests {

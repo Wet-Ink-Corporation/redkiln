@@ -654,6 +654,7 @@ impl Env {
             branch: self.branch.clone(),
             head: self.head.clone(),
             ts: now(),
+            cites: Vec::new(),
         }
     }
 

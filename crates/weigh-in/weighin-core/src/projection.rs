@@ -769,6 +769,7 @@ mod tests {
             branch: None,
             head: None,
             ts: "2026-09-26T00:00:00Z".into(),
+            cites: Vec::new(),
         }
     }
 
@@ -1699,6 +1700,7 @@ mod collision_tests {
                     branch: None,
                     head: None,
                     ts: "2026-09-27T00:00:00Z".into(),
+                    cites: Vec::new(),
                 },
             );
         }
