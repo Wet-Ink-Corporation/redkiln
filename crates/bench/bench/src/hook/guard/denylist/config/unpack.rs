@@ -5,7 +5,7 @@
 //! working directory itself (`rsync -a x/ .`, `tar -xf x.tar`, `unzip x.zip`) is a limit, as
 //! `cp -r x/. .` is: the guard does not read an archive's member names.
 
-use super::{CopyArgs, copy_into, creates_protected, deny};
+use super::{CopyArgs, CopyMode, TrailingSlash, copy_into, creates_protected, deny};
 use crate::hook::guard::Denial;
 use redkiln_guard::engine::Cwd;
 use redkiln_guard::engine::wrappers::{Long, is_option, skip_one};
@@ -82,7 +82,7 @@ const TAR_SHORT_VALUES: [char; 13] = [
 const UNZIP_SHORT_VALUES: [char; 2] = ['d', 'P'];
 
 /// A path as a destination is judged: its text and shape.
-type Path<'a> = (&'a str, Shape);
+type Dest<'a> = (&'a str, Shape);
 
 /// What a short-option cluster (`-xzf`, `-C.github`) holds: the flags before its first
 /// value-taking option, that option with its value (the rest of the cluster, else the next
@@ -90,7 +90,7 @@ type Path<'a> = (&'a str, Shape);
 #[derive(Debug)]
 struct Cluster<'a> {
     flags: &'a str,
-    value: Option<(char, Option<Path<'a>>)>,
+    value: Option<(char, Option<Dest<'a>>)>,
     takes_next: bool,
 }
 
@@ -126,7 +126,7 @@ impl<'a> Cluster<'a> {
     }
 
     /// The value of option `flag`, if this cluster gives it one.
-    fn value_of(&self, flag: char) -> Option<Path<'a>> {
+    fn value_of(&self, flag: char) -> Option<Dest<'a>> {
         self.value
             .and_then(|(found, value)| (found == flag).then_some(value))
             .flatten()
@@ -173,17 +173,20 @@ pub(super) fn rsync(args: &[Word], cwd: &Cwd) -> Option<Denial> {
     let (operands, removes) = rsync_operands(args);
     let copy = CopyArgs {
         operands,
-        slash_copies_contents: true,
         ..CopyArgs::default()
     };
-    copy_into("rsync", &copy, removes, cwd)
+    let mode = CopyMode {
+        moves: removes,
+        slash: TrailingSlash::Contents,
+    };
+    copy_into("rsync", &copy, mode, cwd)
 }
 
 /// Whether `tar` extracts, and every directory it changes to (`-C DIR`, `--directory DIR`).
 #[derive(Debug, Default)]
 struct TarArgs<'a> {
     extract: bool,
-    dirs: Vec<Path<'a>>,
+    dirs: Vec<Dest<'a>>,
 }
 
 impl<'a> TarArgs<'a> {
@@ -221,14 +224,12 @@ impl<'a> TarArgs<'a> {
                 // `--extract`, `--get` and `--directory`, abbreviated or not.
                 tar.extract |= long.is("--extract") || long.is("--get");
                 if long.is("--directory") {
-                    match long.value() {
-                        Some(dir) => tar.dirs.push((dir, first.shape())),
-                        None => {
-                            if let Some(dir) = tail.first() {
-                                tar.dirs.push((dir.text(), dir.shape()));
-                            }
-                            rest = skip_one(rest);
-                        }
+                    if let Some(dir) = long.value() {
+                        tar.dirs.push((dir, first.shape()));
+                    } else {
+                        tar.dirs
+                            .extend(tail.first().map(|dir| (dir.text(), dir.shape())));
+                        rest = skip_one(rest);
                     }
                 }
             } else if !text.starts_with("--") {
@@ -258,7 +259,7 @@ pub(super) fn tar(program: &str, args: &[Word], cwd: &Cwd) -> Option<Denial> {
 }
 
 /// Every directory `unzip` extracts into (`-d EXDIR`, `-dEXDIR`), wherever the option stands.
-fn unzip_dirs(args: &[Word]) -> Vec<Path<'_>> {
+fn unzip_dirs(args: &[Word]) -> Vec<Dest<'_>> {
     let mut dirs = Vec::new();
     let mut rest = args;
     while let [first, tail @ ..] = rest {

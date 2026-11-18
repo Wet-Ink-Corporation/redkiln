@@ -35,7 +35,10 @@ fn rsync_into_a_config_folder_or_onto_protected_config_is_a_config_write() {
 #[test]
 fn rsync_moving_config_away_is_a_config_write() {
     assert_table(&[
-        ("rsync --remove-source-files .claude/settings.json /tmp/x", CONFIG),
+        (
+            "rsync --remove-source-files .claude/settings.json /tmp/x",
+            CONFIG,
+        ),
         ("rsync -a --remove-source-files .redkiln /tmp/x", CONFIG),
         ("rsync -a .claude/settings.json /tmp/x", ALLOW),
     ]);

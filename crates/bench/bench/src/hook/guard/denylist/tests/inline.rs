@@ -15,9 +15,15 @@ fn python_inline_code_naming_config_is_a_config_write() {
             "python3 -c 'import shutil; shutil.copytree(\"x\", \".redkiln\")'",
             CONFIG,
         ),
-        ("python -c 'import os; os.remove(\".git/hooks/pre-commit\")'", CONFIG),
+        (
+            "python -c 'import os; os.remove(\".git/hooks/pre-commit\")'",
+            CONFIG,
+        ),
         ("python3 -c 'open(\"clippy.toml\", \"w\")'", CONFIG),
-        ("python3 -c 'open(\"./.REDKILN/bench/config.json\", \"w\")'", CONFIG),
+        (
+            "python3 -c 'open(\"./.REDKILN/bench/config.json\", \"w\")'",
+            CONFIG,
+        ),
         (
             "python3 -c 'import sys, shutil; shutil.copy(*sys.argv[1:])' x .redkiln/bench",
             CONFIG,
@@ -27,11 +33,20 @@ fn python_inline_code_naming_config_is_a_config_write() {
             CONFIG,
         ),
         ("python3 -Ic 'open(\".github/x\", \"w\")'", CONFIG),
-        ("python3 -W ignore -c 'open(\".anneal/config.json\", \"w\")'", CONFIG),
-        ("/usr/bin/python3.12 -c 'open(\".claude/x\", \"w\")'", CONFIG),
+        (
+            "python3 -W ignore -c 'open(\".anneal/config.json\", \"w\")'",
+            CONFIG,
+        ),
+        (
+            "/usr/bin/python3.12 -c 'open(\".claude/x\", \"w\")'",
+            CONFIG,
+        ),
         ("python3 -m zipfile -e x.zip .redkiln", CONFIG),
         ("python3 -m tarfile -e x.tar .claude", CONFIG),
-        ("bash -c \"python3 -c 'open(\\\".claude/x\\\", \\\"w\\\")'\"", CONFIG),
+        (
+            "bash -c \"python3 -c 'open(\\\".claude/x\\\", \\\"w\\\")'\"",
+            CONFIG,
+        ),
     ]);
 }
 
@@ -42,15 +57,27 @@ fn node_perl_and_ruby_inline_code_naming_config_is_a_config_write() {
             "node -e \"require('fs').writeFileSync('.claude/settings.json', '{}')\"",
             CONFIG,
         ),
-        ("node --eval=\"fs.rmSync('.redkiln', {recursive: true})\"", CONFIG),
-        ("node --eval \"fs.cpSync('x', '.github', {recursive: true})\"", CONFIG),
+        (
+            "node --eval=\"fs.rmSync('.redkiln', {recursive: true})\"",
+            CONFIG,
+        ),
+        (
+            "node --eval \"fs.cpSync('x', '.github', {recursive: true})\"",
+            CONFIG,
+        ),
         ("node -p \"fs.writeFileSync('deny.toml', '')\"", CONFIG),
         ("nodejs -r fs -e \"x('.cargo/config.toml')\"", CONFIG),
         ("perl -pi -e 's/a/b/' .claude/settings.json", CONFIG),
-        ("perl -i.bak -pe 's/a/b/' .redkiln/bench/config.json", CONFIG),
+        (
+            "perl -i.bak -pe 's/a/b/' .redkiln/bench/config.json",
+            CONFIG,
+        ),
         ("perl -E 'open(F, \">.anneal/config.json\")'", CONFIG),
         ("perl -lne 'print' rustfmt.toml", CONFIG),
-        ("ruby -e 'File.write(\".claude/settings.json\", \"{}\")'", CONFIG),
+        (
+            "ruby -e 'File.write(\".claude/settings.json\", \"{}\")'",
+            CONFIG,
+        ),
         ("ruby -i -pe 'gsub(/a/, \"b\")' lefthook.yml", CONFIG),
     ]);
 }

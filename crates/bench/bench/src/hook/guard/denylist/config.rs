@@ -243,9 +243,15 @@ struct CopyArgs<'a> {
     symbolic: bool,
     /// `-l` or `--link` (`cp`): hard links instead of copies.
     link: bool,
-    /// A source ending in `/` copies its contents into the destination, not itself (`rsync`),
-    /// so it lands at no joined path.
-    slash_copies_contents: bool,
+}
+
+/// What a source ending in `/` copies into a directory destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrailingSlash {
+    /// The source itself, at `<dest>/<its name>` (`cp`, `mv`, `ln`, `install`).
+    Itself,
+    /// Only its contents, so it lands at no joined path (`rsync`).
+    Contents,
 }
 
 impl<'a> CopyArgs<'a> {
@@ -352,12 +358,26 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
     {
         return Some(denial);
     }
-    copy_into(program, &copy, moves, cwd)
+    let mode = CopyMode {
+        moves,
+        slash: TrailingSlash::Itself,
+    };
+    copy_into(program, &copy, mode, cwd)
+}
+
+/// How a copying program treats its sources.
+#[derive(Debug, Clone, Copy)]
+struct CopyMode {
+    /// It moves them away (`mv`, `rsync --remove-source-files`).
+    moves: bool,
+    /// What a source ending in `/` copies.
+    slash: TrailingSlash,
 }
 
 /// The denial for `program` writing its destination, or a source's joined path in it, when
-/// either is protected config; with `moves`, also for moving a source that holds config away.
-fn copy_into(program: &str, copy: &CopyArgs<'_>, moves: bool, cwd: &Cwd) -> Option<Denial> {
+/// either is protected config; when it moves its sources, also for moving one that holds
+/// config away.
+fn copy_into(program: &str, copy: &CopyArgs<'_>, mode: CopyMode, cwd: &Cwd) -> Option<Denial> {
     // A source lands at `<dest>/<its name>` when the destination is a directory: always for
     // `-t`, and, since the guard cannot look, when the destination ends in `/` or names a
     // directory that holds config.
@@ -382,10 +402,12 @@ fn copy_into(program: &str, copy: &CopyArgs<'_>, moves: bool, cwd: &Cwd) -> Opti
         return Some(deny(&format!("{program} writes {dest}"), label));
     }
     sources.iter().find_map(|source| {
-        if moves && let Some(label) = contains_protected(source.text(), source.shape(), cwd) {
+        if mode.moves
+            && let Some(label) = contains_protected(source.text(), source.shape(), cwd)
+        {
             return Some(deny(&format!("{program} moves {}", source.text()), label));
         }
-        if copy.slash_copies_contents && source.text().ends_with(['/', '\\']) {
+        if mode.slash == TrailingSlash::Contents && source.text().ends_with(['/', '\\']) {
             return None;
         }
         let joined = format!("{dest}/{}", basename(source.text()));
