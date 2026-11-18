@@ -17,11 +17,11 @@ pub(crate) mod pre_push;
 pub(crate) mod refs;
 mod watermark;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use std::collections::HashSet;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use weighin_core::{EventEnvelope, Ledger};
+use weighin_core::{EventEnvelope, Ledger, LedgerEvent};
 
 use crate::store::legacy::identity::Canonical;
 
@@ -156,9 +156,15 @@ pub(crate) fn read(root: &Path) -> Result<Vec<EventEnvelope>> {
 fn parse(file: &str, bytes: &[u8], events: &mut Vec<EventEnvelope>) -> Result<()> {
     for line in lines(bytes).filter(|l| !l.is_blank()) {
         match EventEnvelope::from_json(line.text) {
-            Ok(env) => events.push(env),
+            // No 1.x journal ever held a decision request: such a line names an item with no
+            // check that the request minted it (ID-04), so it is no 1.x event.
+            Ok(env) if !matches!(env.event, LedgerEvent::RequestRaised(_)) => events.push(env),
             // A cut-short last line is a write the next run repeats, not a failure to report.
-            Err(_) if !line.complete => {}
+            Ok(_) | Err(_) if !line.complete => {}
+            Ok(_) => bail!(
+                "{file} line {}: not a ledger event (a decision request is never a journal line)",
+                line.number
+            ),
             Err(e) => {
                 return Err(e)
                     .with_context(|| format!("{file} line {}: not a ledger event", line.number));
@@ -306,6 +312,20 @@ mod tests {
         let tmp = folder_with_journal(format!("{RAISED}\nnot json\n{PRESENTED}"))?;
 
         let e = read(tmp.path()).expect_err("the middle line is not an event");
+
+        let msg = format!("{e:#}");
+        assert!(msg.contains("s.jsonl line 2: not a ledger event"), "{msg}");
+        Ok(())
+    }
+
+    /// A decision request written as a 1.x line, naming an item it was never minted for.
+    const REQUESTED: &str = r#"{"type":"request_raised","item_id":"wi-b29e54","request":{"question":"Take it over?","options":[{"id":"a","label":"Yes","holds_when":"Always","cost_if_wrong":"None"},{"id":"b","label":"No","holds_when":"Never","cost_if_wrong":"None"}],"recommendation":"a","door":"two-way","authority":"judgment","blocks":"none","trust_needed":"witnessed","raiser":{"namespace":"bench","key":"forged"}},"actor":"cli","session_id":"s","ts":"2026-10-09T03:29:37Z"}"#;
+
+    #[test]
+    fn a_request_raised_line_in_a_journal_is_not_a_ledger_event() -> Result<()> {
+        let tmp = folder_with_journal(format!("{RAISED}\n{REQUESTED}\n{PRESENTED}\n"))?;
+
+        let e = read(tmp.path()).expect_err("no 1.x journal holds a request");
 
         let msg = format!("{e:#}");
         assert!(msg.contains("s.jsonl line 2: not a ledger event"), "{msg}");

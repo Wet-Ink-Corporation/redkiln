@@ -147,31 +147,42 @@ pub(super) const RAISED: &str = <Raised as Payload>::TYPE;
 /// item its `item` tag names.
 ///
 /// # Errors
-/// [`Skip::Unusable`] for a record this build cannot read, or a tag that is missing, is not an
-/// item id or is not one of the request's own 10, 12 or 16 hex mints (ID-04): a request never
-/// lands on another item (EV-10).
+/// [`Skip::Unusable`] for a record this build cannot read, one that breaks a DR-04 guard at its
+/// own `ts` (a sibling that skipped `raise_event`), or an `item` tag that is missing, repeated,
+/// not an item id or not one of the request's own 10, 12 or 16 hex mints (ID-04): a request
+/// never lands on another item (EV-10).
 fn requested(stored: &Stored) -> Result<EventEnvelope, Skip> {
     let read = decode::<Request>(stored)?;
-    let item_id = stored
+    if read.data.check(&read.ts).is_err() {
+        return Err(unusable_request("the request breaks a DR-04 guard"));
+    }
+    let mut items = stored
         .tags
         .iter()
-        .filter(|tag| tag.key() == Some(CoreKey::Item.as_str()))
-        .find_map(|tag| tag.value().and_then(weighin_core::ItemId::parse))
+        .filter(|tag| tag.key() == Some(CoreKey::Item.as_str()));
+    let (Some(tag), None) = (items.next(), items.next()) else {
+        return Err(unusable_request(
+            "the request has no item tag, or more than one",
+        ));
+    };
+    let item_id = tag
+        .value()
+        .and_then(weighin_core::ItemId::parse)
         .filter(|id| {
             [HexLen::Ten, HexLen::Twelve, HexLen::Sixteen]
                 .into_iter()
                 .any(|len| read.data.item_id_at(len).is_ok_and(|mint| mint == *id))
         })
-        .ok_or_else(|| {
-            // The folded payload is the record and its item; without its own item it cannot be
-            // read, as a payload that does not decode cannot.
-            Skip::Unusable(Unusable::Payload(serde::de::Error::custom(
-                "the request's item tag is missing or is not its own id",
-            )))
-        })?;
+        .ok_or_else(|| unusable_request("the request's item tag is not its own id"))?;
     Ok(to_ledger(read, |request| {
         LedgerEvent::RequestRaised(Requested { item_id, request })
     }))
+}
+
+/// A request weighin does not fold, for `why`. The folded payload is the checked record and its
+/// own item; without either it cannot be read, as a payload that does not decode cannot.
+fn unusable_request(why: &'static str) -> Skip {
+    Skip::Unusable(Unusable::Payload(serde::de::Error::custom(why)))
 }
 
 /// Every weighin event: the 13 item types, and the decision requests siblings raise.

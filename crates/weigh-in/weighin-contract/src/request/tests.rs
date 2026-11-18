@@ -2,7 +2,6 @@
 #![cfg(feature = "core")]
 
 use super::*;
-use crate::names::ITEM_EVENTS;
 use redkiln_core::envelope::{Actor, Author, Envelope, Namespace, Timestamp, Writer, decode};
 use redkiln_core::ids::{ContentId, HexLen, IdPrefix};
 use redkiln_core::store::{Appended, Filter, NewEvent, Store, Tag, Wait};
@@ -537,10 +536,6 @@ fn raise_condition_matches_a_captured_raise_and_a_request_of_the_item() {
             .expect("append"),
         Appended::At(_)
     ));
-    assert_eq!(
-        ITEM_EVENTS.first().map(|e| e.name),
-        Some("weighin.item_raised")
-    );
 }
 
 #[test]

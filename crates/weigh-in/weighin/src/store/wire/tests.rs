@@ -4,7 +4,7 @@ use redkiln_core::envelope::{Class, TypeName};
 use redkiln_core::store::{Store, Wait};
 use serde_json::{Value, json};
 use weighin_contract::names::ITEM_EVENTS;
-use weighin_contract::request::raise_event_at;
+use weighin_contract::request::{OptionId, raise_event_at};
 use weighin_core::ItemId;
 use weighin_core::event::EVENT_TYPES;
 
@@ -406,6 +406,48 @@ fn a_request_whose_item_tag_is_not_its_mint_is_unusable() {
 fn a_request_with_no_item_tag_is_unusable() {
     let event = request_envelope(request())
         .to_event(Vec::new())
+        .expect("an event");
+
+    let skipped = from_stored(&stored_one(event));
+
+    assert!(matches!(skipped, Err(Skip::Unusable(_))), "{skipped:?}");
+}
+
+/// The `item` tag of `request`'s own 10-hex id.
+fn own_tag(request: &Request) -> Tag {
+    let id = request.item_id().expect("mints");
+    Tag::core(CoreKey::Item, id.as_str()).expect("an item tag")
+}
+
+#[test]
+fn a_request_that_breaks_a_dr_04_guard_is_unusable() {
+    let mut missing_default = request();
+    missing_default.default = Some(OptionId::C);
+    let mut one_option = request();
+    one_option.options.truncate(1);
+    let mut five_options = request();
+    let extra = five_options.options.first().expect("an option").clone();
+    five_options
+        .options
+        .extend([extra.clone(), extra.clone(), extra]);
+    for broken in [missing_default, one_option, five_options] {
+        let tag = own_tag(&broken);
+        let event = request_envelope(broken)
+            .to_event(vec![tag])
+            .expect("an event Core builds without the contract's guards");
+
+        let skipped = from_stored(&stored_one(event));
+
+        assert!(matches!(skipped, Err(Skip::Unusable(_))), "{skipped:?}");
+    }
+}
+
+#[test]
+fn a_request_with_more_than_one_item_tag_is_unusable() {
+    let forged = ItemId::mint("s1", "Another item's question?");
+    let other = Tag::core(CoreKey::Item, forged.as_str()).expect("an item tag");
+    let event = request_envelope(request())
+        .to_event(vec![own_tag(&request()), other])
         .expect("an event");
 
     let skipped = from_stored(&stored_one(event));
