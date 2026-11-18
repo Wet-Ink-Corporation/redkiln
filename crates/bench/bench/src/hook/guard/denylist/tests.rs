@@ -9,6 +9,7 @@ mod extglob;
 mod forms;
 mod human_only;
 mod indirection;
+mod inline;
 mod merge;
 mod shell_option_readings;
 mod shell_options;

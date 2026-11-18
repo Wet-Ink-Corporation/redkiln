@@ -10,6 +10,7 @@
 //! A relative path after a `cd` is also read from the directory the `cd` named, and from
 //! anywhere after a `cd` the guard cannot follow.
 
+mod inline;
 mod unpack;
 
 use crate::hook::guard::{Denial, Rule};
@@ -138,7 +139,7 @@ pub(super) fn check(program: &str, args: &[Word], cwd: &Cwd) -> Option<Denial> {
         "rsync" => unpack::rsync(args, cwd),
         "tar" | "gtar" | "bsdtar" => unpack::tar(program, args, cwd),
         "unzip" => unpack::unzip(args, cwd),
-        _ => None,
+        _ => inline::check(program, args, cwd),
     }
 }
 

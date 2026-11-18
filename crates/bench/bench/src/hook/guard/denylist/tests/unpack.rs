@@ -26,6 +26,9 @@ fn rsync_into_a_config_folder_or_onto_protected_config_is_a_config_write() {
         ("rsync -a -- x/ .redkiln/", CONFIG),
         ("cd .redkiln && rsync -a /tmp/x/ bench/", CONFIG),
         ("bash -c 'rsync -a x/ .redkiln/'", CONFIG),
+        ("sudo rsync -a x/ .redkiln/", CONFIG),
+        ("env LC_ALL=C nice tar -xf x.tar -C .claude", CONFIG),
+        ("timeout 5 unzip x.zip -d .redkiln", CONFIG),
     ]);
 }
 
