@@ -188,6 +188,48 @@ fn decided_label_is_the_card_title_of_the_decided_option() {
     );
 }
 
+#[test]
+fn every_status_spelling_reads_back() {
+    let all = [
+        Status::Raised,
+        Status::Triaged,
+        Status::Grounded,
+        Status::Presented,
+        Status::Deferred,
+        Status::Decided,
+        Status::Defaulted,
+        Status::Dismissed,
+        Status::Superseded,
+    ];
+    let listed: Vec<serde_json::Value> = all
+        .iter()
+        .enumerate()
+        .map(|(n, status)| json!({"id": format!("wi-{n:06x}"), "status": status.as_str()}))
+        .collect();
+
+    let found = read(&serde_json::Value::Array(listed)).expect("an array");
+
+    let statuses: Vec<Option<Status>> = found.iter().map(|item| item.status).collect();
+    assert_eq!(statuses, all.map(Some));
+}
+
+#[test]
+fn a_null_question_or_title_reads_as_empty() {
+    let listed = json!([
+        {"id": "wi-000001", "status": "decided", "question": null,
+         "decision": {"option": "a"},
+         "card": {"options": [{"id": "a", "title": null}]}}
+    ]);
+
+    let found = read(&listed).expect("an array");
+
+    let [item] = found.as_slice() else {
+        panic!("one item: {found:?}");
+    };
+    assert_eq!(item.question, "");
+    assert_eq!(item.decided_label(), Some("a"));
+}
+
 /// A decided item as weighin's `open --json` writes it (`OpenItem`, every key).
 const WRITTEN: &str = r#"{"id":"wi-0c9f04eb9a","kind":"question","question":"Which store?","question_key":"0c9f04eb9a0c9f04","did":null,"flip_hint":null,"at":"src/lib.rs:3","sym":null,"blocks":null,"door_hint":"one-way","authority_hint":"judgment","channel":"manual","quote":"Which store?","source_path":null,"source_line":null,"session_id":"s1","worktree":null,"branch":null,"raised_ts":"2026-11-17T09:00:00Z","raised_position":1,"door":"one-way","blast":null,"authority":"judgment","route":null,"timing":null,"resolve_by":null,"card":{"why":"It sets the format.","timing":"","evidence":[],"options":[{"id":"a","title":"SQLite","summary":"","holds_if":"","if_wrong":""},{"id":"b","title":"Files","summary":"","holds_if":"","if_wrong":""}],"criteria":[],"recommendation":{"option":"a","flip":"","tradeoff":"","why_wrong":""}},"card_rev":2,"presented_ts":null,"presented_tree":null,"times_presented":1,"status":"decided","decision":{"option":"a","decider":"human:ryan","provenance":"user-approved","note":"","via":"chat","matched_recommendation":true,"tree_hash":null,"seconds_to_decide":12,"ts":"2026-11-17T09:00:00Z","applies":"once"},"deferral":null,"default":null,"dismissed":null,"superseded_by":null,"records":[],"links":[],"also_raised_in":[],"reopened":0,"last_position":3,"last_ts":"2026-11-17T09:00:00Z"}"#;
 

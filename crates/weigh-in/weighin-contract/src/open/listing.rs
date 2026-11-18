@@ -6,24 +6,12 @@
 //! decision and the card's option titles. An item that does not read as one (an id that is
 //! not a `wi-` id, a field of another type) is skipped, never failing the listing.
 
+use serde::de::value::{Error as ValueError, StrDeserializer};
 use serde::{Deserialize, Deserializer};
 
 use super::Status;
 use crate::event::Applies;
 use crate::id::ItemId;
-
-/// Every status word, to read one leniently.
-const STATUSES: [Status; 9] = [
-    Status::Raised,
-    Status::Triaged,
-    Status::Grounded,
-    Status::Presented,
-    Status::Deferred,
-    Status::Decided,
-    Status::Defaulted,
-    Status::Dismissed,
-    Status::Superseded,
-];
 
 /// One item of `open --json` as a sibling reads it: unknown keys ignored (EV-09).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -34,8 +22,8 @@ pub struct Listed {
     /// Where the item is in its lifecycle; `None` for a word this build does not know, or none.
     #[serde(default, deserialize_with = "status")]
     pub status: Option<Status>,
-    /// The question as first raised; empty when absent.
-    #[serde(default)]
+    /// The question as first raised; empty when absent or `null`.
+    #[serde(default, deserialize_with = "text")]
     pub question: String,
     /// The latest decision; `None` when undecided.
     #[serde(default)]
@@ -68,8 +56,8 @@ pub struct ListedCard {
 pub struct ListedOption {
     /// The option's id, as a decision names it (`A`, or `a` for a request item).
     pub id: String,
-    /// The option's short name (a request option's label); empty when absent.
-    #[serde(default)]
+    /// The option's short name (a request option's label); empty when absent or `null`.
+    #[serde(default, deserialize_with = "text")]
     pub title: String,
 }
 
@@ -107,6 +95,9 @@ pub enum ListingError {
 /// Every readable item of an `open --json` listing asked for at most `asked` items, in the
 /// order listed; an item that does not read as [`Listed`] is skipped.
 ///
+/// `json` is parsed whole, so the caller bounds it first (Bench reads at most 4 MiB of
+/// weighin's stdout). `asked` caps the number of elements, not bytes.
+///
 /// # Errors
 /// [`ListingError::Parse`] when `json` is not a JSON array, [`ListingError::Truncated`] when it
 /// holds `asked` elements or more, readable or not.
@@ -132,7 +123,14 @@ fn item_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ItemId, D::Erro
 /// A status word, `None` when absent, `null` or unknown.
 fn status<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Status>, D::Error> {
     let word = Option::<String>::deserialize(deserializer)?;
-    Ok(word.and_then(|word| STATUSES.into_iter().find(|status| status.as_str() == word)))
+    // Status's own spelling decides; a word it refuses is one this build does not know, which
+    // reads as `None` by design (CLI-04), not as a lost failure.
+    Ok(word.and_then(|word| Status::deserialize(StrDeserializer::<ValueError>::new(&word)).ok()))
+}
+
+/// A text field, empty when absent or `null`.
+fn text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// An `applies` word, `None` when absent, `null` or unknown.
