@@ -213,11 +213,11 @@ fn the_listing_asks_weighin_for_up_to_4096_items_not_its_default_12() {
     assert_eq!(call.args, ["open", "--all", "--json", "--top", "4096"]);
 }
 
-/// A listing of `count` decided items, `wi-0` up.
+/// A listing of `count` decided items, `wi-000000` up (real Weigh-In ids, six hex digits).
 fn listing(count: usize) -> String {
     let items: Vec<serde_json::Value> = (0..count)
         .map(|n| {
-            serde_json::json!({"id": format!("wi-{n}"), "status": "decided", "question": "Q?",
+            serde_json::json!({"id": format!("wi-{n:06x}"), "status": "decided", "question": "Q?",
                                "decision": {"option": "yes"}})
         })
         .collect();
