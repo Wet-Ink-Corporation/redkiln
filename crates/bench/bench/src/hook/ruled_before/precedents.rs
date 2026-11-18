@@ -3,16 +3,19 @@
 //!
 //! [`gather`] reads, under a repository root, every ruling in [`rulings::STORE_DIR`] through
 //! `rulings::list_within` (an invalid one, or a store over the bounds below, fails the whole
-//! list; a symlink is never followed) and then the weigh-in decision
-//! atoms in `.kb/_intake/decisions/*.md`, from their frontmatter only: `weighin_item` (the
-//! `wi-` id), `status` (only `accepted` counts) and `title` (else `question`) as the summary.
-//! An atom that does not read is skipped: the atoms are weigh-in's files, not anneal's. The
+//! list; a symlink is never followed) and then the weigh-in decision atoms in both folders
+//! Weigh-In has written them to: `.kb/decision/*.md` (Weigh-In 2.0) and
+//! `.kb/_intake/decisions/*.md` (1.x, and atoms imported with it), from their frontmatter only:
+//! `weighin_item` (the `wi-` id), `status` (only `accepted` counts) and `title` (else
+//! `question`) as the summary. An atom in both is offered once, the `.kb/decision/` copy. An
+//! atom that does not read is skipped: the atoms are weigh-in's files, not Bench's. The
 //! items weigh-in lists as decided (`weighin open --all --json`, read by the hook) join the
 //! atoms when no atom has their id yet, summarised as their question and the option decided.
 //!
 //! Bounds (H-13): the ruling store may hold at most [`MAX_DIR_ENTRIES`] entries and
-//! [`MAX_ATOM_FILES`] rulings; at most [`MAX_DIR_ENTRIES`] entries of the atoms directory are
-//! looked at and [`MAX_ATOM_FILES`] atoms read, each only its first [`MAX_ATOM_BYTES`]; at most
+//! [`MAX_ATOM_FILES`] rulings; of each atom folder, on its own, at most [`MAX_DIR_ENTRIES`]
+//! entries are looked at and [`MAX_ATOM_FILES`] atoms read, each only its first
+//! [`MAX_ATOM_BYTES`]; at most
 //! [`MAX_PRECEDENTS`] precedents are offered, rulings first, then atoms, each in id order;
 //! summaries are cut to [`MAX_SUMMARY_BYTES`]. An id must be a decide option word (1 to 64 of
 //! `A-Z a-z 0-9 _ . : -`) and not `none`, which stands for "no ruling"; an atom a ruling
@@ -29,8 +32,9 @@ use crate::frontmatter;
 use crate::rulings::{self, ListLimits, RulingError};
 use crate::weighin::Decided;
 
-/// The atoms directory, relative to the repository root.
-const ATOMS_DIR: [&str; 3] = [".kb", "_intake", "decisions"];
+/// The atom directories, relative to the repository root, in the order read: Weigh-In 2.0's
+/// `.kb/decision/` first, so its copy of an atom wins over the 1.x `_intake` copy.
+const ATOM_DIRS: [&[&str]; 2] = [&[".kb", "decision"], &[".kb", "_intake", "decisions"]];
 
 /// The option that means "no ruling applies".
 pub(crate) const NONE: &str = "none";
@@ -121,8 +125,11 @@ pub(crate) fn gather(root: &Path, decided: &[Decided]) -> Result<Vec<Precedent>,
             summary: one_line(ruling.summary()),
         })
         .collect();
-    let atoms_dir = ATOMS_DIR.iter().fold(root.to_path_buf(), |p, c| p.join(c));
-    let mut atoms = accepted_atoms(&atoms_dir)?;
+    let mut atoms = Vec::new();
+    for parts in ATOM_DIRS {
+        let dir = parts.iter().fold(root.to_path_buf(), |p, c| p.join(c));
+        atoms.extend(accepted_atoms(&dir)?);
+    }
     atoms.extend(
         decided
             .iter()
@@ -135,8 +142,9 @@ pub(crate) fn gather(root: &Path, decided: &[Decided]) -> Result<Vec<Precedent>,
                 }
             }),
     );
-    // A stable sort keeps the accepted atoms (read first) ahead of the decided items with
-    // their id, and `dedup_by` keeps the first of each id: the atom wins.
+    // A stable sort keeps the accepted atoms (read first, `.kb/decision/` before `_intake`)
+    // ahead of the decided items with their id, and `dedup_by` keeps the first of each id: the
+    // 2.0 atom wins over its 1.x copy, and an atom over the decided item.
     atoms.sort_by(|a, b| a.id.cmp(&b.id));
     atoms.dedup_by(|later, earlier| later.id == earlier.id);
     let vacancies = MAX_PRECEDENTS.saturating_sub(precedents.len());
@@ -217,6 +225,8 @@ mod tests {
     use std::error::Error;
     use std::fs;
     use std::path::Path;
+
+    use weighin_contract::ItemId;
 
     use super::{
         MAX_ATOM_FILES, MAX_PRECEDENTS, MAX_SUMMARY_BYTES, Precedent, PrecedentError, gather,
@@ -430,6 +440,69 @@ mod tests {
         Ok(())
     }
 
+    /// An accepted atom for `item` in Weigh-In 2.0's `.kb/decision/`, titled `title`.
+    fn decision_atom(root: &Path, item: &str, title: &str) -> TestResult {
+        write(
+            root,
+            &[".kb", "decision", &format!("{item}-some-slug.md")],
+            &format!(
+                "---\nid: \"{item}\"\ntitle: \"{title}\"\nkind: decision\nstatus: accepted\n\
+                 weighin_item: \"{item}\"\n---\n\n# Body\n"
+            ),
+        )
+    }
+
+    #[test]
+    fn an_accepted_atom_in_kb_decision_is_offered() -> TestResult {
+        let root = tempfile::tempdir()?;
+        decision_atom(
+            root.path(),
+            "wi-0c9f04eb9a",
+            "Keep events in the Core store",
+        )?;
+
+        let found = gather(root.path(), &[])?;
+
+        let [precedent] = found.as_slice() else {
+            panic!("one precedent: {found:?}");
+        };
+        assert_eq!(precedent.id(), "wi-0c9f04eb9a");
+        assert_eq!(precedent.summary(), "Keep events in the Core store");
+        Ok(())
+    }
+
+    #[test]
+    fn an_atom_in_both_folders_is_offered_once_the_kb_decision_copy() -> TestResult {
+        let root = tempfile::tempdir()?;
+        atom(root.path(), "wi-a53271", "accepted")?;
+        decision_atom(root.path(), "wi-a53271", "The 2.0 copy")?;
+
+        let found = gather(root.path(), &[])?;
+
+        let summaries: Vec<(&str, &str)> = found.iter().map(|p| (p.id(), p.summary())).collect();
+        assert_eq!(summaries, [("wi-a53271", "The 2.0 copy")]);
+        Ok(())
+    }
+
+    #[test]
+    fn each_atom_folder_is_bounded_on_its_own() -> TestResult {
+        let root = tempfile::tempdir()?;
+        // `.kb/decision/` fills its file bound with atoms that do not count, so the accepted
+        // one sorting after them is never read; `_intake`'s own bound still reads its atom.
+        for n in 0..MAX_ATOM_FILES {
+            write(
+                root.path(),
+                &[".kb", "decision", &format!("a{n:03}.md")],
+                &format!("---\nweighin_item: wi-{n:06}\nstatus: proposed\ntitle: T\n---\n"),
+            )?;
+        }
+        decision_atom(root.path(), "wi-ffffff", "Past the bound")?;
+        atom(root.path(), "wi-a53271", "accepted")?;
+
+        assert_eq!(ids(root.path())?, ["wi-a53271"]);
+        Ok(())
+    }
+
     #[test]
     fn many_decided_items_are_offered_once_each_in_id_order_up_to_the_cap() -> TestResult {
         let root = tempfile::tempdir()?;
@@ -438,7 +511,7 @@ mod tests {
             .rev()
             .chain([5, 7, 7])
             .map(|n| Decided {
-                id: format!("wi-{n:06}").parse().expect("an id"),
+                id: ItemId::parse(&format!("wi-{n:06}")).expect("an id"),
                 question: format!("Question {n}?"),
                 option: "yes".to_owned(),
             })

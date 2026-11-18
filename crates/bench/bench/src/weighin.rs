@@ -4,8 +4,9 @@
 //! - `locate`: the CLI, from `$WEIGHIN_BIN`, then `weighin` on `PATH`.
 //! - `batch`: the raise and deferral a park pipes to `weighin batch`.
 //! - `receipt`: the item `weighin batch` minted (or found already raised) for a park.
-//! - `items`: the decided items of `weighin open --all --json --top 4096`, for D6; a listing
-//!   that long may be cut, so it is refused.
+//! - `items`: the decided items of `weighin open --all --json --top 4096`, for D6, read through
+//!   weighin-contract's lenient listing reader; a listing that long may be cut, so it is
+//!   refused.
 //!
 //! The CLI runs through the [`Runner`] port; [`ProcessRunner`] spawns it with the input piped
 //! to stdin, each output stream capped at [`MAX_OUTPUT_BYTES`] (one byte more is read, so a
@@ -21,21 +22,16 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::str::FromStr;
 use std::time::Duration;
+
+use weighin_contract::ItemId;
+use weighin_contract::open::ListingError;
 
 use crate::process::{self, WaitError};
 pub(crate) use batch::ParkRequest;
 pub(crate) use items::Decided;
-use items::ListingError;
 pub(crate) use locate::{BIN_VAR, locate};
 use receipt::ReceiptError;
-
-/// The prefix of every weigh-in item id.
-const PREFIX: &str = "wi-";
-
-/// Most characters after the prefix (weigh-in mints six hex digits).
-const MAX_ID_CHARS: usize = 32;
 
 /// How long a park's `weighin batch` may take.
 pub(crate) const PARK_TIMEOUT: Duration = Duration::from_secs(10);
@@ -49,45 +45,6 @@ const MAX_STDERR_CHARS: usize = 200;
 /// The `--top` asked of `weighin open --all --json`, whose own default (12) would cut the
 /// listing short; a listing this long may have been cut, so it is refused.
 pub(crate) const MAX_LISTED_ITEMS: usize = 4096;
-
-/// A weigh-in item id: `wi-` and 1 to 32 lower-case ASCII letters or digits.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ItemId(String);
-
-impl ItemId {
-    /// The id as weigh-in prints it.
-    pub(crate) fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl fmt::Display for ItemId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-/// A word that is not a weigh-in item id.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("not a weigh-in item id: expected wi- and 1 to {MAX_ID_CHARS} of a-z 0-9")]
-pub(crate) struct NotAnItemId;
-
-impl FromStr for ItemId {
-    type Err = NotAnItemId;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let rest = text.strip_prefix(PREFIX).ok_or(NotAnItemId)?;
-        let valid = (1..=MAX_ID_CHARS).contains(&rest.len())
-            && rest
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
-        if valid {
-            Ok(Self(text.to_owned()))
-        } else {
-            Err(NotAnItemId)
-        }
-    }
-}
 
 /// One run of the CLI.
 #[derive(Debug, Clone, Copy)]
@@ -276,9 +233,7 @@ pub(crate) fn decided_items(
     let stdout = run_ok(runner, &call)?;
     items::decided(&stdout, MAX_LISTED_ITEMS).map_err(|error| match error {
         ListingError::Parse(source) => BridgeError::Listing(source),
-        ListingError::Truncated => BridgeError::Truncated {
-            cap: MAX_LISTED_ITEMS,
-        },
+        ListingError::Truncated { cap } => BridgeError::Truncated { cap },
     })
 }
 

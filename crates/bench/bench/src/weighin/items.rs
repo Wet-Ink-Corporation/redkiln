@@ -1,34 +1,14 @@
-//! Reading `weighin open --all --json` for the items weigh-in has decided: the rulings D6 can
-//! offer before (or without) their decision atoms in `.kb/_intake/decisions/`.
+//! The items weigh-in has decided, from `weighin open --all --json`: the rulings D6 can offer
+//! before (or without) their decision atoms in `.kb/decision/` or `.kb/_intake/decisions/`.
 //!
-//! Only `id`, `status`, `question` and `decision.option` are read; every other key is ignored, so
-//! a newer weigh-in that adds keys still reads. An item whose id is not a weigh-in id, or that
-//! is not `decided`, is skipped.
+//! The listing is read through weighin-contract's lenient reader
+//! ([`weighin_contract::open::read_listing`]): unknown keys and words are ignored (CLI-04,
+//! EV-09), and an item that does not read (an id that is not a `wi-` id among them) is skipped.
+//! Only `decided` items with a decision are kept, each summarised by the decided option's card
+//! title (a request item's option label), else the option as decided.
 
-use serde::Deserialize;
-
-use super::ItemId;
-
-/// The status of an item weigh-in has decided.
-const DECIDED: &str = "decided";
-
-/// An item as `open --all --json` lists it.
-#[derive(Debug, Deserialize)]
-struct ItemDto {
-    id: String,
-    #[serde(default)]
-    status: String,
-    #[serde(default)]
-    question: String,
-    #[serde(default)]
-    decision: Option<DecisionDto>,
-}
-
-/// A decided item's decision.
-#[derive(Debug, Deserialize)]
-struct DecisionDto {
-    option: String,
-}
+use weighin_contract::ItemId;
+use weighin_contract::open::{ListingError, Status, read_listing};
 
 /// A ruling weigh-in holds: the item, its question and the option decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,39 +17,24 @@ pub(crate) struct Decided {
     pub(crate) id: ItemId,
     /// Its question.
     pub(crate) question: String,
-    /// The option decided.
+    /// The option decided: its card title when it has one, else the option as decided.
     pub(crate) option: String,
-}
-
-/// Why a listing could not be read.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum ListingError {
-    /// It is not an array of items.
-    #[error("the listing did not parse")]
-    Parse(#[source] serde_json::Error),
-    /// It holds as many items as were asked for, so weigh-in may have left some out.
-    #[error("the listing may be cut")]
-    Truncated,
 }
 
 /// The decided items in `json`, a listing asked for at most `asked` items, in the order listed.
 ///
 /// # Errors
-/// [`ListingError::Parse`] when `json` is not an array of items, [`ListingError::Truncated`]
-/// when it holds `asked` items or more.
+/// [`ListingError::Parse`] when `json` is not an array, [`ListingError::Truncated`] when it
+/// holds `asked` items or more.
 pub(crate) fn decided(json: &[u8], asked: usize) -> Result<Vec<Decided>, ListingError> {
-    let items: Vec<ItemDto> = serde_json::from_slice(json).map_err(ListingError::Parse)?;
-    if items.len() >= asked {
-        return Err(ListingError::Truncated);
-    }
-    Ok(items
+    Ok(read_listing(json, asked)?
         .into_iter()
-        .filter(|item| item.status == DECIDED)
+        .filter(|item| item.status == Some(Status::Decided))
         .filter_map(|item| {
-            let id = item.id.parse::<ItemId>().ok()?;
-            let option = item.decision?.option;
+            // Owned: the label outlives the listed item it is borrowed from.
+            let option = item.decided_label()?.to_owned();
             Some(Decided {
-                id,
+                id: item.id,
                 question: item.question,
                 option,
             })
@@ -81,39 +46,32 @@ pub(crate) fn decided(json: &[u8], asked: usize) -> Result<Vec<Decided>, Listing
 mod tests {
     use serde_json::json;
 
-    use super::{Decided, ListingError, decided};
+    use super::decided;
+
+    // What a listing reads as, and which items it skips, is pinned by weighin-contract's
+    // `open` tests; these pin what D6 takes from it.
 
     #[test]
-    fn only_decided_items_with_a_weigh_in_id_are_read() {
+    fn a_decided_request_item_is_summarised_by_its_option_label() {
         let listed = json!([
-            {"id": "wi-e41e02", "kind": "question", "status": "decided",
-             "question": "Should the cache be shared across tenants?",
-             "decision": {"option": "shared", "decider": "human:ryan", "note": "test"},
-             "deferral": null, "records": []},
-            {"id": "wi-b6ea09", "status": "deferred", "question": "Second q?", "decision": null},
-            {"id": "wi-58067d", "status": "decided", "question": "No decision?"},
-            {"id": "not-wi", "status": "decided", "question": "Q", "decision": {"option": "x"}}
+            {"id": "wi-0c9f04eb9a", "status": "decided", "channel": "request",
+             "question": "Which store should Bench keep its events in?",
+             "decision": {"option": "a", "applies": "once"},
+             "card": {"options": [{"id": "a", "title": "The Core store"},
+                                  {"id": "b", "title": "Its own SQLite file"}]}},
+            {"id": "wi-e41e02", "status": "decided", "question": "Shared?",
+             "decision": {"option": "shared"}}
         ]);
 
         let found = decided(listed.to_string().as_bytes(), 4096).expect("an array");
 
+        let options: Vec<(&str, &str)> = found
+            .iter()
+            .map(|item| (item.id.as_str(), item.option.as_str()))
+            .collect();
         assert_eq!(
-            found,
-            [Decided {
-                id: "wi-e41e02".parse().expect("an id"),
-                question: "Should the cache be shared across tenants?".to_owned(),
-                option: "shared".to_owned(),
-            }]
+            options,
+            [("wi-0c9f04eb9a", "The Core store"), ("wi-e41e02", "shared")]
         );
-    }
-
-    #[test]
-    fn an_empty_list_has_no_rulings_and_a_non_list_is_an_error() {
-        assert_eq!(decided(b"[]", 4096).expect("an array"), []);
-        let error = decided(b"{\"id\": \"wi-1\"}", 4096).expect_err("an object is not a list");
-        let ListingError::Parse(error) = error else {
-            panic!("not a parse error: {error:?}");
-        };
-        assert_eq!(error.classify(), serde_json::error::Category::Data);
     }
 }

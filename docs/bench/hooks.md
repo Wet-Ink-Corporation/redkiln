@@ -578,14 +578,20 @@ one):
    at most 4,096 directory entries and 256 ruling files, regular files only (a symlink is not
    followed). An invalid ruling, or a store over either bound, fails the hook with an `ERROR`
    line naming the file or directory, and nothing is asked;
-2. then the accepted weigh-in decision atoms in `.kb/_intake/decisions/*.md`, read from their
-   frontmatter alone: `weighin_item` (the `wi-` id, the option), `status` (only `accepted`
-   counts) and `title`, else `question`, as the summary. At most 4,096 directory entries are
-   looked at and 256 atoms read, 16 KiB of each. An atom that does not read or parse is
-   skipped, as is one a ruling already cites as its `weigh_in_ref`;
+2. then the accepted weigh-in decision atoms in `.kb/decision/*.md` (Weigh-In 2.0) and
+   `.kb/_intake/decisions/*.md` (1.x), read from their frontmatter alone: `weighin_item` (the
+   `wi-` id, the option), `status` (only `accepted` counts) and `title`, else `question`, as
+   the summary. Of each folder on its own, at most 4,096 directory entries are looked at and
+   256 atoms read, 16 KiB of each. An atom in both folders is offered once, the
+   `.kb/decision/` copy. An atom that does not read or parse is skipped, as is one a ruling
+   already cites as its `weigh_in_ref`;
 3. then, with a `weighin` to ask (`$WEIGHIN_BIN`, else `weighin` on `PATH`; see
    [orchestrate.md](orchestrate.md)), the items `weighin open --all --json --top 4096` lists as
-   `decided` whose atom is not written yet, summarised as `<question>: <option>`. weigh-in
+   `decided` whose atom is not written yet, summarised as `<question>: <option>`, where the
+   option is the decided card option's title (a decision request's option label), else the
+   option as decided. The listing is read through `weighin_contract::open::read_listing`: a
+   key or word it does not know is ignored, and an item that does not read (an id that is not
+   a `wi-` id of 4 to 16 lower-case hex) is skipped. weigh-in
    gets at most 1 s, and never the time Clef's timeout needs; its output is capped at 4 MiB.
    Without a `weighin` this step is skipped silently. When it fails (a `$WEIGHIN_BIN` naming
    no file, a non-zero exit, a timeout, output that does not parse, a listing of 4,096 items
