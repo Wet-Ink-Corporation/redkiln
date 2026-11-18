@@ -211,10 +211,13 @@ pub const ORCHESTRATE_NO_FAN_OUT: Code = Code::new(
     3,
     "fan-out: fewer than 3 independent tickets; nothing recorded",
 );
-/// `orchestrate park`: weigh-in could not park the call (no `weighin`, or it failed);
-/// `bridge.unavailable` was recorded and the orchestrator rules instead.
-pub const ORCHESTRATE_UNAVAILABLE: Code =
-    Code::new(4, "park: weigh-in unavailable (recorded); rule instead");
+/// `orchestrate park`: weigh-in cannot take the call (no `weighin`, it failed, it does not fold
+/// decision requests, or it keeps another store); nothing was recorded and the orchestrator
+/// rules instead.
+pub const ORCHESTRATE_UNAVAILABLE: Code = Code::new(
+    4,
+    "park: weigh-in cannot take the call (nothing recorded); rule instead",
+);
 /// `orchestrate`'s codes, in table order.
 const ORCHESTRATE_CODES: [Code; 3] = [
     ORCHESTRATE_OK,

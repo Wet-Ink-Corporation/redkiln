@@ -4,8 +4,8 @@ The ledger records what happened in a repository's sessions: tests run, tasks do
 approved, gates and stops blocked. Hooks and commands append to it; gates query it. Since Move
 2 step 3 (PR 3.4) it is Bench's share of the suite store, the one Core store every Redkiln
 plugin writes (`spec/store.md`), reached through `redkiln-core` from
-`crates/bench/bench/src/store.rs`, and driven by `bench ledger`. Bench's events are the 17
-`bench.*` types (`bench-contract`). Since step 4 (PR 4.3) `bench ledger` reads and prints
+`crates/bench/bench/src/store.rs`, and driven by `bench ledger`. Bench's events are the 15
+`bench.*` types (`bench-contract`; 17 until Move 2 step 7 retired two). Since step 4 (PR 4.3) `bench ledger` reads and prints
 them as Core stores them: the EV-01 envelope (`spec/events.md`), `type` `bench.<name>` and
 the payload under `data`. The payload tables below give each type's short name, which is
 the part after `bench.`; anneal's 0.x flat form survives only in old ledgers, which the
@@ -89,11 +89,14 @@ indented beneath; SessionStart writes the same lines in its context.
 Core's: the store's journal mode, stamp, refusals of a newer or foreign file, busy waits and
 first-writer-wins appends are the SPEC's (ST-04 to ST-11) and Core's tests. What Bench adds:
 
-- **Bench sees only Bench.** Every read and every append condition names Bench's 17 types
+- **Bench sees only Bench.** Every read and every append condition names Bench's 15 types
   (EV-08), so another plugin's events neither appear in `bench ledger query` nor make a Bench
-  write conflict. Positions are the shared store's, so they skip what other plugins wrote.
-- **Unusable events are counted, not errors** (EV-10): a `bench.*` event at a later version, or
-  one whose data this build cannot read, is skipped; `query` and `tail` add a `ledger/unusable`
+  write conflict. Reads also name the two retired types (below), so their old events are
+  counted as unusable and kept in journals rather than silently dropped. `orchestrate park` is
+  the one writer of another plugin's event: Weigh-In's `weighin.request_raised`, through
+  `weighin-contract` (DR-01), conditioned on Weigh-In's own item tag. Positions are the shared store's, so they skip what other plugins wrote.
+- **Unusable events are counted, not errors** (EV-10): a `bench.*` event at a later version,
+  one whose data this build cannot read, or one of a retired type, is skipped; `query` and `tail` add a `ledger/unusable`
   finding with the count, and SessionStart's live state says how many it skipped.
 - **Waits.** Commands wait up to 10 s for another writer's lock, hooks up to 2 s (Core's
   `Wait::Command` and `Wait::Hook`).
@@ -137,7 +140,7 @@ EV-01's order and optional ones left out when absent.
 
 Every payload field name is a persisted JSON key: renaming one is a migration. Optional fields
 read back from either `null` or a missing key, so adding one is additive. Writing is strict: a
-`type` that is not one of the 17 `bench.*` types (a 0.x short name such as `task_done` is
+`type` that is not one of the 15 `bench.*` types (a 0.x short name such as `task_done` is
 refused with the stored name), a `version` other than 1, a key EV-01 does not define (the 0.x
 `session_id` included), a key Bench writes itself (`trust`, `writer`, `origin`, `cites`; `null`
 reads as absent), a missing or mistyped payload field, a payload key the type does not define
@@ -152,7 +155,7 @@ The store indexes events by `key:value` tags. The keys are a closed vocabulary:
 |---|---|
 | `session:<session>` | every event with a `session` |
 | `worktree:<worktree>` | every event with a `worktree` (`mode_set`, `repro_red` and `test_run` are selected by it) |
-| `task:<task>` | `test_run` (when it names a task), `task_done`, `repro_red`; `weighin_parked`, `bridge.unavailable` and `orchestrate.ruled` (their `ticket`) |
+| `task:<task>` | `test_run` (when it names a task), `task_done`, `repro_red`; `orchestrate.ruled` (its `ticket`) |
 | `plan:<plan>` | `plan_approved`, `grill_confirmed` |
 | `pr:<number>` | `verdict_set`, `round_started` (with a `pr`) |
 | `point:<point>` | `gate_blocked`, `stop_blocked` |
@@ -175,6 +178,13 @@ the story's; version 8 added `ticket` to `round_started` and made its `pr` optio
 `docs/brief.md`); version 9 added `weighin_parked`, `bridge.unavailable` and
 `orchestrate.ruled` (#37, `docs/orchestrate.md`), the last two under dotted names as #35's;
 version 10 added the status `wip` to `subagent_status` (temper's `Status: WIP`, Ryan 2026-11-08).
+Move 2 step 7 (PR 7.5, decision D6 B) retired `weighin_parked` and `bridge.unavailable`: a park
+is a Weigh-In decision request now ([orchestrate.md](orchestrate.md)). No command writes them, and
+`ledger append` refuses them as any other unknown type; an old one in the store is read as
+unusable and counted (`ledger/unusable`, `bench status`'s unreadable count), and a journal
+export keeps it. The one-time import of an anneal ledger still carries them over with their
+payloads as they were (`bench.weighin_parked`, `bench.bridge.unavailable`), so nothing of an
+old ledger is lost; their 0.x payloads are listed below.
 
 | Type | Payload | Subject tag |
 |---|---|---|
@@ -192,9 +202,9 @@ version 10 added the status `wip` to `subagent_status` (temper's `Status: WIP`, 
 | `migrate.wave.started` | `migration` string (the migration's id), `wave` integer (from 1); see [migrate.md](migrate.md) | `migration:` |
 | `migrate.wave.done` | `migration` string, `wave` integer | `migration:` |
 | `migrate.contract` | `migration` string | `migration:` |
-| `weighin_parked` | `item_id` string (the weigh-in item, `wi-` and its id), `ticket` string (the ticket the call blocks), `decision?` string (the Clef D2 decision id, written only when set); written by `anneal orchestrate park` once per item and ticket. The decision is weigh-in's; see [orchestrate.md](orchestrate.md) | `task:` (the ticket) |
-| `bridge.unavailable` | `ticket` string, `reason` string (why weigh-in could not park the call, one line); written by `anneal orchestrate park`, which then exits 4 | `task:` (the ticket) |
-| `orchestrate.ruled` | `ticket` string, `what` string, `why` string, `cost_if_wrong` string, `decision?` string (as `weighin_parked`); written by `anneal orchestrate rule` | `task:` (the ticket) |
+| `weighin_parked` (retired) | `item_id` string (the weigh-in item, `wi-` and its id), `ticket` string (the ticket the call blocks), `decision?` string (the Clef D2 decision id, written only when set); written by `anneal orchestrate park` once per item and ticket. The decision is weigh-in's; see [orchestrate.md](orchestrate.md) | `task:` (the ticket) |
+| `bridge.unavailable` (retired) | `ticket` string, `reason` string (why weigh-in could not park the call, one line); written by `anneal orchestrate park`, which then exits 4 | `task:` (the ticket) |
+| `orchestrate.ruled` | `ticket` string, `what` string, `why` string, `cost_if_wrong` string, `decision?` string (the Clef D2 decision id, written only when set); written by `bench orchestrate rule` | `task:` (the ticket) |
 
 ## Commands
 
@@ -229,7 +239,7 @@ bench ledger [--store <file>] journal
   step 6.
 
 Exit codes: 0 ok, 1 schema error (an envelope with one `ledger/schema` finding on stdout and
-the 17 types `append` takes in `data.types`: an event the parse or the store refuses, such as
+the 15 types `append` takes in `data.types`: an event the parse or the store refuses, such as
 an actor outside EV-01's, a worktree that is not a `wt-` id or a `ts` in an offset), 2 usage
 error (`append` with a `by`, above, or an unknown `--type`), and
 the global codes in [exit-codes.md](exit-codes.md) (70 when the store cannot be opened or

@@ -1,0 +1,18 @@
+{
+  "schema": "bench.orchestrate-park/2",
+  "ok": false,
+  "command": "orchestrate park",
+  "data": {
+    "parked": false,
+    "reason": "WEIGHIN_BIN names no file: <root>/no-weighin-here",
+    "ticket": "7"
+  },
+  "findings": [
+    {
+      "key": "orchestrate/weigh-in-unavailable:7",
+      "message": "weigh-in cannot take the call (WEIGHIN_BIN names no file: <root>/no-weighin-here): rule on it instead"
+    }
+  ],
+  "proves": "fan-out: the frontier has at least 3 independent tickets; park: Weigh-In's contract accepted the request and the store holds it once, for a weighin that folds requests into the same store; rule: the ruling was recorded",
+  "does_not_prove": "that the tickets are worth running in parallel, that the call was one-way, that a human has seen the request, or that the ruling is right"
+}

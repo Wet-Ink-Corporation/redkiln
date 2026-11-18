@@ -1,22 +1,23 @@
-//! The weigh-in bridge: anneal parks one-way calls in weigh-in and reads its rulings back, and
-//! never stores a decision itself.
+//! Bench's way to Weigh-In: through weighin-contract, `weighin.request_raised` and
+//! `weighin <cmd> --json` only. Bench stores no decision itself.
 //!
 //! - `locate`: the CLI, from `$WEIGHIN_BIN`, then `weighin` on `PATH`.
-//! - `batch`: the raise and deferral a park pipes to `weighin batch`.
-//! - `receipt`: the item `weighin batch` minted (or found already raised) for a park.
+//! - `status`: whether that `weighin` folds decision requests into the store Bench writes
+//!   (`weighin status --json`, decision D3), before a park is raised.
+//! - `raise`: a park's decision request appended to the store through the contract (DR-01),
+//!   once per raiser key (DR-03), its id extended past a collision (ID-04).
 //! - `items`: the decided items of `weighin open --all --json --top 4096`, for D6, read through
 //!   weighin-contract's lenient listing reader; a listing that long may be cut, so it is
 //!   refused.
 //!
-//! The CLI runs through the [`Runner`] port; [`ProcessRunner`] spawns it with the input piped
-//! to stdin, each output stream capped at [`MAX_OUTPUT_BYTES`] (one byte more is read, so a
-//! longer one is refused rather than read in part) and a timeout (H-13). Raising is idempotent
-//! in weigh-in, so a park run again names the same item. See `docs/orchestrate.md`.
+//! The CLI runs through the [`Runner`] port; [`ProcessRunner`] spawns it with nothing on stdin,
+//! each output stream capped at [`MAX_OUTPUT_BYTES`] (one byte more is read, so a longer one is
+//! refused rather than read in part) and a timeout (H-13). See `docs/bench/orchestrate.md`.
 
-mod batch;
 mod items;
 mod locate;
-mod receipt;
+mod raise;
+mod status;
 
 use std::fmt;
 use std::io;
@@ -24,17 +25,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use weighin_contract::ItemId;
 use weighin_contract::open::ListingError;
 
 use crate::process::{self, WaitError};
-pub(crate) use batch::ParkRequest;
 pub(crate) use items::Decided;
 pub(crate) use locate::{BIN_VAR, locate};
-use receipt::ReceiptError;
-
-/// How long a park's `weighin batch` may take.
-pub(crate) const PARK_TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) use raise::{RaiseError, Raised, raise};
+pub(crate) use status::{Unable, able};
 
 /// Most bytes kept of each of the CLI's output streams.
 pub(crate) const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
@@ -123,7 +120,7 @@ impl Runner for ProcessRunner {
     }
 }
 
-/// Why the bridge could not park a call or read weigh-in's rulings.
+/// Why `weighin` could not be found, run to the end or read.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum BridgeError {
     /// `$WEIGHIN_BIN` is unset or empty and no `PATH` directory holds `weighin`.
@@ -135,9 +132,6 @@ pub(crate) enum BridgeError {
         /// What it names.
         path: PathBuf,
     },
-    /// The batch could not be encoded.
-    #[error("encoding the batch")]
-    Encode(#[source] serde_json::Error),
     /// The CLI could not be run to the end.
     #[error(transparent)]
     Run(#[from] RunError),
@@ -155,9 +149,6 @@ pub(crate) enum BridgeError {
         /// The cap.
         cap: usize,
     },
-    /// The receipt does not show the park.
-    #[error(transparent)]
-    Receipt(#[from] ReceiptError),
     /// `open --all --json` did not parse.
     #[error("weighin open --all --json did not parse")]
     Listing(#[source] serde_json::Error),
@@ -182,31 +173,6 @@ impl fmt::Display for ExitCode {
             None => f.write_str("a signal"),
         }
     }
-}
-
-/// Parks `request` through the CLI at `bin`, run in `cwd`: one `weighin batch` with the raise
-/// and its deferral on stdin, within [`PARK_TIMEOUT`]. Returns the item weigh-in raised, or had
-/// raised already.
-///
-/// # Errors
-/// [`BridgeError`] when the CLI cannot run, fails, writes too much, or its receipt does not show
-/// the item raised and deferred.
-pub(crate) fn park(
-    runner: &impl Runner,
-    bin: &Path,
-    cwd: &Path,
-    request: &ParkRequest<'_>,
-) -> Result<ItemId, BridgeError> {
-    let batch = batch::json(request).map_err(BridgeError::Encode)?;
-    let call = Call {
-        program: bin,
-        args: &["batch"],
-        input: batch.as_bytes(),
-        cwd,
-        timeout: PARK_TIMEOUT,
-    };
-    let stdout = run_ok(runner, &call)?;
-    Ok(receipt::parked_item(&String::from_utf8_lossy(&stdout))?)
 }
 
 /// The items weigh-in has decided, from `weighin open --all --json --top 4096` run in `cwd`

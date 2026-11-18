@@ -101,12 +101,9 @@ impl Context {
         approval_event(self, approval)
     }
 
-    /// The durable event of `data` in this context, with the caller's `tags` (Core adds
-    /// `plugin`, `trust`, `session` and `worktree`).
-    ///
-    /// # Errors
-    /// [`StoreError::Envelope`] naming the first rule of EV-05 the envelope breaks.
-    fn event<P: Payload>(self, data: P, tags: Vec<Tag>) -> Result<NewEvent, StoreError> {
+    /// The envelope of `data` in this context: field moves only. Another namespace's payload
+    /// (a Weigh-In decision request, EV-04) is encoded by its own contract from it.
+    pub(crate) fn into_envelope<P>(self, data: P) -> Envelope<P> {
         let Self {
             ts,
             author,
@@ -121,6 +118,16 @@ impl Context {
         envelope.branch = branch;
         envelope.head = head;
         envelope
+    }
+
+    /// The durable event of `data` in this context, with the caller's `tags` (Core adds
+    /// `plugin`, `trust`, `session` and `worktree`). The one-time import also builds an old
+    /// event of a retired type through it, its payload as anneal wrote it.
+    ///
+    /// # Errors
+    /// [`StoreError::Envelope`] naming the first rule of EV-05 the envelope breaks.
+    pub(crate) fn event<P: Payload>(self, data: P, tags: Vec<Tag>) -> Result<NewEvent, StoreError> {
+        self.into_envelope(data)
             .to_event(tags)
             .map_err(|source| StoreError::Envelope {
                 event_type: P::TYPE,
@@ -165,8 +172,6 @@ pub(super) fn to_new_event_in(
         LedgerEvent::MigrateWaveStarted(p) => context.event(MigrateWaveStarted(p), tags),
         LedgerEvent::MigrateWaveDone(p) => context.event(MigrateWaveDone(p), tags),
         LedgerEvent::MigrateContract(p) => context.event(p, tags),
-        LedgerEvent::WeighinParked(p) => context.event(p, tags),
-        LedgerEvent::BridgeUnavailable(p) => context.event(p, tags),
         LedgerEvent::OrchestrateRuled(p) => context.event(p, tags),
     }
 }
