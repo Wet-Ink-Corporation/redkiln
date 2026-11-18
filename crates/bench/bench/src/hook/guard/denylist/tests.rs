@@ -13,6 +13,7 @@ mod merge;
 mod shell_option_readings;
 mod shell_options;
 mod shell_reader_merge;
+mod unpack;
 mod watch_exec;
 mod wrapper_options;
 

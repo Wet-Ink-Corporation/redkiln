@@ -10,6 +10,8 @@
 //! A relative path after a `cd` is also read from the directory the `cd` named, and from
 //! anywhere after a `cd` the guard cannot follow.
 
+mod unpack;
+
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::engine::Cwd;
 use redkiln_guard::engine::wrappers::{Long, is_option, skip_one};
@@ -133,6 +135,7 @@ pub(super) fn check(program: &str, args: &[Word], cwd: &Cwd) -> Option<Denial> {
         "sed" => sed(args, cwd),
         "cp" | "install" | "ln" | "link" => copy(program, args, false, cwd),
         "mv" => copy(program, args, true, cwd),
+        "rsync" => unpack::rsync(args, cwd),
         _ => None,
     }
 }
@@ -237,6 +240,9 @@ struct CopyArgs<'a> {
     symbolic: bool,
     /// `-l` or `--link` (`cp`): hard links instead of copies.
     link: bool,
+    /// A source ending in `/` copies its contents into the destination, not itself (`rsync`),
+    /// so it lands at no joined path.
+    slash_copies_contents: bool,
 }
 
 impl<'a> CopyArgs<'a> {
@@ -343,6 +349,12 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
     {
         return Some(denial);
     }
+    copy_into(program, &copy, moves, cwd)
+}
+
+/// The denial for `program` writing its destination, or a source's joined path in it, when
+/// either is protected config; with `moves`, also for moving a source that holds config away.
+fn copy_into(program: &str, copy: &CopyArgs<'_>, moves: bool, cwd: &Cwd) -> Option<Denial> {
     // A source lands at `<dest>/<its name>` when the destination is a directory: always for
     // `-t`, and, since the guard cannot look, when the destination ends in `/` or names a
     // directory that holds config.
@@ -369,6 +381,9 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
     sources.iter().find_map(|source| {
         if moves && let Some(label) = contains_protected(source.text(), source.shape(), cwd) {
             return Some(deny(&format!("{program} moves {}", source.text()), label));
+        }
+        if copy.slash_copies_contents && source.text().ends_with(['/', '\\']) {
+            return None;
         }
         let joined = format!("{dest}/{}", basename(source.text()));
         let label =
