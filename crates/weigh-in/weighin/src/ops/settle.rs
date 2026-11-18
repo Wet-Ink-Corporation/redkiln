@@ -61,8 +61,8 @@ impl Session<'_> {
                 .as_deref()
                 .and_then(|p| env::seconds_between(p, &now))
         });
-        // An answer to a request always says how far it applies, and cites the request (DR-05);
-        // a captured item's decision keeps its bytes (T1).
+        // An answer to a request always says how far it applies, and cites the request (DR-05).
+        // A captured item's decision keeps its bytes (T1).
         let (applies, cites) = match &item.request {
             Some(record) => (
                 Some(applies.unwrap_or(Applies::Once)),
