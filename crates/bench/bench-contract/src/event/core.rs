@@ -10,9 +10,9 @@ use redkiln_core::store::{CoreKey, Stored, Tag, TagError};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    BenchEvent, BridgeUnavailable, EventKind, GateBlocked, GrillConfirmed, MigrateContract,
-    MigrateWave, ModeSet, OrchestrateRuled, PlanApproved, ReproRed, RoundStarted, StopBlocked,
-    SubagentStatus, SubjectKey, TaskDone, TestRun, VerdictSet, WeighinParked,
+    BenchEvent, EventKind, GateBlocked, GrillConfirmed, MigrateContract, MigrateWave, ModeSet,
+    OrchestrateRuled, PlanApproved, ReproRed, RoundStarted, StopBlocked, SubagentStatus,
+    SubjectKey, TaskDone, TestRun, VerdictSet,
 };
 
 #[cfg(test)]
@@ -31,7 +31,7 @@ pub struct MigrateWaveStarted(pub MigrateWave);
 #[serde(transparent)]
 pub struct MigrateWaveDone(pub MigrateWave);
 
-/// The 17 types: each kind, its payload and how the payload becomes a [`BenchEvent`].
+/// The 15 types: each kind, its payload and how the payload becomes a [`BenchEvent`].
 macro_rules! bench_types {
     ($($kind:ident: $payload:ty => $wrap:expr,)+) => {
         $(
@@ -43,15 +43,16 @@ macro_rules! bench_types {
         )+
 
         /// Every Bench type as stored, in [`EventKind::ALL`]'s order.
-        pub const TYPES: [&str; 17] = [$(<$payload as Payload>::TYPE),+];
+        pub const TYPES: [&str; 15] = [$(<$payload as Payload>::TYPE),+];
 
         /// Reads any stored Bench event as an envelope of its [`BenchEvent`].
         ///
         /// # Errors
         /// [`Skip::Foreign`] for an event of another namespace, or a `bench.*` type this build
         /// does not declare (it is not one of the types this build reads, EV-08);
-        /// [`Skip::Unusable`] for one of the 17 types in a form this build cannot use: a newer
-        /// version, or a payload that does not decode (EV-10). Neither is a failure of the
+        /// [`Skip::Unusable`] for one of the 15 types in a form this build cannot use: a newer
+        /// version, or a payload that does not decode (EV-10), and for every event of a
+        /// [retired type](super::RETIRED_TYPES) (D6 B). Neither is a failure of the
         /// read: the caller skips the event and counts the unusable ones.
         pub fn decode(stored: &Stored) -> Result<Envelope<BenchEvent>, Skip> {
             $(
@@ -59,9 +60,41 @@ macro_rules! bench_types {
                     return envelope::decode::<$payload>(stored).map(|read| rewrap(read, $wrap));
                 }
             )+
+            retired(stored)
+        }
+    };
+}
+
+/// The payload of a retired type (D6 B): it has no value, so Core reads every old event of it
+/// as [`Skip::Unusable`] (EV-10), never as a payload.
+macro_rules! retired_payload {
+    ($($name:ident: $retired:path,)+) => {
+        $(
+            #[derive(Debug, Serialize, Deserialize)]
+            enum $name {}
+
+            impl Payload for $name {
+                const TYPE: &'static str = $retired.stored;
+                const VERSION: u32 = 1;
+                const CLASS: Class = Class::Durable;
+            }
+        )+
+
+        /// A retired type's event is [`Skip::Unusable`], any other [`Skip::Foreign`].
+        fn retired(stored: &Stored) -> Result<Envelope<BenchEvent>, Skip> {
+            $(
+                if stored.event_type == <$name as Payload>::TYPE {
+                    return envelope::decode::<$name>(stored).map(|read| match read.data {});
+                }
+            )+
             Err(Skip::Foreign)
         }
     };
+}
+
+retired_payload! {
+    RetiredWeighinParked: super::WEIGHIN_PARKED,
+    RetiredBridgeUnavailable: super::BRIDGE_UNAVAILABLE,
 }
 
 bench_types! {
@@ -79,8 +112,6 @@ bench_types! {
     MigrateWaveStarted: MigrateWaveStarted => |MigrateWaveStarted(wave)| BenchEvent::MigrateWaveStarted(wave),
     MigrateWaveDone: MigrateWaveDone => |MigrateWaveDone(wave)| BenchEvent::MigrateWaveDone(wave),
     MigrateContract: MigrateContract => BenchEvent::MigrateContract,
-    WeighinParked: WeighinParked => BenchEvent::WeighinParked,
-    BridgeUnavailable: BridgeUnavailable => BenchEvent::BridgeUnavailable,
     OrchestrateRuled: OrchestrateRuled => BenchEvent::OrchestrateRuled,
 }
 

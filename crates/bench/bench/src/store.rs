@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use redkiln_core::approval::ApprovalRecorded;
+use redkiln_core::envelope::Envelope as CoreEnvelopeOf;
 use redkiln_core::envelope::{
     EnvelopeError, Field, FieldError, Payload as _, Skip, Writer, decode_all,
 };
@@ -47,10 +48,11 @@ use redkiln_core::journal::{
 };
 pub use redkiln_core::store::Wait;
 use redkiln_core::store::{
-    Appended as CoreAppended, Condition as CoreCondition, Filter as CoreFilter, OpenError,
-    StoreError as CoreStoreError, Stored, TagError as CoreTagError,
+    Appended as CoreAppended, Condition as CoreCondition, Filter as CoreFilter, NewEvent,
+    OpenError, StoreError as CoreStoreError, Stored, TagError as CoreTagError,
 };
 
+use bench_contract::event::RETIRED_TYPES;
 pub use bench_contract::event::{BenchEvent as LedgerEvent, EventKind, TYPES, UnknownEventKind};
 pub use envelope::{EventEnvelope, SchemaError, Timestamp, TimestampError, WRITTEN_VERSION};
 pub use stored::{CoreEnvelope, StoredEvent};
@@ -172,7 +174,12 @@ impl Filter {
     /// Core's filter: Bench's types (those named, or all 17), then each tag.
     fn to_core(&self) -> Result<CoreFilter, StoreError> {
         let stored: Vec<&str> = if self.types.is_empty() {
-            TYPES.to_vec()
+            // The retired types too (D6 B): their old events are read as unusable and counted,
+            // and a journal keeps them; no condition can match one, since none is written.
+            TYPES
+                .into_iter()
+                .chain(RETIRED_TYPES.map(|retired| retired.stored))
+                .collect()
         } else {
             self.types.iter().map(|kind| kind.stored()).collect()
         };
@@ -509,6 +516,50 @@ impl Store {
             CoreAppended::At(position) => Ok(Appended::At(position)),
             CoreAppended::Conflict => Ok(Appended::Conflict),
         }
+    }
+
+    /// Appends `event`, another namespace's type built through its contract crate (EV-04: a
+    /// Weigh-In decision request, DR-01), unless an event matching `condition` exists. The
+    /// condition is the contract's, checked inside the append's transaction.
+    ///
+    /// # Errors
+    /// [`StoreError::Core`] when the store refuses the write; a matching event is
+    /// [`Appended::Conflict`], not an error.
+    pub(crate) fn append_foreign_if(
+        &self,
+        event: NewEvent,
+        condition: &CoreCondition,
+    ) -> Result<Appended, StoreError> {
+        match self.inner.append(vec![event], Some(condition))? {
+            CoreAppended::At(position) => Ok(Appended::At(position)),
+            CoreAppended::Conflict => Ok(Appended::Conflict),
+        }
+    }
+
+    /// At most `max` stored events matching `filter`, oldest first, of any namespace: the
+    /// caller reads them through the owning contract.
+    ///
+    /// # Errors
+    /// [`StoreError::Core`] when the store cannot be read.
+    pub(crate) fn read_foreign(
+        &self,
+        filter: &CoreFilter,
+        max: NonZeroUsize,
+    ) -> Result<Vec<Stored>, StoreError> {
+        Ok(self.inner.read(filter, 0, max)?)
+    }
+
+    /// The envelope of `data` in the context Bench writes `probe` in: the same ts, actor,
+    /// session, worktree, branch and head as a Bench event, trust asserted, Bench's writer.
+    ///
+    /// # Errors
+    /// As [`wire::Context::of`]: an actor, session or worktree Core refuses.
+    pub(crate) fn envelope_for<P>(
+        &self,
+        probe: &EventEnvelope,
+        data: P,
+    ) -> Result<CoreEnvelopeOf<P>, StoreError> {
+        Ok(wire::Context::of(probe, &self.writer)?.into_envelope(data))
     }
 
     /// Every usable event matching `filter`, in position order; unusable ones are skipped

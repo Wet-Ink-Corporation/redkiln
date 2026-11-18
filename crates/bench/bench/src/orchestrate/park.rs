@@ -1,20 +1,24 @@
-//! `orchestrate park` and `orchestrate rule`: a call parked in weigh-in, or ruled on and
-//! logged.
+//! `orchestrate park` and `orchestrate rule`: a one-way call raised as a Weigh-In decision
+//! request, or a call ruled on and logged.
 //!
 //! Every argument is checked before anything runs or a ledger is opened: the ticket as
-//! `bench round` takes it, each text one non-blank line within its cap, `--resolve-by` a
-//! `YYYY-MM-DD` date, `--decision` a decision id and `--session` a ledger tag. A park opens the
-//! ledger before it runs `weighin`, so a ledger that cannot be opened stops it before anything
-//! is parked.
+//! `bench round` takes it, each text one non-blank line within its cap, 2 to 4 options with a
+//! `--holds` and a `--cost` each, `--recommend` one of them, `--resolve-by` a `YYYY-MM-DD` date
+//! after today (UTC), `--decision` a decision id and `--session` a ledger tag.
+//!
+//! A park then opens the store and asks the `weighin` it finds whether it folds requests into
+//! that store (decision D3). Only then does it append the request through weighin-contract
+//! (DR-01), once per ticket and question (DR-03); otherwise it writes nothing and exits 4, and
+//! the orchestrator rules instead.
 
 use std::ffi::OsString;
 use std::io::Write;
 
-use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
-use bench_contract::event::{BridgeUnavailable, OrchestrateRuled, WeighinParked};
-use clap::Args;
+use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
+use bench_contract::event::OrchestrateRuled;
+use clap::{ArgAction, Args};
 use serde::Serialize;
-use weighin_contract::ItemId;
+use weighin_contract::request::{OptionId, RequestError};
 
 use crate::brief::ticket::Ticket;
 use crate::command::CommandName;
@@ -26,13 +30,19 @@ use crate::exit_codes::{self, Code};
 use crate::hook::injection_scan::detect;
 use crate::legacy_import;
 use crate::paths;
-use crate::weighin::{self, ParkRequest, Runner};
+use crate::weighin::{self, RaiseError, Raised, Runner};
 
 use super::Ports;
 
-mod parked;
+mod request;
 
-use parked::{Park, Parked};
+use request::{Park, ParkOption};
+
+/// Fewest options a park offers (DR-04).
+const MIN_OPTIONS: usize = 2;
+
+/// Most options a park offers (DR-04).
+const MAX_OPTIONS: usize = 4;
 
 /// Most characters of a question.
 const MAX_QUESTION_CHARS: usize = 1024;
@@ -49,21 +59,24 @@ pub struct ParkArgs {
     /// The question for the human, one line
     #[arg(long = "q", value_name = "QUESTION")]
     question: String,
-    /// The option taken if the human does not decide by --resolve-by
-    #[arg(long, value_name = "OPTION")]
-    default: String,
-    /// The fact that would flip the call
-    #[arg(long, value_name = "FACT")]
-    flip: String,
+    /// An option, 2 to 4 times: ids a, b, c, d in order
+    #[arg(long = "option", value_name = "LABEL", action = ArgAction::Append)]
+    options: Vec<String>,
+    /// When each option holds, once per --option, in order
+    #[arg(long, value_name = "WHEN", action = ArgAction::Append)]
+    holds: Vec<String>,
+    /// What each option costs if it is wrong, once per --option, in order
+    #[arg(long, value_name = "IF-WRONG", action = ArgAction::Append)]
+    cost: Vec<String>,
+    /// The option you recommend: a, b, c or d
+    #[arg(long, value_name = "ID", default_value = "a")]
+    recommend: String,
     /// Where the call arises, as path:line
     #[arg(long, value_name = "PATH:LINE")]
     at: String,
-    /// When the default is taken, YYYY-MM-DD
+    /// The last day to decide, YYYY-MM-DD (UTC); a one-way call is never defaulted
     #[arg(long, value_name = "DATE")]
     resolve_by: String,
-    /// What the orchestrator does meanwhile
-    #[arg(long, value_name = "TEXT", default_value = "blocked")]
-    did: String,
     /// The Clef D2 decision id that said park, from its `data.id`
     #[arg(long, value_name = "ID")]
     decision: Option<String>,
@@ -102,12 +115,14 @@ struct ParkData<'a> {
     parked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     item_id: Option<&'a str>,
-    /// False when this ticket's park of the item was already in the ledger.
+    /// False when the request of this ticket and question was already in the store.
     #[serde(skip_serializing_if = "Option::is_none")]
     recorded: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     reason: Option<&'a str>,
-    position: u64,
+    /// Where the request sits: written now, or earlier; absent when nothing was written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    position: Option<u64>,
 }
 
 /// `data` of `orchestrate rule`.
@@ -115,20 +130,6 @@ struct ParkData<'a> {
 struct RuleData<'a> {
     ticket: &'a str,
     position: u64,
-}
-
-/// Where a park or ruling is recorded: the ledger, the ticket and the session.
-struct Record<'a> {
-    store: &'a Store,
-    ticket: &'a Ticket,
-    session: Option<&'a str>,
-}
-
-impl Record<'_> {
-    /// Appends `event`, written by the CLI for the session.
-    fn append(&self, event: LedgerEvent) -> Result<u64, CliError> {
-        Ok(self.store.append(&envelope(event, self.session)?)?)
-    }
 }
 
 /// `orchestrate park`: see the module documentation.
@@ -143,47 +144,61 @@ where
     R: Runner,
 {
     let ticket = args.ticket.parse::<Ticket>()?;
-    let request = ParkRequest {
-        question: one_line("q", &args.question, MAX_QUESTION_CHARS)?,
-        did: one_line("did", &args.did, MAX_TEXT_CHARS)?,
-        flip: one_line("flip", &args.flip, MAX_TEXT_CHARS)?,
-        at: one_line("at", &args.at, MAX_TEXT_CHARS)?,
-        blocks: ticket.as_str(),
-        resolve_by: date("resolve-by", &args.resolve_by)?,
-        default: one_line("default", &args.default, MAX_TEXT_CHARS)?,
-    };
-    let decision = decision_id(args.decision.as_deref())?;
-    let session = args.session.as_deref();
-    check_session(&ticket, session)?;
-    let store =
-        legacy_import::open_for_command(&paths::ledger_store(None, &ports.lookup, ports.cwd)?)?;
-    let record = Record {
-        store: &store,
+    let park = Park {
         ticket: &ticket,
-        session,
+        question: one_line("q", &args.question, MAX_QUESTION_CHARS)?,
+        options: park_options(args)?,
+        recommend: recommendation(&args.recommend)?,
+        at: one_line("at", &args.at, MAX_TEXT_CHARS)?,
+        resolve_by: date("resolve-by", &args.resolve_by)?,
+        decision: decision_id(args.decision.as_deref())?,
+        session: args.session.as_deref(),
     };
-    let parked = weighin::locate(&ports.lookup)
-        .and_then(|located| weighin::park(ports.runner, &located.path, ports.cwd, &request));
-    match parked {
-        Ok(item) => record_parked(&record, &item, decision, out),
-        Err(error) => record_unavailable(&record, &error_chain::reason(&error), out),
+    let probe = probe(&ticket, park.session)?;
+    let request = park.request();
+    request
+        .check(&probe.ts.to_core())
+        .map_err(|error| refused(&error))?;
+    let location = paths::ledger_store(None, &ports.lookup, ports.cwd)?;
+    let store = legacy_import::open_for_command(&location)?;
+    let able = weighin::locate(&ports.lookup)
+        .map_err(weighin::Unable::from)
+        .and_then(|found| weighin::able(ports.runner, &found.path, ports.cwd, &location.path));
+    if let Err(unable) = able {
+        return unavailable(&ticket, &error_chain::reason(&unable), out);
     }
+    let envelope = store.envelope_for(&probe, request)?;
+    let (item, position, recorded) = match weighin::raise(&store, &envelope) {
+        Ok(Raised::New { item, position }) => (item, position, true),
+        Ok(Raised::Already { item, position }) => (item, position, false),
+        Err(RaiseError::Refused(error)) => return Err(refused(&error)),
+        Err(RaiseError::IdTaken { item }) => {
+            return Err(CliError::ParkIdTaken {
+                item: item.as_str().to_owned(),
+            });
+        }
+        Err(RaiseError::Store(error)) => return Err(error.into()),
+    };
+    let data = ParkData {
+        ticket: ticket.as_str(),
+        parked: true,
+        item_id: Some(item.as_str()),
+        recorded: Some(recorded),
+        reason: None,
+        position: Some(position),
+    };
+    let code = exit_codes::ORCHESTRATE_OK;
+    emit(
+        &Envelope::new(CommandName::Orchestrate, Some("park"), code, data),
+        out,
+    )
 }
 
-/// Appends `bridge.unavailable` with `reason` and writes the exit-4 envelope.
-fn record_unavailable<O: Write>(
-    record: &Record<'_>,
-    reason: &str,
-    out: &mut O,
-) -> Result<Code, CliError> {
-    let ticket = record.ticket;
-    let position = record.append(LedgerEvent::BridgeUnavailable(BridgeUnavailable {
-        ticket: ticket.as_str().to_owned(),
-        reason: reason.to_owned(),
-    }))?;
+/// The exit-4 envelope: weigh-in cannot take the call for `reason`, and nothing was written.
+fn unavailable<O: Write>(ticket: &Ticket, reason: &str, out: &mut O) -> Result<Code, CliError> {
     let findings = [Finding::new(
-        format!("orchestrate/bridge-unavailable:{ticket}"),
-        format!("weigh-in could not park the call ({reason}): rule on it instead"),
+        format!("orchestrate/weigh-in-unavailable:{ticket}"),
+        format!("weigh-in cannot take the call ({reason}): rule on it instead"),
     )];
     let data = ParkData {
         ticket: ticket.as_str(),
@@ -191,7 +206,7 @@ fn record_unavailable<O: Write>(
         item_id: None,
         recorded: None,
         reason: Some(reason),
-        position,
+        position: None,
     };
     let code = exit_codes::ORCHESTRATE_UNAVAILABLE;
     emit(
@@ -200,46 +215,51 @@ fn record_unavailable<O: Write>(
     )
 }
 
-/// Appends `weighin_parked` for `item` and the ticket unless the ledger already has it, and
-/// writes the envelope.
-fn record_parked<O: Write>(
-    record: &Record<'_>,
-    item: &ItemId,
-    decision: Option<DecisionId>,
-    out: &mut O,
-) -> Result<Code, CliError> {
-    let ticket = record.ticket;
-    let parks = parked::parks_of(ticket.as_str()).map_err(|error| CliError::Usage {
-        reason: format!("the --ticket is recorded as a ledger tag: {error}"),
-    })?;
-    let event = LedgerEvent::WeighinParked(WeighinParked {
-        item_id: item.as_str().to_owned(),
-        ticket: ticket.as_str().to_owned(),
-        decision: decision.map(|id| id.as_str().to_owned()),
-    });
-    let envelope = envelope(event, record.session)?;
-    let park = Park {
-        parks: &parks,
-        item: item.as_str(),
-        event: &envelope,
-    };
-    let (position, recorded) = match park.record(record.store)? {
-        Parked::Recorded(position) => (position, true),
-        Parked::Already(position) => (position, false),
-    };
-    let data = ParkData {
-        ticket: ticket.as_str(),
-        parked: true,
-        item_id: Some(item.as_str()),
-        recorded: Some(recorded),
-        reason: None,
-        position,
-    };
-    let code = exit_codes::ORCHESTRATE_OK;
-    emit(
-        &Envelope::new(CommandName::Orchestrate, Some("park"), code, data),
-        out,
-    )
+/// The park's options, `--option`, `--holds` and `--cost` zipped in order; unequal counts, or
+/// fewer than 2 or more than 4, are a usage error naming the counts.
+fn park_options(args: &ParkArgs) -> Result<Vec<ParkOption<'_>>, CliError> {
+    let (n, holds, cost) = (args.options.len(), args.holds.len(), args.cost.len());
+    if n != holds || n != cost || !(MIN_OPTIONS..=MAX_OPTIONS).contains(&n) {
+        return Err(CliError::Usage {
+            reason: format!(
+                "a park takes {MIN_OPTIONS} to {MAX_OPTIONS} options, each with one --holds and \
+                 one --cost: got {n} --option, {holds} --holds and {cost} --cost"
+            ),
+        });
+    }
+    args.options
+        .iter()
+        .zip(&args.holds)
+        .zip(&args.cost)
+        .map(|((label, holds_when), cost_if_wrong)| {
+            Ok(ParkOption {
+                label: one_line("option", label, MAX_TEXT_CHARS)?,
+                holds_when: one_line("holds", holds_when, MAX_TEXT_CHARS)?,
+                cost_if_wrong: one_line("cost", cost_if_wrong, MAX_TEXT_CHARS)?,
+            })
+        })
+        .collect()
+}
+
+/// A park weigh-in's contract refused (a DR-04 guard: a deadline already past, a recommendation
+/// that is no option), as a usage error.
+fn refused(error: &RequestError) -> CliError {
+    CliError::Usage {
+        reason: format!(
+            "weigh-in's contract refused the park: {}",
+            error_chain::reason(error)
+        ),
+    }
+}
+
+/// The `--recommend` option id, `a` to `d`; any other word is a usage error.
+fn recommendation(value: &str) -> Result<OptionId, CliError> {
+    OptionId::ALL
+        .into_iter()
+        .find(|id| id.as_str() == value)
+        .ok_or_else(|| CliError::Usage {
+            reason: format!("--recommend must be a, b, c or d, not {value:?}"),
+        })
 }
 
 /// `orchestrate rule`: appends `orchestrate.ruled`.
@@ -290,6 +310,13 @@ fn envelope(event: LedgerEvent, session: Option<&str>) -> Result<EventEnvelope, 
 
 /// Refuses a `--session` the ledger cannot tag, before a ledger is opened or `weighin` runs.
 fn check_session(ticket: &Ticket, session: Option<&str>) -> Result<(), CliError> {
+    probe(ticket, session).map(drop)
+}
+
+/// A Bench event of `ticket` written now by the CLI for `session`, its tags checked: the
+/// context a park's request is written in (the same ts, actor and session as a Bench event), and
+/// a `--session` the ledger cannot tag refused as a usage error.
+fn probe(ticket: &Ticket, session: Option<&str>) -> Result<EventEnvelope, CliError> {
     let probe = LedgerEvent::OrchestrateRuled(OrchestrateRuled {
         ticket: ticket.as_str().to_owned(),
         what: String::new(),
@@ -297,12 +324,11 @@ fn check_session(ticket: &Ticket, session: Option<&str>) -> Result<(), CliError>
         cost_if_wrong: String::new(),
         decision: None,
     });
-    envelope(probe, session)?
-        .tags()
-        .map(drop)
-        .map_err(|error| CliError::Usage {
-            reason: format!("the --session is recorded as a ledger tag: {error}"),
-        })
+    let envelope = envelope(probe, session)?;
+    envelope.tags().map_err(|error| CliError::Usage {
+        reason: format!("the --session is recorded as a ledger tag: {error}"),
+    })?;
+    Ok(envelope)
 }
 
 /// `value` trimmed, when it is one non-blank line of at most `max` characters with no control,

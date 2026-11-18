@@ -1,4 +1,4 @@
-//! Bench's events: the 17 types, their payloads and the 0.x flat form anneal's ledger wrote.
+//! Bench's events: the 15 types, their payloads and the 0.x flat form anneal's ledger wrote.
 //!
 //! Each type is stored as `bench.<short name>` ([`EventKind::stored`]), version 1, durable
 //! (SPEC EV-03, EV-04, EV-14); since step 4 of `docs/plan/move-2-bench.md` the `bench ledger`
@@ -29,11 +29,39 @@ mod tests;
 pub use self::core::{MigrateWaveDone, MigrateWaveStarted, TYPES, decode};
 pub use by::{Actor, By, EmptyBy, Via};
 pub use payload::{
-    AgentStatus, BridgeUnavailable, GateBlocked, GrillConfirmed, MigrateContract, MigrateWave,
-    Mode, ModeSet, OrchestrateRuled, PlanApproved, ReproRed, RoundOfNothing, RoundStarted,
-    StopBlocked, SubagentStatus, TaskDone, TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet,
-    VerdictSource, WeighinParked,
+    AgentStatus, GateBlocked, GrillConfirmed, MigrateContract, MigrateWave, Mode, ModeSet,
+    OrchestrateRuled, PlanApproved, ReproRed, RoundOfNothing, RoundStarted, StopBlocked,
+    SubagentStatus, TaskDone, TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet, VerdictSource,
 };
+
+/// A type Bench wrote before Move 2 step 7 and no longer declares (D6 B).
+///
+/// It has no [`EventKind`] and no payload, and is never written again. Its old events stay in
+/// the store as they were (ST-15) and read as unusable (EV-10), so `bench status` counts them
+/// under `unreadable`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetiredType {
+    /// The short name anneal's 0.x ledger wrote, which the one-time import reads.
+    pub short: &'static str,
+    /// The type as the suite store keeps it.
+    pub stored: &'static str,
+}
+
+/// `weighin_parked`: a park recorded the item `weighin batch` raised (registry v9 to step 7).
+const WEIGHIN_PARKED: RetiredType = RetiredType {
+    short: "weighin_parked",
+    stored: "bench.weighin_parked",
+};
+
+/// `bridge.unavailable`: a park found no usable `weighin` (registry v9 to step 7).
+const BRIDGE_UNAVAILABLE: RetiredType = RetiredType {
+    short: "bridge.unavailable",
+    stored: "bench.bridge.unavailable",
+};
+
+/// Every retired type: `weighin_parked` and `bridge.unavailable`, which a park wrote before it
+/// became a Weigh-In decision request.
+pub const RETIRED_TYPES: [RetiredType; 2] = [WEIGHIN_PARKED, BRIDGE_UNAVAILABLE];
 
 /// The version of anneal's 0.x event registry, the last whose shapes the one-time import reads.
 ///
@@ -75,17 +103,13 @@ pub enum EventKind {
     MigrateWaveDone,
     /// `migrate.contract`
     MigrateContract,
-    /// `weighin_parked`
-    WeighinParked,
-    /// `bridge.unavailable`
-    BridgeUnavailable,
     /// `orchestrate.ruled`
     OrchestrateRuled,
 }
 
 impl EventKind {
     /// Every registered type, in registry order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 15] = [
         Self::TestRun,
         Self::TaskDone,
         Self::PlanApproved,
@@ -100,8 +124,6 @@ impl EventKind {
         Self::MigrateWaveStarted,
         Self::MigrateWaveDone,
         Self::MigrateContract,
-        Self::WeighinParked,
-        Self::BridgeUnavailable,
         Self::OrchestrateRuled,
     ];
 
@@ -124,8 +146,6 @@ impl EventKind {
             Self::MigrateWaveStarted => "migrate.wave.started",
             Self::MigrateWaveDone => "migrate.wave.done",
             Self::MigrateContract => "migrate.contract",
-            Self::WeighinParked => "weighin_parked",
-            Self::BridgeUnavailable => "bridge.unavailable",
             Self::OrchestrateRuled => "orchestrate.ruled",
         }
     }
@@ -148,8 +168,6 @@ impl EventKind {
             Self::MigrateWaveStarted => "bench.migrate.wave.started",
             Self::MigrateWaveDone => "bench.migrate.wave.done",
             Self::MigrateContract => "bench.migrate.contract",
-            Self::WeighinParked => "bench.weighin_parked",
-            Self::BridgeUnavailable => "bench.bridge.unavailable",
             Self::OrchestrateRuled => "bench.orchestrate.ruled",
         }
     }
@@ -166,12 +184,9 @@ impl EventKind {
     pub const fn subject(self) -> SubjectKey {
         match self {
             // An orchestrated ticket is the task its events are about.
-            Self::TestRun
-            | Self::TaskDone
-            | Self::ReproRed
-            | Self::WeighinParked
-            | Self::BridgeUnavailable
-            | Self::OrchestrateRuled => SubjectKey::Task,
+            Self::TestRun | Self::TaskDone | Self::ReproRed | Self::OrchestrateRuled => {
+                SubjectKey::Task
+            }
             Self::PlanApproved | Self::GrillConfirmed => SubjectKey::Plan,
             Self::VerdictSet | Self::RoundStarted => SubjectKey::Pr,
             Self::GateBlocked | Self::StopBlocked => SubjectKey::Point,
@@ -309,11 +324,6 @@ pub enum BenchEvent {
     /// A migration's contract step ran: the old shape is removed (registry v7).
     #[serde(rename = "migrate.contract")]
     MigrateContract(MigrateContract),
-    /// A one-way call was parked in weigh-in with a default (registry v9).
-    WeighinParked(WeighinParked),
-    /// The weigh-in bridge could not park a call, so it was ruled instead (registry v9).
-    #[serde(rename = "bridge.unavailable")]
-    BridgeUnavailable(BridgeUnavailable),
     /// The orchestrator ruled on a reversible call itself (registry v9).
     #[serde(rename = "orchestrate.ruled")]
     OrchestrateRuled(OrchestrateRuled),
@@ -338,8 +348,6 @@ impl BenchEvent {
             Self::MigrateWaveStarted(_) => EventKind::MigrateWaveStarted,
             Self::MigrateWaveDone(_) => EventKind::MigrateWaveDone,
             Self::MigrateContract(_) => EventKind::MigrateContract,
-            Self::WeighinParked(_) => EventKind::WeighinParked,
-            Self::BridgeUnavailable(_) => EventKind::BridgeUnavailable,
             Self::OrchestrateRuled(_) => EventKind::OrchestrateRuled,
         }
     }
@@ -354,11 +362,7 @@ impl BenchEvent {
             Self::TaskDone(TaskDone { task }) | Self::ReproRed(ReproRed { task, .. }) => {
                 Some(Cow::Borrowed(task))
             }
-            Self::WeighinParked(WeighinParked { ticket, .. })
-            | Self::BridgeUnavailable(BridgeUnavailable { ticket, .. })
-            | Self::OrchestrateRuled(OrchestrateRuled { ticket, .. }) => {
-                Some(Cow::Borrowed(ticket))
-            }
+            Self::OrchestrateRuled(OrchestrateRuled { ticket, .. }) => Some(Cow::Borrowed(ticket)),
             Self::PlanApproved(PlanApproved { plan, .. })
             | Self::GrillConfirmed(GrillConfirmed { plan, .. }) => Some(Cow::Borrowed(plan)),
             Self::VerdictSet(VerdictSet { pr, .. }) => Some(Cow::Owned(pr.to_string())),

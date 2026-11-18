@@ -135,7 +135,7 @@ impl Timestamp {
 
     /// Core's timestamp, for the envelope the store keeps; copied, since the caller keeps its
     /// envelope.
-    pub(super) fn to_core(&self) -> CoreTimestamp {
+    pub(crate) fn to_core(&self) -> CoreTimestamp {
         self.0.clone()
     }
 
