@@ -414,6 +414,45 @@ pub struct Decided {
     pub seconds_to_decide: Option<u64>,
     /// Why, such as `chose the recommended option` or `chose against the recommendation`.
     pub reason: String,
+    /// Once or always (SPEC DR-05, Knowledge call G); absent means once, and is written absent
+    /// so an event without it writes back byte for byte (EV-06).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applies: Option<Applies>,
+    /// For an answer that always applies, the check that enforces it; absent when none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<String>,
+}
+
+/// Whether a decision holds once or always (SPEC DR-05, Knowledge call G).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Applies {
+    /// This occurrence only. What a decision with no `applies` says.
+    #[default]
+    Once,
+    /// Every later occurrence: the answer becomes a constraint.
+    Always,
+}
+
+impl Applies {
+    /// The wire spelling: `once` or `always`.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Once => "once",
+            Self::Always => "always",
+        }
+    }
+
+    /// Read the wire spelling, `once` or `always`; `None` for any other word.
+    #[must_use]
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "once" => Some(Self::Once),
+            "always" => Some(Self::Always),
+            _ => None,
+        }
+    }
 }
 
 /// Payload of `item_deferred`: the item waits on a named fact, with a default if nobody acts.
@@ -764,6 +803,73 @@ mod tests {
         let spelled = all.map(Surface::as_str);
 
         assert_eq!(spelled, ["chat", "board", "local", "pane", "cli"]);
+    }
+
+    /// An `item_decided` payload as 1.x and 2.0.0 wrote it, with no `applies` key.
+    const DECIDED_WITHOUT_APPLIES: &str = r#"{"item_id":"wi-3fa9c1","option":"A","decider":"human:ryan","provenance":"user-approved","note":"","tree_hash":null,"matched_recommendation":true,"via":"chat","seconds_to_decide":12,"reason":"chose the recommended option"}"#;
+
+    #[test]
+    fn a_decision_without_applies_reads_as_before_and_writes_back_byte_for_byte() {
+        let decided: Decided =
+            serde_json::from_str(DECIDED_WITHOUT_APPLIES).expect("a 2.0.0 decision reads");
+
+        assert_eq!(
+            (decided.applies, decided.confirmation.as_deref()),
+            (None, None)
+        );
+        assert_eq!(
+            serde_json::to_string(&decided).expect("a decision writes"),
+            DECIDED_WITHOUT_APPLIES
+        );
+    }
+
+    #[test]
+    fn applies_reads_and_writes_once_and_always_lowercase() {
+        let words =
+            [Applies::Once, Applies::Always].map(|a| serde_json::to_string(&a).expect("writes"));
+        let read: Vec<Applies> = [r#""once""#, r#""always""#]
+            .iter()
+            .map(|w| serde_json::from_str(w).expect("a lowercase word reads"))
+            .collect();
+
+        assert_eq!(words, [r#""once""#, r#""always""#]);
+        assert_eq!(read, [Applies::Once, Applies::Always]);
+        assert_eq!(
+            [Applies::Once, Applies::Always].map(Applies::as_str),
+            ["once", "always"]
+        );
+        assert_eq!(
+            ["once", "always", "Always", "never"].map(Applies::parse),
+            [Some(Applies::Once), Some(Applies::Always), None, None]
+        );
+    }
+
+    #[test]
+    fn an_unknown_applies_word_does_not_read() {
+        let text =
+            DECIDED_WITHOUT_APPLIES.replacen(r#""reason""#, r#""applies":"sometimes","reason""#, 1);
+
+        let read = serde_json::from_str::<Decided>(&text);
+
+        assert!(read.is_err(), "{read:?}");
+    }
+
+    #[test]
+    fn a_decision_that_always_applies_writes_its_confirmation() {
+        let mut decided: Decided =
+            serde_json::from_str(DECIDED_WITHOUT_APPLIES).expect("a 2.0.0 decision reads");
+        decided.applies = Some(Applies::Always);
+        decided.confirmation = Some("cargo xtask layers".into());
+
+        let text = serde_json::to_string(&decided).expect("a decision writes");
+
+        assert!(
+            text.ends_with(
+                r#""reason":"chose the recommended option","applies":"always","confirmation":"cargo xtask layers"}"#
+            ),
+            "{text}"
+        );
+        assert_eq!(serde_json::from_str::<Decided>(&text).ok(), Some(decided));
     }
 
     #[test]

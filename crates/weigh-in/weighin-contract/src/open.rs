@@ -7,7 +7,7 @@
 
 use crate::card::Card;
 use crate::event::{
-    Blast, Channel, DefaultCause, Deferred, DismissReason, Provenance, Route, Timing,
+    Applies, Blast, Channel, DefaultCause, Deferred, DismissReason, Provenance, Route, Timing,
 };
 use crate::id::ItemId;
 use crate::vocab::{Authority, Door, Kind};
@@ -91,6 +91,13 @@ pub struct Decision {
     /// writer's clock; `None` until it is. Absent from the serialised item until then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reviewed_ts: Option<String>,
+    /// Once or always, as the decision event gave it; absent means once, and is left out of
+    /// the serialised item, so a decision without it keeps 1.2.0's bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applies: Option<Applies>,
+    /// For a decision that always applies, the check that enforces it; left out when none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<String>,
 }
 
 /// An option taken without a human, from the item's latest `item_defaulted` event.
@@ -211,4 +218,35 @@ pub struct OpenItem {
     pub last_position: u64,
     /// When the latest event applied to the item was written, by the writer's clock.
     pub last_ts: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A decision as weighin 1.2.0's `open --json` wrote it, before `applies`.
+    const WITHOUT_APPLIES: &str = r#"{"option":"A","decider":"human:ryan","provenance":"user-approved","note":"","via":"chat","matched_recommendation":true,"tree_hash":null,"seconds_to_decide":12,"ts":"2026-11-17T09:00:00Z"}"#;
+
+    #[test]
+    fn a_decision_with_applies_round_trips_and_one_without_writes_no_key() {
+        let without: Decision = serde_json::from_str(WITHOUT_APPLIES).expect("a 1.2.0 decision");
+        let mut with = without.clone();
+        with.applies = Some(Applies::Always);
+        with.confirmation = Some("cargo xtask layers".to_owned());
+
+        let with_text = serde_json::to_string(&with).expect("a decision writes");
+
+        assert_eq!(
+            serde_json::to_string(&without).expect("a decision writes"),
+            WITHOUT_APPLIES
+        );
+        assert!(
+            with_text.contains(r#""applies":"always","confirmation":"cargo xtask layers""#),
+            "{with_text}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Decision>(&with_text).ok(),
+            Some(with)
+        );
+    }
 }

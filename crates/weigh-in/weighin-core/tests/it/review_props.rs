@@ -109,6 +109,8 @@ fn decide(item_id: ItemId) -> LedgerEvent {
         via: "chat".to_owned(),
         seconds_to_decide: None,
         reason: "decided".to_owned(),
+        applies: None,
+        confirmation: None,
     })
 }
 

@@ -4,18 +4,11 @@
 //! trust is the envelope's. A raiser reads it into an [`Answer`] and accepts it only through
 //! [`accepts`]: trusted enough, one of the request's options, and about the subject as it is now.
 
+use crate::event::Decided;
 use crate::request::{OptionId, Request};
 use redkiln_core::trust::Level;
 
-/// Whether an answer holds once or always (Knowledge call G).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Applies {
-    /// This occurrence only. What every decision Weigh-In writes today says.
-    #[default]
-    Once,
-    /// Every later occurrence: the answer becomes a constraint.
-    Always,
-}
+pub use crate::event::Applies;
 
 /// An answer as a raiser reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +21,20 @@ pub struct Answer {
     pub applies: Applies,
     /// For an answer that always applies, the check that enforces it, if it names one.
     pub confirmation: Option<String>,
+}
+
+impl Answer {
+    /// The answer a raiser reads from Weigh-In's decision event `decided`, whose envelope has
+    /// `trust`: a decision with no `applies` applies once (DR-05).
+    #[must_use]
+    pub fn of(decided: &Decided, trust: Level) -> Self {
+        Self {
+            option: decided.option.clone(),
+            trust,
+            applies: decided.applies.unwrap_or_default(),
+            confirmation: decided.confirmation.clone(),
+        }
+    }
 }
 
 /// Why a raiser does not act on an answer (DR-06).
@@ -111,6 +118,48 @@ mod tests {
             applies: Applies::default(),
             confirmation: None,
         }
+    }
+
+    /// A decision of `option` as Weigh-In wrote it before `applies`, with none.
+    fn decided(option: &str) -> Decided {
+        serde_json::from_value(serde_json::json!({
+            "item_id": "wi-3fa9c01b2e",
+            "option": option,
+            "decider": "human:ryan",
+            "provenance": "user-approved",
+            "via": "chat",
+            "reason": "chose the recommended option"
+        }))
+        .expect("a decision without applies reads")
+    }
+
+    #[test]
+    fn answer_of_a_decision_without_applies_applies_once() {
+        let answer = Answer::of(&decided("b"), Level::Attested);
+
+        assert_eq!(
+            answer,
+            Answer {
+                option: "b".to_owned(),
+                trust: Level::Attested,
+                applies: Applies::Once,
+                confirmation: None,
+            }
+        );
+    }
+
+    #[test]
+    fn answer_of_a_decision_that_always_applies_keeps_its_confirmation() {
+        let mut always = decided("a");
+        always.applies = Some(Applies::Always);
+        always.confirmation = Some("cargo xtask layers".to_owned());
+
+        let answer = Answer::of(&always, Level::Witnessed);
+
+        assert_eq!(
+            (answer.applies, answer.confirmation.as_deref()),
+            (Applies::Always, Some("cargo xtask layers"))
+        );
     }
 
     #[test]

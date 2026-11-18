@@ -200,6 +200,8 @@ mod tests {
                 via: via.into(),
                 seconds_to_decide: None,
                 reason: "answered".into(),
+                applies: None,
+                confirmation: None,
             }));
         }
         events.extend(ids.last().map(|id| {

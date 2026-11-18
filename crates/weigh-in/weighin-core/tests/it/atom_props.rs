@@ -123,6 +123,8 @@ fn outcome(rng: &mut Rng, id: ItemId) -> Option<LedgerEvent> {
             via: text(rng),
             seconds_to_decide: None,
             reason: text(rng),
+            applies: None,
+            confirmation: None,
         })),
         1 => Some(LedgerEvent::ItemDeferred(Deferred {
             item_id: id,

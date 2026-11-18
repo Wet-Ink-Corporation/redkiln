@@ -335,6 +335,8 @@ mod tests {
                 via: "chat".into(),
                 seconds_to_decide: None,
                 reason: "answered".into(),
+                applies: None,
+                confirmation: None,
             }));
         }
 
@@ -398,6 +400,8 @@ mod tests {
                     via: "chat".into(),
                     seconds_to_decide: None,
                     reason: "answered".into(),
+                    applies: None,
+                    confirmation: None,
                 }),
             );
         };

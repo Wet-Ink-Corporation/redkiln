@@ -90,6 +90,8 @@ fn decided(rng: &mut Rng, item_id: ItemId) -> LedgerEvent {
         via: "cli".to_owned(),
         seconds_to_decide: rng.one_in(2).then(|| rng.next_u64()),
         reason: "decided".to_owned(),
+        applies: None,
+        confirmation: None,
     })
 }
 

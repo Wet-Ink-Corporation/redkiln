@@ -638,6 +638,8 @@ impl DecideArgs {
             provenance: None,
             via: Some(self.via),
             seconds: None,
+            applies: None,
+            confirmation: None,
         })
     }
 }
