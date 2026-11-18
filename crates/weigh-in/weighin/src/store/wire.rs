@@ -10,7 +10,7 @@ use redkiln_core::EventId;
 use redkiln_core::envelope::{
     Actor, Author, Envelope, Namespace, Payload, Skip, Timestamp, Unusable, Writer, decode,
 };
-use redkiln_core::ids::{HexLen, SessionId, WorktreeId};
+use redkiln_core::ids::{HexLen, SessionId, WorktreeId, parse_event_ref};
 use redkiln_core::journal::{LineError, ReadLine, read_line};
 use redkiln_core::store::{CoreKey, Filter, NewEvent, StoreError, Stored, Tag};
 use redkiln_core::trust::Trust;
@@ -209,7 +209,7 @@ pub(super) fn item_tag(id: &weighin_core::ItemId) -> Result<Tag> {
 /// is truncated (EV-11).
 ///
 /// # Errors
-/// A `ts`, `actor`, `session`, `worktree`, `branch`, `head` or tag Core refuses.
+/// A `ts`, `actor`, `session`, `worktree`, `branch`, `head`, cited ref or tag Core refuses.
 pub(super) fn to_new_event(
     env: EventEnvelope,
     writer: &Writer,
@@ -223,6 +223,7 @@ pub(super) fn to_new_event(
         branch,
         head,
         ts,
+        cites,
     } = env;
     let frame = Frame {
         ts: Timestamp::parse(&ts).context("the event's ts")?,
@@ -244,6 +245,10 @@ pub(super) fn to_new_event(
             .context("the event's worktree")?,
         branch,
         head,
+        cites: cites
+            .iter()
+            .map(|cite| parse_event_ref(cite).with_context(|| format!("the event's cite {cite}")))
+            .collect::<Result<_>>()?,
     };
     let (stored, Frame { branch, head, .. }, event) = encode(frame, event, tags)?;
     Ok((
@@ -256,6 +261,7 @@ pub(super) fn to_new_event(
             branch,
             head,
             ts,
+            cites,
         },
     ))
 }
@@ -287,6 +293,8 @@ struct Frame {
     worktree: Option<WorktreeId>,
     branch: Option<String>,
     head: Option<String>,
+    /// The events this one cites (ID-03 refs).
+    cites: Vec<EventId>,
 }
 
 impl Frame {
@@ -299,12 +307,14 @@ impl Frame {
             worktree,
             branch,
             head,
+            cites,
         } = self;
         let mut envelope = Envelope::new(ts, author, data);
         envelope.session = session;
         envelope.worktree = worktree;
         envelope.branch = branch;
         envelope.head = head;
+        envelope.cites = cites;
         let stored = envelope
             .to_event(tags)
             .with_context(|| format!("building the {} envelope", P::TYPE))?;
@@ -317,6 +327,7 @@ impl Frame {
             worktree,
             branch,
             head,
+            cites,
             data,
             ..
         } = envelope;
@@ -331,6 +342,7 @@ impl Frame {
             worktree,
             branch,
             head,
+            cites,
         };
         Ok((stored, frame, data))
     }
@@ -346,6 +358,7 @@ fn to_ledger<P>(envelope: Envelope<P>, variant: impl FnOnce(P) -> LedgerEvent) -
         branch: envelope.branch,
         head: envelope.head,
         ts: envelope.ts.as_str().to_owned(),
+        cites: envelope.cites.iter().map(ToString::to_string).collect(),
     }
 }
 

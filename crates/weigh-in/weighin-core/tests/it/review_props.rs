@@ -41,6 +41,7 @@ fn envelope(event: LedgerEvent, day: usize) -> EventEnvelope {
         branch: None,
         head: None,
         ts: date(day),
+        cites: Vec::new(),
     }
 }
 

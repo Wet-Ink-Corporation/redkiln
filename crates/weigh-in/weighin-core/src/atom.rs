@@ -913,6 +913,7 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
             branch: None,
             head: None,
             ts: "2026-09-26T18:00:00Z".into(),
+            cites: Vec::new(),
         };
         let mut l = Ledger::default();
         l.apply(1, &env(raised_event(id)));

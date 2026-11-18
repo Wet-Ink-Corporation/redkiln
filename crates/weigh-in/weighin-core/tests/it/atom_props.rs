@@ -87,6 +87,7 @@ fn envelope(event: LedgerEvent, session: Option<String>, ts: String) -> EventEnv
         branch: None,
         head: None,
         ts,
+        cites: Vec::new(),
     }
 }
 

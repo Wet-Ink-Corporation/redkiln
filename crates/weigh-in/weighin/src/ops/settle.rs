@@ -61,11 +61,19 @@ impl Session<'_> {
                 .as_deref()
                 .and_then(|p| env::seconds_between(p, &now))
         });
+        // An answer to a request always says how far it applies, and cites the request (DR-05);
+        // a captured item's decision keeps its bytes (T1).
+        let (applies, cites) = match &item.request {
+            Some(record) => (
+                Some(applies.unwrap_or(Applies::Once)),
+                vec![self.store()?.request_ref(record.position)?],
+            ),
+            None => (applies, Vec::new()),
+        };
         let tree = self.tree_hash();
         let decider = self.env.human();
-        self.write(
-            &item.id,
-            vec![LedgerEvent::ItemDecided(Decided {
+        let mut envelope = self.env.envelope(
+            LedgerEvent::ItemDecided(Decided {
                 item_id: item.id.clone(),
                 option: d.option.clone(),
                 decider,
@@ -82,8 +90,11 @@ impl Session<'_> {
                 },
                 applies,
                 confirmation: d.confirmation.clone(),
-            })],
-        )?;
+            }),
+            &self.actor,
+        );
+        envelope.cites = cites;
+        self.write_envelopes(&item.id, vec![envelope])?;
         self.decision_receipt(&item.id, &d.option, matched)
     }
 }
@@ -252,8 +263,99 @@ mod tests {
     use anyhow::Result;
     use weighin_core::event::{Applies, Decided, LedgerEvent};
 
+    use crate::env::Env;
     use crate::ops::test_support::{ONE_WAY, TWO_WAY, after, env_in, grounded, id_of, run};
     use crate::ops::{Session, stored_events};
+
+    /// A two-way request appended to `env`'s store as a sibling appends one (DR-01): Core
+    /// directly, under `raise_condition`. Returns its item and the request event's ref (ID-03).
+    fn raise_a_request(env: &Env) -> Result<(String, String)> {
+        use redkiln_core::envelope::{Actor, Author, Envelope, Timestamp, Writer};
+        use redkiln_core::store::{Filter, Store};
+        use redkiln_core::trust::Trust;
+        use weighin_contract::names::REQUEST_RAISED;
+        use weighin_contract::request::{Request, raise_condition, raise_event};
+
+        let request: Request = serde_json::from_value(serde_json::json!({
+            "question": "Keep the retry at three attempts?",
+            "options": [
+                {"id": "a", "label": "Three", "holds_when": "Flakes are rare", "cost_if_wrong": "A red run"},
+                {"id": "b", "label": "Five", "holds_when": "Flakes are common", "cost_if_wrong": "Slow failures"}
+            ],
+            "recommendation": "b",
+            "door": "two-way",
+            "authority": "judgment",
+            "blocks": "run",
+            "trust_needed": "witnessed",
+            "raiser": {"namespace": "bench", "key": "retry/attempts"}
+        }))?;
+        let id = request.item_id()?;
+        let author = Author {
+            actor: Actor::parse("agent")?,
+            trust: Trust::asserted(),
+            writer: Writer::new("bench", "2.0.0")?,
+        };
+        let ts = Timestamp::parse("2026-11-08T12:00:00Z")?;
+        let event = raise_event(&Envelope::new(ts, author, request))?;
+        let store = Store::open(env.store_path()?, env.wait)?;
+        store.append(vec![event], Some(&raise_condition(&id)?))?;
+        let read = store.read(
+            &Filter::all().of_type(REQUEST_RAISED.name)?,
+            0,
+            std::num::NonZeroUsize::MIN,
+        )?;
+        let stored = read.first().ok_or_else(|| anyhow::anyhow!("no request"))?;
+        Ok((id.as_str().to_owned(), stored.id.to_string()))
+    }
+
+    /// Each `item_decided` in `env`'s store: its `applies` and the refs its envelope cites.
+    fn decisions(env: &Env) -> Result<Vec<(Option<Applies>, Vec<String>)>> {
+        Ok(stored_events(env)?
+            .into_iter()
+            .filter_map(|(_, e)| match e.event {
+                LedgerEvent::ItemDecided(d) => Some((d.applies, e.cites)),
+                _ => None,
+            })
+            .collect())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn deciding_a_request_item_writes_applies_once_and_cites_the_request() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let (id, request_ref) = raise_a_request(&env)?;
+
+        let out = run(
+            &mut Session::open(&env, "cli")?,
+            &serde_json::json!([{"op": "decide", "id": id, "option": "a"}]),
+        )?;
+
+        assert!(out.iter().all(|l| l.starts_with('✓')), "{out:?}");
+        assert_eq!(
+            decisions(&env)?,
+            [(Some(Applies::Once), vec![request_ref])]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn deciding_a_captured_item_writes_neither_applies_nor_cites() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let mut batch = grounded();
+        batch.push(serde_json::json!({"op": "decide", "id": "@1", "option": "A"}));
+
+        let out = run(
+            &mut Session::open(&env, "cli")?,
+            &serde_json::Value::Array(batch),
+        )?;
+
+        assert!(out.iter().all(|l| l.starts_with('✓')), "{out:?}");
+        assert_eq!(decisions(&env)?, [(None, Vec::new())]);
+        Ok(())
+    }
 
     /// Run [`grounded`] then `decide` in a fresh ledger; return the decide's line and every
     /// `item_decided` payload the ledger then holds.

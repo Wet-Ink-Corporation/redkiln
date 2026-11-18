@@ -174,11 +174,17 @@ impl<'a> Session<'a> {
 
     /// Append events for `id` guarded on the item being unchanged since this session read it.
     fn write(&mut self, id: &ItemId, events: Vec<LedgerEvent>) -> Result<()> {
-        let since = self.ledger.get(id).map_or(0, |i| i.last_position);
         let envs: Vec<_> = events
             .into_iter()
             .map(|e| self.env.envelope(e, &self.actor))
             .collect();
+        self.write_envelopes(id, envs)
+    }
+
+    /// [`Session::write`] of envelopes the caller built, for one that carries more than the
+    /// session's context (an answer's `cites`, DR-05).
+    fn write_envelopes(&mut self, id: &ItemId, envs: Vec<EventEnvelope>) -> Result<()> {
+        let since = self.ledger.get(id).map_or(0, |i| i.last_position);
         match self
             .store()?
             .append(envs, &Guard::ItemUnchangedSince(id.clone(), since))?

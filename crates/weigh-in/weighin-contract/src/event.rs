@@ -721,6 +721,7 @@ impl LedgerEvent {
 ///         branch: None,
 ///         head: None,
 ///         ts: "2026-10-02T21:40:02Z".into(),
+///         cites: Vec::new(),
 ///     };
 ///     let bytes = envelope.to_json()?;
 ///     assert!(String::from_utf8(bytes.clone())?.contains(r#""type":"item_acknowledged""#));
@@ -749,6 +750,11 @@ pub struct EventEnvelope {
     pub head: Option<String>,
     /// RFC 3339 UTC.
     pub ts: String,
+    /// The events this one answers or follows from, as ID-03 event refs (`<store>:<position>`):
+    /// an answer to a decision request cites the request (DR-05). Empty writes no key, so an
+    /// envelope that cites nothing keeps the 1.x bytes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cites: Vec<String>,
 }
 
 impl EventEnvelope {
@@ -807,6 +813,7 @@ mod tests {
             branch: None,
             head: None,
             ts: "2026-09-26T00:00:00Z".into(),
+            cites: Vec::new(),
         };
         let bytes = e.to_json().unwrap();
         let text = String::from_utf8(bytes.clone()).unwrap();
@@ -832,6 +839,7 @@ mod tests {
             branch: None,
             head: None,
             ts: "2026-11-08T12:00:00Z".into(),
+            cites: Vec::new(),
         };
         let bytes = e.to_json().expect("writes");
         let text = String::from_utf8(bytes.clone()).expect("UTF-8");
