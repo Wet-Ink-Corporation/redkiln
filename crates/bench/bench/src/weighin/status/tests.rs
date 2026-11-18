@@ -68,7 +68,7 @@ fn a_weighin_that_folds_requests_into_the_same_store_is_able() {
 
     let result = check(&fake, &store);
 
-    assert!(result.is_ok(), "{result:?}");
+    assert!(matches!(result, Ok(())), "{result:?}");
     let asked = fake.asked.borrow();
     let [(args, timeout)] = asked.as_slice() else {
         panic!("one call: {asked:?}");
@@ -116,7 +116,7 @@ fn the_same_store_named_through_another_path_is_the_same() {
 
     let result = check(&fake, &store);
 
-    assert!(result.is_ok(), "{result:?}");
+    assert!(matches!(result, Ok(())), "{result:?}");
 }
 
 #[test]

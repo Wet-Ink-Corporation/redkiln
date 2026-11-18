@@ -90,7 +90,7 @@ fn status_is_asked_in_the_working_directory_with_nothing_on_stdin() {
         Path::new("/work/repo/.git/redkiln/events.sqlite3"),
     );
 
-    assert!(result.is_ok(), "{result:?}");
+    assert!(matches!(result, Ok(())), "{result:?}");
     let asked = fake.asked();
     let [call] = asked.as_slice() else {
         panic!("one call: {asked:?}");

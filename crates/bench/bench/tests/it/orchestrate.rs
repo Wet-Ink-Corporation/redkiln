@@ -315,7 +315,19 @@ fn seed_and_decide_the_last(bin: &Path, repo: &Path, decided: &str) -> TestResul
     if last != decided {
         weighin(bin, repo, &["decide", &last, "seeded"])?;
     }
-    std::fs::remove_dir_all(repo.join(".kb").join("_intake").join("decisions"))?;
+    // Weigh-In 1.x writes its atoms in `.kb/_intake/decisions`, 2.0 in `.kb/decision`; D6
+    // reads both, so both go.
+    let mut removed = 0;
+    for atoms in [
+        repo.join(".kb").join("decision"),
+        repo.join(".kb").join("_intake").join("decisions"),
+    ] {
+        if atoms.is_dir() {
+            std::fs::remove_dir_all(atoms)?;
+            removed += 1;
+        }
+    }
+    assert!(removed > 0, "weighin decide wrote its atoms in neither folder");
     Ok(last)
 }
 
