@@ -24,7 +24,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use redkiln_core::envelope::{Actor, Author, Skip, Writer};
-use redkiln_core::store::{Appended, Condition, OpenError, StoreError, Wait};
+use redkiln_core::store::{Appended, Condition, Filter, OpenError, StoreError, Wait};
 use redkiln_core::trust::Trust;
 use weighin_contract::names::REQUEST_RAISED;
 use weighin_core::event::EventEnvelope;
@@ -192,7 +192,7 @@ impl Store {
     /// # Errors
     /// A store error, or no decision request at `position`.
     pub(crate) fn request_ref(&self, position: u64) -> Result<String> {
-        let filter = redkiln_core::store::Filter::all()
+        let filter = Filter::all()
             .of_type(REQUEST_RAISED.name)
             .context("the decision request filter")?;
         let after = position

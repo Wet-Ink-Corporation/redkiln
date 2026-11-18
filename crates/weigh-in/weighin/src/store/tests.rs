@@ -1,4 +1,4 @@
-use redkiln_core::store::{Filter, NewEvent, Tag};
+use redkiln_core::store::{NewEvent, Tag};
 use weighin_core::Status;
 use weighin_core::event::{Acknowledged, Channel, DismissReason, Dismissed, LedgerEvent, Raised};
 use weighin_core::marker::{Authority, Door, Kind};
@@ -130,6 +130,43 @@ fn sibling_request(store: &Store) -> ItemId {
     let event = weighin_contract::request::raise_event(&envelope).expect("a valid request");
     store.inner.append(vec![event], None).expect("append");
     id
+}
+
+#[test]
+fn request_ref_is_the_stored_id_of_the_request_at_its_position() {
+    let (_dir, store) = store();
+    sibling_request(&store);
+    let read = store
+        .inner
+        .read(&Filter::all(), 0, NonZeroUsize::MIN)
+        .expect("read");
+    let request = read.first().expect("the request");
+
+    let cited = store
+        .request_ref(request.position)
+        .expect("a request there");
+
+    assert_eq!(cited, request.id.to_string());
+}
+
+#[test]
+fn request_ref_refuses_another_weighin_event_a_position_past_the_end_and_zero() {
+    let (_dir, store) = store();
+    let id = ItemId::mint("s1", "q?");
+    let written = store
+        .append(vec![raise(&id)], &Guard::NotYetRaised(id.clone()))
+        .expect("append");
+    assert_eq!(last(&written), Some(1), "the raise is at 1");
+
+    for (position, expected) in [
+        (1, "no decision request at store position 1"),
+        (2, "no decision request at store position 2"),
+        (0, "a store position starts at 1"),
+    ] {
+        let err = store.request_ref(position).expect_err("no request there");
+
+        assert_eq!(err.to_string(), expected, "{err:#}");
+    }
 }
 
 #[test]
