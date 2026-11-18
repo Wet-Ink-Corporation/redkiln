@@ -63,8 +63,9 @@ impl<F: FnOnce() -> Result<Option<Owner>, String>> Records<'_, F> {
             .map_err(|e| reason(&StoreError::Tag(e)))?
             .into_iter()
             .collect();
+        let kind = Retired::of(retired)?;
         let context = self.context(old)?;
-        let (event, _) = self.built(context, |context| build(context, retired, &payload, &tags))?;
+        let (event, _) = self.built(context, |context| build(context, kind, &payload, &tags))?;
         Ok(Mapped::Event {
             id: stored.id,
             event,
@@ -72,19 +73,47 @@ impl<F: FnOnce() -> Result<Option<Owner>, String>> Records<'_, F> {
     }
 }
 
-/// The event of `payload` as `retired` in `context`, tagged `tags`.
+/// The retired types this import carries over, one arm each.
+#[derive(Debug, Clone, Copy)]
+enum Retired {
+    /// `bench.weighin_parked`.
+    WeighinParked,
+    /// `bench.bridge.unavailable`.
+    BridgeUnavailable,
+}
+
+impl Retired {
+    /// The arm of `retired`, matched by its stored name; a retired type this import does not
+    /// know is refused rather than imported as another.
+    fn of(retired: RetiredType) -> Result<Self, String> {
+        if retired.stored == WEIGHIN_PARKED.stored {
+            Ok(Self::WeighinParked)
+        } else if retired.stored == BRIDGE_UNAVAILABLE.stored {
+            Ok(Self::BridgeUnavailable)
+        } else {
+            Err(format!(
+                "the import does not carry the retired type {}",
+                retired.stored
+            ))
+        }
+    }
+}
+
+/// The event of `payload` as `kind` in `context`, tagged `tags`.
 fn build(
     context: EventContext,
-    retired: RetiredType,
+    kind: Retired,
     payload: &OldPayload,
     tags: &[Tag],
 ) -> Result<NewEvent, StoreError> {
     // Core's envelope owns its payload and tags while it encodes; a retry after a refused
     // branch or head builds the event again from the record's.
     let (payload, tags) = (payload.clone(), tags.to_vec());
-    if retired == WEIGHIN_PARKED {
-        context.event(OldWeighinParked(payload), tags)
-    } else {
-        context.event(OldBridgeUnavailable(payload), tags)
+    match kind {
+        Retired::WeighinParked => context.event(OldWeighinParked(payload), tags),
+        Retired::BridgeUnavailable => context.event(OldBridgeUnavailable(payload), tags),
     }
 }
+
+#[cfg(test)]
+mod tests;

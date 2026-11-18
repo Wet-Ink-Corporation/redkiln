@@ -64,8 +64,9 @@ deadline already past; `--decision` a decision id; `--session` a ledger tag.
 directory, with nothing on stdin, 10 s and each output stream capped at 4 MiB. It goes on only
 when the answer is a `weighin.status/1` envelope with `requests: true` (a Weigh-In that folds
 decision requests, step 7 or later) and its `store` is the store Bench writes (compared after
-resolving the folder, so another spelling of the same path is the same store). Otherwise
-nothing is written.
+resolving the folder, so another spelling of the same path is the same store). It asks
+before the store is opened, so otherwise no store is created, no anneal ledger imported and
+nothing written.
 
 **The request.** One `weighin.request_raised` (DR-02) is appended to the suite store, written by
 Bench: the question and options, the recommendation, `door: one-way`, `authority`, no default,

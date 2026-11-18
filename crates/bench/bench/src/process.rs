@@ -2,8 +2,9 @@
 //! shared by `git` (`paths`, and `floor_guard` through `paths::run_git_capped`) and the test
 //! command of `task done` (`task::run_command`, which pipes nothing: its child writes straight
 //! to anneal's stderr). `gh` and the pull request diff's git run through the GitHub kit's own
-//! copy (`redkiln_github`). `perf noise` times its runs with `wait_or_kill_every`, and the weigh-in bridge
-//! (`weighin::ProcessRunner`) pipes a batch to `weighin` with `wait_with_input`.
+//! copy (`redkiln_github`). `perf noise` times its runs with `wait_or_kill_every`, and
+//! `weighin::ProcessRunner` asks `weighin status --json` with `wait_with_input` (nothing on
+//! stdin).
 
 use std::convert::Infallible;
 use std::io::{self, Read, Write};

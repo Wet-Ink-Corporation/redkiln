@@ -6,10 +6,10 @@
 //! `--holds` and a `--cost` each, `--recommend` one of them, `--resolve-by` a `YYYY-MM-DD` date
 //! after today (UTC), `--decision` a decision id and `--session` a ledger tag.
 //!
-//! A park then opens the store and asks the `weighin` it finds whether it folds requests into
-//! that store (decision D3). Only then does it append the request through weighin-contract
-//! (DR-01), once per ticket and question (DR-03); otherwise it writes nothing and exits 4, and
-//! the orchestrator rules instead.
+//! A park then asks the `weighin` it finds whether it folds requests into the store Bench
+//! writes (decision D3), before that store is opened. Only then does it open the store and
+//! append the request through weighin-contract (DR-01), once per ticket and question (DR-03);
+//! otherwise it creates and writes nothing and exits 4, and the orchestrator rules instead.
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -155,30 +155,23 @@ where
         session: args.session.as_deref(),
     };
     let probe = probe(&ticket, park.session)?;
+    after_today(park.resolve_by, &probe.ts)?;
     let request = park.request();
     request
         .check(&probe.ts.to_core())
         .map_err(|error| refused(&error))?;
     let location = paths::ledger_store(None, &ports.lookup, ports.cwd)?;
-    let store = legacy_import::open_for_command(&location)?;
+    // Weigh-In is asked before the store is opened, so the exit-4 path creates no store and
+    // runs no import (D3).
     let able = weighin::locate(&ports.lookup)
         .map_err(weighin::Unable::from)
         .and_then(|found| weighin::able(ports.runner, &found.path, ports.cwd, &location.path));
     if let Err(unable) = able {
         return unavailable(&ticket, &error_chain::reason(&unable), out);
     }
+    let store = legacy_import::open_for_command(&location)?;
     let envelope = store.envelope_for(&probe, request)?;
-    let (item, position, recorded) = match weighin::raise(&store, &envelope) {
-        Ok(Raised::New { item, position }) => (item, position, true),
-        Ok(Raised::Already { item, position }) => (item, position, false),
-        Err(RaiseError::Refused(error)) => return Err(refused(&error)),
-        Err(RaiseError::IdTaken { item }) => {
-            return Err(CliError::ParkIdTaken {
-                item: item.as_str().to_owned(),
-            });
-        }
-        Err(RaiseError::Store(error)) => return Err(error.into()),
-    };
+    let (item, position, recorded) = raised(weighin::raise(&store, &envelope))?;
     let data = ParkData {
         ticket: ticket.as_str(),
         parked: true,
@@ -192,6 +185,22 @@ where
         &Envelope::new(CommandName::Orchestrate, Some("park"), code, data),
         out,
     )
+}
+
+/// The item, position and whether it was written now, of a raise's `outcome`; a refusal is a
+/// usage error, all three id lengths taken [`CliError::ParkIdTaken`].
+fn raised(
+    outcome: Result<Raised, RaiseError>,
+) -> Result<(weighin_contract::ItemId, u64, bool), CliError> {
+    match outcome {
+        Ok(Raised::New { item, position }) => Ok((item, position, true)),
+        Ok(Raised::Already { item, position }) => Ok((item, position, false)),
+        Err(RaiseError::Refused(error)) => Err(refused(&error)),
+        Err(RaiseError::IdTaken { item }) => Err(CliError::ParkIdTaken {
+            item: item.as_str().to_owned(),
+        }),
+        Err(RaiseError::Store(error)) => Err(error.into()),
+    }
 }
 
 /// The exit-4 envelope: weigh-in cannot take the call for `reason`, and nothing was written.
@@ -369,6 +378,23 @@ fn date<'a>(flag: &str, value: &'a str) -> Result<&'a str, CliError> {
         Err(CliError::Usage {
             reason: format!("--{flag} must be a date, YYYY-MM-DD"),
         })
+    }
+}
+
+/// Refuses a `--resolve-by` `day` (checked `YYYY-MM-DD`) that is not after the UTC day of
+/// `now`: a one-way request due today leaves the human no sitting to answer it. Both are
+/// zero-padded, four-digit-year dates, so they compare as text.
+fn after_today(day: &str, now: &Timestamp) -> Result<(), CliError> {
+    match now.as_str().get(..10) {
+        Some(today) if day > today => Ok(()),
+        Some(today) => Err(CliError::Usage {
+            reason: format!(
+                "--resolve-by must be after today ({today}, UTC): the deadline is the end of that day"
+            ),
+        }),
+        None => Err(CliError::Usage {
+            reason: format!("the clock reads no date ({})", now.as_str()),
+        }),
     }
 }
 

@@ -288,6 +288,7 @@ fn with_weigh_in_absent_the_park_exits_4_and_writes_nothing() -> TestResult {
         json!("orchestrate/weigh-in-unavailable:7")
     );
     assert_eq!(fake.calls(), 0, "nothing to run");
+    assert!(!world.store().exists(), "no store created (D3)");
     assert_eq!(world.events()?, []);
     assert_eq!(world.requests()?.len(), 0);
     Ok(())
@@ -326,6 +327,7 @@ fn a_weighin_that_cannot_take_requests_exits_4_and_writes_nothing() -> TestResul
             .is_some_and(|reason| reason.starts_with("weighin keeps another store")),
         "{reasons:?}"
     );
+    assert!(!world.store().exists(), "no store created (D3)");
     assert_eq!(world.events()?, []);
     assert_eq!(world.requests()?.len(), 0, "nothing written");
     Ok(())
@@ -365,20 +367,24 @@ fn unequal_or_too_few_options_are_usage_errors_that_run_nothing() -> TestResult 
 
 #[test]
 fn a_resolve_by_today_or_earlier_is_a_usage_error() -> TestResult {
-    let world = World::new()?;
-    let fake = world.able();
-    let mut words = PARK.to_vec();
-    words[20] = "2026-01-01";
+    let now = crate::store::Timestamp::now()?;
+    let today = now.as_str().get(..10).ok_or("a date")?;
+    for day in ["2026-01-01", today] {
+        let world = World::new()?;
+        let fake = world.able();
+        let mut words = PARK.to_vec();
+        words[20] = day;
 
-    let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
+        let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
 
-    assert!(
-        matches!(&code, Err(CliError::Usage { reason }) if reason.contains("deadline")),
-        "{code:?}"
-    );
-    assert_eq!(envelope, Value::Null);
-    assert_eq!(fake.calls(), 0, "weighin never ran");
-    assert!(!world.store().exists(), "no ledger created");
+        assert!(
+            matches!(&code, Err(CliError::Usage { reason }) if reason.contains("deadline")),
+            "{day}: {code:?}"
+        );
+        assert_eq!(envelope, Value::Null, "{day}");
+        assert_eq!(fake.calls(), 0, "{day}: weighin never ran");
+        assert!(!world.store().exists(), "{day}: no ledger created");
+    }
     Ok(())
 }
 
