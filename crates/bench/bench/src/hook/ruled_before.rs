@@ -1,7 +1,8 @@
 //! `bench hook ruled-before`: the `UserPromptSubmit` hook for Clef's D6. It fails open.
 //!
 //! For each prompt it gathers the repository's rulings ([`precedents`]: the `.out-of-scope/`
-//! store, accepted weigh-in decision atoms, and the items `weighin open --all --json` lists as
+//! store, accepted weigh-in decision atoms in `.kb/decision/` and `.kb/_intake/decisions/`, and
+//! the items `weighin open --all --json` (read through weighin-contract) lists as
 //! decided whose atoms are not written yet) and asks Clef, through `decide`'s own code
 //! (`decide::in_process`, then `client::ask_recording`), which of them the prompt would
 //! re-open: a `choice` over their ids plus `none`. When the rule's action is `surface` (the top

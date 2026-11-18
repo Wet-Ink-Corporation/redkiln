@@ -19,6 +19,7 @@ Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check` (wi
 - `status::Status` is `weighin.status/1`'s `data`, field order wire order, every `Option` written `null`; it reads a later key (CLI-04), and `spec/fixtures/status/` pins it.
 - `cli::COMMANDS` and `cli::VALUE_OPTIONS` are what weighin's clap accepts; weighin's `cli_pin` test pins both.
 - `open::OpenItem` writes what weighin 1.2.0's `open --json` wrote; weighin-core's test pins it against its projection's `Item`.
+- `open::read_listing` is the sibling reader of `open --json` (`Listed`): unknown keys, status words and `applies` words are ignored (CLI-04, EV-09), an element that does not read is skipped (T4), and the cap counts every element, readable or not.
 - Every payload is version 1 and durable under `weighin.<serde tag>` (`names`).
 - A request is refused, and nothing written, when it breaks a DR-04 guard or a per-field shape of `decision-request-1.schema.json` (`Request::check`, run by `raise_event`); its item id is ID-04 over `redkiln.id/weighin.request/1`, its namespace and key (DR-03).
 - `LedgerEvent::RequestRaised` (`event::Requested`) is a request as folded: weighin folds it into one grounded item of channel `request`, card ids `a` to `d`; it is not one of `EVENT_TYPES` or `names::ITEM_EVENTS`, which stay the 13 item events. A raise is appended under `raise_condition`: no `item_raised` and no `request_raised` of the item.

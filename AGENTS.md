@@ -38,7 +38,7 @@ redkiln is one monorepo for the Redkiln suite: separately installable Claude Cod
 | `crates/kits/redkiln-guard` | kit | Guards: shell lexer, denylist engine and its rule-pack seam, protected paths, redaction, path globs | thiserror |
 | `crates/kits/redkiln-github` | kit | GitHub and git reads: tickets, the tracker port and its GitHub adapter, the ticket graph and estimate, PR diffs, the PR, CI and deploy watch | serde, serde_json, thiserror |
 | `crates/bench/bench-contract` | contract (bench) | `bench.*` events (`event`), commands (`cli`), `status --json` data (`status`) | redkiln-core (optional), serde, thiserror |
-| `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI, its events kept in the Core store through `redkiln-core` | bench-contract, redkiln-core, redkiln-calibrate, redkiln-guard, redkiln-github, clap, ureq, sha2, serde, serde_json, thiserror |
+| `crates/bench/bench` | plugin (bench), binary `bench` | The Bench CLI, its events kept in the Core store through `redkiln-core` | bench-contract, weighin-contract, redkiln-core, redkiln-calibrate, redkiln-guard, redkiln-github, clap, ureq, sha2, serde, serde_json, thiserror |
 | `tools/xtask` | tool | Repository checks and release tasks; never shipped | bench-, knowledge-, weighin-contract, serde, serde_json, sha2, thiserror |
 | `tools/skillcheck` | tool, binary `skillcheck` | Skill QA: `lint skills`, `eval routing\|uplift`; never shipped | bench-contract, redkiln-calibrate, clap, serde, serde_json, sha2, thiserror |
 

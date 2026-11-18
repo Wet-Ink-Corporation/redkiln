@@ -14,6 +14,7 @@ use crate::store::{EventEnvelope, LedgerEvent, Store, Timestamp};
 use bench_contract::event::{BridgeUnavailable, OrchestrateRuled, WeighinParked};
 use clap::Args;
 use serde::Serialize;
+use weighin_contract::ItemId;
 
 use crate::brief::ticket::Ticket;
 use crate::command::CommandName;
@@ -25,7 +26,7 @@ use crate::exit_codes::{self, Code};
 use crate::hook::injection_scan::detect;
 use crate::legacy_import;
 use crate::paths;
-use crate::weighin::{self, ItemId, ParkRequest, Runner};
+use crate::weighin::{self, ParkRequest, Runner};
 
 use super::Ports;
 
