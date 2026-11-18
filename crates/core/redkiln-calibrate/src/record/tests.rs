@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::{
     Answer, JUDGEMENT_LABELLED, JUDGEMENT_RECORDED, JudgementId, JudgementLabelled,
     JudgementRecorded, LabelActor, LabelBy, LabelledWire, Mode, Outcome, Producer, ProducerError,
-    RecordError, RecordedWire, Subject, SubjectError, VERSION, Vocab,
+    RecordError, RecordedWire, Subject, SubjectError, VERSION, Vocab, WordError,
 };
 use crate::score::Probability;
 
@@ -264,6 +264,32 @@ fn ids_and_outcomes_refuse_empty_long_and_bad_chars() {
         assert!(bad.parse::<Outcome>().is_err(), "outcome {bad:?}");
         assert!(Vocab::try_from(bad.to_owned()).is_err(), "vocab {bad:?}");
     }
+}
+
+#[test]
+fn a_refused_word_hands_its_text_back() {
+    let bad = ["", "has space", "slash/", "é"];
+
+    let ids = bad.map(|text| {
+        JudgementId::try_from(text.to_owned())
+            .map(JudgementId::into_string)
+            .map_err(WordError::into_string)
+    });
+    let outcomes = bad.map(|text| {
+        Outcome::try_from(text.to_owned())
+            .map(Outcome::into_string)
+            .map_err(WordError::into_string)
+    });
+    let vocab = bad.map(|text| {
+        Vocab::try_from(text.to_owned())
+            .map(Vocab::into_string)
+            .map_err(WordError::into_string)
+    });
+
+    let handed_back: [Result<String, String>; 4] = bad.map(|text| Err(text.to_owned()));
+    assert_eq!(ids, handed_back, "ids");
+    assert_eq!(outcomes, handed_back, "outcomes");
+    assert_eq!(vocab, handed_back, "vocab");
 }
 
 /// A record's `data`: a minimal one with the keys of `extra` set over it.

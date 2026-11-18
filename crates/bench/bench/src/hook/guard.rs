@@ -16,9 +16,8 @@ mod denylist;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::pr_diff::Budget;
 use crate::store::{
     EventEnvelope, LedgerEvent, Store, StoreError, Timestamp, TimestampError, Wait,
 };
@@ -232,12 +231,13 @@ where
         Decision::Allow => Ok(()),
         Decision::Ask(reason) => write_ask(out, &reason),
         Decision::Deny(denial) => {
-            let spent = ports.clock.monotonic().saturating_sub(started);
-            let remaining = HOOK_BUDGET.saturating_sub(spent);
-            // What is left from here on the real clock: the record's open and append share it.
-            let budget = Budget::within(Instant::now(), remaining, GIT_TIMEOUT);
+            let ends = started.saturating_add(HOOK_BUDGET);
+            // What is left of the budget, on the clock the guard started on: the record's open
+            // and append share what git leaves of it.
+            let left = || ends.saturating_sub(ports.clock.monotonic());
+            let remaining = left();
             let recorded = match git_budget(remaining) {
-                Some(git_timeout) => record(&denial, input.ok(), &budget, |cwd| {
+                Some(git_timeout) => record(&denial, input.ok(), left, |cwd| {
                     ledger_path(cwd, env.current_dir, &env.lookup, git_timeout)
                 }),
                 None => Err(RecordError::NoTime),
@@ -320,11 +320,11 @@ fn ledger_path(
 }
 
 /// Appends a `gate_blocked` event for `denial`, tagged with the input's session, to the ledger
-/// `ledger` finds from the input's `cwd`.
+/// `ledger` finds from the input's `cwd`; `left` reads what is left of the hook's budget.
 fn record(
     denial: &Denial,
     input: Option<Input>,
-    budget: &Budget,
+    left: impl Fn() -> Duration,
     ledger: impl FnOnce(Option<PathBuf>) -> Result<PathBuf, RecordError>,
 ) -> Result<(), RecordError> {
     let (session_id, cwd) = input.map_or((None, None), |input| (input.session_id, input.cwd));
@@ -339,10 +339,9 @@ fn record(
     envelope.session_id = session_id;
     // The open and the append share what git left ([`RECORD_STEPS`]), each at most Core's hook
     // wait (2 s, D6).
-    let wait = store_wait::share(store_wait::left(budget), RECORD_STEPS)
-        .map_err(RecordError::OutOfTime)?;
+    let wait = store_wait::share(left(), RECORD_STEPS).map_err(RecordError::OutOfTime)?;
     let ledger = Store::open_within(&path, Wait::Hook, wait).map_err(RecordError::Open)?;
-    store_wait::step(budget, ledger.busy_timeout(), Duration::ZERO)
+    store_wait::step_within(left(), ledger.busy_timeout(), Duration::ZERO)
         .map_err(RecordError::OutOfTime)?;
     ledger
         .append(&envelope)
