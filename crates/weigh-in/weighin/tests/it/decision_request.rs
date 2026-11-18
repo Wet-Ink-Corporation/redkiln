@@ -138,7 +138,8 @@ fn a_request_appended_through_the_contract_is_listed_by_open_json() -> TestResul
     let store = store_of(&repo.root);
     let id = raise_as_a_sibling(&store, bench_request()?)?;
 
-    let listed: Value = serde_json::from_str(&repo.ok("s1", &["open", "--all", "--json"], None)?)?;
+    let listed: Value =
+        serde_json::from_str(&repo.ok("s1", &["open", "--all", "--json"], None)?)?;
     repo.ok("s1", &["decide", &id, "b"], None)?;
 
     let items = listed.as_array().ok_or("an array")?;

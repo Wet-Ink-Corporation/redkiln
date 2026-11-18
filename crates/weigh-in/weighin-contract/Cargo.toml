@@ -10,8 +10,9 @@ publish.workspace = true
 
 [features]
 # Core's half of the contract: the `Payload` impls of every `weighin.*` type, the decision
-# request (DR) and its answer. Off, the crate is pure (serde, sha2, thiserror), so weighin-core
-# links it without linking Core; weighin and every sibling raiser turn it on.
+# request's guards, id and raise event (DR), and its answer. Off, the crate is pure (serde, sha2,
+# thiserror) and still holds the request record, so weighin-core folds requests without linking
+# Core; weighin and every sibling raiser turn it on.
 core = ["dep:redkiln-core"]
 
 [dependencies]

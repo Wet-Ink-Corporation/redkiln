@@ -63,9 +63,11 @@ item_events! {
     Acknowledged = "item_acknowledged",
 }
 
-/// The decision request's event (DR-01): it raises an item that arrives grounded. Siblings write
-/// it through [`request`](crate::request); weighin folds it into an item of channel `request` and
-/// never writes it. It is not one of [`ITEM_EVENTS`], which stay the 1.x vocabulary.
+/// The decision request's event (DR-01): it raises an item that arrives grounded.
+///
+/// Siblings write it through [`request`](crate::request); weighin folds it into an item of
+/// channel `request` and never writes it. It is not one of [`ITEM_EVENTS`], which stay the 1.x
+/// vocabulary.
 pub const REQUEST_RAISED: EventName = EventName {
     name: "weighin.request_raised",
     version: 1,

@@ -65,7 +65,6 @@ fn a_request_folds_into_one_grounded_item_with_its_card() {
     let item_id = id("wi-0a1b2c3d4e");
     let ledger = fold(&[requested(&item_id, record(), Some("s1"))]);
     let item = only(&ledger);
-    let card = item.card.as_ref().expect("the request's card");
 
     assert_eq!(item.id, item_id);
     assert_eq!(
@@ -79,8 +78,35 @@ fn a_request_folds_into_one_grounded_item_with_its_card() {
     assert_eq!(item.blocks.as_deref(), Some("run"));
     assert_eq!(item.route, Some(Route::Present));
     assert_eq!(item.card_rev, Some(1));
+    let record = item.request.as_ref().expect("the request record");
     assert_eq!(
-        card.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+        (record.position, &record.request),
+        (1, &request(self::record()))
+    );
+    assert_eq!(
+        (
+            item.session_id.as_deref(),
+            item.worktree.as_deref(),
+            item.branch.as_deref()
+        ),
+        (Some("s1"), Some("tree"), Some("main"))
+    );
+    assert!(
+        item.needs_attention(),
+        "a grounded request waits on a human"
+    );
+}
+
+#[test]
+fn a_request_items_card_is_the_requests_options_and_recommendation() {
+    let ledger = fold(&[requested(&id("wi-0a1b2c3d4e"), record(), Some("s1"))]);
+    let card = only(&ledger).card.as_ref().expect("the request's card");
+
+    assert_eq!(
+        card.options
+            .iter()
+            .map(|o| o.id.as_str())
+            .collect::<Vec<_>>(),
         ["a", "b", "c"]
     );
     let b = card.options.get(1).expect("option b");
@@ -93,13 +119,6 @@ fn a_request_folds_into_one_grounded_item_with_its_card() {
         card.why,
         "Asked by bench through a decision request (retry/attempts)"
     );
-    let record = item.request.as_ref().expect("the request record");
-    assert_eq!((record.position, record.request.clone()), (1, request(self::record())));
-    assert_eq!(
-        (item.session_id.as_deref(), item.worktree.as_deref(), item.branch.as_deref()),
-        (Some("s1"), Some("tree"), Some("main"))
-    );
-    assert!(item.needs_attention(), "a grounded request waits on a human");
 }
 
 #[test]
@@ -248,7 +267,11 @@ fn a_one_way_request_is_never_folded_defaulted() {
         let ledger = fold(&[requested(&id("wi-0a1b2c3d4e"), value, Some("s1"))]);
         let item = only(&ledger);
 
-        assert_eq!(item.status, Status::Grounded, "{door} {authority} {deadline:?}");
+        assert_eq!(
+            item.status,
+            Status::Grounded,
+            "{door} {authority} {deadline:?}"
+        );
         assert_eq!(item.default, None, "{door} {authority} {deadline:?}");
         assert_eq!(item.resolve_by.as_deref(), deadline);
     }
@@ -256,10 +279,9 @@ fn a_one_way_request_is_never_folded_defaulted() {
 
 #[test]
 fn an_item_with_no_request_serialises_as_before() {
-    let item_id = ItemId::mint("s1", "q?");
     let raised = EventEnvelope {
         event: LedgerEvent::ItemRaised(Raised {
-            item_id: item_id.clone(),
+            item_id: ItemId::mint("s1", "q?"),
             kind: Kind::Question,
             question: "q?".into(),
             did: None,
@@ -287,7 +309,10 @@ fn an_item_with_no_request_serialises_as_before() {
     let text = serde_json::to_string(&OpenItem::from(item)).expect("writes");
 
     assert!(!text.contains("\"request\""), "{text}");
-    assert!(text.ends_with(r#""last_ts":"2026-11-18T10:00:00Z"}"#), "{text}");
+    assert!(
+        text.ends_with(r#""last_ts":"2026-11-18T10:00:00Z"}"#),
+        "{text}"
+    );
     assert_eq!(text, serde_json::to_string(item).expect("writes"));
 }
 

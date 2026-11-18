@@ -23,7 +23,10 @@ fn a_request_record_reads_without_core() {
 #[test]
 fn a_raiser_namespace_parses_only_ev_03_words() {
     for word in NAMESPACES {
-        assert_eq!(RaiserNamespace::parse(word).map(RaiserNamespace::as_str), Some(word));
+        assert_eq!(
+            RaiserNamespace::parse(word).map(RaiserNamespace::as_str),
+            Some(word)
+        );
     }
     assert_eq!(RaiserNamespace::parse("rusty"), None);
     assert_eq!(RaiserNamespace::parse("Rust"), None);

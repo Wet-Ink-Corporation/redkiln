@@ -1,15 +1,18 @@
 //! The raiser's half of the decision request, with the `core` feature: the DR-04 guards, the item
 //! id (DR-03), the event a raiser appends (DR-01) and the condition it appends under.
 
-use super::{Request, RaiserNamespace, Subject, TrustNeeded, ID_DOMAIN, OptionId};
+use super::{ID_DOMAIN, OptionId, RaiserNamespace, Request, Subject, TrustNeeded};
+use crate::event::Raised;
 use crate::id::ItemId;
-use crate::names::{ITEM_EVENTS, REQUEST_CHANNEL, REQUEST_RAISED};
+use crate::names::{Named, REQUEST_CHANNEL, REQUEST_RAISED};
 use crate::vocab::Door;
 use redkiln_core::envelope::{
     Class, Envelope, EnvelopeError, FieldError, Namespace, Payload, Timestamp, decode,
 };
 use redkiln_core::ids::{ContentId, HexLen, IdError, IdPrefix};
-use redkiln_core::store::{Condition, CoreKey, Filter, NewEvent, StoreError, Stored, Tag, TagError};
+use redkiln_core::store::{
+    Condition, CoreKey, Filter, NewEvent, StoreError, Stored, Tag, TagError,
+};
 use redkiln_core::subject::{Subject as CoreSubject, SubjectError};
 use redkiln_core::trust::Level;
 
@@ -286,18 +289,18 @@ pub fn raise_event_at(envelope: &Envelope<Request>, len: HexLen) -> Result<NewEv
     envelope.to_event(tags).map_err(RequestError::Envelope)
 }
 
-/// The condition a raise is appended under: no `weighin.item_raised` and no
-/// `weighin.request_raised` tagged `item:<id>` (DR-03). Weigh-In's own raise uses it too, so
-/// neither kind of raise lands on an item the other holds.
+/// The condition a raise is appended under (DR-03).
+///
+/// No `weighin.item_raised` and no `weighin.request_raised` tagged `item:<id>` may exist.
+/// Weigh-In's own raise uses it too, so neither kind of raise lands on an item the other holds.
 ///
 /// # Errors
 /// [`RequestError::Tag`] for an id Core's `item` key refuses; [`RequestError::Condition`] if
 /// Core refuses a type name, which are fixed words.
 pub fn raise_condition(id: &ItemId) -> Result<Condition, RequestError> {
     let tag = Tag::core(CoreKey::Item, id.as_str()).map_err(RequestError::Tag)?;
-    let [raised, ..] = ITEM_EVENTS;
     let filter = Filter::all()
-        .of_type(raised.name)
+        .of_type(<Raised as Named>::NAME.name)
         .and_then(|f| f.of_type(REQUEST_RAISED.name))
         .map_err(RequestError::Condition)?;
     Ok(Condition::none_matching(filter.tagged(tag)))

@@ -255,5 +255,5 @@ impl<'de> Deserialize<'de> for RaiserNamespace {
 
 #[cfg(test)]
 mod record_tests;
-#[cfg(all(test, feature = "core"))]
+#[cfg(test)]
 mod tests;

@@ -815,8 +815,7 @@ mod tests {
         assert!(EVENT_TYPES.contains(&e.event.event_type()));
     }
 
-    const DR_02: &str =
-        include_str!("../../../../spec/fixtures/decision-request/valid/dr-02.json");
+    const DR_02: &str = include_str!("../../../../spec/fixtures/decision-request/valid/dr-02.json");
 
     #[test]
     fn requested_round_trips_with_its_item() {

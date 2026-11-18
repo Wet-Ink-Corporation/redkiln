@@ -11,7 +11,7 @@ use crate::event::{Channel, DefaultCause, EventEnvelope, Requested, Route};
 use crate::id::question_key;
 use crate::marker::{Authority, Door, Kind};
 use weighin_contract::open::RequestRecord;
-use weighin_contract::request::{ANCHOR, Blocks, Request};
+use weighin_contract::request::{ANCHOR, Blocks, OptionId, Request};
 
 /// The reason a call F default carries in the digest.
 const CALL_F_REASON: &str = "the raiser's own two-way call, logged";
@@ -21,18 +21,7 @@ impl Item {
     /// its events, so the item owns a copy of each field it keeps, as `from_raised` does (H-08).
     pub(super) fn from_request(position: u64, env: &EventEnvelope, r: &Requested) -> Self {
         let request = &r.request;
-        let default = call_f_default(request).map(|option| DefaultTaken {
-            option: option.to_owned(),
-            cause: DefaultCause::TwoWay,
-            reason: CALL_F_REASON.to_owned(),
-            ts: env.ts.clone(),
-            acknowledged: false,
-        });
-        let (status, route) = if default.is_some() {
-            (Status::Defaulted, Route::Default)
-        } else {
-            (Status::Grounded, Route::Present)
-        };
+        let (status, route, default) = arrival(request, &env.ts);
         Self {
             id: r.item_id.clone(),
             kind: Kind::Question,
@@ -90,16 +79,32 @@ impl Item {
     }
 }
 
+/// Where a request written at `ts` arrives: grounded and presented to a human, or, for a call F
+/// request, already defaulted with the default it took.
+fn arrival(request: &Request, ts: &str) -> (Status, Route, Option<DefaultTaken>) {
+    match call_f_default(request) {
+        Some(option) => (
+            Status::Defaulted,
+            Route::Default,
+            Some(DefaultTaken {
+                option: option.to_owned(),
+                cause: DefaultCause::TwoWay,
+                reason: CALL_F_REASON.to_owned(),
+                ts: ts.to_owned(),
+                acknowledged: false,
+            }),
+        ),
+        None => (Status::Grounded, Route::Present, None),
+    }
+}
+
 /// The option a call F request has already taken: a two-way judgment request with a default and
 /// no deadline. Any other request waits on a human, whatever it names as its default.
 fn call_f_default(request: &Request) -> Option<&'static str> {
     let own_call = request.door == Door::TwoWay
         && request.authority == Authority::Judgment
         && request.deadline.is_none();
-    request
-        .default
-        .filter(|_| own_call)
-        .map(|option| option.as_str())
+    request.default.filter(|_| own_call).map(OptionId::as_str)
 }
 
 /// The locator of the request's first anchor attachment, the item's `path:line`.

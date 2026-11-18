@@ -1,3 +1,6 @@
+//! The raiser's half, with the `core` feature: guards, ids, the raise event and its condition.
+#![cfg(feature = "core")]
+
 use super::*;
 use crate::names::ITEM_EVENTS;
 use redkiln_core::envelope::{Actor, Author, Envelope, Namespace, Timestamp, Writer, decode};

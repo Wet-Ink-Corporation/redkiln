@@ -1,7 +1,7 @@
 # Crate charter: `weighin-contract`
 
 ## Purpose
-Weigh-In's contract (blueprint, Contract crate; SPEC DR): what another plugin needs to raise, read and answer Weigh-In items without reaching into Weigh-In's internals. It holds the event payloads and their `weighin.*` names with versions, `wi-` ids, the vocabulary (kind, door, authority), the decision card, the shared guards, the JSON of `open --json` and `ci-check --json`, the `data` of `status --json` (CLI-12), the command line's subcommands and value options (`cli`), and, with the `core` feature, the decision request (DR-01 to DR-04) and its answer (DR-05, DR-06). Born at Move 1 step 5.
+Weigh-In's contract (blueprint, Contract crate; SPEC DR): what another plugin needs to raise, read and answer Weigh-In items without reaching into Weigh-In's internals. It holds the event payloads and their `weighin.*` names with versions, `wi-` ids, the vocabulary (kind, door, authority), the decision card, the shared guards, the JSON of `open --json` and `ci-check --json`, the `data` of `status --json` (CLI-12), the command line's subcommands and value options (`cli`), the decision request's record (DR-01, DR-02), and, with the `core` feature, the request's guards, id and raise event (DR-01 to DR-04) and its answer (DR-05, DR-06). Born at Move 1 step 5.
 
 ## Layer
 contract (Weigh-In's). No file, clock, process or environment access.
@@ -12,7 +12,7 @@ contract (Weigh-In's). No file, clock, process or environment access.
 - Never: another plugin's crates, `weighin-core` or `weighin`, anything that does I/O in its own code.
 
 ## Public surface
-Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check` (with `ci_check::v2`), `status`, `cli`, and with `core` `request` and `answer`; `Card`, `EventEnvelope`, `LedgerEvent` and `ItemId` at the root. Workspace-internal, never published.
+Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check` (with `ci_check::v2`), `status`, `cli` and `request` (the record always; `Request::check`, `item_id`, `raise_event`, `raise_event_at`, `raise_condition`, `same_raiser` and `RequestError` with `core`), and with `core` `answer`; `Card`, `EventEnvelope`, `LedgerEvent` and `ItemId` at the root. Workspace-internal, never published.
 
 ## Invariants
 - `ci_check::Report` is `weighin.ci-check/1` byte for byte, readable for Review until it moves; `ci_check::v2` is `/2`'s envelope `data`, which weighin writes (#48).
@@ -21,10 +21,12 @@ Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check` (wi
 - `open::OpenItem` writes what weighin 1.2.0's `open --json` wrote; weighin-core's test pins it against its projection's `Item`.
 - Every payload is version 1 and durable under `weighin.<serde tag>` (`names`).
 - A request is refused, and nothing written, when it breaks a DR-04 guard or a per-field shape of `decision-request-1.schema.json` (`Request::check`, run by `raise_event`); its item id is ID-04 over `redkiln.id/weighin.request/1`, its namespace and key (DR-03).
+- `LedgerEvent::RequestRaised` (`event::Requested`) is a request as folded: weighin folds it into one grounded item of channel `request`, card ids `a` to `d`; it is not one of `EVENT_TYPES` or `names::ITEM_EVENTS`, which stay the 13 item events. A raise is appended under `raise_condition`: no `item_raised` and no `request_raised` of the item.
+- `status::Status::requests` says the build folds requests; absent reads `false`, and `false` is left out when written.
 - A one-way or unsure item is never defaulted (`guard::may_route_to_default` for triage's route, `Request::check` for a request).
 
 ## Errors
-`card::CardError`, `guard::DefaultRefused`, `request::RequestError`, `answer::AnswerRefused` `ci_check::ReadError` (a report of another shape or schema), `ci_check::v2::ReadError` (another shape, schema or command, or a failed run) and `status::ReadError` are domain refusals; `RequestError` also carries Core's id, tag and envelope refusals.
+`card::CardError`, `guard::DefaultRefused`, `request::RequestError`, `answer::AnswerRefused` `ci_check::ReadError` (a report of another shape or schema), `ci_check::v2::ReadError` (another shape, schema or command, or a failed run) and `status::ReadError` are domain refusals; `RequestError` also carries Core's id, tag, envelope and condition refusals.
 
 ## Test strategy
 Unit tests beside each module; `request` reads the SPEC's decision-request goldens (`spec/fixtures/decision-request/`) and `status` its status goldens (`spec/fixtures/status/valid/`) and writes a request through a temporary Core store. Run `cargo test -p weighin-contract --all-features`, and without features for the pure half.

@@ -106,7 +106,11 @@ fn status_json_says_it_folds_requests() -> TestResult {
     let (envelope, data) = report(&repo.run("s1", &["status", "--json"], None)?)?;
 
     assert!(data.requests, "DR-01, decision D3: {envelope}");
-    assert_eq!(envelope["data"]["requests"], Value::Bool(true), "{envelope}");
+    assert_eq!(
+        envelope["data"]["requests"],
+        Value::Bool(true),
+        "{envelope}"
+    );
     Ok(())
 }
 
