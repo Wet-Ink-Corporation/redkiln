@@ -777,6 +777,8 @@ mod tests {
             via: "board".into(),
             seconds_to_decide: Some(12),
             reason: "picked".into(),
+            applies: None,
+            confirmation: None,
         }))
     }
 

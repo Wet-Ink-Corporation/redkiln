@@ -3,8 +3,8 @@
 use anyhow::{Result, anyhow, bail};
 use std::fmt::Write as _;
 use weighin_core::event::{
-    Decided, DefaultCause, Defaulted, Deferred, DismissReason, Dismissed, LedgerEvent, Provenance,
-    Reopened,
+    Applies, Decided, DefaultCause, Defaulted, Deferred, DismissReason, Dismissed, LedgerEvent,
+    Provenance, Reopened,
 };
 use weighin_core::marker::{Authority, Door, authority_tripwire};
 use weighin_core::{Item, Status};
@@ -48,6 +48,7 @@ impl Session<'_> {
     pub(super) fn decide(&mut self, d: &DecideOp) -> Result<String> {
         let item = self.item(&d.id)?;
         let matched = check_answer(&item, &d.option)?;
+        let applies = check_applies(&item, d)?;
         let provenance = match d.provenance.as_deref() {
             Some("user-approved") => Provenance::UserApproved,
             Some("user-directed") => Provenance::UserDirected,
@@ -79,6 +80,8 @@ impl Session<'_> {
                     Some(false) => "chose against the recommendation".into(),
                     None => "answered".into(),
                 },
+                applies,
+                confirmation: d.confirmation.clone(),
             })],
         )?;
         self.decision_receipt(&item.id, &d.option, matched)
@@ -113,6 +116,36 @@ fn check_answer(item: &Item, option: &str) -> Result<Option<bool>> {
         bail!("{}: option {option} fails a MUST ({m})", item.id);
     }
     Ok(Some(card.recommendation.option == option))
+}
+
+/// The decision's `applies`, read from its wire word (DR-05): `None` when the op gave none. A
+/// confirmation names the check of an answer that always applies, so it needs `always`, and it
+/// cannot be blank.
+fn check_applies(item: &Item, d: &DecideOp) -> Result<Option<Applies>> {
+    let applies = d
+        .applies
+        .as_deref()
+        .map(|word| {
+            Applies::parse(word)
+                .ok_or_else(|| anyhow!("{}: applies must be once or always, not `{word}`", item.id))
+        })
+        .transpose()?;
+    if d.confirmation
+        .as_deref()
+        .is_some_and(|c| c.trim().is_empty())
+    {
+        bail!(
+            "{}: a confirmation names a check; it cannot be blank",
+            item.id
+        );
+    }
+    if d.confirmation.is_some() && applies != Some(Applies::Always) {
+        bail!(
+            "{}: a confirmation names the check of an answer that always applies",
+            item.id
+        );
+    }
+    Ok(applies)
 }
 
 fn check_deferral(item: &Item, d: &DeferOp) -> Result<()> {
@@ -217,9 +250,126 @@ pub(super) fn reopen_event(item: &Item, note: Option<&str>, reason: &str) -> Res
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
+    use weighin_core::event::{Applies, Decided, LedgerEvent};
 
-    use crate::ops::Session;
     use crate::ops::test_support::{ONE_WAY, TWO_WAY, after, env_in, grounded, id_of, run};
+    use crate::ops::{Session, stored_events};
+
+    /// Run [`grounded`] then `decide` in a fresh ledger; return the decide's line and every
+    /// `item_decided` payload the ledger then holds.
+    fn decide_on_grounded(decide: serde_json::Value) -> Result<(String, Vec<Decided>)> {
+        let dir = tempfile::tempdir()?;
+        let env = env_in(dir.path(), "s1");
+        let mut batch = grounded();
+        batch.push(decide);
+
+        let out = run(
+            &mut Session::open(&env, "cli")?,
+            &serde_json::Value::Array(batch),
+        )?;
+
+        let line = out.last().cloned().unwrap_or_default();
+        let decided = stored_events(&env)?
+            .into_iter()
+            .filter_map(|(_, e)| match e.event {
+                LedgerEvent::ItemDecided(d) => Some(d),
+                _ => None,
+            })
+            .collect();
+        Ok((line, decided))
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn decide_records_applies_always_with_its_confirmation() -> Result<()> {
+        let (line, decided) = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A",
+            "applies": "always", "confirmation": "cargo xtask layers"
+        }))?;
+
+        assert!(line.starts_with('✓'), "{line}");
+        let applied: Vec<_> = decided
+            .iter()
+            .map(|d| (d.applies, d.confirmation.as_deref()))
+            .collect();
+        assert_eq!(
+            applied,
+            [(Some(Applies::Always), Some("cargo xtask layers"))]
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn decide_without_applies_writes_none() -> Result<()> {
+        let (line, decided) =
+            decide_on_grounded(serde_json::json!({"op": "decide", "id": "@1", "option": "A"}))?;
+
+        assert!(line.starts_with('✓'), "{line}");
+        let applied: Vec<_> = decided
+            .iter()
+            .map(|d| (d.applies, d.confirmation.as_deref()))
+            .collect();
+        assert_eq!(applied, [(None, None)]);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn decide_refuses_an_unknown_applies_word_and_writes_nothing() -> Result<()> {
+        let (line, decided) = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "applies": "sometimes"
+        }))?;
+
+        assert_eq!(
+            line,
+            format!(
+                "✗ {}: applies must be once or always, not `sometimes`",
+                id_of(ONE_WAY)
+            )
+        );
+        assert_eq!(decided, []);
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn decide_refuses_a_confirmation_without_always() -> Result<()> {
+        let without = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "confirmation": "cargo xtask layers"
+        }))?;
+        let once = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A",
+            "applies": "once", "confirmation": "cargo xtask layers"
+        }))?;
+
+        let refused = format!(
+            "✗ {}: a confirmation names the check of an answer that always applies",
+            id_of(ONE_WAY)
+        );
+        assert_eq!(without, (refused.clone(), vec![]));
+        assert_eq!(once, (refused, vec![]));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn decide_refuses_a_blank_confirmation_and_writes_nothing() -> Result<()> {
+        let empty = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "applies": "always", "confirmation": ""
+        }))?;
+        let spaces = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "applies": "always", "confirmation": " \t "
+        }))?;
+
+        let refused = format!(
+            "✗ {}: a confirmation names a check; it cannot be blank",
+            id_of(ONE_WAY)
+        );
+        assert_eq!(empty, (refused.clone(), vec![]));
+        assert_eq!(spaces, (refused, vec![]));
+        Ok(())
+    }
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]

@@ -289,6 +289,12 @@ struct DecideArgs {
     note: Option<String>,
     #[arg(long, default_value = "cli")]
     via: String,
+    /// `once` or `always`: whether the answer holds for this occurrence or every later one.
+    #[arg(long, value_name = "once|always")]
+    applies: Option<String>,
+    /// For an answer that always applies, the check that enforces it.
+    #[arg(long, value_name = "CHECK")]
+    confirmation: Option<String>,
 }
 
 #[derive(Args)]
@@ -638,6 +644,8 @@ impl DecideArgs {
             provenance: None,
             via: Some(self.via),
             seconds: None,
+            applies: self.applies,
+            confirmation: self.confirmation,
         })
     }
 }

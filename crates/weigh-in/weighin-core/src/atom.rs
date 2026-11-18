@@ -889,6 +889,8 @@ Deferred on purpose. Waiting for: the pilot ends. Resolve by: before-release. If
             via: "board".into(),
             seconds_to_decide: Some(29),
             reason: "chose".into(),
+            applies: None,
+            confirmation: None,
         })
     }
 

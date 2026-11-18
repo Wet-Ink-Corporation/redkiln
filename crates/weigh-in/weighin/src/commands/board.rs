@@ -194,6 +194,8 @@ fn to_op(id: &str, v: ValidAnswer, surface: AnswerSurface) -> Op {
             provenance: None,
             via: Some(surface.surface().as_str().into()),
             seconds,
+            applies: None,
+            confirmation: None,
         }),
         ValidAnswer::Defer {
             trigger,

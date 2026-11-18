@@ -388,6 +388,8 @@ impl Item {
             seconds_to_decide: d.seconds_to_decide,
             ts: ts.to_owned(),
             reviewed_ts: None,
+            applies: d.applies,
+            confirmation: d.confirmation.clone(),
         });
     }
 
@@ -787,6 +789,8 @@ mod tests {
                     via: "chat".into(),
                     seconds_to_decide: Some(40),
                     reason: "picked the recommendation".into(),
+                    applies: None,
+                    confirmation: None,
                 }),
                 "s1",
             ),
@@ -942,6 +946,8 @@ mod tests {
             via: "board".into(),
             seconds_to_decide: Some(7),
             reason: "r".into(),
+            applies: None,
+            confirmation: None,
         })
     }
 

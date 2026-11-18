@@ -6,6 +6,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A decision can say it always applies: `weighin decide <id> <option> --applies always
+  --confirmation <check>` (and `applies`/`confirmation` in a batch `decide`) records whether the
+  answer holds once or for every later occurrence, and the check that enforces it. `open --json`
+  shows both on the decision. A decision without them is written and listed as before.
 - When a slow machine makes a hook run out of time before its journal work is done, you now
   hear it once: the next session start says how many times the Stop hook left journals for a
   later export, and a session start whose own import ran out of time says so in its message.

@@ -132,6 +132,12 @@ pub(crate) struct DecideOp {
     pub(crate) via: Option<String>,
     #[serde(default)]
     pub(crate) seconds: Option<u64>,
+    /// `once` or `always` (DR-05); none writes no `applies`.
+    #[serde(default)]
+    pub(crate) applies: Option<String>,
+    /// The check that enforces an answer that always applies.
+    #[serde(default)]
+    pub(crate) confirmation: Option<String>,
 }
 
 /// `Op::Defer`: wait for a named fact, with a trigger, a resolve-by and a default.
