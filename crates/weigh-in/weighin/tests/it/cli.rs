@@ -616,6 +616,57 @@ fn weighin_decide_applies_always_shows_in_open_json() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn weighin_decide_refuses_a_bad_applies_and_records_no_decision() {
+    let (_tmp, repo) = setup();
+    let (ok, out) = weighin(
+        &repo,
+        "s1",
+        &["raise", "--q", "Keep crates under crates/<layer>/?"],
+        None,
+    );
+    assert!(ok, "{out}");
+    let id = out.split_whitespace().nth(1).unwrap().to_owned();
+
+    let unknown = weighin(
+        &repo,
+        "s1",
+        &["decide", &id, "yes", "--applies", "sometimes"],
+        None,
+    );
+    let without_always = weighin(
+        &repo,
+        "s1",
+        &["decide", &id, "yes", "--confirmation", "X"],
+        None,
+    );
+    let (ok, json) = weighin(&repo, "s1", &["open", "--all", "--json"], None);
+
+    assert!(!unknown.0, "{}", unknown.1);
+    assert!(
+        unknown.1.contains(&format!(
+            "{id}: applies must be once or always, not `sometimes`"
+        )),
+        "{}",
+        unknown.1
+    );
+    assert!(!without_always.0, "{}", without_always.1);
+    assert!(
+        without_always.1.contains(&format!(
+            "{id}: a confirmation names the check of an answer that always applies"
+        )),
+        "{}",
+        without_always.1
+    );
+    assert!(ok, "{json}");
+    let items: Vec<weighin_contract::open::OpenItem> =
+        serde_json::from_str(json.trim()).expect("open --json reads as the contract's type");
+    let decisions: Vec<_> = items.iter().filter_map(|i| i.decision.as_ref()).collect();
+    assert_eq!(decisions, Vec::<&weighin_contract::open::Decision>::new());
+    assert_eq!(items.len(), 1, "{json}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_answer_to_an_older_card_is_refused() {
     let (_tmp, repo) = setup();
     // #2: an answer to an older card is refused.

@@ -119,7 +119,8 @@ fn check_answer(item: &Item, option: &str) -> Result<Option<bool>> {
 }
 
 /// The decision's `applies`, read from its wire word (DR-05): `None` when the op gave none. A
-/// confirmation names the check of an answer that always applies, so it needs `always`.
+/// confirmation names the check of an answer that always applies, so it needs `always`, and it
+/// cannot be blank.
 fn check_applies(item: &Item, d: &DecideOp) -> Result<Option<Applies>> {
     let applies = d
         .applies
@@ -129,6 +130,15 @@ fn check_applies(item: &Item, d: &DecideOp) -> Result<Option<Applies>> {
                 .ok_or_else(|| anyhow!("{}: applies must be once or always, not `{word}`", item.id))
         })
         .transpose()?;
+    if d.confirmation
+        .as_deref()
+        .is_some_and(|c| c.trim().is_empty())
+    {
+        bail!(
+            "{}: a confirmation names a check; it cannot be blank",
+            item.id
+        );
+    }
     if d.confirmation.is_some() && applies != Some(Applies::Always) {
         bail!(
             "{}: a confirmation names the check of an answer that always applies",
@@ -325,19 +335,39 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
     fn decide_refuses_a_confirmation_without_always() -> Result<()> {
-        let out = after(
-            &grounded(),
-            &[
-                serde_json::json!({"op": "decide", "id": "@1", "option": "A", "confirmation": "cargo xtask layers"}),
-                serde_json::json!({"op": "decide", "id": "@1", "option": "A", "applies": "once", "confirmation": "cargo xtask layers"}),
-            ],
-        )?;
+        let without = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "confirmation": "cargo xtask layers"
+        }))?;
+        let once = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A",
+            "applies": "once", "confirmation": "cargo xtask layers"
+        }))?;
 
         let refused = format!(
             "✗ {}: a confirmation names the check of an answer that always applies",
             id_of(ONE_WAY)
         );
-        assert_eq!(out, [refused.clone(), refused]);
+        assert_eq!(without, (refused.clone(), vec![]));
+        assert_eq!(once, (refused, vec![]));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+    fn decide_refuses_a_blank_confirmation_and_writes_nothing() -> Result<()> {
+        let empty = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "applies": "always", "confirmation": ""
+        }))?;
+        let spaces = decide_on_grounded(serde_json::json!({
+            "op": "decide", "id": "@1", "option": "A", "applies": "always", "confirmation": " \t "
+        }))?;
+
+        let refused = format!(
+            "✗ {}: a confirmation names a check; it cannot be blank",
+            id_of(ONE_WAY)
+        );
+        assert_eq!(empty, (refused.clone(), vec![]));
+        assert_eq!(spaces, (refused, vec![]));
         Ok(())
     }
 

@@ -851,7 +851,11 @@ mod tests {
 
         let read = serde_json::from_str::<Decided>(&text);
 
-        assert!(read.is_err(), "{read:?}");
+        let error = read.expect_err("an unknown applies word does not read");
+        assert!(
+            error.to_string().contains("unknown variant `sometimes`"),
+            "{error}"
+        );
     }
 
     #[test]
