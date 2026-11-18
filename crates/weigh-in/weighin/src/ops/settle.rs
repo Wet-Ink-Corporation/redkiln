@@ -332,10 +332,7 @@ mod tests {
         )?;
 
         assert!(out.iter().all(|l| l.starts_with('✓')), "{out:?}");
-        assert_eq!(
-            decisions(&env)?,
-            [(Some(Applies::Once), vec![request_ref])]
-        );
+        assert_eq!(decisions(&env)?, [(Some(Applies::Once), vec![request_ref])]);
         Ok(())
     }
 

@@ -22,6 +22,7 @@ Modules `vocab`, `id`, `card`, `event`, `names`, `guard`, `open`, `ci_check` (wi
 - Every payload is version 1 and durable under `weighin.<serde tag>` (`names`).
 - A request is refused, and nothing written, when it breaks a DR-04 guard or a per-field shape of `decision-request-1.schema.json` (`Request::check`, run by `raise_event`); its item id is ID-04 over `redkiln.id/weighin.request/1`, its namespace and key (DR-03).
 - `LedgerEvent::RequestRaised` (`event::Requested`) is a request as folded: weighin folds it into one grounded item of channel `request`, card ids `a` to `d`; it is not one of `EVENT_TYPES` or `names::ITEM_EVENTS`, which stay the 13 item events. A raise is appended under `raise_condition`: no `item_raised` and no `request_raised` of the item.
+- `EventEnvelope::cites` holds the ID-03 refs an event cites (an answer cites its request, DR-05); empty writes no key, so an envelope citing nothing keeps its bytes.
 - `status::Status::requests` says the build folds requests; absent reads `false`, and `false` is left out when written.
 - A one-way or unsure item is never defaulted (`guard::may_route_to_default` for triage's route, `Request::check` for a request).
 
