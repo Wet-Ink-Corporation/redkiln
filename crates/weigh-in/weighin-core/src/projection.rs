@@ -4,14 +4,16 @@
 use crate::card::Card;
 use crate::event::{
     Blast, Channel, Decided, Defaulted, Deferred, DismissReason, EventEnvelope, Grounded,
-    LedgerEvent, Linked, Presented, Raised, Route, Timing, Triaged,
+    LedgerEvent, Linked, Presented, Raised, Requested, Route, Timing, Triaged,
 };
 use crate::id::{ItemId, question_key};
 use crate::marker::{Authority, Door, Kind};
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
-use weighin_contract::open::OpenItem;
+use weighin_contract::open::{OpenItem, RequestRecord};
+
+mod request;
 
 // The parts of an item `open --json` writes are Weigh-In's contract (Move 1 step 5).
 pub use weighin_contract::open::{Decision, DefaultTaken, Record, Status};
@@ -109,6 +111,10 @@ pub struct Item {
     pub last_position: u64,
     /// When the latest event applied to the item was written, by the writer's clock.
     pub last_ts: String,
+    /// The decision request that raised the item, and where (DR-01); `None` for a captured item,
+    /// and then not serialised, so such an item prints as it did before requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request: Option<RequestRecord>,
     /// How many times a standing decision on the item was reviewed and left standing (D-0022).
     /// Not serialised, so an item prints as it did before reviews existed; `stats` counts it.
     #[serde(skip)]
@@ -167,6 +173,7 @@ impl From<&Item> for OpenItem {
             reopened: item.reopened,
             last_position: item.last_position,
             last_ts: item.last_ts.clone(),
+            request: item.request.clone(),
         }
     }
 }
@@ -291,6 +298,7 @@ impl Item {
             reopened: 0,
             last_position: position,
             last_ts: env.ts.clone(),
+            request: None,
             reviews: 0,
             reopened_after_review: 0,
         }
@@ -299,8 +307,9 @@ impl Item {
     /// Fold one later event, written at `position` with timestamp `ts`, into this item.
     fn change(&mut self, position: u64, ts: &str, event: &LedgerEvent) {
         match event {
-            // `Ledger::apply` turns a raise into a new item and never passes one here.
-            LedgerEvent::ItemRaised(_) => {}
+            // `Ledger::apply` turns a raise or a request into a new item and never passes either
+            // here.
+            LedgerEvent::ItemRaised(_) | LedgerEvent::RequestRaised(_) => {}
             LedgerEvent::ItemTriaged(t) => self.triaged(t),
             LedgerEvent::ItemGrounded(g) => self.grounded(position, g),
             LedgerEvent::ItemPresented(p) => self.presented(ts, p),
@@ -424,6 +433,17 @@ impl Item {
         };
     }
 
+    /// The item's id raised again by `env`: its session is noted once, unless it is the first
+    /// raise's own.
+    fn raised_again(&mut self, env: &EventEnvelope) {
+        if let Some(s) = &env.session_id
+            && self.session_id.as_deref() != Some(s.as_str())
+            && !self.also_raised_in.contains(s)
+        {
+            self.also_raised_in.push(s.clone());
+        }
+    }
+
     fn linked(&mut self, l: &Linked) {
         if l.kind == "raised-again" {
             if !self.also_raised_in.contains(&l.target) {
@@ -454,6 +474,10 @@ impl Ledger {
             self.raise(position, env, r);
             return;
         }
+        if let LedgerEvent::RequestRaised(r) = &env.event {
+            self.request(position, env, r);
+            return;
+        }
         let id = env.event.item_id();
         let Some(item) = self.items.get_mut(id) else {
             self.orphans.push((
@@ -471,16 +495,22 @@ impl Ledger {
     fn raise(&mut self, position: u64, env: &EventEnvelope, r: &Raised) {
         if let Some(existing) = self.items.get_mut(&r.item_id) {
             // Same id again: the writer's idempotency guard should prevent this; keep the first.
-            if let Some(s) = &env.session_id
-                && existing.session_id.as_deref() != Some(s.as_str())
-                && !existing.also_raised_in.contains(s)
-            {
-                existing.also_raised_in.push(s.clone());
-            }
+            existing.raised_again(env);
             return;
         }
         self.items
             .insert(r.item_id.clone(), Item::from_raised(position, env, r));
+    }
+
+    /// Fold a `request_raised` event (DR-01): a new grounded item, or, for an id already held,
+    /// the first item kept with the other session noted, as [`Ledger::raise`] does.
+    fn request(&mut self, position: u64, env: &EventEnvelope, r: &Requested) {
+        if let Some(existing) = self.items.get_mut(&r.item_id) {
+            existing.raised_again(env);
+            return;
+        }
+        self.items
+            .insert(r.item_id.clone(), Item::from_request(position, env, r));
     }
 
     /// Fold a whole ordered stream.

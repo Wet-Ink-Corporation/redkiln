@@ -1,6 +1,8 @@
 use super::*;
-use redkiln_core::envelope::{Actor, Author, Writer, decode};
-use redkiln_core::store::{Filter, Store, Wait};
+use crate::names::ITEM_EVENTS;
+use redkiln_core::envelope::{Actor, Author, Envelope, Namespace, Timestamp, Writer, decode};
+use redkiln_core::ids::{ContentId, HexLen, IdPrefix};
+use redkiln_core::store::{Appended, Filter, NewEvent, Store, Tag, Wait};
 use redkiln_core::trust::Trust;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -446,4 +448,139 @@ fn the_raise_event_checks_the_guards_first() {
         raise_event(&envelope),
         Err(RequestError::DeadlinePassed { .. })
     ));
+}
+
+#[test]
+fn raiser_namespace_words_are_cores_namespaces() {
+    let core: Vec<&str> = Namespace::ALL.iter().map(|n| n.as_str()).collect();
+    assert_eq!(NAMESPACES.as_slice(), core.as_slice());
+    for namespace in Namespace::ALL {
+        assert_eq!(
+            RaiserNamespace::from(namespace).as_str(),
+            namespace.as_str()
+        );
+    }
+}
+
+fn store() -> (tempfile::TempDir, Store) {
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let store = Store::open(&dir.path().join("events.sqlite3"), Wait::Command).expect("store");
+    (dir, store)
+}
+
+/// Weigh-In's own captured raise of `id`, tagged with its item as weighin tags one.
+fn captured_raise(id: &crate::id::ItemId) -> NewEvent {
+    let raised = crate::event::Raised {
+        item_id: id.clone(),
+        kind: crate::vocab::Kind::Question,
+        question: "Captured first?".to_owned(),
+        did: None,
+        flip: None,
+        at: None,
+        sym: None,
+        blocks: None,
+        door_hint: Door::TwoWay,
+        authority_hint: Authority::Judgment,
+        channel: crate::event::Channel::Marker,
+        quote: "Captured first?".to_owned(),
+        source_path: None,
+        source_line: None,
+    };
+    let tag = Tag::core(redkiln_core::store::CoreKey::Item, id.as_str()).expect("an item tag");
+    Envelope::new(ts(TS), author(), raised)
+        .to_event(vec![tag])
+        .expect("an item_raised event")
+}
+
+fn raise(request: Request) -> NewEvent {
+    raise_event(&Envelope::new(ts(TS), author(), request)).expect("a valid request")
+}
+
+#[test]
+fn raise_condition_matches_a_captured_raise_and_a_request_of_the_item() {
+    let id = golden().item_id().expect("mints");
+    let condition = raise_condition(&id).expect("a condition");
+
+    let (_captured_dir, captured) = store();
+    captured
+        .append(vec![captured_raise(&id)], None)
+        .expect("append");
+    assert_eq!(
+        captured
+            .append(vec![raise(golden())], Some(&condition))
+            .expect("append"),
+        Appended::Conflict,
+        "a captured raise holds the item"
+    );
+
+    let (_requested_dir, requested) = store();
+    requested
+        .append(vec![raise(golden())], None)
+        .expect("append");
+    assert_eq!(
+        requested
+            .append(vec![raise(golden())], Some(&condition))
+            .expect("append"),
+        Appended::Conflict,
+        "a request holds the item"
+    );
+
+    let mut other = golden();
+    other.raiser.key = "h16/dependency/chrono".to_owned();
+    let other_condition = raise_condition(&other.item_id().expect("mints")).expect("a condition");
+    assert!(matches!(
+        requested
+            .append(vec![raise(other)], Some(&other_condition))
+            .expect("append"),
+        Appended::At(_)
+    ));
+    assert_eq!(
+        ITEM_EVENTS.first().map(|e| e.name),
+        Some("weighin.item_raised")
+    );
+}
+
+#[test]
+fn raise_event_at_twelve_tags_the_twelve_hex_id() {
+    let twelve = golden().item_id_at(HexLen::Twelve).expect("mints");
+    assert_eq!(twelve.as_str().len(), "wi-".len() + 12);
+    let event = raise_event_at(&Envelope::new(ts(TS), author(), golden()), HexLen::Twelve)
+        .expect("a valid request");
+    let (_dir, store) = store();
+    store.append(vec![event], None).expect("append");
+    let read = store
+        .read(&Filter::all(), 0, NonZeroUsize::MIN)
+        .expect("read");
+    let stored = read.first().expect("one event");
+    let tags: Vec<&str> = stored.tags.iter().map(Tag::as_str).collect();
+    let item = format!("item:{twelve}");
+    assert!(tags.contains(&item.as_str()), "{tags:?}");
+}
+
+#[test]
+fn same_raiser_tells_a_retry_from_a_collision() {
+    let (_dir, store) = store();
+    let id = golden().item_id().expect("mints");
+    store
+        .append(vec![raise(golden()), captured_raise(&id)], None)
+        .expect("append");
+    let read = store
+        .read(&Filter::all(), 0, NonZeroUsize::new(8).expect("non-zero"))
+        .expect("read");
+    assert_eq!(read.len(), 2, "{read:?}");
+    let request = read.first().expect("the request");
+    let captured = read.get(1).expect("the captured raise");
+    let mut retry = golden();
+    retry.question = "Reworded on the retry?".to_owned();
+    assert!(same_raiser(request, &retry), "same namespace and key");
+    let mut other_key = golden();
+    other_key.raiser.key = "h16/dependency/chrono".to_owned();
+    assert!(!same_raiser(request, &other_key));
+    let mut other_namespace = golden();
+    other_namespace.raiser.namespace = RaiserNamespace::from(Namespace::Bench);
+    assert!(!same_raiser(request, &other_namespace));
+    assert!(
+        !same_raiser(captured, &golden()),
+        "a captured raise is no retry"
+    );
 }

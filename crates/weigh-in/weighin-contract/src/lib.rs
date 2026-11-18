@@ -12,10 +12,12 @@
 //!   write.
 //! * [`status`]: the `data` of `weighin status --json` (SPEC CLI-12).
 //! * [`cli`]: the binary's subcommands and value options, which prompts may name.
+//! * [`request`]: the decision request's record (DR-01, DR-02), which Weigh-In folds.
 //!
-//! With the `core` feature, the event payloads are Core [`Payload`](redkiln_core::envelope::Payload)s
-//! and the decision request ([`request`], DR-01 to DR-04) and its answer ([`answer`], DR-05 and
-//! DR-06) are available. Without it the crate is pure, so a domain crate can link it.
+//! With the `core` feature, the event payloads are Core [`Payload`](redkiln_core::envelope::Payload)s,
+//! the decision request's guards, id and raise event ([`request`], DR-01 to DR-04) and its answer
+//! ([`answer`], DR-05 and DR-06) are available. Without it the crate is pure, so a domain crate
+//! can link it.
 
 #[cfg(feature = "core")]
 pub mod answer;
@@ -27,7 +29,6 @@ pub mod guard;
 pub mod id;
 pub mod names;
 pub mod open;
-#[cfg(feature = "core")]
 pub mod request;
 pub mod status;
 pub mod vocab;
