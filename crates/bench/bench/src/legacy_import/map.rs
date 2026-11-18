@@ -201,17 +201,17 @@ impl<'a, F: FnOnce() -> Result<Option<Owner>, String>> Records<'a, F> {
         Ok(context)
     }
 
-    /// The event `build` makes in `context`, dropping and counting a branch or head Core
+    /// The event `make` builds in `context`, dropping and counting a branch or head Core
     /// refuses; the context the event was built in.
     fn built(
         &mut self,
         mut context: EventContext,
-        build: impl Fn(EventContext) -> Result<NewEvent, StoreError>,
+        make: impl Fn(EventContext) -> Result<NewEvent, StoreError>,
     ) -> Result<(NewEvent, EventContext), String> {
         loop {
             // Core's envelope owns its context while it encodes; a retry, and the approval
             // record, need it again.
-            match build(context.clone()) {
+            match make(context.clone()) {
                 Ok(built) => return Ok((built, context)),
                 Err(error) => {
                     let dropped = match refused_field(&error) {

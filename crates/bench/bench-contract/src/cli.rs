@@ -87,9 +87,10 @@ pub const VALUE_OPTIONS: &[&str] = &[];
 /// released before SPEC CLI-02, so each started at 1.
 pub const OUTPUT_VERSION: u32 = 1;
 
-/// Output ids a command wrote before a breaking change to its shape (CLI-04): no command writes
-/// them now, and their goldens are kept. `bench.orchestrate-park/1` gave way to `/2` at Move 2
-/// step 7, when a park became a Weigh-In decision request (D7).
+/// Output ids no command writes since a breaking change to their shape (CLI-04).
+///
+/// Their goldens are kept. `bench.orchestrate-park/1` gave way to `/2` at Move 2 step 7, when a
+/// park became a Weigh-In decision request (D7).
 pub const FORMER_OUTPUTS: &[&str] = &["bench.orchestrate-park/1"];
 
 /// The output id (SPEC CLI-02) of every subcommand path that writes a result envelope, sorted.
@@ -148,8 +149,9 @@ pub const OUTPUTS: &[&str] = &[
     "bench.watch-pr/1",
 ];
 
-/// The output id of the subcommand path `command` (`"dag check"` gives `"bench.dag-check/1"`):
-/// the binary's namespace, the path's words joined by `-`, then its version: 2 for
+/// The output id of the subcommand path `command` (`"dag check"` gives `"bench.dag-check/1"`).
+///
+/// It is the binary's namespace, the path's words joined by `-`, then its version: 2 for
 /// `orchestrate park` (see [`FORMER_OUTPUTS`]), [`OUTPUT_VERSION`] for every other.
 #[must_use]
 pub fn output_id(command: &str) -> String {
