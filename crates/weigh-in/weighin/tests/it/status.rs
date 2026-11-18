@@ -100,6 +100,18 @@ fn status_json_conforms() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn status_json_says_it_folds_requests() -> TestResult {
+    let repo = Repo::new(true)?;
+
+    let (envelope, data) = report(&repo.run("s1", &["status", "--json"], None)?)?;
+
+    assert!(data.requests, "DR-01, decision D3: {envelope}");
+    assert_eq!(envelope["data"]["requests"], Value::Bool(true), "{envelope}");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn status_without_json_says_its_health_and_store_in_lines() -> TestResult {
     let repo = Repo::new(true)?;
     repo.raise("s1", "Keep retention per series?")?;

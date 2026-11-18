@@ -8,15 +8,17 @@
 use anyhow::{Context as _, Result};
 use redkiln_core::EventId;
 use redkiln_core::envelope::{
-    Actor, Author, Envelope, Namespace, Payload, Skip, Timestamp, Writer, decode,
+    Actor, Author, Envelope, Namespace, Payload, Skip, Timestamp, Unusable, Writer, decode,
 };
-use redkiln_core::ids::{SessionId, WorktreeId};
+use redkiln_core::ids::{HexLen, SessionId, WorktreeId};
 use redkiln_core::journal::{LineError, ReadLine, read_line};
 use redkiln_core::store::{CoreKey, Filter, NewEvent, StoreError, Stored, Tag};
 use redkiln_core::trust::Trust;
+use weighin_contract::names::REQUEST_RAISED;
+use weighin_contract::request::Request;
 use weighin_core::event::{
     Acknowledged, Decided, Defaulted, Deferred, Dismissed, EventEnvelope, Grounded, LedgerEvent,
-    Linked, Presented, Raised, RecordWritten, Reopened, Superseded, Triaged,
+    Linked, Presented, Raised, RecordWritten, Reopened, Requested, Superseded, Triaged,
 };
 
 /// The binary every envelope weighin writes names (EV-01's `writer`).
@@ -48,6 +50,10 @@ macro_rules! wire_types {
                     let (stored, frame, payload) = frame.event(payload, tags)?;
                     Ok((stored, frame, LedgerEvent::$variant(payload)))
                 })+
+                // No command builds one: siblings raise requests, weighin only folds them.
+                LedgerEvent::RequestRaised(_) => anyhow::bail!(
+                    "weighin does not raise decision requests; a raiser appends them through weighin-contract"
+                ),
             }
         }
 
@@ -57,6 +63,9 @@ macro_rules! wire_types {
         /// # Errors
         /// [`Skip::Unusable`] for a weighin type this build cannot use (EV-10).
         pub(super) fn from_stored(stored: &Stored) -> Result<EventEnvelope, Skip> {
+            if stored.event_type == REQUEST_RAISED.name {
+                return requested(stored);
+            }
             $(
                 if stored.event_type == <$payload as Payload>::TYPE {
                     return decode::<$payload>(stored)
@@ -130,15 +139,50 @@ pub(crate) fn from_line(number: u64, text: &[u8]) -> Result<EventEnvelope, LineS
     })
 }
 
-/// The type `item_raised` is written as: the `NotYetRaised` guard's.
+/// The type `item_raised` is written as.
+#[cfg(test)]
 pub(super) const RAISED: &str = <Raised as Payload>::TYPE;
 
-/// Every weighin event, of any of the 13 types.
+/// A sibling's `weighin.request_raised` as weighin-core's envelope (DR-01): the record, and the
+/// item its `item` tag names.
+///
+/// # Errors
+/// [`Skip::Unusable`] for a record this build cannot read, or a tag that is missing, is not an
+/// item id or is not one of the request's own 10, 12 or 16 hex mints (ID-04): a request never
+/// lands on another item (EV-10).
+fn requested(stored: &Stored) -> Result<EventEnvelope, Skip> {
+    let read = decode::<Request>(stored)?;
+    let item_id = stored
+        .tags
+        .iter()
+        .filter(|tag| tag.key() == Some(CoreKey::Item.as_str()))
+        .find_map(|tag| tag.value().and_then(weighin_core::ItemId::parse))
+        .filter(|id| {
+            [HexLen::Ten, HexLen::Twelve, HexLen::Sixteen]
+                .into_iter()
+                .any(|len| read.data.item_id_at(len).is_ok_and(|mint| mint == *id))
+        })
+        .ok_or_else(|| {
+            // The folded payload is the record and its item; without its own item it cannot be
+            // read, as a payload that does not decode cannot.
+            Skip::Unusable(Unusable::Payload(serde::de::Error::custom(
+                "the request's item tag is missing or is not its own id",
+            )))
+        })?;
+    Ok(to_ledger(read, |request| {
+        LedgerEvent::RequestRaised(Requested { item_id, request })
+    }))
+}
+
+/// Every weighin event: the 13 item types, and the decision requests siblings raise.
 ///
 /// # Errors
 /// Never in practice: the type names are fixed and valid.
 pub(super) fn filter() -> Result<Filter, StoreError> {
-    TYPES.into_iter().try_fold(Filter::all(), Filter::of_type)
+    TYPES
+        .into_iter()
+        .chain([REQUEST_RAISED.name])
+        .try_fold(Filter::all(), Filter::of_type)
 }
 
 /// The tag naming `id`'s item.
@@ -282,7 +326,7 @@ impl Frame {
 }
 
 /// weighin-core's envelope of a read `envelope`, its payload wrapped by `variant`.
-fn to_ledger<P>(envelope: Envelope<P>, variant: fn(P) -> LedgerEvent) -> EventEnvelope {
+fn to_ledger<P>(envelope: Envelope<P>, variant: impl FnOnce(P) -> LedgerEvent) -> EventEnvelope {
     EventEnvelope {
         event: variant(envelope.data),
         actor: envelope.actor.to_string(),

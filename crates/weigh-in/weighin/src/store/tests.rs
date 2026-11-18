@@ -106,6 +106,67 @@ fn a_second_raise_conflicts_and_of_two_writers_that_read_alike_the_first_wins() 
     assert_eq!((loaded.ledger.head, loaded.unusable.total()), (2, 0));
 }
 
+/// A sibling's two-way request, appended past the adapter as Bench appends one; its item.
+fn sibling_request(store: &Store) -> ItemId {
+    let request: weighin_contract::request::Request = serde_json::from_value(serde_json::json!({
+        "question": "Keep the retry at three attempts?",
+        "options": [
+            {"id": "a", "label": "Three", "holds_when": "Flakes are rare", "cost_if_wrong": "A red run"},
+            {"id": "b", "label": "Five", "holds_when": "Flakes are common", "cost_if_wrong": "Slow failures"}
+        ],
+        "recommendation": "b", "door": "two-way", "authority": "judgment", "blocks": "run",
+        "trust_needed": "witnessed", "raiser": {"namespace": "bench", "key": "retry/attempts"}
+    }))
+    .expect("a request record");
+    let id = request.item_id().expect("mints");
+    let author = Author {
+        actor: Actor::parse("agent").expect("an actor"),
+        trust: Trust::asserted(),
+        writer: Writer::new("bench", "2.0.0").expect("a writer"),
+    };
+    let ts = redkiln_core::envelope::Timestamp::parse("2026-09-26T00:00:00Z").expect("a ts");
+    let envelope = redkiln_core::envelope::Envelope::new(ts, author, request);
+    let event = weighin_contract::request::raise_event(&envelope).expect("a valid request");
+    store.inner.append(vec![event], None).expect("append");
+    id
+}
+
+#[test]
+fn a_captured_raise_is_refused_on_an_item_a_request_holds() {
+    let (_dir, store) = store();
+    let id = sibling_request(&store);
+
+    let written = store
+        .append(vec![raise(&id)], &Guard::NotYetRaised(id.clone()))
+        .expect("append");
+
+    assert_eq!(last(&written), None, "DR-03: the request holds the item");
+    let loaded = store.ledger().expect("read");
+    let item = loaded.ledger.get(&id).expect("the request's item");
+    assert_eq!(
+        (item.channel, item.status, loaded.ledger.items.len()),
+        (Channel::Request, Status::Grounded, 1)
+    );
+}
+
+#[test]
+fn unreadable_counts_a_request_this_build_cannot_use() {
+    let (_dir, store) = store();
+    let id = sibling_request(&store);
+    raw(
+        &store,
+        "weighin.request_raised",
+        br#"{"type":"weighin.request_raised"}"#,
+        &id,
+    );
+
+    let read = store.read_all().expect("read");
+
+    assert_eq!(read.events.len(), 1, "the usable request is read");
+    let by_type: Vec<(String, u64)> = read.unusable.into_by_type().into_iter().collect();
+    assert_eq!(by_type, [("weighin.request_raised".to_owned(), 1)]);
+}
+
 #[test]
 fn an_append_hands_back_the_events_it_wrote() {
     let (_dir, store) = store();
