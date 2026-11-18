@@ -3,7 +3,8 @@
 //! anneal's `/orchestrate` and its D6 hook read it, so its bytes are kept as weighin 1.2.0 wrote
 //! them: field order is wire order, and `reviewed_ts` is left out until a decision is reviewed.
 //! weighin-core's projection folds the events into its own `Item` and converts it into this
-//! type; a reader deserialises the same type.
+//! type. A sibling reads a listing with [`read_listing`] into [`Listed`], which ignores keys
+//! and words a later weighin adds (CLI-04, EV-09), rather than the strict [`OpenItem`].
 
 use crate::card::Card;
 use crate::event::{
@@ -13,6 +14,10 @@ use crate::id::ItemId;
 use crate::request::Request;
 use crate::vocab::{Authority, Door, Kind};
 use serde::{Deserialize, Serialize};
+
+mod listing;
+
+pub use listing::{Listed, ListedCard, ListedDecision, ListedOption, ListingError, read_listing};
 
 /// Where an item is in its lifecycle.
 ///
