@@ -245,7 +245,7 @@ fn label_actor(actor: &Value) -> Option<LabelActor> {
 }
 
 /// The milliseconds since the Unix epoch of an EV-01 `ts`, `YYYY-MM-DDTHH:MM:SS(.mmm)?Z`, from
-/// 1970 on; `None` for anything else.
+/// 1970 on; `None` for anything else, a day its month lacks (31 February) among them.
 pub(super) fn unix_millis(ts: &str) -> Option<u64> {
     let (date, time) = ts.strip_suffix('Z')?.split_once('T')?;
     let (clock, millis) = match time.split_once('.') {
@@ -256,8 +256,7 @@ pub(super) fn unix_millis(ts: &str) -> Option<u64> {
     let [year, month, day] = fields(date, '-', [4, 2, 2])?;
     let [hour, minute, second] = fields(clock, ':', [2, 2, 2])?;
     if year < 1970
-        || !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
+        || !(1..=days_in_month(year, month)).contains(&day)
         || hour > 23
         || minute > 59
         || second > 59
@@ -268,6 +267,17 @@ pub(super) fn unix_millis(ts: &str) -> Option<u64> {
         .checked_mul(86_400)?
         .checked_add(hour * 3600 + minute * 60 + second)?;
     seconds.checked_mul(1000)?.checked_add(millis)
+}
+
+/// The days in `month` of `year` (Gregorian); 0 for a month outside 1 to 12, so no day fits.
+const fn days_in_month(year: u64, month: u64) -> u64 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) => 29,
+        2 => 28,
+        _ => 0,
+    }
 }
 
 /// `text` split at `separator` into three numbers of exactly `widths` digits.

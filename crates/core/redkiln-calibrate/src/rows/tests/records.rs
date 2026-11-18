@@ -364,6 +364,31 @@ fn a_record_line_past_the_row_cap_or_with_a_bad_ts_is_skipped_and_counted() -> T
 }
 
 #[test]
+fn a_record_line_whose_ts_names_a_day_its_month_lacks_is_skipped_and_counted() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let dated = |id: &str, date: &str| {
+        record_line(JUDGEMENT_RECORDED, 1, &answered_data("bench", id))
+            .replace("2026-11-16T", &format!("{date}T"))
+    };
+    let text = dated("feb-31", "2026-02-31")
+        + &dated("feb-29-common", "2026-02-29")
+        + &dated("apr-31", "2026-04-31")
+        + &dated("feb-29-leap", "2028-02-29")
+        + &dated("dec-31", "2026-12-31");
+    let log = bench_log(dir.path(), &text)?;
+
+    let rows: LogRows<Point, Question> = read([&log])?;
+
+    let mut read_ids: Vec<&str> = rows.answered.iter().map(|a| a.id.as_str()).collect();
+    read_ids.sort_unstable();
+    assert_eq!(
+        (read_ids, rows.skipped_rows),
+        (vec!["dec-31", "feb-29-leap"], 3)
+    );
+    Ok(())
+}
+
+#[test]
 fn a_label_record_labels_a_v1_decision_and_the_reverse() -> TestResult {
     let dir = tempfile::tempdir()?;
     let v1 = json!({
