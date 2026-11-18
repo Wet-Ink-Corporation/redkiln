@@ -47,7 +47,7 @@ A judgement may be labelled more than once; the latest label in reading order is
 - a **record**: an EV-01 envelope of one of the CA-02 types, without `origin` and without tags, at most 8 KiB with its newline;
 - an **anneal v1 row**: `{"kind": "decision", …}` or `{"kind": "label", …}`, the rows anneal and then Bench wrote before these types, read forever and mapped onto the CA-02 types by the table below.
 
-A reader takes both forms alike. It skips and counts, never fatally (EV-08 to EV-10): a line of neither form; a record of another type, of a `version` above the one it knows, whose envelope or `data` does not decode, or longer than 8 KiB; a record whose `producer` is not the folder's; and a v1 row the table cannot map. A torn last line is such a line.
+A reader takes both forms alike. It skips and counts, never fatally (EV-08 to EV-10): a line of neither form; a record of another type, of a `version` other than the one it knows, whose envelope or `data` does not decode, or longer than 8 KiB; a record whose `producer` is not the folder's; and a v1 row the table cannot map. A torn last line is such a line.
 
 **CA-05. Trust.** A record is `asserted` unless a TR-03 or TR-04 code path wrote it (TR-05). A label does not change its judgement's trust. A label given through a mod pane is still a CLI call, so it is `asserted`; `by.via` keeps the surface as data.
 

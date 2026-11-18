@@ -206,7 +206,7 @@ impl RecordError {
 
 /// `core.judgement_recorded`'s `data` as it is read: every key optional but the required ones.
 #[derive(Debug, Deserialize)]
-pub(crate) struct RecordedWire {
+struct RecordedWire {
     producer: String,
     id: String,
     point: String,
@@ -232,7 +232,7 @@ struct FailureWire {
 
 /// `core.judgement_labelled`'s `data` as it is read.
 #[derive(Debug, Deserialize)]
-pub(crate) struct LabelledWire {
+struct LabelledWire {
     producer: String,
     judgement: String,
     outcome: String,
