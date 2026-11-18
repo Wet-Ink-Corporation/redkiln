@@ -1,6 +1,6 @@
 //! `bench orchestrate park` through the built binary, against weigh-in three ways: absent
-//! (every platform), a fake `weighin` shell script that records its stdin (unix), and the
-//! pinned weigh-in release named by `WEIGHIN_BIN` (CI; the test says it skipped when unset).
+//! (every platform), a fake `weighin` shell script answering `status --json` (unix), and a
+//! real `weighin` named by `WEIGHIN_BIN` (the test says it skipped when unset).
 
 use std::error::Error;
 use std::io::Write as _;
@@ -13,21 +13,30 @@ use crate::support::{anneal_in, git, with_fake_clef};
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
-/// A park of the call "should the cache be shared", blocking ticket 7.
-const PARK: [&str; 13] = [
+/// A park of the call "should the cache be shared", blocking ticket 7, with two options.
+const PARK: [&str; 22] = [
     "orchestrate",
     "park",
     "--ticket",
     "7",
     "--q",
     "Should the cache be shared across tenants?",
-    "--default",
-    "per-tenant",
-    "--flip",
+    "--option",
+    "Per tenant",
+    "--holds",
     "a tenant needs isolation",
-    "--at",
-    "src/cache.rs:12",
-    "--resolve-by=2026-10-19",
+    "--cost",
+    "more memory",
+    "--option",
+    "Shared",
+    "--holds",
+    "tenants trust each other",
+    "--cost",
+    "a migration to split it",
+    "--recommend",
+    "a",
+    "--at=src/cache.rs:12",
+    "--resolve-by=2099-10-19",
 ];
 
 /// The variables through which weigh-in finds a session or a store; removed so the caller's
@@ -74,7 +83,7 @@ fn events(dir: &Path, kind: &str) -> TestResult<Vec<Value>> {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> TestResult {
+fn with_weigh_in_absent_the_park_exits_4_and_writes_nothing() -> TestResult {
     let dir = tempfile::tempdir()?;
     let missing = dir.path().join("no-weighin-here");
 
@@ -83,24 +92,31 @@ fn with_weigh_in_absent_the_park_exits_4_and_records_bridge_unavailable() -> Tes
         .output()?;
 
     let parked = envelope(&output, 4)?;
-    crate::support::golden("bench.orchestrate-park/1", &parked, &[dir.path()], &[])?;
+    crate::support::golden("bench.orchestrate-park/2", &parked, &[dir.path()], &[])?;
     assert!(output.stderr.is_empty(), "{output:?}");
     assert_eq!(parked["data"]["parked"], json!(false));
-    let recorded = events(dir.path(), "bench.bridge.unavailable")?;
-    let [event] = recorded.as_slice() else {
-        return Err(format!("one bridge.unavailable: {recorded:?}").into());
-    };
-    assert_eq!(event["ticket"], json!("7"));
-    let reason = event["reason"].as_str().unwrap_or_default();
+    assert_eq!(parked["data"].get("position"), None, "nothing written");
+    assert_eq!(
+        parked["findings"][0]["key"],
+        json!("orchestrate/weigh-in-unavailable:7")
+    );
+    let reason = parked["data"]["reason"].as_str().unwrap_or_default();
     assert!(
         reason.starts_with("WEIGHIN_BIN names no file: "),
         "{reason}"
     );
-    assert_eq!(
-        events(dir.path(), "bench.weighin_parked")?,
-        Vec::<Value>::new()
-    );
+    assert_eq!(bench_events(dir.path())?, json!([]), "no Bench event either");
     Ok(())
+}
+
+/// Every Bench event in the ledger the commands in `dir` use, as `bench ledger query` lists them.
+fn bench_events(dir: &Path) -> TestResult<Value> {
+    let output = anneal_in(dir)
+        .env("REDKILN_STORE", dir.join("ledger.sqlite3"))
+        .args(["ledger", "query"])
+        .output()?;
+    let queried = envelope(&output, 0)?;
+    Ok(queried.pointer("/data/events").cloned().ok_or("events")?)
 }
 
 #[test]
@@ -140,68 +156,56 @@ fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() ->
     Ok(())
 }
 
-/// The fake `weighin`: appends its stdin and a newline to `$FAKE_WEIGHIN_LOG`, then answers as
-/// weigh-in 0.6.1 does, `already raised` once `$FAKE_WEIGHIN_STATE` exists.
+/// The fake `weighin`: logs its arguments to `$FAKE_WEIGHIN_LOG` and answers `status --json` as
+/// a weighin that folds requests into `$REDKILN_STORE`.
 #[cfg(unix)]
 const FAKE_WEIGHIN: &str = r#"#!/bin/sh
-[ "$1" = batch ] || { echo "fake weighin: only batch" >&2; exit 2; }
-cat >> "$FAKE_WEIGHIN_LOG"
-echo >> "$FAKE_WEIGHIN_LOG"
-if [ -e "$FAKE_WEIGHIN_STATE" ]; then
-  echo '✓ wi-e41e02 already raised'
-else
-  : > "$FAKE_WEIGHIN_STATE"
-  echo '✓ raised wi-e41e02 (raised)'
-fi
-echo '✓ deferred wi-e41e02 until next sitting (default per-tenant by 2026-10-19) · tracking atom .kb/_intake/open_questions/wi-e41e02-x.md'
+echo "$*" >> "$FAKE_WEIGHIN_LOG"
+[ "$*" = "status --json" ] || { echo "fake weighin: only status --json" >&2; exit 2; }
+printf '{"schema":"weighin.status/1","ok":true,"command":"status","data":{"plugin":"rk-weigh-in","version":"2.0.0","spec":"1.0.0","store":"%s","store_source":"env","store_schema":"1.0","repo_class":"own","unreadable":{},"dropped":0,"health":"ok","hook_errors":0,"hooks":{},"requests":true},"findings":[]}\n' "$REDKILN_STORE"
 "#;
 
 #[test]
 #[cfg(unix)]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn a_park_pipes_one_batch_and_a_retry_names_the_same_item_recorded_once() -> TestResult {
+fn a_park_asks_status_and_a_retry_names_the_same_item_written_once() -> TestResult {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = tempfile::tempdir()?;
     let bin = dir.path().join("weighin");
     std::fs::write(&bin, FAKE_WEIGHIN)?;
     std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))?;
-    let log = dir.path().join("stdin.log");
+    let log = dir.path().join("args.log");
     let park = || {
         anneal(dir.path(), &bin, &PARK)
             .env("REDKILN_STORE", dir.path().join("ledger.sqlite3"))
             .env("FAKE_WEIGHIN_LOG", &log)
-            .env("FAKE_WEIGHIN_STATE", dir.path().join("raised"))
             .output()
     };
 
     let first = envelope(&park()?, 0)?;
     let retry = envelope(&park()?, 0)?;
 
-    assert_eq!(first["data"]["item_id"], json!("wi-e41e02"));
-    assert_eq!(retry["data"]["item_id"], json!("wi-e41e02"));
+    let item = first["data"]["item_id"].as_str().ok_or("an item id")?;
+    assert!(
+        item.starts_with("wi-") && item.len() == "wi-".len() + 10,
+        "{item}"
+    );
+    assert_eq!(retry["data"]["item_id"], json!(item));
     assert_eq!(
         (&first["data"]["recorded"], &retry["data"]["recorded"]),
         (&json!(true), &json!(false))
     );
-    let batches: Vec<Value> = std::fs::read_to_string(&log)?
-        .lines()
-        .map(serde_json::from_str)
-        .collect::<Result<_, _>>()?;
-    assert_eq!(batches.len(), 2, "one batch per park");
-    assert_eq!(batches[0], batches[1], "the same batch both times");
-    assert_eq!(batches[0][0]["op"], json!("raise"));
-    assert_eq!(batches[0][1]["op"], json!("defer"));
-    assert_eq!(batches[0][1]["id"], json!("@1"));
-    let recorded = events(dir.path(), "bench.weighin_parked")?;
-    let parked: Vec<(&Value, &Value, Option<&Value>)> = recorded
-        .iter()
-        .map(|event| (&event["item_id"], &event["ticket"], event.get("decision")))
-        .collect();
+    assert_eq!(first["data"]["position"], retry["data"]["position"]);
     assert_eq!(
-        parked,
-        [(&json!("wi-e41e02"), &json!("7"), None)],
-        "one weighin_parked, with no decision"
+        std::fs::read_to_string(&log)?,
+        "status --json\nstatus --json\n",
+        "weighin is only asked whether it can take the park"
+    );
+    assert_eq!(
+        bench_events(dir.path())?,
+        json!([]),
+        "the request is the record"
     );
     Ok(())
 }
@@ -343,11 +347,11 @@ fn d6_reads_past_the_default_top(bin: &Path, repo: &Path, parked: &str) -> TestR
     Ok(())
 }
 
-/// The exit criterion of Release 5 against the real weigh-in: a park creates one item with
-/// its default (a retry adds none), and a ruling recorded with `weighin decide` is surfaced by
-/// D6 on a later prompt, also when weigh-in holds more items than `open`'s default `--top` and
-/// the ruling is listed last, with no decision atom to fall back on. Runs only with
-/// `WEIGHIN_BIN` naming a weigh-in 0.6 or later.
+/// Against a real weigh-in: a park raises one request item with its options (a retry adds
+/// none), and a ruling recorded with `weighin decide` is surfaced by D6 on a later prompt, also
+/// when weigh-in holds more items than `open`'s default `--top` and the ruling is listed last,
+/// with no decision atom to fall back on. Runs only with `WEIGHIN_BIN` naming a weighin that
+/// folds decision requests (Move 2 step 7 or later).
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary and weighin")]
 fn the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6() -> TestResult {
@@ -380,13 +384,21 @@ fn the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6() -> TestResult {
     let items = listed.as_array().ok_or("a list")?;
     assert_eq!(items.len(), 1, "one item after two parks: {listed}");
     assert_eq!(items[0]["id"], json!(item));
+    assert_eq!(items[0]["channel"], json!("request"));
     assert_eq!(items[0]["door_hint"], json!("one-way"));
-    assert_eq!(items[0]["deferral"]["default_option"], json!("per-tenant"));
+    let option_ids: Vec<&Value> = items[0]
+        .pointer("/card/options")
+        .and_then(Value::as_array)
+        .ok_or("a card with options")?
+        .iter()
+        .map(|option| &option["id"])
+        .collect();
+    assert_eq!(option_ids, [&json!("a"), &json!("b")]);
     let open: Value =
         serde_json::from_slice(&weighin(&bin, repo.path(), &["open", "--repo", "--json"])?)?;
     assert_eq!(open[0]["id"], json!(item), "visible in weighin open");
 
-    weighin(&bin, repo.path(), &["decide", item, "shared"])?;
+    weighin(&bin, repo.path(), &["decide", item, "a"])?;
     let surfaced = ruled_before(
         repo.path(),
         &bin,
@@ -396,8 +408,8 @@ fn the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6() -> TestResult {
 
     let context = context_of(&surfaced);
     assert!(
-        context.contains(item) && context.contains("shared"),
-        "D6 surfaces the ruling: {surfaced}"
+        context.contains(item) && context.contains("Per tenant"),
+        "D6 surfaces the ruling by option a's label: {surfaced}"
     );
 
     d6_reads_past_the_default_top(&bin, repo.path(), item)

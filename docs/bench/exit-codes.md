@@ -224,7 +224,7 @@ A green result proves the ticket's round count was read from the ledger, and for
 |---|---|
 | 0 | fan out (park: parked; rule: recorded) |
 | 3 | fan-out: fewer than 3 independent tickets; nothing recorded |
-| 4 | park: weigh-in unavailable (recorded); rule instead |
+| 4 | park: weigh-in cannot take the call (nothing recorded); rule instead |
 
 A green result proves fan-out: the frontier has at least 3 independent tickets; park: weigh-in raised the call and deferred it with its default, and the ledger names the item; rule: the ruling was recorded. It does **not** prove that the tickets are worth running in parallel, that the call was one-way, or that the ruling or the default is right.
 

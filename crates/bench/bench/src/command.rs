@@ -212,9 +212,9 @@ impl CommandName {
                  was recorded"
             }
             Self::Orchestrate => {
-                "fan-out: the frontier has at least 3 independent tickets; park: weigh-in \
-                 raised the call and deferred it with its default, and the ledger names the \
-                 item; rule: the ruling was recorded"
+                "fan-out: the frontier has at least 3 independent tickets; park: Weigh-In's \
+                 contract accepted the request and the store holds it once, for a weighin that \
+                 folds requests into the same store; rule: the ruling was recorded"
             }
             Self::Verify => {
                 "the whole change was read and the doubt review is due: a trigger fired, or Clef \
@@ -272,8 +272,8 @@ impl CommandName {
                 "that the round's work was done, or that the agent and model it names were used"
             }
             Self::Orchestrate => {
-                "that the tickets are worth running in parallel, that the call was one-way, or \
-                 that the ruling or the default is right"
+                "that the tickets are worth running in parallel, that the call was one-way, that \
+                 a human has seen the request, or that the ruling is right"
             }
             Self::Verify => {
                 "that the change has defects, or that a change sent past the review has none"

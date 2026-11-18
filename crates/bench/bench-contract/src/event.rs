@@ -48,13 +48,13 @@ pub struct RetiredType {
 }
 
 /// `weighin_parked`: a park recorded the item `weighin batch` raised (registry v9 to step 7).
-const WEIGHIN_PARKED: RetiredType = RetiredType {
+pub const WEIGHIN_PARKED: RetiredType = RetiredType {
     short: "weighin_parked",
     stored: "bench.weighin_parked",
 };
 
 /// `bridge.unavailable`: a park found no usable `weighin` (registry v9 to step 7).
-const BRIDGE_UNAVAILABLE: RetiredType = RetiredType {
+pub const BRIDGE_UNAVAILABLE: RetiredType = RetiredType {
     short: "bridge.unavailable",
     stored: "bench.bridge.unavailable",
 };

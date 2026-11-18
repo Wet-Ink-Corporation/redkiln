@@ -83,9 +83,14 @@ pub const COMMANDS: &[&str] = &[
 /// value, before the subcommand.
 pub const VALUE_OPTIONS: &[&str] = &[];
 
-/// The version every output id has today: `bench` was never released before SPEC CLI-02, so no
-/// output keeps an older shape under its id (CLI-04).
+/// The version of every output id but those [`output_id`] names otherwise: `bench` was never
+/// released before SPEC CLI-02, so each started at 1.
 pub const OUTPUT_VERSION: u32 = 1;
+
+/// Output ids a command wrote before a breaking change to its shape (CLI-04): no command writes
+/// them now, and their goldens are kept. `bench.orchestrate-park/1` gave way to `/2` at Move 2
+/// step 7, when a park became a Weigh-In decision request (D7).
+pub const FORMER_OUTPUTS: &[&str] = &["bench.orchestrate-park/1"];
 
 /// The output id (SPEC CLI-02) of every subcommand path that writes a result envelope, sorted.
 ///
@@ -118,7 +123,7 @@ pub const OUTPUTS: &[&str] = &[
     "bench.mode-diagnose/1",
     "bench.mode-off/1",
     "bench.orchestrate-fan-out/1",
-    "bench.orchestrate-park/1",
+    "bench.orchestrate-park/2",
     "bench.orchestrate-rule/1",
     "bench.perf-noise/1",
     "bench.perf-sample/1",
@@ -144,15 +149,20 @@ pub const OUTPUTS: &[&str] = &[
 ];
 
 /// The output id of the subcommand path `command` (`"dag check"` gives `"bench.dag-check/1"`):
-/// the binary's namespace, the path's words joined by `-`, then [`OUTPUT_VERSION`].
+/// the binary's namespace, the path's words joined by `-`, then its version: 2 for
+/// `orchestrate park` (see [`FORMER_OUTPUTS`]), [`OUTPUT_VERSION`] for every other.
 #[must_use]
 pub fn output_id(command: &str) -> String {
-    format!("{BINARY}.{}/{OUTPUT_VERSION}", command.replace(' ', "-"))
+    let version = match command {
+        "orchestrate park" => 2,
+        _ => OUTPUT_VERSION,
+    };
+    format!("{BINARY}.{}/{version}", command.replace(' ', "-"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{COMMANDS, OUTPUTS, VALUE_OPTIONS, output_id};
+    use super::{COMMANDS, FORMER_OUTPUTS, OUTPUTS, VALUE_OPTIONS, output_id};
 
     #[test]
     fn an_output_id_joins_the_path_words_with_a_hyphen() {
@@ -162,6 +172,20 @@ mod tests {
             output_id("orchestrate fan-out"),
             "bench.orchestrate-fan-out/1",
             "a hyphenated subcommand"
+        );
+    }
+
+    #[test]
+    fn a_park_writes_version_2_and_keeps_version_1_as_a_former_output() {
+        assert_eq!(
+            output_id("orchestrate park"),
+            "bench.orchestrate-park/2",
+            "D7: position optional, recorded and position mean the request"
+        );
+        assert_eq!(FORMER_OUTPUTS, ["bench.orchestrate-park/1"]);
+        assert!(
+            FORMER_OUTPUTS.iter().all(|id| !OUTPUTS.contains(id)),
+            "a former output is no command's output now"
         );
     }
 

@@ -121,11 +121,12 @@ impl Context {
     }
 
     /// The durable event of `data` in this context, with the caller's `tags` (Core adds
-    /// `plugin`, `trust`, `session` and `worktree`).
+    /// `plugin`, `trust`, `session` and `worktree`). The one-time import also builds an old
+    /// event of a retired type through it, its payload as anneal wrote it.
     ///
     /// # Errors
     /// [`StoreError::Envelope`] naming the first rule of EV-05 the envelope breaks.
-    fn event<P: Payload>(self, data: P, tags: Vec<Tag>) -> Result<NewEvent, StoreError> {
+    pub(crate) fn event<P: Payload>(self, data: P, tags: Vec<Tag>) -> Result<NewEvent, StoreError> {
         self.into_envelope(data)
             .to_event(tags)
             .map_err(|source| StoreError::Envelope {
