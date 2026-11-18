@@ -11,6 +11,7 @@
 
 use crate::card::Card;
 use crate::id::ItemId;
+use crate::request::Request;
 use crate::vocab::{Authority, Door, Kind};
 use serde::{Deserialize, Serialize};
 
@@ -27,12 +28,15 @@ pub enum Channel {
     Sweep,
     /// Raised by hand with `weighin raise`.
     Manual,
+    /// A decision request a sibling raised through `weighin-contract` (DR-01).
+    Request,
 }
 
 impl Channel {
-    /// The wire spelling: `marker`, `scan`, `sweep` or `manual`.
+    /// The wire spelling: `marker`, `scan`, `sweep`, `manual` or `request`.
     ///
-    /// It is also the value of the `channel:` store tag on an `item_raised` event.
+    /// It is also the value of the `channel:` store tag on an `item_raised` event, and on a
+    /// `request_raised` one (`request`, DR-01).
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -40,6 +44,7 @@ impl Channel {
             Self::Scan => "scan",
             Self::Sweep => "sweep",
             Self::Manual => "manual",
+            Self::Request => "request",
         }
     }
 }
@@ -568,6 +573,19 @@ pub struct Acknowledged {
     pub reason: String,
 }
 
+/// Payload of `request_raised`: a decision request as folded, the item its event's `item` tag
+/// names and the record (DR-01).
+///
+/// The store keeps only the record as the event's `data`; weighin reads the item from the tag,
+/// after checking it is one of the request's own mints (ID-04).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Requested {
+    /// The item the request raised (its stored `item:` tag; 10, 12 or 16 hex, ID-04).
+    pub item_id: ItemId,
+    /// The record as the raiser wrote it.
+    pub request: Request,
+}
+
 /// One ledger event. The serde tag is the event type, so the payload bytes stored under a type
 /// always decode to that variant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -599,9 +617,13 @@ pub enum LedgerEvent {
     RecordWritten(RecordWritten),
     /// `item_acknowledged`: a default was seen and left standing.
     ItemAcknowledged(Acknowledged),
+    /// `request_raised`: a sibling's decision request raised an item that arrives grounded
+    /// (DR-01). Never written by weighin, and not one of [`EVENT_TYPES`].
+    RequestRaised(Requested),
 }
 
-/// Every event type, for queries that select them all.
+/// The 13 item event types of the 1.x vocabulary, which legacy import and `stats` select. The
+/// decision request's own type is [`REQUEST_RAISED`](crate::names::REQUEST_RAISED).
 pub const EVENT_TYPES: &[&str] = &[
     "item_raised",
     "item_triaged",
@@ -619,7 +641,8 @@ pub const EVENT_TYPES: &[&str] = &[
 ];
 
 impl LedgerEvent {
-    /// The event type the store files this event under; one of [`EVENT_TYPES`].
+    /// The event type the store files this event under: one of [`EVENT_TYPES`], or
+    /// `request_raised` for a decision request.
     #[must_use]
     pub fn event_type(&self) -> &'static str {
         match self {
@@ -636,6 +659,7 @@ impl LedgerEvent {
             Self::ItemLinked(_) => "item_linked",
             Self::RecordWritten(_) => "record_written",
             Self::ItemAcknowledged(_) => "item_acknowledged",
+            Self::RequestRaised(_) => "request_raised",
         }
     }
 
@@ -656,6 +680,7 @@ impl LedgerEvent {
             Self::ItemLinked(e) => &e.item_id,
             Self::RecordWritten(e) => &e.item_id,
             Self::ItemAcknowledged(e) => &e.item_id,
+            Self::RequestRaised(e) => &e.item_id,
         }
     }
 
@@ -788,6 +813,46 @@ mod tests {
         assert!(text.contains("\"type\":\"item_dismissed\""), "{text}");
         assert_eq!(EventEnvelope::from_json(&bytes).unwrap(), e);
         assert!(EVENT_TYPES.contains(&e.event.event_type()));
+    }
+
+    const DR_02: &str = include_str!("../../../../spec/fixtures/decision-request/valid/dr-02.json");
+
+    #[test]
+    fn requested_round_trips_with_its_item() {
+        let request: Request = serde_json::from_str(DR_02.trim_end()).expect("DR-02 reads");
+        let item_id = ItemId::parse("wi-0a1b2c3d4e").expect("a 10-hex id");
+        let e = EventEnvelope {
+            event: LedgerEvent::RequestRaised(Requested {
+                item_id: item_id.clone(),
+                request,
+            }),
+            actor: "agent".into(),
+            session_id: None,
+            worktree: None,
+            branch: None,
+            head: None,
+            ts: "2026-11-08T12:00:00Z".into(),
+        };
+        let bytes = e.to_json().expect("writes");
+        let text = String::from_utf8(bytes.clone()).expect("UTF-8");
+        assert!(text.contains("\"type\":\"request_raised\""), "{text}");
+        assert_eq!(EventEnvelope::from_json(&bytes).expect("reads"), e);
+        assert_eq!(e.event.event_type(), "request_raised");
+        assert_eq!(e.event.item_id(), &item_id);
+        assert!(!e.event.is_terminal());
+        assert!(
+            !EVENT_TYPES.contains(&"request_raised"),
+            "the 13 item events stay the 1.x vocabulary"
+        );
+    }
+
+    #[test]
+    fn the_request_channel_is_written_request() {
+        assert_eq!(Channel::Request.as_str(), "request");
+        assert_eq!(
+            serde_json::to_string(&Channel::Request).expect("writes"),
+            "\"request\""
+        );
     }
 
     #[test]

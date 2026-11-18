@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 use weighin_contract::ci_check::v2::{JournalKind, Reason, Violation};
-use weighin_core::EventEnvelope;
+use weighin_core::{EventEnvelope, LedgerEvent};
 
 use crate::journal::lines;
 
@@ -75,10 +75,14 @@ pub(crate) fn decode(path: &str, bytes: &[u8]) -> (Vec<(u64, EventEnvelope)>, Ve
     let mut violations = Vec::new();
     for l in lines(bytes).filter(|l| !l.is_blank()) {
         match EventEnvelope::from_json(l.text) {
-            Ok(e) => events.push((l.number, e)),
+            // No 1.x journal ever held a decision request: such a line names an item with no
+            // check that the request minted it (ID-04), so it is no 1.x event.
+            Ok(e) if !matches!(e.event, LedgerEvent::RequestRaised(_)) => {
+                events.push((l.number, e));
+            }
             // A cut-short last line is a write the next run repeats, not a broken journal.
-            Err(_) if !l.complete => {}
-            Err(_) => violations.push(Violation {
+            Ok(_) | Err(_) if !l.complete => {}
+            Ok(_) | Err(_) => violations.push(Violation {
                 journal: path.to_owned(),
                 kind: JournalKind::File,
                 commit: None,
@@ -185,6 +189,20 @@ mod tests {
     fn decode_flags_a_bad_complete_line_and_skips_a_cut_short_last_line() {
         let cut = PRESENTED.get(..40).expect("a long line");
         let head = format!("{RAISED}\nnot an event\n\n{cut}");
+
+        let (events, found) = decode(PATH, head.as_bytes());
+
+        let raised = EventEnvelope::from_json(RAISED.as_bytes()).expect("an event");
+        assert_eq!(events, vec![(1, raised)]);
+        assert_eq!(found, vec![violation(Some(2), Reason::Undecodable)]);
+    }
+
+    /// A decision request written as a 1.x line, naming an item it was never minted for.
+    const REQUESTED: &str = r#"{"type":"request_raised","item_id":"wi-b29e54","request":{"question":"Take it over?","options":[{"id":"a","label":"Yes","holds_when":"Always","cost_if_wrong":"None"},{"id":"b","label":"No","holds_when":"Never","cost_if_wrong":"None"}],"recommendation":"a","door":"two-way","authority":"judgment","blocks":"none","trust_needed":"witnessed","raiser":{"namespace":"bench","key":"forged"}},"actor":"cli","session_id":"s","ts":"2026-10-09T03:29:37Z"}"#;
+
+    #[test]
+    fn a_request_raised_line_in_a_committed_journal_is_undecodable() {
+        let head = format!("{RAISED}\n{REQUESTED}\n");
 
         let (events, found) = decode(PATH, head.as_bytes());
 

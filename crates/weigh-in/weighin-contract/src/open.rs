@@ -10,6 +10,7 @@ use crate::event::{
     Applies, Blast, Channel, DefaultCause, Deferred, DismissReason, Provenance, Route, Timing,
 };
 use crate::id::ItemId;
+use crate::request::Request;
 use crate::vocab::{Authority, Door, Kind};
 use serde::{Deserialize, Serialize};
 
@@ -218,6 +219,21 @@ pub struct OpenItem {
     pub last_position: u64,
     /// When the latest event applied to the item was written, by the writer's clock.
     pub last_ts: String,
+    /// What a request item was raised with, and where (DR-01); absent for a captured item, so
+    /// such an item keeps 1.2.0's bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<RequestRecord>,
+}
+
+/// The decision request an item was raised by (DR-01): the store position of its
+/// `weighin.request_raised` event, which an answer cites (DR-05), and the record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RequestRecord {
+    /// The store position of the raising event.
+    pub position: u64,
+    /// The record as the raiser wrote it.
+    pub request: Request,
 }
 
 #[cfg(test)]

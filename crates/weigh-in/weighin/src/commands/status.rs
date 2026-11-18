@@ -93,6 +93,8 @@ fn gather(env: &Env, now: Option<u64>) -> Found {
         health: health(&findings),
         hook_errors,
         hooks,
+        // This build folds `weighin.request_raised` (DR-01); a raiser checks it first (D3).
+        requests: true,
     };
     Found { data, findings }
 }

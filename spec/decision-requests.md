@@ -4,7 +4,7 @@ Any plugin that needs the human raises a Weigh-In item: Bench parking a one-way 
 
 ## The record
 
-**DR-01.** A decision request is an item that arrives already grounded: the raiser supplies the card, and Weigh-In validates it and presents it, skipping triage (weigh-in.md, The decision model). It is written through `weighin-contract` as the event that raises an item, with the channel tag `weighin.channel:request`; the event's name is Weigh-In's to set in that crate. Its `data` holds the request record below, and nothing in the record changes the meaning of a field weigh-in already stores.
+**DR-01.** A decision request is an item that arrives already grounded: the raiser supplies the card, and Weigh-In validates it and presents it, skipping triage (weigh-in.md, The decision model). It is written through `weighin-contract` as the event that raises an item, with the channel tag `weighin.channel:request`; the event's name is Weigh-In's to set in that crate. Its `data` holds the request record below, and nothing in the record changes the meaning of a field weigh-in already stores. Weigh-In folds each request into one item of channel `request`, grounded on arrival, whose card is the request's own options with their ids `a` to `d`; a request whose `item` tag is not one of its own ids (DR-03) is unusable (EV-10).
 
 **DR-02 (one-way, OW-11).** The request record:
 
@@ -48,6 +48,6 @@ The guards run inside the contract crate, so a sibling cannot raise a malformed 
 
 **DR-06.** A raiser accepts an answer only when its trust is at least the request's `trust_needed`, its option is one of the request's, and, when the request has a `subject`, the raiser recomputes the subject's hash and gets the same value (as AP-02 does). An answer about content that has since changed is stale; the raiser raises again with a new key.
 
-**DR-07.** With nobody present, a run takes the `default` of a two-way item at its deadline and records that it did as Weigh-In's defaulted event, at `asserted` trust. A defaulted decision yields a proposed atom flagged for review, never an accepted one. A one-way item is never defaulted: the run stops and waits (wi-4d8b6a). Review defaults nothing; its check stays pending.
+**DR-07.** With nobody present, a run takes the `default` of a two-way item at its deadline and records that it did as Weigh-In's defaulted event, at `asserted` trust. A defaulted decision yields a proposed atom flagged for review, never an accepted one. A one-way item is never defaulted: the run stops and waits (wi-4d8b6a). Review defaults nothing; its check stays pending. A two-way `judgment` request that names a `default` and no `deadline` is the raiser's own call, logged: Weigh-In folds it as already defaulted to that option, shown in the digest, and asks nobody.
 
 **DR-08.** Where an unattended request travels so that it can be answered elsewhere (a Decision issue, a ledger ref, or only the local machine for client work) is pressure-test call B, a two-way call Weigh-In owns. The SPEC requires only that an answer imported from any rendezvous keeps its `origin` (ID-02) and is `asserted` until a gate verifies its attestation (TR-06).

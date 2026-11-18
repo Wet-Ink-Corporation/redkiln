@@ -45,6 +45,10 @@ pub struct Status {
     pub hook_errors: u64,
     /// Each registered hook event's last run, by event name; an event with no record is absent.
     pub hooks: BTreeMap<String, HookRun>,
+    /// Whether this build folds decision requests (DR-01). A build before them has no key, which
+    /// reads `false`; `false` is left out when written, so such a build's bytes are kept.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requests: bool,
 }
 
 /// Why [`Status::from_envelope_data`] refused a document.
@@ -162,6 +166,21 @@ mod tests {
         assert_eq!(ok.health, Health::Ok);
         assert_eq!(ok.store_source, Some(StoreSource::GitCommonDir));
         assert_eq!(ok.hooks["Stop"].state, HookState::Finished);
+    }
+
+    const REQUESTS: &str =
+        include_str!("../../../../spec/fixtures/status/valid/weighin-ok-requests.json");
+
+    #[test]
+    fn a_build_that_folds_requests_says_so_and_an_older_one_reads_false() {
+        let folds = read(REQUESTS);
+        assert!(folds.requests, "the key reads");
+        assert_eq!(
+            serde_json::to_string(&folds).expect("encoded"),
+            data_bytes(REQUESTS),
+            "written last, after `hooks`"
+        );
+        assert!(!read(OK).requests, "a 2.0.0 status has no key");
     }
 
     #[test]

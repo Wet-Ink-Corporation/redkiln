@@ -1,7 +1,7 @@
 # Crate charter: `weighin`
 
 ## Purpose
-The `weighin` CLI, and the single writer of the Weigh-In decision ledger. Every write, from a command, a hook or the `batch` entry point, goes through `ops::Session`; read-only commands use `ops::read_ledger`, which never creates the store.
+The `weighin` CLI, and the single writer of Weigh-In's item events; siblings append only `weighin.request_raised`, through `weighin-contract` (DR-01), which weighin folds and never writes. Every write, from a command, a hook or the `batch` entry point, goes through `ops::Session`; read-only commands use `ops::read_ledger`, which never creates the store.
 
 The full charter (invariants, errors, do-nots and its decisions log; layer, dependencies and hooks are repeated here, so change both) is [`docs/weigh-in/crates/weighin.md`](../../../docs/weigh-in/crates/weighin.md), moved there whole so the charter chains fit the 24 KiB budget (`tools/charters/check.sh`), as Bench's was at its import. Read the parts a change touches before making it; its rules hold here, and new decisions are added to its log.
 

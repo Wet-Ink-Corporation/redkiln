@@ -4,6 +4,8 @@ use redkiln_core::envelope::{Class, TypeName};
 use redkiln_core::store::{Store, Wait};
 use serde_json::{Value, json};
 use weighin_contract::names::ITEM_EVENTS;
+use weighin_contract::request::{OptionId, raise_event_at};
+use weighin_core::ItemId;
 use weighin_core::event::EVENT_TYPES;
 
 use super::*;
@@ -325,4 +327,154 @@ fn a_line_with_no_origin_is_malformed() {
         let skipped = from_line(1, text);
         assert!(matches!(skipped, Err(LineSkip::Malformed)), "{skipped:?}");
     }
+}
+
+/// A two-way request a sibling raises.
+fn request() -> Request {
+    serde_json::from_value(json!({
+        "question": "Keep the retry at three attempts?",
+        "options": [
+            {"id": "a", "label": "Three", "holds_when": "Flakes are rare", "cost_if_wrong": "A red run"},
+            {"id": "b", "label": "Five", "holds_when": "Flakes are common", "cost_if_wrong": "Slow failures"}
+        ],
+        "recommendation": "b",
+        "door": "two-way",
+        "authority": "judgment",
+        "blocks": "run",
+        "trust_needed": "witnessed",
+        "raiser": {"namespace": "bench", "key": "retry/attempts"}
+    }))
+    .expect("a request record")
+}
+
+/// `request` as a sibling's envelope, at the ts every test here uses.
+fn request_envelope(request: Request) -> Envelope<Request> {
+    let author = Author {
+        actor: Actor::parse("agent").expect("an actor"),
+        trust: Trust::asserted(),
+        writer: Writer::new("bench", "2.0.0").expect("a writer"),
+    };
+    Envelope::new(Timestamp::parse(TS).expect("a ts"), author, request)
+}
+
+/// The one event `event` stores as.
+fn stored_one(event: NewEvent) -> Stored {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(&dir.path().join("events.sqlite3"), Wait::Command).expect("store");
+    store.append(vec![event], None).expect("append");
+    let mut read = store
+        .read(&Filter::all(), 0, NonZeroUsize::MIN)
+        .expect("read");
+    read.pop().expect("one event")
+}
+
+#[test]
+fn a_request_raised_reads_as_requested_with_its_tag_id() {
+    for len in [HexLen::Ten, HexLen::Twelve, HexLen::Sixteen] {
+        let event = raise_event_at(&request_envelope(request()), len).expect("a valid request");
+        let stored = stored_one(event);
+
+        let env = from_stored(&stored).expect("usable");
+
+        let id = request().item_id_at(len).expect("mints");
+        assert_eq!(
+            env.event,
+            LedgerEvent::RequestRaised(Requested {
+                item_id: id,
+                request: request(),
+            }),
+            "{len:?}"
+        );
+        assert_eq!((env.actor.as_str(), env.ts.as_str()), ("agent", TS));
+    }
+}
+
+#[test]
+fn a_request_whose_item_tag_is_not_its_mint_is_unusable() {
+    let forged = ItemId::mint("s1", "Another item's question?");
+    let tag = Tag::core(CoreKey::Item, forged.as_str()).expect("an item tag");
+    let event = request_envelope(request())
+        .to_event(vec![tag])
+        .expect("an event");
+
+    let skipped = from_stored(&stored_one(event));
+
+    assert!(matches!(skipped, Err(Skip::Unusable(_))), "{skipped:?}");
+}
+
+#[test]
+fn a_request_with_no_item_tag_is_unusable() {
+    let event = request_envelope(request())
+        .to_event(Vec::new())
+        .expect("an event");
+
+    let skipped = from_stored(&stored_one(event));
+
+    assert!(matches!(skipped, Err(Skip::Unusable(_))), "{skipped:?}");
+}
+
+/// The `item` tag of `request`'s own 10-hex id.
+fn own_tag(request: &Request) -> Tag {
+    let id = request.item_id().expect("mints");
+    Tag::core(CoreKey::Item, id.as_str()).expect("an item tag")
+}
+
+#[test]
+fn a_request_that_breaks_a_dr_04_guard_is_unusable() {
+    let mut missing_default = request();
+    missing_default.default = Some(OptionId::C);
+    let mut one_option = request();
+    one_option.options.truncate(1);
+    let mut five_options = request();
+    let extra = five_options.options.first().expect("an option").clone();
+    five_options
+        .options
+        .extend([extra.clone(), extra.clone(), extra]);
+    for broken in [missing_default, one_option, five_options] {
+        let tag = own_tag(&broken);
+        let event = request_envelope(broken)
+            .to_event(vec![tag])
+            .expect("an event Core builds without the contract's guards");
+
+        let skipped = from_stored(&stored_one(event));
+
+        assert!(matches!(skipped, Err(Skip::Unusable(_))), "{skipped:?}");
+    }
+}
+
+#[test]
+fn a_request_with_more_than_one_item_tag_is_unusable() {
+    let forged = ItemId::mint("s1", "Another item's question?");
+    let other = Tag::core(CoreKey::Item, forged.as_str()).expect("an item tag");
+    let event = request_envelope(request())
+        .to_event(vec![own_tag(&request()), other])
+        .expect("an event");
+
+    let skipped = from_stored(&stored_one(event));
+
+    assert!(matches!(skipped, Err(Skip::Unusable(_))), "{skipped:?}");
+}
+
+#[test]
+fn weighin_never_encodes_a_request() {
+    let env = EventEnvelope {
+        event: LedgerEvent::RequestRaised(Requested {
+            item_id: request().item_id().expect("mints"),
+            request: request(),
+        }),
+        actor: "agent".into(),
+        session_id: None,
+        worktree: None,
+        branch: None,
+        head: None,
+        ts: TS.into(),
+    };
+
+    let refused = to_new_event(env, &writer().expect("writer"));
+
+    let err = refused.expect_err("weighin raises no request");
+    assert!(
+        format!("{err:#}").contains("weighin does not raise decision requests"),
+        "{err:#}"
+    );
 }

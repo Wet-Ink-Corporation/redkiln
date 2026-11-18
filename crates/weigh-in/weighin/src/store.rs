@@ -45,7 +45,7 @@ pub(crate) struct Store {
 /// What a conditioned append must not find.
 #[derive(Debug, Clone)]
 pub(crate) enum Guard {
-    /// Fail if `item_raised` for this item exists.
+    /// Fail if `item_raised` or a sibling's `request_raised` for this item exists (DR-03).
     NotYetRaised(ItemId),
     /// Fail if any weighin event for this item was appended after `position`.
     ItemUnchangedSince(ItemId, u64),
@@ -203,7 +203,9 @@ impl Store {
     /// store error. A guard match is [`Written::Conflict`], not an error.
     pub(crate) fn append(&self, envs: Vec<EventEnvelope>, guard: &Guard) -> Result<Written> {
         let condition = match guard {
-            Guard::NotYetRaised(id) => Condition::not_yet(wire::RAISED, wire::item_tag(id)?)?,
+            // DR-03's condition: neither a captured raise nor a sibling's request holds the item.
+            Guard::NotYetRaised(id) => weighin_contract::request::raise_condition(id)
+                .with_context(|| format!("the not-yet-raised condition of {id}"))?,
             // Not Core's `unchanged_since`, which matches any type: another plugin's event about
             // the item would block every later weighin write to it.
             Guard::ItemUnchangedSince(id, position) => {

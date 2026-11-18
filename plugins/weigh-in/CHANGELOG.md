@@ -6,6 +6,11 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- Decision requests from other Redkiln plugins now show up: a `weighin.request_raised` event
+  becomes an item of channel `request`, already grounded with the raiser's own card (options `a`
+  to `d`), listed by `open` and answered with `decide` like any other. A two-way judgment call
+  the raiser made itself (a default and no deadline) arrives already defaulted and shows in the
+  digest. `status --json` says `"requests": true`, so a raiser can check before it relies on it.
 - A decision can say it always applies: `weighin decide <id> <option> --applies always
   --confirmation <check>` (and `applies`/`confirmation` in a batch `decide`) records whether the
   answer holds once or for every later occurrence, and the check that enforces it. `open --json`
