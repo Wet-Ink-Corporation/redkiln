@@ -4,12 +4,17 @@
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 use crate::store::{Filter, LedgerEvent, Store};
 use clap::Parser;
+use redkiln_core::envelope::decode;
+use redkiln_core::store::Filter as CoreFilter;
 use serde_json::{Value, json};
 use tempfile::TempDir;
+use weighin_contract::request::{Blocks, OptionId, Request, TrustNeeded};
+use weighin_contract::vocab::Door;
 
 use super::{OrchestrateArgs, Ports, run};
 use crate::cli::{Cli, Command};
@@ -19,15 +24,26 @@ use crate::weighin::{Call, Ran, RunError, Runner};
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-/// weigh-in 0.6.1's receipt for a first park.
-const RECEIPT: &str = "✓ raised wi-e41e02 (raised)\n\
-    ✓ deferred wi-e41e02 until next sitting (default per-tenant by 2026-10-19) · tracking atom \
-    .kb/_intake/open_questions/wi-e41e02-should-the-cache-be-shared.md\n";
+/// `weighin status --json` of a weighin that folds requests (`requests`) into `store`.
+fn status(store: &Path, requests: bool) -> String {
+    let mut data = json!({
+        "plugin": "rk-weigh-in", "version": "2.0.0", "spec": "1.0.0",
+        "store": store.to_string_lossy(), "store_source": "env", "store_schema": "1.0",
+        "repo_class": "own", "unreadable": {}, "dropped": 0, "health": "ok",
+        "hook_errors": 0, "hooks": {},
+    });
+    if requests {
+        data["requests"] = json!(true);
+    }
+    json!({"schema": "weighin.status/1", "ok": true, "command": "status", "data": data,
+           "findings": []})
+    .to_string()
+}
 
-/// A fake `weighin`: one fixed answer, and the stdin of each call.
+/// A fake `weighin`: one fixed answer, and the arguments of each call.
 struct Fake {
     answer: Ran,
-    inputs: RefCell<Vec<String>>,
+    calls: RefCell<Vec<Vec<String>>>,
 }
 
 impl Fake {
@@ -38,20 +54,20 @@ impl Fake {
                 stdout: stdout.as_bytes().to_vec(),
                 stderr: b"weighin: something failed\n".to_vec(),
             },
-            inputs: RefCell::new(Vec::new()),
+            calls: RefCell::new(Vec::new()),
         }
     }
 
     fn calls(&self) -> usize {
-        self.inputs.borrow().len()
+        self.calls.borrow().len()
     }
 }
 
 impl Runner for Fake {
     fn run(&self, call: &Call<'_>) -> Result<Ran, RunError> {
-        self.inputs
+        self.calls
             .borrow_mut()
-            .push(String::from_utf8_lossy(call.input).into_owned());
+            .push(call.args.iter().map(|arg| (*arg).to_owned()).collect());
         // Each call hands out its own copy of the fixed answer.
         Ok(self.answer.clone())
     }
@@ -75,6 +91,11 @@ impl World {
 
     fn store(&self) -> PathBuf {
         self.dir.path().join("ledger.sqlite3")
+    }
+
+    /// A fake `weighin` that folds requests into this world's store.
+    fn able(&self) -> Fake {
+        Fake::answering(0, &status(&self.store(), true))
     }
 
     /// Runs `bench orchestrate <words>` with `WEIGHIN_BIN` set to `bin` (none: unset, and no
@@ -112,7 +133,7 @@ impl World {
         self.dir.path().join("weighin")
     }
 
-    /// The events in the ledger, as JSON; none without a ledger file.
+    /// The Bench events in the ledger; none without a ledger file.
     fn events(&self) -> TestResult<Vec<LedgerEvent>> {
         if !self.store().exists() {
             return Ok(Vec::new());
@@ -122,6 +143,24 @@ impl World {
             .query(&Filter::default())?
             .into_iter()
             .map(|recorded| recorded.event.event)
+            .collect())
+    }
+
+    /// The decision requests in the store, with their positions; none without a store file.
+    fn requests(&self) -> TestResult<Vec<(u64, Request)>> {
+        if !self.store().exists() {
+            return Ok(Vec::new());
+        }
+        let store = Store::open(&self.store())?;
+        let filter = CoreFilter::all().of_type("weighin.request_raised")?;
+        let max = NonZeroUsize::new(64).ok_or("64 is not zero")?;
+        Ok(store
+            .read_foreign(&filter, max)?
+            .iter()
+            .map(|stored| {
+                let read = decode::<Request>(stored).expect("a usable request");
+                (stored.position, read.data)
+            })
             .collect())
     }
 }
@@ -135,81 +174,104 @@ fn args(words: &[&str]) -> OrchestrateArgs {
     }
 }
 
-const PARK: [&str; 14] = [
+/// A park of "should the cache be shared", blocking ticket 7, with two options.
+const PARK: [&str; 21] = [
     "park",
     "--ticket",
     "7",
     "--q",
     "Should the cache be shared across tenants?",
-    "--default",
-    "per-tenant",
-    "--flip",
+    "--option",
+    "Per tenant",
+    "--holds",
     "a tenant needs isolation",
+    "--cost",
+    "more memory",
+    "--option",
+    "Shared",
+    "--holds",
+    "tenants trust each other",
+    "--cost",
+    "a migration to split it",
     "--at",
     "src/cache.rs:12",
     "--resolve-by",
-    "2026-10-19",
-    "--did=blocked",
+    "2099-10-19",
 ];
 
 #[test]
-fn a_park_records_the_minted_item_against_the_ticket() -> TestResult {
+fn a_park_raises_one_one_way_request_with_its_options_and_deadline() -> TestResult {
     let world = World::new()?;
-    let fake = Fake::answering(0, RECEIPT);
+    let fake = world.able();
 
     let (code, envelope) = world.run(&PARK, Some(&world.bin()), &fake);
 
     assert_eq!(code.ok(), Some(0), "{envelope}");
     assert_eq!(envelope["data"]["parked"], json!(true));
-    assert_eq!(envelope["data"]["item_id"], json!("wi-e41e02"));
     assert_eq!(envelope["data"]["recorded"], json!(true));
-    let batch: Value = serde_json::from_str(&fake.inputs.borrow()[0])?;
+    assert_eq!(*fake.calls.borrow(), [["status", "--json"]]);
+    let requests = world.requests()?;
+    let [(position, request)] = requests.as_slice() else {
+        panic!("one request: {requests:?}");
+    };
+    assert_eq!(envelope["data"]["position"], json!(position));
     assert_eq!(
-        batch[0]["blocks"],
-        json!("7"),
-        "the ticket is what it blocks"
+        envelope["data"]["item_id"],
+        json!(request.item_id()?.as_str())
     );
-    assert_eq!(batch[1]["default"], json!("per-tenant"));
+    let labels: Vec<(OptionId, &str)> = request
+        .options
+        .iter()
+        .map(|option| (option.id, option.label.as_str()))
+        .collect();
+    assert_eq!(
+        labels,
+        [(OptionId::A, "Per tenant"), (OptionId::B, "Shared")]
+    );
+    assert_eq!(request.recommendation, OptionId::A);
+    assert_eq!(
+        (request.door, request.default, request.blocks),
+        (Door::OneWay, None, Blocks::Run),
+        "one-way, never defaulted"
+    );
+    assert_eq!(request.deadline.as_deref(), Some("2099-10-19T23:59:59Z"));
+    assert!(
+        request.raiser.key.starts_with("orchestrate/park/7/"),
+        "{}",
+        request.raiser.key
+    );
     assert_eq!(
         world.events()?,
-        [LedgerEvent::WeighinParked(
-            bench_contract::event::WeighinParked {
-                item_id: "wi-e41e02".to_owned(),
-                ticket: "7".to_owned(),
-                decision: None,
-            }
-        )]
+        [],
+        "no Bench event: the request is the record"
     );
     Ok(())
 }
 
 #[test]
-fn a_park_run_again_names_the_same_item_and_records_it_once() -> TestResult {
+fn a_park_run_again_names_the_same_item_and_writes_nothing() -> TestResult {
     let world = World::new()?;
-    let first = Fake::answering(0, RECEIPT);
-    let again = Fake::answering(
-        0,
-        &RECEIPT.replace("raised wi-e41e02 (raised)", "wi-e41e02 already raised"),
-    );
+    let fake = world.able();
 
-    let (first_code, _) = world.run(&PARK, Some(&world.bin()), &first);
-    let (code, envelope) = world.run(&PARK, Some(&world.bin()), &again);
+    let (first_code, first) = world.run(&PARK, Some(&world.bin()), &fake);
+    let (code, envelope) = world.run(&PARK, Some(&world.bin()), &fake);
 
     assert_eq!((first_code.ok(), code.ok()), (Some(0), Some(0)));
-    assert_eq!(envelope["data"]["item_id"], json!("wi-e41e02"));
+    assert_eq!(envelope["data"]["item_id"], first["data"]["item_id"]);
     assert_eq!(
         envelope["data"]["recorded"],
         json!(false),
-        "already in the ledger"
+        "already in the store"
     );
-    assert_eq!(world.events()?.len(), 1, "one weighin_parked");
+    assert_eq!(envelope["data"]["position"], first["data"]["position"]);
+    assert_eq!(world.requests()?.len(), 1, "one request");
     Ok(())
 }
 
 #[test]
-fn with_weigh_in_absent_the_park_fails_open_and_records_why() -> TestResult {
+fn with_weigh_in_absent_the_park_exits_4_and_writes_nothing() -> TestResult {
     let world = World::new()?;
-    let fake = Fake::answering(0, RECEIPT);
+    let fake = world.able();
 
     let (code, envelope) = world.run(&PARK, None, &fake);
 
@@ -217,47 +279,131 @@ fn with_weigh_in_absent_the_park_fails_open_and_records_why() -> TestResult {
     assert_eq!(envelope["ok"], json!(false));
     assert_eq!(envelope["data"]["parked"], json!(false));
     assert_eq!(
+        envelope["data"]["reason"],
+        json!("no weighin: WEIGHIN_BIN is unset and none is on PATH")
+    );
+    assert_eq!(envelope["data"].get("position"), None, "nothing written");
+    assert_eq!(
         envelope["findings"][0]["key"],
-        json!("orchestrate/bridge-unavailable:7")
+        json!("orchestrate/weigh-in-unavailable:7")
     );
     assert_eq!(fake.calls(), 0, "nothing to run");
-    assert_eq!(
-        world.events()?,
-        [LedgerEvent::BridgeUnavailable(
-            bench_contract::event::BridgeUnavailable {
-                ticket: "7".to_owned(),
-                reason: "no weighin: WEIGHIN_BIN is unset and none is on PATH".to_owned(),
-            }
-        )]
-    );
+    assert!(!world.store().exists(), "no store created (D3)");
+    assert_eq!(world.events()?, []);
+    assert_eq!(world.requests()?.len(), 0);
     Ok(())
 }
 
 #[test]
-fn a_failing_weighin_or_an_unreadable_receipt_fails_open_with_the_reason() -> TestResult {
+fn a_weighin_that_cannot_take_requests_exits_4_and_writes_nothing() -> TestResult {
     let world = World::new()?;
-    let failing = Fake::answering(1, RECEIPT);
-    let garbled = Fake::answering(0, "✓ ok\n");
+    let failing = Fake::answering(1, "");
+    let old = Fake::answering(0, &status(&world.store(), false));
+    let elsewhere = Fake::answering(0, &status(&world.cwd().join("other.sqlite3"), true));
 
-    let (failing_code, _) = world.run(&PARK, Some(&world.bin()), &failing);
-    let (garbled_code, _) = world.run(&PARK, Some(&world.bin()), &garbled);
+    let mut reasons = Vec::new();
+    for fake in [&failing, &old, &elsewhere] {
+        let (code, envelope) = world.run(&PARK, Some(&world.bin()), fake);
+        assert_eq!(code.ok(), Some(4), "{envelope}");
+        reasons.push(
+            envelope["data"]["reason"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned(),
+        );
+    }
 
-    assert_eq!((failing_code.ok(), garbled_code.ok()), (Some(4), Some(4)));
-    let reasons: Vec<String> = world
-        .events()?
-        .into_iter()
-        .filter_map(|event| match event {
-            LedgerEvent::BridgeUnavailable(unavailable) => Some(unavailable.reason),
-            _ => None,
-        })
-        .collect();
     assert_eq!(
-        reasons,
-        [
-            "weighin exited with 1: weighin: something failed",
-            "the receipt names no raised wi- item"
-        ]
+        reasons.first().map(String::as_str),
+        Some("weighin exited with 1: weighin: something failed")
     );
+    assert_eq!(
+        reasons.get(1).map(String::as_str),
+        Some("this weighin (2.0.0) does not fold decision requests")
+    );
+    assert!(
+        reasons
+            .get(2)
+            .is_some_and(|reason| reason.starts_with("weighin keeps another store")),
+        "{reasons:?}"
+    );
+    assert!(!world.store().exists(), "no store created (D3)");
+    assert_eq!(world.events()?, []);
+    assert_eq!(world.requests()?.len(), 0, "nothing written");
+    Ok(())
+}
+
+#[test]
+fn unequal_or_too_few_options_are_usage_errors_that_run_nothing() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+    let one_option: Vec<&str> = PARK
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(index, _)| !(11..=16).contains(index))
+        .map(|(_, word)| word)
+        .collect();
+    let a_holds_short: Vec<&str> = PARK
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|(index, _)| !(13..=14).contains(index))
+        .map(|(_, word)| word)
+        .collect();
+
+    for words in [one_option, a_holds_short] {
+        let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
+        assert!(
+            matches!(&code, Err(CliError::Usage { reason }) if reason.contains("2 to 4 options")),
+            "{words:?}: {code:?}"
+        );
+        assert_eq!(envelope, Value::Null, "nothing on stdout");
+    }
+    assert_eq!(fake.calls(), 0, "weighin never ran");
+    assert!(!world.store().exists(), "no ledger created");
+    Ok(())
+}
+
+#[test]
+fn a_resolve_by_today_or_earlier_is_a_usage_error() -> TestResult {
+    let now = crate::store::Timestamp::now()?;
+    let today = now.as_str().get(..10).ok_or("a date")?;
+    for day in ["2026-01-01", today] {
+        let world = World::new()?;
+        let fake = world.able();
+        let mut words = PARK.to_vec();
+        words[20] = day;
+
+        let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
+
+        assert!(
+            matches!(&code, Err(CliError::Usage { reason }) if reason.contains("deadline")),
+            "{day}: {code:?}"
+        );
+        assert_eq!(envelope, Value::Null, "{day}");
+        assert_eq!(fake.calls(), 0, "{day}: weighin never ran");
+        assert!(!world.store().exists(), "{day}: no ledger created");
+    }
+    Ok(())
+}
+
+#[test]
+fn a_ci_session_asks_for_attested() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+    let mut words = PARK.to_vec();
+    words.extend(["--session", "gha:12345-1"]);
+
+    let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
+
+    assert_eq!(code.ok(), Some(0), "{envelope}");
+    let requests = world.requests()?;
+    let [(_, request)] = requests.as_slice() else {
+        panic!("one request: {requests:?}");
+    };
+    assert_eq!(request.trust_needed, TrustNeeded::Attested);
+    assert_eq!(request.raiser.session.as_deref(), Some("gha:12345-1"));
     Ok(())
 }
 
@@ -265,9 +411,9 @@ fn a_failing_weighin_or_an_unreadable_receipt_fails_open_with_the_reason() -> Te
 fn an_impossible_date_or_a_line_separator_is_a_usage_error_exiting_2_that_runs_nothing()
 -> TestResult {
     let world = World::new()?;
-    let fake = Fake::answering(0, RECEIPT);
+    let fake = world.able();
 
-    for (index, value) in [(12, "2026-02-31"), (4, "Shared\u{2028}cache?")] {
+    for (index, value) in [(20, "2026-02-31"), (4, "Shared\u{2028}cache?")] {
         let mut words = PARK.to_vec();
         words[index] = value;
         let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
@@ -287,13 +433,13 @@ fn an_impossible_date_or_a_line_separator_is_a_usage_error_exiting_2_that_runs_n
 #[test]
 fn invalid_park_arguments_are_usage_errors_that_run_and_record_nothing() -> TestResult {
     let world = World::new()?;
-    let fake = Fake::answering(0, RECEIPT);
+    let fake = world.able();
     let cases: [(usize, &str); 5] = [
         (2, "../7"),
         (4, "  "),
         (4, "two\nlines"),
-        (12, "next week"),
-        (10, ""),
+        (20, "next week"),
+        (18, ""),
     ];
 
     for (index, value) in cases {
@@ -314,7 +460,7 @@ fn invalid_park_arguments_are_usage_errors_that_run_and_record_nothing() -> Test
 #[test]
 fn a_ruling_records_what_why_and_cost_if_wrong() -> TestResult {
     let world = World::new()?;
-    let fake = Fake::answering(0, RECEIPT);
+    let fake = world.able();
 
     let (code, envelope) = world.run(
         &[

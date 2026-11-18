@@ -29,7 +29,7 @@ Rulings, not stalls. Fanning out costs about 15 times the tokens of one session,
 3. **Implement.** Spawn one implementer per ticket with `Brief: .redkiln/bench/briefs/<id>.md` and nothing of yours. It's working if the `brief` hook let every spawn through.
 4. **Verify fresh.** For each ticket spawn a new verifier with the review package only, never the implementer's report or claims. It's working if the verifier read the diff, not a summary.
 5. **Loop.** On a failed verification run `bench round start --ticket <id>` and do what `data.next` says. It's working if no ticket passes five rounds; after five, park it (step 6).
-6. **Decide each call.** Ask D2 with the call as state. On `park` with `data.enforce` true, run `bench orchestrate park --ticket <id> --q <question> --default <option> --flip <fact> --at <path:line> --resolve-by <today + 7 days> --decision <data.id>` and move on. Otherwise (`rule`, shadow, no answer, or park exit 4) choose, then run `bench orchestrate rule --ticket <id> --what --why --cost --decision <data.id>`. It's working if every call ends parked or recorded, never asked in chat.
+6. **Decide each call.** Ask D2 with the call as state. On `park` with `data.enforce` true, run `bench orchestrate park --ticket <id> --q <question> --option <label> --holds <when> --cost <if wrong>` (once per option, 2 to 4) `--recommend <a-d> --at <path:line> --resolve-by <today + 7 days> --decision <data.id>`. Otherwise (`rule`, shadow, no answer, or park exit 4) choose, then run `bench orchestrate rule --ticket <id> --what --why --cost --decision <data.id>`. It's working if every call ends parked or recorded, never asked in chat.
 7. **Report.** List each ticket's verdict, rulings and parked `wi-` items. It's working if the human can settle each parked item in `/weigh-in` unaided.
 
 ## Rationalizations
@@ -38,7 +38,7 @@ Rulings, not stalls. Fanning out costs about 15 times the tokens of one session,
 |---|---|
 | "Two tickets, but fanning out is still faster" | Below three the token cost outweighs the time saved. |
 | "The implementer already checked it" | A verifier that reads the claims checks the claims. |
-| "I'll just ask the human in chat" | That stalls the run. Park it with a default, or rule. |
+| "I'll just ask the human in chat" | That stalls the run. Park it with its options, or rule. |
 | "Clef is in shadow, so nothing to log" | Shadow means you rule; record the ruling. |
 
 ## Red flags
@@ -50,6 +50,6 @@ Rulings, not stalls. Fanning out costs about 15 times the tokens of one session,
 
 ## Verification
 
-- `bench ledger query --type bench.weighin_parked` and `--type bench.orchestrate.ruled` list each call.
-- `weighin open --repo` shows each parked item with its default.
+- `bench ledger query --type bench.orchestrate.ruled` lists each ruling.
+- `weighin open --repo` shows each parked item.
 - Each ticket has a verifier verdict within five rounds.

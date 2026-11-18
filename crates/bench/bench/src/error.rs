@@ -134,14 +134,14 @@ pub enum CliError {
         /// How many tries were made.
         attempts: usize,
     },
-    /// `bench orchestrate park` lost every try to parks of other items of its ticket.
+    /// `bench orchestrate park` found its request's item id, at 10, 12 and 16 hex, each naming
+    /// another item (ID-04). Nothing was written.
     #[error(
-        "orchestrate park: other parks of the ticket kept landing during {attempts} tries; run it \
-         again"
+        "orchestrate park: {item} and its longer forms all name other items; nothing was written"
     )]
-    ParkContended {
-        /// How many tries were made.
-        attempts: usize,
+    ParkIdTaken {
+        /// The id at its default length.
+        item: String,
     },
     /// The ledger holds more `round_started` events than `bench round` reads, so a ticket's
     /// rounds cannot be counted whole.
@@ -183,7 +183,7 @@ impl CliError {
             | Self::CurrentDir(_)
             | Self::Dag(_)
             | Self::RoundContended { .. }
-            | Self::ParkContended { .. }
+            | Self::ParkIdTaken { .. }
             | Self::TooManyRounds { .. } => exit_codes::INTERNAL,
             Self::Lint(error) | Self::Plan(error) => error.code(),
             Self::Grill(error) => error.code(),

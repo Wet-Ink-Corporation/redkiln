@@ -6,21 +6,24 @@ subagents. Its deterministic steps are `anneal orchestrate`, `anneal decide --po
 brief and round commands of [brief.md](brief.md).
 
 Rulings, not stalls: a reversible call is ruled on and recorded; a one-way call is parked in
-weigh-in with a default, and the run moves on. anneal never stores a decision itself: weigh-in
-owns parked items and their rulings, and anneal records only that it parked, that the bridge
-was unavailable, and the orchestrator's own rulings.
+Weigh-In as a decision request with its options, and the rest of the run moves on. Bench never
+stores a decision itself: Weigh-In owns parked requests and their answers, and Bench records only
+the orchestrator's own rulings. Since Move 2 step 7 (PR 7.5) a park writes Weigh-In's
+`weighin.request_raised` through `weighin-contract` (DR-01 to DR-05); Bench's `weighin_parked`
+and `bridge.unavailable` are retired (decision D6 B, [ledger.md](ledger.md)).
 
 ```text
 anneal orchestrate fan-out [--tracker markdown|github] [--dir PATH] [--repo OWNER/NAME] [--issue N]
-anneal orchestrate park --ticket <id> --q <question> --default <option> --flip <fact>
-                        --at <path:line> --resolve-by <YYYY-MM-DD> [--did <text>]
-                        [--decision <D2 id>] [--session <id>]
+bench orchestrate park --ticket <id> --q <question>
+                       (--option <label> --holds <when> --cost <if wrong>){2,4}
+                       [--recommend a|b|c|d] --at <path:line> --resolve-by <YYYY-MM-DD>
+                       [--decision <D2 id>] [--session <id>]
 anneal orchestrate rule --ticket <id> --what <text> --why <text> --cost <text>
                         [--decision <D2 id>] [--session <id>]
 ```
 
 Exit codes: 0 fan out (park: parked; rule: recorded), 3 `fan-out`: fewer than 3 independent
-tickets, 4 `park`: weigh-in unavailable, rule instead; 2 for refused arguments, 70 when the
+tickets, 4 `park`: Weigh-In cannot take the call (nothing recorded), rule instead; 2 for refused arguments, 70 when the
 ledger or the tickets cannot be read ([exit-codes.md](exit-codes.md)).
 
 ## `fan-out`
@@ -40,46 +43,52 @@ For each judgment call the skill asks `anneal decide --point D2 --question noul 
 in shadow, where it logs only: the skill parks only on `park` with `data.enforce: true`, and
 rules otherwise (shadow, `rule`, Clef off with exit 3, no answer with exit 5, or `park` exit 4).
 
-## `park`: the weigh-in bridge
+## `park`: a decision request
 
-**Finding `weighin`.** weigh-in ships its CLI inside its own plugin
-(`${CLAUDE_PLUGIN_ROOT}/libexec/weighin` there), which anneal cannot see. anneal uses
+**Finding `weighin`.** Weigh-In ships its CLI inside its own plugin
+(`${CLAUDE_PLUGIN_ROOT}/libexec/weighin` there), which Bench cannot see. Bench uses
 `$WEIGHIN_BIN` when it is set and not empty (it must name a file), else the first `weighin` on
 `PATH` (`weighin.exe`, `weighin.cmd` or `weighin.bat` on Windows).
 
-**Parking.** Every argument is checked first (the ticket as `anneal round` takes it; each text
-one non-blank line of at most 1,024 characters for `--q` and 512 for the rest, with no control,
-default-ignorable, format (Cf, bidi controls among them), line or paragraph separator character;
-`--resolve-by` a `YYYY-MM-DD` date that exists, so `2026-02-31` and `2026-02-29` are refused and
-`2028-02-29` is not; `--decision` a decision id; `--session` a ledger tag), then the ledger is
-opened, then `weighin batch` runs in the working directory with one JSON array on stdin:
+**Arguments.** Every argument is checked first, before the store is opened or `weighin` runs:
+the ticket as `bench round` takes it; each text one non-blank line of at most 1,024 characters
+for `--q` and 512 for the rest, with no control, default-ignorable, format (Cf, bidi controls
+among them), line or paragraph separator character; 2 to 4 options, each with exactly one
+`--holds` and one `--cost` (counted, so unequal counts are refused), ids `a` to `d` in order;
+`--recommend` one of them (default `a`); `--resolve-by` a `YYYY-MM-DD` date that exists
+(`2026-02-31` and `2026-02-29` are refused, `2028-02-29` is not) and is after today, since the
+request is due at the end of that UTC day (`T23:59:59Z`) and Weigh-In's contract refuses a
+deadline already past; `--decision` a decision id; `--session` a ledger tag.
 
-```json
-[
-  {"op": "raise", "q": "<question>", "door": "one-way", "authority": "authority",
-   "did": "<--did, default blocked>", "flip": "<fact>", "at": "<path:line>", "blocks": "<ticket>"},
-  {"op": "defer", "id": "@1", "flip": "<fact>", "trigger": "next sitting",
-   "resolve_by": "<date>", "default": "<option>"}
-]
-```
+**Asking Weigh-In first** (decision D3 A). The park runs `weighin status --json` in the working
+directory, with nothing on stdin, 10 s and each output stream capped at 4 MiB. It goes on only
+when the answer is a `weighin.status/1` envelope with `requests: true` (a Weigh-In that folds
+decision requests, step 7 or later) and its `store` is the store Bench writes (compared after
+resolving the folder, so another spelling of the same path is the same store). It asks
+before the store is opened, so otherwise no store is created, no anneal ledger imported and
+nothing written.
 
-It gets 10 s, and each of its output streams is capped at 4 MiB (a longer one is a failure,
-not read in part). The receipt is read line by line by its first words: `raised wi-…` or
-`wi-… already raised`, and `deferred wi-…` for the same item. Raising is idempotent in weigh-in,
-so a park run again (a retried hook, a resumed session) names the same item; the ledger gets
-one `weighin_parked {item_id, ticket, decision?}` per item and ticket, and a repeat reports
-`data.recorded: false`. Two parks of the same item racing still record it once: a park reads the
-ticket's parks, appends only if none landed after that read (first writer wins), and on a
-conflict reads again, reporting the winner's position with `data.recorded: false`. A conflict
-with another item's park of the ticket is retried, at most 4 times, then exits 70.
+**The request.** One `weighin.request_raised` (DR-02) is appended to the suite store, written by
+Bench: the question and options, the recommendation, `door: one-way`, `authority`, no default,
+the deadline, `blocks: run` (the fan-out run waits on it), `trust_needed: witnessed`
+(`attested` for a `gha:` session, DR-04), the call's `path:line` as its `anchor` attachment and
+the D2 decision id, when given, as a `bench.clef_decision` attachment. The raiser is Bench with
+the key `orchestrate/park/<ticket>/<16 hex of sha256(question)>`, so the same question on the
+same ticket is the same item. The item id is the contract's 10-hex id, extended to 12 and then
+16 hex when an item of another raiser holds it; all three taken is an internal error (70).
 
-**Failing open.** With no `weighin`, or when it cannot start, times out, exits non-zero, writes
-too much, or prints a receipt that does not show the item raised and deferred, the park records
-`bridge.unavailable {ticket, reason}` and exits 4 with an `orchestrate/bridge-unavailable`
-finding: the orchestrator rules on the call instead. A partial batch (raised, default refused)
-is such a failure; running the park again finishes it.
+The append is conditioned on no event already holding the item (DR-03), so a park run again (a
+retried hook, a resumed session), or two parks racing, writes one request: the second reports
+the item with `data.recorded: false` and the first one's `data.position`. `data` is
+`{ticket, parked: true, item_id, recorded, position}` (`bench.orchestrate-park/2`; version 1's `position` was
+a `weighin_parked` event's).
 
-anneal never writes `weigh-in` marker blocks for a parked call: weigh-in's Stop hook would
+**Failing open.** With no `weighin`, or one that cannot start, times out, exits non-zero,
+answers what is not a status, cannot take requests or keeps another store, the park writes
+nothing and exits 4 with an `orchestrate/weigh-in-unavailable:<ticket>` finding and `data`
+`{ticket, parked: false, reason}`: the orchestrator rules on the call instead.
+
+Bench never writes `weigh-in` marker blocks for a parked call: Weigh-In's Stop hook would
 capture them too and raise the call twice.
 
 ## `rule`
@@ -97,17 +106,17 @@ because weigh-in's `open` lists only 12 items by default, in id order, also with
 listing of 4,096 items or more may have been cut, so it is refused as a failure rather than
 read in part.
 
-Labelling the D2 decision from that ruling (the default held, or the human chose otherwise) is
-not automatic yet: `weighin_parked` keeps the D2 decision id so it can be, and until then it is
-labelled by hand with `anneal decide label <id> <outcome>`.
+Labelling the D2 decision from that answer is not automatic yet: the request keeps the D2
+decision id (its `bench.clef_decision` attachment) so it can be, and until then it is labelled
+by hand with `bench decide label <id> <outcome>`.
 
 ## Tests against weigh-in
 
-Unit tests drive the bridge through its `Runner` port with a fake on every platform; the
-integration tests run the binary with weigh-in absent (every platform) and with a fake
-`weighin` shell script (unix). `orchestrate::the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6`
-runs the release exit criterion against a real weigh-in when `WEIGHIN_BIN` names one (0.6.0 or
-later; the CI step that downloads a pinned release and sets it is still to be added); without
-it the test prints that it skipped. It also raises 13 more items, decides the one whose id
+Unit tests drive `status --json` through the `Runner` port with a fake on every platform; the
+integration tests run the binary with Weigh-In absent (every platform) and with a fake
+`weighin` shell script answering `status --json` (unix). `orchestrate::the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6`
+runs against a real Weigh-In when `WEIGHIN_BIN` names one that folds requests (Move 2 step 7 or
+later; the CI step that builds it is PR 7.7, decision D8); without it the test prints that it
+skipped. It also raises 13 more items, decides the one whose id
 sorts last and removes the decision atoms, so D6 can find that ruling only past `open`'s
 default 12.

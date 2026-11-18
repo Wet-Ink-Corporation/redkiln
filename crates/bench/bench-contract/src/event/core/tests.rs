@@ -5,11 +5,11 @@ use redkiln_core::store::{CoreKey, Stored, TagError};
 use redkiln_core::trust::Trust;
 
 use super::{MigrateWaveDone, MigrateWaveStarted, TYPES, decode};
+use crate::event::RETIRED_TYPES;
 use crate::event::{
-    AgentStatus, BenchEvent, BridgeUnavailable, EventKind, GateBlocked, GrillConfirmed,
-    MigrateContract, MigrateWave, Mode, ModeSet, OrchestrateRuled, PlanApproved, ReproRed,
-    RoundStarted, StopBlocked, SubagentStatus, TaskDone, TestOutcome, TestRun, TokenUsage, Verdict,
-    VerdictSet, VerdictSource, WeighinParked,
+    AgentStatus, BenchEvent, EventKind, GateBlocked, GrillConfirmed, MigrateContract, MigrateWave,
+    Mode, ModeSet, OrchestrateRuled, PlanApproved, ReproRed, RoundStarted, StopBlocked,
+    SubagentStatus, TaskDone, TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet, VerdictSource,
 };
 
 /// An envelope of `data` written by `bench 0.0.5` as `cli` at a fixed time, asserted, with no
@@ -53,7 +53,7 @@ fn declared<P: Payload>() -> (&'static str, u32, Class) {
 /// One payload of every type, in [`EventKind::ALL`]'s order, as the 0.x event.
 fn one_of_each() -> Vec<BenchEvent> {
     let mut events = Vec::from(first_ten());
-    events.extend(last_seven());
+    events.extend(last_five());
     events
 }
 
@@ -111,8 +111,8 @@ fn first_ten() -> [BenchEvent; 10] {
     ]
 }
 
-/// [`one_of_each`]'s last seven: `subagent_status` to `orchestrate.ruled`.
-fn last_seven() -> [BenchEvent; 7] {
+/// [`one_of_each`]'s last five: `subagent_status` to `orchestrate.ruled`.
+fn last_five() -> [BenchEvent; 5] {
     [
         BenchEvent::SubagentStatus(SubagentStatus {
             agent: "Explore".to_owned(),
@@ -133,15 +133,6 @@ fn last_seven() -> [BenchEvent; 7] {
         }),
         BenchEvent::MigrateContract(MigrateContract {
             migration: "users-email".to_owned(),
-        }),
-        BenchEvent::WeighinParked(WeighinParked {
-            item_id: "wi-e41e02".to_owned(),
-            ticket: "36".to_owned(),
-            decision: None,
-        }),
-        BenchEvent::BridgeUnavailable(BridgeUnavailable {
-            ticket: "36".to_owned(),
-            reason: "no weighin".to_owned(),
         }),
         BenchEvent::OrchestrateRuled(OrchestrateRuled {
             ticket: "36".to_owned(),
@@ -170,8 +161,6 @@ fn encode(event: BenchEvent) -> Vec<u8> {
         BenchEvent::MigrateWaveStarted(p) => envelope(MigrateWaveStarted(p)).encode(),
         BenchEvent::MigrateWaveDone(p) => envelope(MigrateWaveDone(p)).encode(),
         BenchEvent::MigrateContract(p) => envelope(p).encode(),
-        BenchEvent::WeighinParked(p) => envelope(p).encode(),
-        BenchEvent::BridgeUnavailable(p) => envelope(p).encode(),
         BenchEvent::OrchestrateRuled(p) => envelope(p).encode(),
     };
     bytes.expect("encodes")
@@ -194,8 +183,6 @@ fn every_kind_is_stored_as_bench_and_its_short_name_version_1_durable() {
         declared::<MigrateWaveStarted>(),
         declared::<MigrateWaveDone>(),
         declared::<MigrateContract>(),
-        declared::<WeighinParked>(),
-        declared::<BridgeUnavailable>(),
         declared::<OrchestrateRuled>(),
     ];
 
@@ -230,7 +217,7 @@ fn head(kind: &str) -> String {
 }
 
 /// Each short name and the `data` bytes of [`one_of_each`]'s event of that kind, in order.
-fn data_goldens() -> [(&'static str, &'static str); 17] {
+fn data_goldens() -> [(&'static str, &'static str); 15] {
     [
         (
             "test_run",
@@ -276,11 +263,6 @@ fn data_goldens() -> [(&'static str, &'static str); 17] {
             r#"{"migration":"users-email","wave":1}"#,
         ),
         ("migrate.contract", r#"{"migration":"users-email"}"#),
-        ("weighin_parked", r#"{"item_id":"wi-e41e02","ticket":"36"}"#),
-        (
-            "bridge.unavailable",
-            r#"{"ticket":"36","reason":"no weighin"}"#,
-        ),
         (
             "orchestrate.ruled",
             r#"{"ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert"}"#,
@@ -342,8 +324,6 @@ fn each_kind_tags_its_subject_under_cores_key_or_benchs() {
         Some("bench.migration:users-email"),
         Some("bench.migration:users-email"),
         Some("bench.migration:users-email"),
-        Some("task:36"),
-        Some("task:36"),
         Some("task:36"),
     ]
     .map(|tag| tag.map(str::to_owned));
@@ -449,6 +429,28 @@ fn a_newer_version_and_undecodable_data_are_unusable() {
             Err(Skip::Unusable(_))
         ),
         "EV-10: the payload does not decode"
+    );
+}
+
+#[test]
+fn a_type_bench_wrote_before_step_7_is_unusable_not_foreign() {
+    let parked = br#"{"type":"bench.weighin_parked","version":1,"ts":"2026-11-10T09:30:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.0.5","spec":"1.0.0"},"data":{"item_id":"wi-e41e02","ticket":"36"}}"#;
+    let unavailable = br#"{"type":"bench.bridge.unavailable","version":1,"ts":"2026-11-10T09:30:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.0.5","spec":"1.0.0"},"data":{"ticket":"36","reason":"no weighin"}}"#;
+
+    for (event_type, bytes) in [
+        ("bench.weighin_parked", &parked[..]),
+        ("bench.bridge.unavailable", &unavailable[..]),
+    ] {
+        let read = decode(&stored(event_type, bytes));
+
+        assert!(
+            matches!(read, Err(Skip::Unusable(_))),
+            "D6 B: {event_type} is retired, so an old event of it counts as unreadable: {read:?}"
+        );
+    }
+    assert_eq!(
+        RETIRED_TYPES.map(|retired| retired.stored),
+        ["bench.weighin_parked", "bench.bridge.unavailable"]
     );
 }
 

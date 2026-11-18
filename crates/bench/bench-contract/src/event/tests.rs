@@ -2,10 +2,10 @@
 // The imports name the types by their `bench-ledger` names: `LedgerEvent` is `BenchEvent`, and
 // `TagKey` was the subject's key there, `SubjectKey` here.
 use super::{
-    AgentStatus, BenchEvent as LedgerEvent, BridgeUnavailable, EventKind, GrillConfirmed,
-    MigrateContract, MigrateWave, Mode, ModeSet, OrchestrateRuled, REGISTRY_VERSION, RoundStarted,
-    SubagentStatus, SubjectKey as TagKey, TestOutcome, TestRun, TokenUsage, UnknownEventKind,
-    Verdict, VerdictSet, VerdictSource, WeighinParked,
+    AgentStatus, BenchEvent as LedgerEvent, EventKind, GrillConfirmed, MigrateContract,
+    MigrateWave, Mode, ModeSet, OrchestrateRuled, REGISTRY_VERSION, RoundStarted, SubagentStatus,
+    SubjectKey as TagKey, TestOutcome, TestRun, TokenUsage, UnknownEventKind, Verdict, VerdictSet,
+    VerdictSource,
 };
 use serde_json::json;
 
@@ -439,36 +439,17 @@ fn migrate_events_are_stored_under_their_dotted_names_with_the_migration_as_subj
 
 #[test]
 fn orchestrate_events_carry_their_ticket_as_the_task_subject() {
-    let cases = [
-        (
-            json!({"type": "weighin_parked", "item_id": "wi-e41e02", "ticket": "36",
-                   "decision": "d-0123"}),
-            LedgerEvent::WeighinParked(WeighinParked {
-                item_id: "wi-e41e02".to_owned(),
-                ticket: "36".to_owned(),
-                decision: Some("d-0123".to_owned()),
-            }),
-        ),
-        (
-            json!({"type": "bridge.unavailable", "ticket": "36",
-                   "reason": "no weighin: WEIGHIN_BIN is unset and none is on PATH"}),
-            LedgerEvent::BridgeUnavailable(BridgeUnavailable {
-                ticket: "36".to_owned(),
-                reason: "no weighin: WEIGHIN_BIN is unset and none is on PATH".to_owned(),
-            }),
-        ),
-        (
-            json!({"type": "orchestrate.ruled", "ticket": "36", "what": "keep the cache",
+    let cases = [(
+        json!({"type": "orchestrate.ruled", "ticket": "36", "what": "keep the cache",
                    "why": "reversible", "cost_if_wrong": "one revert"}),
-            LedgerEvent::OrchestrateRuled(OrchestrateRuled {
-                ticket: "36".to_owned(),
-                what: "keep the cache".to_owned(),
-                why: "reversible".to_owned(),
-                cost_if_wrong: "one revert".to_owned(),
-                decision: None,
-            }),
-        ),
-    ];
+        LedgerEvent::OrchestrateRuled(OrchestrateRuled {
+            ticket: "36".to_owned(),
+            what: "keep the cache".to_owned(),
+            why: "reversible".to_owned(),
+            cost_if_wrong: "one revert".to_owned(),
+            decision: None,
+        }),
+    )];
 
     for (value, expected) in cases {
         let event: LedgerEvent = serde_json::from_value(value.clone()).expect("registered");

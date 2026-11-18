@@ -12,9 +12,9 @@ use crate::store::{EventEnvelope, Filter, SchemaError, Store, StoreError};
 /// A worktree id, as ID-06 writes one.
 const WORKTREE: &str = "wt-0123456789ab";
 
-/// One 0.x envelope of each of the 17 kinds, with every context field set and every optional
+/// One 0.x envelope of each of the 15 kinds, with every context field set and every optional
 /// payload field written, as `bench ledger append` takes them.
-const ONE_OF_EACH: [&str; 17] = [
+const ONE_OF_EACH: [&str; 15] = [
     r#"{"type":"test_run","task":"T1","command":"cargo test","outcome":"green","exit":0,"duration_ms":12,"timeout_secs":60}"#,
     r#"{"type":"task_done","task":"T1"}"#,
     r#"{"type":"plan_approved","plan":"docs/plan.md","hash":"sha256:00","by":{"actor":"human","via":"mod"}}"#,
@@ -29,8 +29,6 @@ const ONE_OF_EACH: [&str; 17] = [
     r#"{"type":"migrate.wave.started","migration":"users-email","wave":1}"#,
     r#"{"type":"migrate.wave.done","migration":"users-email","wave":1}"#,
     r#"{"type":"migrate.contract","migration":"users-email"}"#,
-    r#"{"type":"weighin_parked","item_id":"wi-e41e02","ticket":"36","decision":"wait"}"#,
-    r#"{"type":"bridge.unavailable","ticket":"36","reason":"no weighin"}"#,
     r#"{"type":"orchestrate.ruled","ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert","decision":"later"}"#,
 ];
 

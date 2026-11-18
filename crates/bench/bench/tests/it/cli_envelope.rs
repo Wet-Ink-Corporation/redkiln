@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use bench_contract::cli::OUTPUTS;
+use bench_contract::cli::{FORMER_OUTPUTS, OUTPUTS};
 use serde_json::Value;
 
 use crate::support::conform::{TestResult, golden_path, schema_errors};
@@ -18,7 +18,12 @@ fn every_output_id_has_a_golden_and_every_golden_an_output_id() -> TestResult {
         found.insert(entry?.path());
     }
 
-    let expected: BTreeSet<_> = OUTPUTS.iter().map(|id| golden_path(id)).collect();
+    // A former output's golden is kept as it was (CLI-04), beside its successor's.
+    let expected: BTreeSet<_> = OUTPUTS
+        .iter()
+        .chain(FORMER_OUTPUTS)
+        .map(|id| golden_path(id))
+        .collect();
 
     assert_eq!(
         found, expected,
@@ -80,7 +85,7 @@ fn every_output_id_is_compared_by_a_golden_call() -> TestResult {
 
 #[test]
 fn every_golden_is_an_envelope_of_its_own_id() -> TestResult {
-    for id in OUTPUTS {
+    for id in OUTPUTS.iter().chain(FORMER_OUTPUTS) {
         let path = golden_path(id);
         let golden: Value = serde_json::from_slice(&std::fs::read(&path)?)?;
 

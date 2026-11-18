@@ -365,6 +365,50 @@ fn unusable_events_are_counted_by_their_stored_type_and_foreign_ones_not_at_all(
 
 #[test]
 #[cfg_attr(miri, ignore = "opens SQLite through FFI")]
+fn an_old_event_of_a_retired_type_is_counted_as_unusable_and_kept_in_the_journal() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = ledger_path(dir.path());
+    let store = Store::open(&path).expect("opens");
+    store.append(&task_done("T1", "s1")).expect("appends");
+    let parked = envelope_text(
+        "bench.weighin_parked",
+        1,
+        "bench",
+        r#"{"item_id":"wi-e41e02","ticket":"36"}"#,
+    );
+    append_raw(&path, "bench.weighin_parked", &parked, &[]);
+    let unavailable = envelope_text(
+        "bench.bridge.unavailable",
+        1,
+        "bench",
+        r#"{"ticket":"36","reason":"no weighin"}"#,
+    );
+    append_raw(&path, "bench.bridge.unavailable", &unavailable, &[]);
+
+    let by_type = store.unusable_by_type().expect("reads");
+    let read = store.query_read(&Filter::default()).expect("reads");
+    let mut lines = 0_usize;
+    store
+        .journal(|_| {
+            lines = lines.saturating_add(1);
+            Ok(())
+        })
+        .expect("writes");
+
+    assert_eq!(
+        by_type.into_iter().collect::<Vec<_>>(),
+        [
+            ("bench.bridge.unavailable".to_owned(), 1),
+            ("bench.weighin_parked".to_owned(), 1)
+        ],
+        "D6 B: the retired types count as unreadable in bench status"
+    );
+    assert_eq!((read.events.len(), read.unusable), (1, 2));
+    assert_eq!(lines, 3, "the journal keeps them (ST-15)");
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "opens SQLite through FFI")]
 fn append_stored_returns_core_s_envelope_in_ev01_s_key_order() {
     let dir = tempfile::tempdir().expect("temp dir");
     let store = Store::open(&ledger_path(dir.path())).expect("opens");

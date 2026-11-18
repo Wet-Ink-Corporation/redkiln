@@ -121,7 +121,7 @@ the blueprint:
 
 **D2** is asked by the `/orchestrate` skill about each judgment call
 (`anneal decide --point D2 --question noul --state <the call>`): at 0.50 or above it says
-`park`, below it `rule`. The skill parks (`anneal orchestrate park`, weigh-in with a default)
+`park`, below it `rule`. The skill parks (`anneal orchestrate park`, a Weigh-In decision request)
 only on `park` with `data.enforce: true`; in shadow, which is where D2 starts and stays for its
 first 50 answered decisions, and on exit 3 or 5, it rules and records the ruling
 (`anneal orchestrate rule`: what, why, cost if wrong). The decision's `data.id` goes with the

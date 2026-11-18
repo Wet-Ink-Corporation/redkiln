@@ -352,34 +352,6 @@ pub struct MigrateContract {
     pub migration: String,
 }
 
-/// `weighin_parked`: a one-way call was parked in weigh-in with a default (registry v9).
-///
-/// `bench orchestrate park` raised it and deferred it. The decision itself is weigh-in's; this
-/// records only that the ticket waits on `item_id`. Subject tag `task:` (the ticket).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WeighinParked {
-    /// The weigh-in item the call was raised as, `wi-` and its id.
-    pub item_id: String,
-    /// The ticket the call blocks.
-    pub ticket: String,
-    /// The Clef D2 decision that parked it, so its outcome can be labelled later; written only
-    /// when set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decision: Option<String>,
-}
-
-/// `bridge.unavailable`: the weigh-in bridge could not park a call (registry v9).
-///
-/// There was no `weighin`, or it failed, so the orchestrator rules instead. Subject tag `task:`
-/// (the ticket).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BridgeUnavailable {
-    /// The ticket whose call could not be parked.
-    pub ticket: String,
-    /// Why, in one line.
-    pub reason: String,
-}
-
 /// `orchestrate.ruled`: the orchestrator ruled on a call itself (registry v9).
 ///
 /// It rules below D2's one-way threshold, in shadow, or with the bridge unavailable. Subject

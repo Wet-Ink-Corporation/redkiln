@@ -3,15 +3,16 @@
 //! - `fan-out` reads the ticket graph as `dag frontier` does and exits 0 only when its frontier
 //!   holds at least [`MIN_FAN_OUT`] independent tickets (ready tickets: no open blocker, so none
 //!   waits on another); otherwise 3, with a finding. It writes nothing.
-//! - `park` parks a one-way call (Clef D2 said `park`, in effect enforce) in weigh-in with a
-//!   default, through the weigh-in bridge (`crate::weighin`), and records `weighin_parked`;
-//!   when the bridge cannot (no `weighin`, or it failed) it records `bridge.unavailable` and
-//!   exits 4: the orchestrator rules instead.
+//! - `park` raises a one-way call (Clef D2 said `park`, in effect enforce) as a Weigh-In
+//!   decision request (`weighin.request_raised`, through `crate::weighin` and
+//!   weighin-contract), with its options and no default; when the `weighin` it finds cannot
+//!   take requests into the same store, it writes nothing and exits 4: the orchestrator rules
+//!   instead.
 //! - `rule` records a call the orchestrator ruled on itself as `orchestrate.ruled`: what, why
 //!   and the cost if wrong.
 //!
-//! anneal stores no decision: weigh-in owns parked items and their rulings. See
-//! `docs/orchestrate.md`.
+//! Bench stores no decision: Weigh-In owns parked requests and their answers. See
+//! `docs/bench/orchestrate.md`.
 
 mod park;
 

@@ -20,7 +20,7 @@
 
 use std::path::Path;
 
-use bench_contract::event::{Actor as ByActor, By, PlanApproved};
+use bench_contract::event::{Actor as ByActor, By, PlanApproved, RETIRED_TYPES};
 use redkiln_core::envelope::{Actor, Author, EnvelopeError, Field, FieldError, Timestamp, Writer};
 use redkiln_core::ids::{Host, SessionId, WorktreeId};
 use redkiln_core::journal::Mapped;
@@ -35,6 +35,8 @@ use sha2::{Digest as _, Sha256};
 use crate::error_chain::reason;
 use crate::plan::decider;
 use crate::store::{EventContext, LedgerEvent, StoreError};
+
+mod retired;
 
 /// The most problems one source keeps, in record order; the counts hold every one.
 pub(super) const MAX_PROBLEMS: usize = 32;
@@ -135,17 +137,24 @@ impl<'a, F: FnOnce() -> Result<Option<Owner>, String>> Records<'a, F> {
 
     /// `stored` as Core imports it: the approval to store first, if any, and its Bench event.
     fn map(&mut self, stored: &Stored) -> Result<(Option<Mapped>, Mapped), String> {
-        let old: OldEnvelope = serde_json::from_slice(&stored.data)
-            .map_err(|e| format!("not an anneal event: {e}"))?;
-        if old.event.kind().as_str() != stored.event_type {
+        let not_anneal = |e: serde_json::Error| format!("not an anneal event: {e}");
+        if let Some(retired) = RETIRED_TYPES
+            .into_iter()
+            .find(|retired| retired.short == stored.event_type)
+        {
+            return self.retired(stored, retired).map(|event| (None, event));
+        }
+        let event: LedgerEvent = serde_json::from_slice(&stored.data).map_err(not_anneal)?;
+        if event.kind().as_str() != stored.event_type {
             return Err(format!(
                 "the event is {} but stored as {}",
-                old.event.kind().as_str(),
+                event.kind().as_str(),
                 stored.event_type
             ));
         }
-        let (event, context) = self.context(old)?;
-        let (built, context) = self.bench_event(context, &event)?;
+        let old: OldContext = serde_json::from_slice(&stored.data).map_err(not_anneal)?;
+        let context = self.context(old)?;
+        let (built, context) = self.built(context, |context| context.bench_event(&event))?;
         let approval = match &event {
             LedgerEvent::PlanApproved(approved) => self.approval(stored, approved, context),
             _ => None,
@@ -159,9 +168,8 @@ impl<'a, F: FnOnce() -> Result<Option<Owner>, String>> Records<'a, F> {
         ))
     }
 
-    /// The event of `old` and its envelope context, the worktree dropped and counted when Core
-    /// refuses it.
-    fn context(&mut self, old: OldEnvelope) -> Result<(LedgerEvent, EventContext), String> {
+    /// The envelope context of `old`, the worktree dropped and counted when Core refuses it.
+    fn context(&mut self, old: OldContext) -> Result<EventContext, String> {
         let ts = timestamp(&old.ts).ok_or_else(|| format!("the ts {:?} is no time", old.ts))?;
         let actor = Actor::parse(&old.actor)
             .map_err(|e| format!("the actor {:?} is refused: {}", old.actor, reason(&e)))?;
@@ -190,20 +198,20 @@ impl<'a, F: FnOnce() -> Result<Option<Owner>, String>> Records<'a, F> {
             branch: old.branch,
             head: old.head,
         };
-        Ok((old.event, context))
+        Ok(context)
     }
 
-    /// `event` in `context`, dropping and counting a branch or head Core refuses; the context
-    /// the event was built in.
-    fn bench_event(
+    /// The event `make` builds in `context`, dropping and counting a branch or head Core
+    /// refuses; the context the event was built in.
+    fn built(
         &mut self,
         mut context: EventContext,
-        event: &LedgerEvent,
+        make: impl Fn(EventContext) -> Result<NewEvent, StoreError>,
     ) -> Result<(NewEvent, EventContext), String> {
         loop {
             // Core's envelope owns its context while it encodes; a retry, and the approval
             // record, need it again.
-            match context.clone().bench_event(event) {
+            match make(context.clone()) {
                 Ok(built) => return Ok((built, context)),
                 Err(error) => {
                     let dropped = match refused_field(&error) {
@@ -284,12 +292,11 @@ impl<F: FnOnce() -> Result<Option<Owner>, String>> Iterator for Records<'_, F> {
     }
 }
 
-/// An old record as anneal wrote it: the event flattened beside its context. Read leniently:
-/// a key no type defines is ignored, and every optional field may be missing.
+/// The context of an old record as anneal wrote it, beside the event's own keys (read from the
+/// same bytes as the event). Read leniently: a key no type defines is ignored, and every
+/// optional field may be missing.
 #[derive(Debug, Deserialize)]
-struct OldEnvelope {
-    #[serde(flatten)]
-    event: LedgerEvent,
+struct OldContext {
     actor: String,
     #[serde(default)]
     session_id: Option<String>,
@@ -301,6 +308,17 @@ struct OldEnvelope {
     head: Option<String>,
     ts: String,
 }
+
+/// The keys of [`OldContext`] and the 0.x `type`: what is not a retired event's payload.
+const CONTEXT_KEYS: [&str; 7] = [
+    "type",
+    "actor",
+    "session_id",
+    "worktree",
+    "branch",
+    "head",
+    "ts",
+];
 
 /// The envelope field Core refused when it built an event, if that was the reason.
 fn refused_field(error: &StoreError) -> Option<Field> {
