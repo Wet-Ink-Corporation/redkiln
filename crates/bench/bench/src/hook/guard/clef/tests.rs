@@ -611,3 +611,29 @@ fn a_deny_after_a_slow_clef_skips_the_ledger_record_to_stay_in_the_hook_budget()
     );
     assert!(world.blocked().is_empty(), "no ledger record was attempted");
 }
+
+#[test]
+fn the_record_reads_what_is_left_of_the_budget_from_the_injected_clock() {
+    let world = World::off();
+    // Start, then the denylist's deny at 1.6 s of the 4.5 s budget: git gets its usual 1 s.
+    // The open reads 3.2 s (1.3 s left, a 650 ms share each for the open and the append), and
+    // the append 4.8 s: nothing left, so the append is not started. On the real clock, which
+    // has hardly moved, both would fit and the event would be recorded.
+    let clock = SteppingClock {
+        step: Duration::from_millis(1_600),
+        readings: Cell::new(0),
+    };
+
+    let stdout = world.run_timed("rm -rf /", &FakeEndpoint::yes(0.95), &clock);
+
+    let (decision, reason) = permission(&stdout);
+    assert_eq!(decision, "deny");
+    assert!(
+        reason.ends_with(
+            "(the block was not recorded in the ledger: no time is left in the hook's budget \
+             to wait 650ms for the ledger's lock)"
+        ),
+        "{reason}"
+    );
+    assert!(world.blocked().is_empty(), "the append was not started");
+}

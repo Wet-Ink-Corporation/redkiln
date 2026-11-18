@@ -145,7 +145,28 @@ pub(crate) fn share(remaining: Duration, steps: Steps) -> Result<Duration, OutOf
 /// # Errors
 /// [`OutOfTime`] when it does not, and the step is not started.
 pub(crate) fn step(budget: &Budget, wait: Duration, besides: Duration) -> Result<(), OutOfTime> {
-    match cap(budget, besides) {
+    fits(cap(budget, besides), wait, besides)
+}
+
+/// [`step`], with `remaining` left: for a hook that reads what is left from its own clock.
+///
+/// # Errors
+/// As [`step`].
+pub(crate) fn step_within(
+    remaining: Duration,
+    wait: Duration,
+    besides: Duration,
+) -> Result<(), OutOfTime> {
+    fits(within(remaining, besides), wait, besides)
+}
+
+/// Whether a step's `wait` fits under `cap`, the longest it may wait with `besides` taken.
+fn fits(
+    cap: Result<Duration, OutOfTime>,
+    wait: Duration,
+    besides: Duration,
+) -> Result<(), OutOfTime> {
+    match cap {
         Ok(cap) if wait <= cap => Ok(()),
         Ok(_) | Err(_) => Err(OutOfTime {
             needed: wait.saturating_add(besides),
