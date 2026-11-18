@@ -105,7 +105,11 @@ fn with_weigh_in_absent_the_park_exits_4_and_writes_nothing() -> TestResult {
         reason.starts_with("WEIGHIN_BIN names no file: "),
         "{reason}"
     );
-    assert_eq!(bench_events(dir.path())?, json!([]), "no Bench event either");
+    assert_eq!(
+        bench_events(dir.path())?,
+        json!([]),
+        "no Bench event either"
+    );
     Ok(())
 }
 
@@ -327,7 +331,10 @@ fn seed_and_decide_the_last(bin: &Path, repo: &Path, decided: &str) -> TestResul
             removed += 1;
         }
     }
-    assert!(removed > 0, "weighin decide wrote its atoms in neither folder");
+    assert!(
+        removed > 0,
+        "weighin decide wrote its atoms in neither folder"
+    );
     Ok(last)
 }
 
