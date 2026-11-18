@@ -136,6 +136,8 @@ pub(super) fn check(program: &str, args: &[Word], cwd: &Cwd) -> Option<Denial> {
         "cp" | "install" | "ln" | "link" => copy(program, args, false, cwd),
         "mv" => copy(program, args, true, cwd),
         "rsync" => unpack::rsync(args, cwd),
+        "tar" | "gtar" | "bsdtar" => unpack::tar(program, args, cwd),
+        "unzip" => unpack::unzip(args, cwd),
         _ => None,
     }
 }

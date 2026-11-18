@@ -52,3 +52,62 @@ fn rsync_elsewhere_is_left_to_the_fallback() {
         ("rsync -a x/ ..", ALLOW),
     ]);
 }
+
+#[test]
+fn tar_extracting_into_a_config_folder_is_a_config_write() {
+    assert_table(&[
+        ("tar -xf x.tar -C .redkiln", CONFIG),
+        ("tar -xzf x.tgz -C ./.redkiln/", CONFIG),
+        ("tar xf x.tar -C .redkiln/bench", CONFIG),
+        ("tar -x -f x.tar -C .claude", CONFIG),
+        ("tar -xf x.tar -C.github", CONFIG),
+        ("tar -xvC .cargo -f x.tar", CONFIG),
+        ("tar --extract --file=x.tar --directory=.claude", CONFIG),
+        ("tar --get -f x.tar --directory .anneal", CONFIG),
+        ("tar --extract -f x.tar --dir=.redkiln", CONFIG),
+        ("tar xfC x.tar .redkiln", CONFIG),
+        ("tar -xf x.tar -C /work/proj/.redkiln", CONFIG),
+        ("tar -xf x.tar -C build -C .redkiln", CONFIG),
+        ("bsdtar -xf x.zip -C .claude", CONFIG),
+        ("gtar -xf x.tar -C .redkiln", CONFIG),
+        ("cd .redkiln && tar -xf /tmp/x.tar -C bench", CONFIG),
+    ]);
+}
+
+#[test]
+fn tar_not_extracting_or_extracting_elsewhere_is_left_to_the_fallback() {
+    assert_table(&[
+        ("tar -cf /tmp/x.tar -C .redkiln .", ALLOW),
+        ("tar -tf x.tar -C .redkiln", ALLOW),
+        ("tar czf /tmp/x.tgz -C .claude .", ALLOW),
+        ("tar -xf x.tar -C build", ALLOW),
+        ("tar -xf x.tar -C .redkiln/bench/x", ALLOW),
+        ("tar -xf x.tar", ALLOW),
+        ("tar -xf .claude.tar -C build", ALLOW),
+        ("tar -xf x.tar -C ..", ALLOW),
+    ]);
+}
+
+#[test]
+fn unzip_into_a_config_folder_is_a_config_write() {
+    assert_table(&[
+        ("unzip x.zip -d .redkiln", CONFIG),
+        ("unzip -o x.zip -d ./.anneal/", CONFIG),
+        ("unzip -d .redkiln/bench x.zip", CONFIG),
+        ("unzip -d.cargo x.zip", CONFIG),
+        ("unzip -qd .claude x.zip", CONFIG),
+        ("unzip -P secret -d .github x.zip", CONFIG),
+        ("unzip x.zip -d /work/proj/.claude", CONFIG),
+    ]);
+}
+
+#[test]
+fn unzip_elsewhere_is_left_to_the_fallback() {
+    assert_table(&[
+        ("unzip x.zip -d build", ALLOW),
+        ("unzip x.zip", ALLOW),
+        ("unzip -l .claude.zip", ALLOW),
+        ("unzip -P .claude x.zip -d build", ALLOW),
+        ("unzip x.zip -d .redkiln/bench/x", ALLOW),
+    ]);
+}
