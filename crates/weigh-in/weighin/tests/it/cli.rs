@@ -569,6 +569,53 @@ fn open_json_is_weighin_contract_s_type_byte_for_byte() {
 
 #[test]
 #[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn weighin_decide_applies_always_shows_in_open_json() {
+    let (_tmp, repo) = setup();
+    let (ok, out) = weighin(
+        &repo,
+        "s1",
+        &["raise", "--q", "Keep crates under crates/<layer>/?"],
+        None,
+    );
+    assert!(ok, "{out}");
+    let id = out.split_whitespace().nth(1).unwrap().to_owned();
+
+    let (ok, out) = weighin(
+        &repo,
+        "s1",
+        &[
+            "decide",
+            &id,
+            "yes",
+            "--applies",
+            "always",
+            "--confirmation",
+            "cargo xtask layers",
+        ],
+        None,
+    );
+    assert!(ok, "{out}");
+    let (ok, json) = weighin(&repo, "s1", &["open", "--all", "--json"], None);
+
+    assert!(ok, "{json}");
+    let items: Vec<weighin_contract::open::OpenItem> =
+        serde_json::from_str(json.trim()).expect("open --json reads as the contract's type");
+    let decided: Vec<_> = items
+        .iter()
+        .filter_map(|i| i.decision.as_ref())
+        .map(|d| (d.applies, d.confirmation.as_deref()))
+        .collect();
+    assert_eq!(
+        decided,
+        [(
+            Some(weighin_contract::event::Applies::Always),
+            Some("cargo xtask layers")
+        )]
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
 fn an_answer_to_an_older_card_is_refused() {
     let (_tmp, repo) = setup();
     // #2: an answer to an older card is refused.

@@ -1,6 +1,6 @@
 //! An answer to a decision request (SPEC DR-05, DR-06), and the raiser's check before it acts.
 //!
-//! An answer is Weigh-In's decision event for the item ([`Decided`](crate::event::Decided)); its
+//! An answer is Weigh-In's decision event for the item ([`Decided`]); its
 //! trust is the envelope's. A raiser reads it into an [`Answer`] and accepts it only through
 //! [`accepts`]: trusted enough, one of the request's options, and about the subject as it is now.
 
