@@ -12,6 +12,14 @@ const MAX_WORD_BYTES: usize = 64;
 #[error("{0:?} is not 1 to 64 of [A-Za-z0-9_.:-]")]
 pub struct WordError(String);
 
+impl WordError {
+    /// The text refused, handed back.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
 /// `text` when it is a word.
 fn word(text: String) -> Result<String, WordError> {
     let fits = (1..=MAX_WORD_BYTES).contains(&text.len())

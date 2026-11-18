@@ -50,6 +50,6 @@ fn parse_markers_finds_the_blocks_each_turn_case_names() -> TestResult {
         assert_eq!(questions, expected, "{}", path.display());
         cases += 1;
     }
-    assert!(cases >= 19, "every case was read, found {cases}");
+    assert_eq!(cases, 21, "every case was read");
     Ok(())
 }
