@@ -12,7 +12,7 @@
 //! words after the mark, never by searching it, since the question or the default can hold any
 //! word. The park took when a raise line and a deferral line name the same item.
 
-use super::ItemId;
+use weighin_contract::ItemId;
 
 /// What a receipt does not show.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -62,7 +62,7 @@ pub(crate) fn parked_item(text: &str) -> Result<ItemId, ReceiptError> {
     let raised = lines
         .iter()
         .find_map(|line| match line {
-            Line::Raised(id) => id.parse::<ItemId>().ok(),
+            Line::Raised(id) => ItemId::parse(id),
             Line::Deferred(_) | Line::Other => None,
         })
         .ok_or(ReceiptError::NoRaise)?;

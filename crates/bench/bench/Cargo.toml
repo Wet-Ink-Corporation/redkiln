@@ -38,6 +38,9 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 ureq = { workspace = true }
+# Weigh-In's contract (Move 2 step 7, PR 7.4): D6 reads `weighin open --json` through its
+# lenient listing reader; `core` is for the decision requests a park raises (PR 7.5).
+weighin-contract = { workspace = true, features = ["core"] }
 
 [dev-dependencies]
 # The SPEC's CLI envelope schema, validated against every envelope the integration tests capture

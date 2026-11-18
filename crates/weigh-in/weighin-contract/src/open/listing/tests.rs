@@ -178,7 +178,13 @@ fn decided_label_is_the_card_title_of_the_decided_option() {
     let labels: Vec<Option<&str>> = found.iter().map(Listed::decided_label).collect();
     assert_eq!(
         labels,
-        [Some("Drop it"), Some("free text"), Some("c"), Some("a"), None]
+        [
+            Some("Drop it"),
+            Some("free text"),
+            Some("c"),
+            Some("a"),
+            None
+        ]
     );
 }
 
