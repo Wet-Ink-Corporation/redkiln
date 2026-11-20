@@ -35,7 +35,7 @@ use xtask::{harness, ids, layers, plugins, release};
 
 const USAGE: &str = "usage: cargo xtask <ids|layers|plugins>\n       \
 cargo xtask build [--target <triple>]\n       \
-cargo xtask package <out> [--download]\n       \
+cargo xtask package <out> [--download] [--plugin <plugin>]\n       \
 cargo xtask marketplace <packages> <release-repository>\n       \
 cargo xtask release-check <plugin> <version>";
 
