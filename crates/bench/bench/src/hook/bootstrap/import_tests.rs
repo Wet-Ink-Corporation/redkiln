@@ -119,7 +119,9 @@ fn session_start_imports_an_old_ledger_once_and_a_later_run_appends_nothing() ->
     let said = session_start(work.path())?;
 
     assert!(
-        said.contains("is left as it is: its events are imported into the suite store, once")
+        said.contains("the anneal ledger")
+            && said
+                .contains("is left as it is: its events are imported into the suite store, once")
             && said.contains("23 imported, 0 already there, 1 skipped"),
         "SessionStart says what it imported: {said}"
     );

@@ -12,7 +12,7 @@ domain. Pure: nothing here reads a clock, a file, a process or the environment, 
 - Never: `weighin`, happenstance, tokio, clap, anyhow, `time` or anything that does I/O. Timestamps arrive as values from the caller.
 
 ## Public surface
-The modules `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `event` and `id` re-exported from `weighin-contract`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
+The modules `answered`, `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `event` and `id` re-exported from `weighin-contract`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
 
 ## Invariants
 - Current state is a fold of events in store-position order. Nothing trusts timestamps for ordering (`projection`).
@@ -20,14 +20,20 @@ The modules `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `ev
 - Atoms are written through `knowledge-contract` (`atom`): frontmatter, ids and paths are Knowledge's; the MADR body is Weigh-In's rendering. Decision atoms of 6- and 8-hex items are byte for byte what 1.x wrote.
 - A card has 2 to 4 options with unique ids, and it never recommends an option that fails a MUST or is flagged as evasive (`card::CardError`).
 - Card field names are the board's, so `board.html` renders a card as-is (`card`).
+- A pick is witnessed only when the person resolved the dialog, the question is single-select, the item's card passes `Card::validate` (cards folded from the store or imported ledgers are not otherwise re-validated), no option title ends with ` (Recommended)` and no two options can be shown under the same label, the question is the item's own (`<id> <question>`, with ` (one-way: options first)` exactly when the item's door is not two-way), no label was shown twice and no option under two labels, every eligible option was shown under its `<id>: <title>` label (the recommended option may carry one ` (Recommended)` suffix, only when the item's door is two-way and `Card::recommendation_earned` holds, as SKILL.md step 4 presents it), and the one label selected names an eligible option (`answered`). The module takes plain values; the harness payload stays in the binary's adapter.
+- The door comes from the item (`ItemCard::door`, i.e. `Item::door`), never from the text the model wrote. An `Unsure` door counts as one-way: a sitting must present it options first, with the suffix and no marked recommendation, or nothing it shows is witnessed (`answered`).
+- Question matching is byte-exact, and an item with a blank question never matches: a sitting must show the stored `Item::question` verbatim after the id (`answered`).
+- Accepted residual (#125 review): `answered` does not see option descriptions or the question header, so a dialog could describe an option differently from its card. PR 1b's adapter may enforce that if the payload carries them.
+- For PR 1b: `AskUserQuestion` answers are keyed by question text, so the adapter must reject a dialog that shows the same question text twice before it calls `answered::witness`.
 
 ## Errors
 - `card::CardError`: a card that breaks the invariants above. These are domain rejections.
 - `board::AnswerError`: a board answer the ledger cannot accept, such as an unknown or non-open item, an unknown or ineligible option, an incomplete deferral, or an unknown dismiss reason. These are domain rejections.
+- `answered::Unwitnessed`: why an answered dialog does not witness a pick of one option (not resolved by the person, multi-select, an invalid card, a title claiming the recommendation, two options sharing a label, not the item's own question, a label shown twice, an option under two labels, an eligible option not shown, not exactly one shown label selected, a label naming no option, an ineligible option). These are domain rejections: the caller records nothing `witnessed`.
 - There are no infrastructure failures in this crate, because it has no I/O.
 
 ## Test strategy
-Unit tests sit beside the code in each module: id, marker, scan, card, atom, board, projection and event, and the public docs carry doctests. Property tests live in one integration binary, `tests/it/` (TST-02, TST-14): a fixed-seed splitmix64 PRNG and adversarial-text generators in `tests/it/support.rs` (std only, no property-testing dependency) drive the public API of `id`, `marker`, `projection` and `atom` through a few thousand cases each. Run with `cargo test -p weighin-core`.
+Unit tests sit beside the code in each module: id, marker, scan, card, atom, board, answered, projection and event, and the public docs carry doctests. Property tests live in one integration binary, `tests/it/` (TST-02, TST-14): a fixed-seed splitmix64 PRNG and adversarial-text generators in `tests/it/support.rs` (std only, no property-testing dependency) drive the public API of `id`, `marker`, `projection`, `atom` and `answered` through a few thousand cases each. Run with `cargo test -p weighin-core`.
 
 ## Do not
 - Add I/O, a clock read or an environment read. Those belong in `weighin` (the "no I/O" rule in `lib.rs`).
@@ -39,3 +45,4 @@ Unit tests sit beside the code in each module: id, marker, scan, card, atom, boa
 |---|---|---|---|
 | 2026-10-19 | `event::Surface` names the spellings of `item_presented.surface` and `item_decided.via`, `pane` among them; the stored fields stay strings. Only `as_str` is public; `weighin stats --json` counts standing decisions by surface in the binary, so `Health` is unchanged (B-30, #115). Additive public API. | API-14, H-16 | session lead (Claude), open to Ryan |
 | 2026-11-01 | Decision ageing (D-0022, #173): `Decision::reviewed_ts` (serialised only once set), `Item::reviews` and `Item::reopened_after_review` (not serialised), and `Item::last_reviewed`, `Item::flip_condition`, `Item::due_for_review` and `Ledger::due_for_review`, which take `now` from the caller. `item_acknowledged` on a decided item records a review; on a default it folds as before. `Health` is unchanged: `weighin stats` counts reviews in the binary. Additive public API. | API-14, H-16 | Ryan Britton (D-0022) |
+| 2026-11-20 | #125 PR 1a (D7 A): new public module `answered`, pure: `witness(&ShownQuestion, &Answer, &ItemCard) -> Result<Choice, Unwitnessed>`, `label(&CardOption)` (`<id>: <title>`), `ONE_WAY_SUFFIX`, `RECOMMENDED_SUFFIX`, and the plain input types `ShownQuestion`, `Answer`, `Resolution`, `ItemCard` (id, question, card and door). No harness protocol: PR 1b's `weighin` adapter maps the `AskUserQuestion` payload onto these types and writes `witnessed` (TR-03, DR-06); every other path stays `asserted` (TR-05). Additive public API. | TR-03, TR-05, DR-06, API-14, H-16 | Ryan (D7 A, #125) |
