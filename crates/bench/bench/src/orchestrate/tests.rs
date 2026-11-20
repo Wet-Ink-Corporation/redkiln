@@ -14,7 +14,7 @@ use redkiln_core::store::Filter as CoreFilter;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use weighin_contract::request::{Blocks, OptionId, Request, TrustNeeded};
-use weighin_contract::vocab::Door;
+use weighin_contract::vocab::{Authority, Door};
 
 use super::{OrchestrateArgs, Ports, run};
 use crate::cli::{Cli, Command};
@@ -457,42 +457,143 @@ fn invalid_park_arguments_are_usage_errors_that_run_and_record_nothing() -> Test
     Ok(())
 }
 
+/// A ruling on ticket 7: one cache per tenant.
+const RULE: [&str; 9] = [
+    "rule",
+    "--ticket",
+    "7",
+    "--what",
+    "keep one cache per tenant",
+    "--why",
+    "reversible in one commit",
+    "--cost",
+    "a revert and a cache flush",
+];
+
 #[test]
-fn a_ruling_records_what_why_and_cost_if_wrong() -> TestResult {
+fn a_ruling_raises_one_two_way_judgment_request_defaulting_to_what_was_ruled() -> TestResult {
     let world = World::new()?;
     let fake = world.able();
 
-    let (code, envelope) = world.run(
-        &[
-            "rule",
-            "--ticket",
-            "7",
-            "--what",
-            "keep one cache per tenant",
-            "--why",
-            "reversible in one commit",
-            "--cost",
-            "a revert and a cache flush",
-        ],
-        Some(&world.bin()),
-        &fake,
-    );
+    let (code, envelope) = world.run(&RULE, Some(&world.bin()), &fake);
 
     assert_eq!(code.ok(), Some(0), "{envelope}");
+    assert_eq!(envelope["schema"], json!("bench.orchestrate-rule/2"));
     assert_eq!(envelope["data"]["ticket"], json!("7"));
-    assert_eq!(fake.calls(), 0, "a ruling never asks weigh-in");
+    assert_eq!(envelope["data"]["recorded"], json!(true));
+    assert_eq!(envelope["findings"], json!([]));
+    assert_eq!(fake.calls(), 0, "a ruling never asks weigh-in (T11)");
+    let requests = world.requests()?;
+    let [(position, request)] = requests.as_slice() else {
+        panic!("one request: {requests:?}");
+    };
+    assert_eq!(envelope["data"]["position"], json!(position));
+    assert_eq!(
+        envelope["data"]["item_id"],
+        json!(request.item_id()?.as_str())
+    );
+    assert_eq!(request.question, "Ticket 7: keep one cache per tenant");
+    let options: Vec<(OptionId, &str, &str, &str)> = request
+        .options
+        .iter()
+        .map(|option| {
+            (
+                option.id,
+                option.label.as_str(),
+                option.holds_when.as_str(),
+                option.cost_if_wrong.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        options,
+        [
+            (
+                OptionId::A,
+                "keep one cache per tenant",
+                "reversible in one commit",
+                "a revert and a cache flush"
+            ),
+            (
+                OptionId::B,
+                "Undo the ruling",
+                "the reason given does not hold",
+                "the ruled work is undone for nothing"
+            ),
+        ]
+    );
+    assert_eq!(
+        (
+            request.recommendation,
+            request.door,
+            request.authority,
+            request.default,
+            request.deadline.as_deref(),
+            request.blocks,
+        ),
+        (
+            OptionId::A,
+            Door::TwoWay,
+            Authority::Judgment,
+            Some(OptionId::A),
+            None,
+            Blocks::None
+        ),
+        "call F (D4 B): two-way, defaulted to the ruling, no deadline"
+    );
+    assert!(
+        request.raiser.key.starts_with("orchestrate/rule/7/"),
+        "{}",
+        request.raiser.key
+    );
+    assert_eq!(request.attachments, None, "no --decision");
     assert_eq!(
         world.events()?,
-        [LedgerEvent::OrchestrateRuled(
-            bench_contract::event::OrchestrateRuled {
-                ticket: "7".to_owned(),
-                what: "keep one cache per tenant".to_owned(),
-                why: "reversible in one commit".to_owned(),
-                cost_if_wrong: "a revert and a cache flush".to_owned(),
-                decision: None,
-            }
-        )]
+        [],
+        "no Bench event: the request is the record (D6 B)"
     );
+    Ok(())
+}
+
+#[test]
+fn a_ruling_run_again_writes_nothing() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+
+    let (first_code, first) = world.run(&RULE, Some(&world.bin()), &fake);
+    let (code, envelope) = world.run(&RULE, Some(&world.bin()), &fake);
+
+    assert_eq!((first_code.ok(), code.ok()), (Some(0), Some(0)));
+    assert_eq!(envelope["data"]["item_id"], first["data"]["item_id"]);
+    assert_eq!(
+        envelope["data"]["recorded"],
+        json!(false),
+        "already in the store"
+    );
+    assert_eq!(envelope["data"]["position"], first["data"]["position"]);
+    assert_eq!(world.requests()?.len(), 1, "one request");
+    Ok(())
+}
+
+#[test]
+fn a_ruling_with_weigh_in_absent_is_raised_and_says_so() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+
+    let (code, envelope) = world.run(&RULE, None, &fake);
+
+    assert_eq!(code.ok(), Some(0), "{envelope}");
+    assert_eq!(envelope["data"]["recorded"], json!(true));
+    assert_eq!(
+        envelope["findings"],
+        json!([{
+            "key": "orchestrate/weigh-in-absent:7",
+            "message": "recorded for Weigh-In, which is not installed to show it \
+                        (no weighin: WEIGHIN_BIN is unset and none is on PATH)",
+        }])
+    );
+    assert_eq!(fake.calls(), 0, "nothing to run");
+    assert_eq!(world.requests()?.len(), 1, "the request waits in the store");
     Ok(())
 }
 

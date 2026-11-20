@@ -172,7 +172,6 @@ pub(super) fn to_new_event_in(
         LedgerEvent::MigrateWaveStarted(p) => context.event(MigrateWaveStarted(p), tags),
         LedgerEvent::MigrateWaveDone(p) => context.event(MigrateWaveDone(p), tags),
         LedgerEvent::MigrateContract(p) => context.event(p, tags),
-        LedgerEvent::OrchestrateRuled(p) => context.event(p, tags),
     }
 }
 

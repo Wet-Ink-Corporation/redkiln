@@ -3,17 +3,17 @@
 //! It is opened, read and written only through `redkiln-core` (Move 2 step 3). Every command,
 //! hook and test in this crate reaches the store through this module and nothing else.
 //!
-//! Every event is an EV-01 envelope of one of the 15 `bench.*` types declared in
+//! Every event is an EV-01 envelope of one of the 14 `bench.*` types declared in
 //! [`bench_contract::event`] (`wire`). Gates and commands above this module see Bench's
 //! in-memory [`EventEnvelope`] (the 0.x flat form); `bench ledger` reads Core's envelope into it
 //! ([`EventEnvelope::from_ev01`]), and it and every command that records an event print the
 //! envelopes as stored ([`StoredEvent`], since step 4).
 //!
-//! - Every filter and every append condition is restricted to Bench's 15 types (a filter that
-//!   names none means all 15, and the two retired types, whose old events read as unusable),
+//! - Every filter and every append condition is restricted to Bench's 14 types (a filter that
+//!   names none means all 14, and the three retired types, whose old events read as unusable),
 //!   so another plugin's event is never read as Bench's and never conflicts a Bench write,
-//!   whatever it is tagged (EV-08). The one exception is a park's Weigh-In request, written and
-//!   read through `append_foreign_if` and `read_foreign` (DR-01).
+//!   whatever it is tagged (EV-08). The one exception is a park's or a ruling's Weigh-In
+//!   request, written and read through `append_foreign_if` and `read_foreign` (DR-01).
 //! - A stored Bench event this build cannot use is skipped and counted, never a failure of the
 //!   read (EV-10). A tail reads the last `n` matching events and then decodes, so an unusable
 //!   newest event leaves a gate seeing nothing (fail closed), never an older one in its place.
@@ -162,7 +162,7 @@ impl StoreError {
     }
 }
 
-/// Which events to read: any of `types` (all 15 Bench types when empty) carrying every tag in
+/// Which events to read: any of `types` (all 14 Bench types when empty) carrying every tag in
 /// `tags`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Filter {
@@ -173,7 +173,7 @@ pub struct Filter {
 }
 
 impl Filter {
-    /// Core's filter: Bench's types (those named, or all 15 and the retired two), then each tag.
+    /// Core's filter: Bench's types (those named, or all 14 and the retired three), then each tag.
     fn to_core(&self) -> Result<CoreFilter, StoreError> {
         let stored: Vec<&str> = if self.types.is_empty() {
             // The retired types too (D6 B): their old events are read as unusable and counted,

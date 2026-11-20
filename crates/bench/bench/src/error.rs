@@ -134,12 +134,15 @@ pub enum CliError {
         /// How many tries were made.
         attempts: usize,
     },
-    /// `bench orchestrate park` found its request's item id, at 10, 12 and 16 hex, each naming
-    /// another item (ID-04). Nothing was written.
+    /// `bench orchestrate park` or `rule` found its request's item id, at 10, 12 and 16 hex,
+    /// each naming another item (ID-04). Nothing was written.
     #[error(
-        "orchestrate park: {item} and its longer forms all name other items; nothing was written"
+        "orchestrate {command}: {item} and its longer forms all name other items; nothing was \
+         written"
     )]
-    ParkIdTaken {
+    RequestIdTaken {
+        /// The subcommand: `park` or `rule`.
+        command: &'static str,
         /// The id at its default length.
         item: String,
     },
@@ -183,7 +186,7 @@ impl CliError {
             | Self::CurrentDir(_)
             | Self::Dag(_)
             | Self::RoundContended { .. }
-            | Self::ParkIdTaken { .. }
+            | Self::RequestIdTaken { .. }
             | Self::TooManyRounds { .. } => exit_codes::INTERNAL,
             Self::Lint(error) | Self::Plan(error) => error.code(),
             Self::Grill(error) => error.code(),
