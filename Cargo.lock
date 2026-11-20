@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "redkiln-calibrate"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "proptest",
  "serde",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "redkiln-core"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "happenstance-core",
  "happenstance-sqlite",
