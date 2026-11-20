@@ -1,4 +1,4 @@
-//! Bench's events: the 15 types, their payloads and the 0.x flat form anneal's ledger wrote.
+//! Bench's events: the 14 types, their payloads and the 0.x flat form anneal's ledger wrote.
 //!
 //! Each type is stored as `bench.<short name>` ([`EventKind::stored`]), version 1, durable
 //! (SPEC EV-03, EV-04, EV-14); since step 4 of `docs/plan/move-2-bench.md` the `bench ledger`
@@ -30,8 +30,8 @@ pub use self::core::{MigrateWaveDone, MigrateWaveStarted, TYPES, decode};
 pub use by::{Actor, By, EmptyBy, Via};
 pub use payload::{
     AgentStatus, GateBlocked, GrillConfirmed, MigrateContract, MigrateWave, Mode, ModeSet,
-    OrchestrateRuled, PlanApproved, ReproRed, RoundOfNothing, RoundStarted, StopBlocked,
-    SubagentStatus, TaskDone, TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet, VerdictSource,
+    PlanApproved, ReproRed, RoundOfNothing, RoundStarted, StopBlocked, SubagentStatus, TaskDone,
+    TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet, VerdictSource,
 };
 
 /// A type Bench wrote before Move 2 step 7 and no longer declares (D6 B).
@@ -59,9 +59,17 @@ pub const BRIDGE_UNAVAILABLE: RetiredType = RetiredType {
     stored: "bench.bridge.unavailable",
 };
 
-/// Every retired type: `weighin_parked` and `bridge.unavailable`, which a park wrote before it
-/// became a Weigh-In decision request.
-pub const RETIRED_TYPES: [RetiredType; 2] = [WEIGHIN_PARKED, BRIDGE_UNAVAILABLE];
+/// `orchestrate.ruled`: the orchestrator ruled on a call itself (registry v9 to step 7).
+pub const ORCHESTRATE_RULED: RetiredType = RetiredType {
+    short: "orchestrate.ruled",
+    stored: "bench.orchestrate.ruled",
+};
+
+/// Every retired type, the three Move 2 step 7 stopped writing (D6 B).
+///
+/// `weighin_parked` and `bridge.unavailable` a park wrote before it became a Weigh-In decision
+/// request; `orchestrate.ruled` a ruling wrote before it became a two-way one (call F).
+pub const RETIRED_TYPES: [RetiredType; 3] = [WEIGHIN_PARKED, BRIDGE_UNAVAILABLE, ORCHESTRATE_RULED];
 
 /// The version of anneal's 0.x event registry, the last whose shapes the one-time import reads.
 ///
@@ -103,13 +111,11 @@ pub enum EventKind {
     MigrateWaveDone,
     /// `migrate.contract`
     MigrateContract,
-    /// `orchestrate.ruled`
-    OrchestrateRuled,
 }
 
 impl EventKind {
     /// Every registered type, in registry order.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 14] = [
         Self::TestRun,
         Self::TaskDone,
         Self::PlanApproved,
@@ -124,7 +130,6 @@ impl EventKind {
         Self::MigrateWaveStarted,
         Self::MigrateWaveDone,
         Self::MigrateContract,
-        Self::OrchestrateRuled,
     ];
 
     /// The short name, as anneal's 0.x ledger wrote it: snake case. Bench writes it only
@@ -146,7 +151,6 @@ impl EventKind {
             Self::MigrateWaveStarted => "migrate.wave.started",
             Self::MigrateWaveDone => "migrate.wave.done",
             Self::MigrateContract => "migrate.contract",
-            Self::OrchestrateRuled => "orchestrate.ruled",
         }
     }
 
@@ -168,7 +172,6 @@ impl EventKind {
             Self::MigrateWaveStarted => "bench.migrate.wave.started",
             Self::MigrateWaveDone => "bench.migrate.wave.done",
             Self::MigrateContract => "bench.migrate.contract",
-            Self::OrchestrateRuled => "bench.orchestrate.ruled",
         }
     }
 
@@ -183,10 +186,7 @@ impl EventKind {
     #[must_use]
     pub const fn subject(self) -> SubjectKey {
         match self {
-            // An orchestrated ticket is the task its events are about.
-            Self::TestRun | Self::TaskDone | Self::ReproRed | Self::OrchestrateRuled => {
-                SubjectKey::Task
-            }
+            Self::TestRun | Self::TaskDone | Self::ReproRed => SubjectKey::Task,
             Self::PlanApproved | Self::GrillConfirmed => SubjectKey::Plan,
             Self::VerdictSet | Self::RoundStarted => SubjectKey::Pr,
             Self::GateBlocked | Self::StopBlocked => SubjectKey::Point,
@@ -324,9 +324,6 @@ pub enum BenchEvent {
     /// A migration's contract step ran: the old shape is removed (registry v7).
     #[serde(rename = "migrate.contract")]
     MigrateContract(MigrateContract),
-    /// The orchestrator ruled on a reversible call itself (registry v9).
-    #[serde(rename = "orchestrate.ruled")]
-    OrchestrateRuled(OrchestrateRuled),
 }
 
 impl BenchEvent {
@@ -348,7 +345,6 @@ impl BenchEvent {
             Self::MigrateWaveStarted(_) => EventKind::MigrateWaveStarted,
             Self::MigrateWaveDone(_) => EventKind::MigrateWaveDone,
             Self::MigrateContract(_) => EventKind::MigrateContract,
-            Self::OrchestrateRuled(_) => EventKind::OrchestrateRuled,
         }
     }
 
@@ -362,7 +358,6 @@ impl BenchEvent {
             Self::TaskDone(TaskDone { task }) | Self::ReproRed(ReproRed { task, .. }) => {
                 Some(Cow::Borrowed(task))
             }
-            Self::OrchestrateRuled(OrchestrateRuled { ticket, .. }) => Some(Cow::Borrowed(ticket)),
             Self::PlanApproved(PlanApproved { plan, .. })
             | Self::GrillConfirmed(GrillConfirmed { plan, .. }) => Some(Cow::Borrowed(plan)),
             Self::VerdictSet(VerdictSet { pr, .. }) => Some(Cow::Owned(pr.to_string())),

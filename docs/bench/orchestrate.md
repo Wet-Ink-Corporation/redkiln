@@ -5,12 +5,12 @@ costs about 15 times the tokens of one session) runs an approved plan's ready ti
 subagents. Its deterministic steps are `anneal orchestrate`, `anneal decide --point D2`, and the
 brief and round commands of [brief.md](brief.md).
 
-Rulings, not stalls: a reversible call is ruled on and recorded; a one-way call is parked in
+Rulings, not stalls: a reversible call is ruled on and logged; a one-way call is parked in
 Weigh-In as a decision request with its options, and the rest of the run moves on. Bench never
-stores a decision itself: Weigh-In owns parked requests and their answers, and Bench records only
-the orchestrator's own rulings. Since Move 2 step 7 (PR 7.5) a park writes Weigh-In's
-`weighin.request_raised` through `weighin-contract` (DR-01 to DR-05); Bench's `weighin_parked`
-and `bridge.unavailable` are retired (decision D6 B, [ledger.md](ledger.md)).
+stores a decision itself: Weigh-In owns parked requests, rulings and their answers. Since Move 2
+step 7 a park (PR 7.5) and a ruling (PR 7.6, Bench call F) write Weigh-In's
+`weighin.request_raised` through `weighin-contract` (DR-01 to DR-05); Bench's `weighin_parked`,
+`bridge.unavailable` and `orchestrate.ruled` are retired (decision D6 B, [ledger.md](ledger.md)).
 
 ```text
 anneal orchestrate fan-out [--tracker markdown|github] [--dir PATH] [--repo OWNER/NAME] [--issue N]
@@ -22,7 +22,7 @@ anneal orchestrate rule --ticket <id> --what <text> --why <text> --cost <text>
                         [--decision <D2 id>] [--session <id>]
 ```
 
-Exit codes: 0 fan out (park: parked; rule: recorded), 3 `fan-out`: fewer than 3 independent
+Exit codes: 0 fan out (park: parked; rule: raised), 3 `fan-out`: fewer than 3 independent
 tickets, 4 `park`: Weigh-In cannot take the call (nothing recorded), rule instead; 2 for refused arguments, 70 when the
 ledger or the tickets cannot be read ([exit-codes.md](exit-codes.md)).
 
@@ -91,10 +91,26 @@ nothing and exits 4 with an `orchestrate/weigh-in-unavailable:<ticket>` finding 
 Bench never writes `weigh-in` marker blocks for a parked call: Weigh-In's Stop hook would
 capture them too and raise the call twice.
 
-## `rule`
+## `rule`: a two-way request, already defaulted
 
-Records `orchestrate.ruled {ticket, what, why, cost_if_wrong, decision?}`: what was ruled, why,
-and what undoing it costs if the ruling is wrong. Nothing is asked.
+A ruling is logged in Weigh-In as the orchestrator's own two-way call (Bench call F, decision D4
+B). Its arguments are checked as a park's are (`--what`, `--why` and `--cost` one line of at most
+512 characters each), then one `weighin.request_raised` is appended: the question
+`Ticket <ticket>: <what>`, option `a` what was ruled (holds when `--why`, costs `--cost` if
+wrong), option `b` "Undo the ruling" (holds when the reason given does not hold, costs the ruled
+work undone for nothing), recommended and default `a`, `door: two-way`, `authority: judgment`,
+no deadline, `blocks: none`, the trust a park needs, and the D2 decision id, when given, as a
+`bench.clef_decision` attachment. The raiser key is
+`orchestrate/rule/<ticket>/<16 hex of sha256(what)>`, so the same ruling on the same ticket is
+one item, run again with `data.recorded: false`.
+
+Weigh-In folds a two-way judgment request with a default and no deadline as already defaulted
+to that option (SPEC DR-07): it shows in `weighin digest`'s unacknowledged defaults, to be
+acknowledged or reopened there, and nobody is asked. A ruling is a record, not an ask, so it
+does not ask Weigh-In first: the request waits in the store for a `weighin` that folds it, and
+with no `weighin` found the envelope adds an `orchestrate/weigh-in-absent:<ticket>` finding and
+still exits 0. `data` is `{ticket, item_id, recorded, position}` (`bench.orchestrate-rule/2`;
+version 1's `position` was an `orchestrate.ruled` event's).
 
 ## Reading rulings back (D6)
 
@@ -115,8 +131,9 @@ by hand with `bench decide label <id> <outcome>`.
 Unit tests drive `status --json` through the `Runner` port with a fake on every platform; the
 integration tests run the binary with Weigh-In absent (every platform) and with a fake
 `weighin` shell script answering `status --json` (unix). `orchestrate::the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6`
-runs against a real Weigh-In when `WEIGHIN_BIN` names one that folds requests (Move 2 step 7 or
-later; the CI step that builds it is PR 7.7, decision D8); without it the test prints that it
-skipped. It also raises 13 more items, decides the one whose id
+and `orchestrate::a_raised_ruling_shows_as_an_unacknowledged_default_in_weighin_digest` run
+against a real Weigh-In when `WEIGHIN_BIN` names one that folds requests (Move 2 step 7 or
+later; the CI step that builds it is PR 7.7, decision D8); without it each test prints that it
+skipped. The first also raises 13 more items, decides the one whose id
 sorts last and removes the decision atoms, so D6 can find that ruling only past `open`'s
 default 12.

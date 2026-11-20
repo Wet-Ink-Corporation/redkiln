@@ -1,11 +1,11 @@
-//! An old record of a retired type (D6 B: `weighin_parked`, `bridge.unavailable`), imported as
-//! anneal wrote it under its `bench.*` name and old identity (ST-15).
+//! An old record of a retired type (D6 B: `weighin_parked`, `bridge.unavailable`,
+//! `orchestrate.ruled`), imported as anneal wrote it under its `bench.*` name and old identity (ST-15).
 //!
 //! Bench no longer declares these types, so the event reads as unusable and `bench status`
 //! counts it (EV-10), as every one imported before step 7 does. Its payload is the record's
 //! keys but the context, unchanged; its subject tag is `task:<ticket>`, as before.
 
-use bench_contract::event::{BRIDGE_UNAVAILABLE, RetiredType, WEIGHIN_PARKED};
+use bench_contract::event::{BRIDGE_UNAVAILABLE, ORCHESTRATE_RULED, RetiredType, WEIGHIN_PARKED};
 use redkiln_core::envelope::{Class, Payload};
 use redkiln_core::journal::Mapped;
 use redkiln_core::store::{CoreKey, NewEvent, Stored, Tag};
@@ -38,6 +38,17 @@ struct OldBridgeUnavailable(OldPayload);
 
 impl Payload for OldBridgeUnavailable {
     const TYPE: &'static str = BRIDGE_UNAVAILABLE.stored;
+    const VERSION: u32 = 1;
+    const CLASS: Class = Class::Durable;
+}
+
+/// `bench.orchestrate.ruled`'s old payload, kept whole.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+struct OldOrchestrateRuled(OldPayload);
+
+impl Payload for OldOrchestrateRuled {
+    const TYPE: &'static str = ORCHESTRATE_RULED.stored;
     const VERSION: u32 = 1;
     const CLASS: Class = Class::Durable;
 }
@@ -80,6 +91,8 @@ enum Retired {
     WeighinParked,
     /// `bench.bridge.unavailable`.
     BridgeUnavailable,
+    /// `bench.orchestrate.ruled`.
+    OrchestrateRuled,
 }
 
 impl Retired {
@@ -90,6 +103,8 @@ impl Retired {
             Ok(Self::WeighinParked)
         } else if retired.stored == BRIDGE_UNAVAILABLE.stored {
             Ok(Self::BridgeUnavailable)
+        } else if retired.stored == ORCHESTRATE_RULED.stored {
+            Ok(Self::OrchestrateRuled)
         } else {
             Err(format!(
                 "the import does not carry the retired type {}",
@@ -112,6 +127,7 @@ fn build(
     match kind {
         Retired::WeighinParked => context.event(OldWeighinParked(payload), tags),
         Retired::BridgeUnavailable => context.event(OldBridgeUnavailable(payload), tags),
+        Retired::OrchestrateRuled => context.event(OldOrchestrateRuled(payload), tags),
     }
 }
 

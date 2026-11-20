@@ -414,8 +414,7 @@ fn an_empty_by_does_not_read() {
 fn every_bench_type_is_declared_at_the_version_bench_writes() {
     use bench_contract::event::{
         GateBlocked, GrillConfirmed, MigrateContract, MigrateWaveDone, MigrateWaveStarted, ModeSet,
-        OrchestrateRuled, PlanApproved, ReproRed, RoundStarted, StopBlocked, SubagentStatus, TYPES,
-        TestRun,
+        PlanApproved, ReproRed, RoundStarted, StopBlocked, SubagentStatus, TYPES, TestRun,
     };
     use redkiln_core::envelope::Payload;
 
@@ -437,7 +436,6 @@ fn every_bench_type_is_declared_at_the_version_bench_writes() {
         declared::<MigrateWaveStarted>(),
         declared::<MigrateWaveDone>(),
         declared::<MigrateContract>(),
-        declared::<OrchestrateRuled>(),
     ];
 
     assert_eq!(
@@ -447,7 +445,7 @@ fn every_bench_type_is_declared_at_the_version_bench_writes() {
     );
     assert_eq!(
         declared.map(|(_, version)| version),
-        [super::WRITTEN_VERSION; 15],
+        [super::WRITTEN_VERSION; 14],
         "append refuses any version but the one the contract declares"
     );
 }

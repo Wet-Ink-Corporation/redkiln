@@ -1,5 +1,5 @@
 //! `orchestrate park` and `orchestrate rule`: a one-way call raised as a Weigh-In decision
-//! request, or a call ruled on and logged.
+//! request, or a call ruled on and logged as a two-way one.
 //!
 //! Every argument is checked before anything runs or a ledger is opened: the ticket as
 //! `bench round` takes it, each text one non-blank line within its cap, 2 to 4 options with a
@@ -10,12 +10,16 @@
 //! writes (decision D3), before that store is opened. Only then does it open the store and
 //! append the request through weighin-contract (DR-01), once per ticket and question (DR-03);
 //! otherwise it creates and writes nothing and exits 4, and the orchestrator rules instead.
+//!
+//! A ruling asks nobody (T11): it appends a two-way request defaulted to what was ruled, with
+//! no deadline, which Weigh-In folds as already defaulted (call F, D4 B), once per ticket and
+//! ruling; with no `weighin` found, a finding says it waits in the store unseen.
 
 use std::ffi::OsString;
 use std::io::Write;
 
 use crate::store::{EventEnvelope, LedgerEvent, Timestamp};
-use bench_contract::event::OrchestrateRuled;
+use bench_contract::event::TaskDone;
 use clap::{ArgAction, Args};
 use serde::Serialize;
 use weighin_contract::request::{OptionId, RequestError};
@@ -36,7 +40,7 @@ use super::Ports;
 
 mod request;
 
-use request::{Park, ParkOption};
+use request::{Park, ParkOption, Ruling};
 
 /// Fewest options a park offers (DR-04).
 const MIN_OPTIONS: usize = 2;
@@ -125,10 +129,14 @@ struct ParkData<'a> {
     position: Option<u64>,
 }
 
-/// `data` of `orchestrate rule`.
+/// `data` of `orchestrate rule` (`bench.orchestrate-rule/2`).
 #[derive(Debug, Serialize)]
 struct RuleData<'a> {
     ticket: &'a str,
+    item_id: &'a str,
+    /// False when the request of this ticket and ruling was already in the store.
+    recorded: bool,
+    /// Where the request sits: written now, or earlier.
     position: u64,
 }
 
@@ -159,7 +167,7 @@ where
     let request = park.request();
     request
         .check(&probe.ts.to_core())
-        .map_err(|error| refused(&error))?;
+        .map_err(|error| refused("park", &error))?;
     let location = paths::ledger_store(None, &ports.lookup, ports.cwd)?;
     // Weigh-In is asked before the store is opened, so the exit-4 path creates no store and
     // runs no import (D3).
@@ -171,7 +179,7 @@ where
     }
     let store = legacy_import::open_for_command(&location)?;
     let envelope = store.envelope_for(&probe, request)?;
-    let (item, position, recorded) = raised(weighin::raise(&store, &envelope))?;
+    let (item, position, recorded) = raised("park", weighin::raise(&store, &envelope))?;
     let data = ParkData {
         ticket: ticket.as_str(),
         parked: true,
@@ -187,16 +195,19 @@ where
     )
 }
 
-/// The item, position and whether it was written now, of a raise's `outcome`; a refusal is a
-/// usage error, all three id lengths taken [`CliError::ParkIdTaken`].
+/// The item, position and whether it was written now, of `command`'s (`park` or `rule`) raise
+/// `outcome`; a refusal is a usage error, all three id lengths taken
+/// [`CliError::RequestIdTaken`].
 fn raised(
+    command: &'static str,
     outcome: Result<Raised, RaiseError>,
 ) -> Result<(weighin_contract::ItemId, u64, bool), CliError> {
     match outcome {
         Ok(Raised::New { item, position }) => Ok((item, position, true)),
         Ok(Raised::Already { item, position }) => Ok((item, position, false)),
-        Err(RaiseError::Refused(error)) => Err(refused(&error)),
-        Err(RaiseError::IdTaken { item }) => Err(CliError::ParkIdTaken {
+        Err(RaiseError::Refused(error)) => Err(refused(command, &error)),
+        Err(RaiseError::IdTaken { item }) => Err(CliError::RequestIdTaken {
+            command,
             item: item.as_str().to_owned(),
         }),
         Err(RaiseError::Store(error)) => Err(error.into()),
@@ -250,12 +261,12 @@ fn park_options(args: &ParkArgs) -> Result<Vec<ParkOption<'_>>, CliError> {
         .collect()
 }
 
-/// A park weigh-in's contract refused (a DR-04 guard: a deadline already past, a recommendation
-/// that is no option), as a usage error.
-fn refused(error: &RequestError) -> CliError {
+/// A `command`'s (`park` or `rule`) request weigh-in's contract refused (a DR-04 guard: a
+/// deadline already past, a recommendation that is no option), as a usage error.
+fn refused(command: &str, error: &RequestError) -> CliError {
     CliError::Usage {
         reason: format!(
-            "weigh-in's contract refused the park: {}",
+            "weigh-in's contract refused the {command}: {}",
             error_chain::reason(error)
         ),
     }
@@ -271,7 +282,11 @@ fn recommendation(value: &str) -> Result<OptionId, CliError> {
         })
 }
 
-/// `orchestrate rule`: appends `orchestrate.ruled`.
+/// `orchestrate rule`: raises the ruling as a two-way Weigh-In request, defaulted to what was
+/// ruled and with no deadline (call F, D4 B), once per ticket and ruling (DR-03).
+///
+/// A ruling is a record, not an ask, so Weigh-In is not asked first (T11): the request waits in
+/// the store for a `weighin` that folds it, and with none found a finding says so.
 pub(super) fn rule<O, L, R>(
     args: &RuleArgs,
     ports: &Ports<'_, L, R>,
@@ -282,26 +297,49 @@ where
     L: Fn(&str) -> Option<OsString>,
 {
     let ticket = args.ticket.parse::<Ticket>()?;
-    let ruled = OrchestrateRuled {
-        ticket: ticket.as_str().to_owned(),
-        what: one_line("what", &args.what, MAX_TEXT_CHARS)?.to_owned(),
-        why: one_line("why", &args.why, MAX_TEXT_CHARS)?.to_owned(),
-        cost_if_wrong: one_line("cost", &args.cost, MAX_TEXT_CHARS)?.to_owned(),
-        decision: decision_id(args.decision.as_deref())?.map(|id| id.as_str().to_owned()),
+    let ruling = Ruling {
+        ticket: &ticket,
+        what: one_line("what", &args.what, MAX_TEXT_CHARS)?,
+        why: one_line("why", &args.why, MAX_TEXT_CHARS)?,
+        cost: one_line("cost", &args.cost, MAX_TEXT_CHARS)?,
+        decision: decision_id(args.decision.as_deref())?,
+        session: args.session.as_deref(),
     };
-    let session = args.session.as_deref();
-    check_session(&ticket, session)?;
-    let store =
-        legacy_import::open_for_command(&paths::ledger_store(None, &ports.lookup, ports.cwd)?)?;
-    let position = store.append(&envelope(LedgerEvent::OrchestrateRuled(ruled), session)?)?;
+    let probe = probe(&ticket, ruling.session)?;
+    let request = ruling.request();
+    request
+        .check(&probe.ts.to_core())
+        .map_err(|error| refused("rule", &error))?;
+    let location = paths::ledger_store(None, &ports.lookup, ports.cwd)?;
+    let findings: Vec<Finding> = weighin::locate(&ports.lookup)
+        .err()
+        .map(|absent| absent_finding(&ticket, &absent))
+        .into_iter()
+        .collect();
+    let store = legacy_import::open_for_command(&location)?;
+    let envelope = store.envelope_for(&probe, request)?;
+    let (item, position, recorded) = raised("rule", weighin::raise(&store, &envelope))?;
     let data = RuleData {
         ticket: ticket.as_str(),
+        item_id: item.as_str(),
+        recorded,
         position,
     };
     let code = exit_codes::ORCHESTRATE_OK;
     emit(
-        &Envelope::new(CommandName::Orchestrate, Some("rule"), code, data),
+        &Envelope::new(CommandName::Orchestrate, Some("rule"), code, data).with_findings(&findings),
         out,
+    )
+}
+
+/// The finding of a ruling recorded while no `weighin` is found, for `reason`.
+fn absent_finding(ticket: &Ticket, reason: &weighin::BridgeError) -> Finding {
+    Finding::new(
+        format!("orchestrate/weigh-in-absent:{ticket}"),
+        format!(
+            "recorded for Weigh-In, which is not installed to show it ({})",
+            error_chain::reason(reason)
+        ),
     )
 }
 
@@ -310,30 +348,16 @@ fn emit<O: Write, D: Serialize>(envelope: &Envelope<'_, D>, out: &mut O) -> Resu
     envelope.emit(out).map_err(CliError::Output)
 }
 
-/// The envelope of `event`, written by the CLI for `session`.
-fn envelope(event: LedgerEvent, session: Option<&str>) -> Result<EventEnvelope, CliError> {
+/// A Bench event of `ticket` made now by the CLI for `session`, its tags checked, and never
+/// written: the context a request is written in (the same ts, actor and session as a Bench
+/// event), and a `--session` the ledger cannot tag refused as a usage error. Any kind whose
+/// subject is the `task:` ticket serves; `task_done` is the one with nothing else to fill.
+fn probe(ticket: &Ticket, session: Option<&str>) -> Result<EventEnvelope, CliError> {
+    let event = LedgerEvent::TaskDone(TaskDone {
+        task: ticket.as_str().to_owned(),
+    });
     let mut envelope = EventEnvelope::new(event, "cli", Timestamp::now()?);
     envelope.session_id = session.map(str::to_owned);
-    Ok(envelope)
-}
-
-/// Refuses a `--session` the ledger cannot tag, before a ledger is opened or `weighin` runs.
-fn check_session(ticket: &Ticket, session: Option<&str>) -> Result<(), CliError> {
-    probe(ticket, session).map(drop)
-}
-
-/// A Bench event of `ticket` written now by the CLI for `session`, its tags checked: the
-/// context a park's request is written in (the same ts, actor and session as a Bench event), and
-/// a `--session` the ledger cannot tag refused as a usage error.
-fn probe(ticket: &Ticket, session: Option<&str>) -> Result<EventEnvelope, CliError> {
-    let probe = LedgerEvent::OrchestrateRuled(OrchestrateRuled {
-        ticket: ticket.as_str().to_owned(),
-        what: String::new(),
-        why: String::new(),
-        cost_if_wrong: String::new(),
-        decision: None,
-    });
-    let envelope = envelope(probe, session)?;
     envelope.tags().map_err(|error| CliError::Usage {
         reason: format!("the --session is recorded as a ledger tag: {error}"),
     })?;

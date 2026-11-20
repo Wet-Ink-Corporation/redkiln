@@ -8,8 +8,8 @@ use super::{MigrateWaveDone, MigrateWaveStarted, TYPES, decode};
 use crate::event::RETIRED_TYPES;
 use crate::event::{
     AgentStatus, BenchEvent, EventKind, GateBlocked, GrillConfirmed, MigrateContract, MigrateWave,
-    Mode, ModeSet, OrchestrateRuled, PlanApproved, ReproRed, RoundStarted, StopBlocked,
-    SubagentStatus, TaskDone, TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet, VerdictSource,
+    Mode, ModeSet, PlanApproved, ReproRed, RoundStarted, StopBlocked, SubagentStatus, TaskDone,
+    TestOutcome, TestRun, TokenUsage, Verdict, VerdictSet, VerdictSource,
 };
 
 /// An envelope of `data` written by `bench 0.0.5` as `cli` at a fixed time, asserted, with no
@@ -53,7 +53,7 @@ fn declared<P: Payload>() -> (&'static str, u32, Class) {
 /// One payload of every type, in [`EventKind::ALL`]'s order, as the 0.x event.
 fn one_of_each() -> Vec<BenchEvent> {
     let mut events = Vec::from(first_ten());
-    events.extend(last_five());
+    events.extend(last_four());
     events
 }
 
@@ -111,8 +111,8 @@ fn first_ten() -> [BenchEvent; 10] {
     ]
 }
 
-/// [`one_of_each`]'s last five: `subagent_status` to `orchestrate.ruled`.
-fn last_five() -> [BenchEvent; 5] {
+/// [`one_of_each`]'s last four: `subagent_status` to `migrate.contract`.
+fn last_four() -> [BenchEvent; 4] {
     [
         BenchEvent::SubagentStatus(SubagentStatus {
             agent: "Explore".to_owned(),
@@ -134,13 +134,6 @@ fn last_five() -> [BenchEvent; 5] {
         BenchEvent::MigrateContract(MigrateContract {
             migration: "users-email".to_owned(),
         }),
-        BenchEvent::OrchestrateRuled(OrchestrateRuled {
-            ticket: "36".to_owned(),
-            what: "keep the cache".to_owned(),
-            why: "reversible".to_owned(),
-            cost_if_wrong: "one revert".to_owned(),
-            decision: None,
-        }),
     ]
 }
 
@@ -161,7 +154,6 @@ fn encode(event: BenchEvent) -> Vec<u8> {
         BenchEvent::MigrateWaveStarted(p) => envelope(MigrateWaveStarted(p)).encode(),
         BenchEvent::MigrateWaveDone(p) => envelope(MigrateWaveDone(p)).encode(),
         BenchEvent::MigrateContract(p) => envelope(p).encode(),
-        BenchEvent::OrchestrateRuled(p) => envelope(p).encode(),
     };
     bytes.expect("encodes")
 }
@@ -183,7 +175,6 @@ fn every_kind_is_stored_as_bench_and_its_short_name_version_1_durable() {
         declared::<MigrateWaveStarted>(),
         declared::<MigrateWaveDone>(),
         declared::<MigrateContract>(),
-        declared::<OrchestrateRuled>(),
     ];
 
     for (kind, (stored, version, class)) in EventKind::ALL.into_iter().zip(declared) {
@@ -217,7 +208,7 @@ fn head(kind: &str) -> String {
 }
 
 /// Each short name and the `data` bytes of [`one_of_each`]'s event of that kind, in order.
-fn data_goldens() -> [(&'static str, &'static str); 15] {
+fn data_goldens() -> [(&'static str, &'static str); 14] {
     [
         (
             "test_run",
@@ -263,10 +254,6 @@ fn data_goldens() -> [(&'static str, &'static str); 15] {
             r#"{"migration":"users-email","wave":1}"#,
         ),
         ("migrate.contract", r#"{"migration":"users-email"}"#),
-        (
-            "orchestrate.ruled",
-            r#"{"ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert"}"#,
-        ),
     ]
 }
 
@@ -324,7 +311,6 @@ fn each_kind_tags_its_subject_under_cores_key_or_benchs() {
         Some("bench.migration:users-email"),
         Some("bench.migration:users-email"),
         Some("bench.migration:users-email"),
-        Some("task:36"),
     ]
     .map(|tag| tag.map(str::to_owned));
     assert_eq!(
@@ -436,10 +422,12 @@ fn a_newer_version_and_undecodable_data_are_unusable() {
 fn a_type_bench_wrote_before_step_7_is_unusable_not_foreign() {
     let parked = br#"{"type":"bench.weighin_parked","version":1,"ts":"2026-11-10T09:30:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.0.5","spec":"1.0.0"},"data":{"item_id":"wi-e41e02","ticket":"36"}}"#;
     let unavailable = br#"{"type":"bench.bridge.unavailable","version":1,"ts":"2026-11-10T09:30:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.0.5","spec":"1.0.0"},"data":{"ticket":"36","reason":"no weighin"}}"#;
+    let ruled = br#"{"type":"bench.orchestrate.ruled","version":1,"ts":"2026-11-10T09:30:00Z","actor":"cli","trust":{"level":"asserted"},"writer":{"binary":"bench","version":"0.0.5","spec":"1.0.0"},"data":{"ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert"}}"#;
 
     for (event_type, bytes) in [
         ("bench.weighin_parked", &parked[..]),
         ("bench.bridge.unavailable", &unavailable[..]),
+        ("bench.orchestrate.ruled", &ruled[..]),
     ] {
         let read = decode(&stored(event_type, bytes));
 
@@ -450,8 +438,36 @@ fn a_type_bench_wrote_before_step_7_is_unusable_not_foreign() {
     }
     assert_eq!(
         RETIRED_TYPES.map(|retired| retired.stored),
-        ["bench.weighin_parked", "bench.bridge.unavailable"]
+        [
+            "bench.weighin_parked",
+            "bench.bridge.unavailable",
+            "bench.orchestrate.ruled"
+        ]
     );
+}
+
+#[test]
+fn the_retired_types_are_the_three_step_7_stopped_writing() {
+    let names = RETIRED_TYPES.map(|retired| (retired.short, retired.stored));
+
+    assert_eq!(
+        names,
+        [
+            ("weighin_parked", "bench.weighin_parked"),
+            ("bridge.unavailable", "bench.bridge.unavailable"),
+            ("orchestrate.ruled", "bench.orchestrate.ruled"),
+        ],
+        "D6 B: parks and rulings live in Weigh-In now"
+    );
+    for retired in RETIRED_TYPES {
+        assert_eq!(
+            EventKind::from_stored(retired.stored),
+            None,
+            "{} is no declared kind",
+            retired.stored
+        );
+        assert!(!TYPES.contains(&retired.stored), "{}", retired.stored);
+    }
 }
 
 #[test]

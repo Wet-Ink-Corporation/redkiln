@@ -222,7 +222,7 @@ A green result proves the ticket's round count was read from the ledger, and for
 
 | Code | Meaning |
 |---|---|
-| 0 | fan out (park: parked; rule: recorded) |
+| 0 | fan out (park: parked; rule: raised) |
 | 3 | fan-out: fewer than 3 independent tickets; nothing recorded |
 | 4 | park: weigh-in cannot take the call (nothing recorded); rule instead |
 

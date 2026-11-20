@@ -8,10 +8,10 @@
 //!   weighin-contract), with its options and no default; when the `weighin` it finds cannot
 //!   take requests into the same store, it writes nothing and exits 4: the orchestrator rules
 //!   instead.
-//! - `rule` records a call the orchestrator ruled on itself as `orchestrate.ruled`: what, why
-//!   and the cost if wrong.
+//! - `rule` logs a call the orchestrator ruled on itself (what, why and the cost if wrong) as
+//!   a two-way Weigh-In decision request, already defaulted to the ruling (call F).
 //!
-//! Bench stores no decision: Weigh-In owns parked requests and their answers. See
+//! Bench stores no decision: Weigh-In owns parked requests, rulings and their answers. See
 //! `docs/bench/orchestrate.md`.
 
 mod park;

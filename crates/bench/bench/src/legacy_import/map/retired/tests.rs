@@ -15,7 +15,14 @@ fn every_retired_type_has_its_own_arm_and_an_unknown_one_is_refused() {
         stored: "bench.gate.skipped",
     });
 
-    assert_eq!(arms, ["Ok(WeighinParked)", "Ok(BridgeUnavailable)"]);
+    assert_eq!(
+        arms,
+        [
+            "Ok(WeighinParked)",
+            "Ok(BridgeUnavailable)",
+            "Ok(OrchestrateRuled)"
+        ]
+    );
     assert!(
         matches!(&unknown, Err(reason)
             if reason == "the import does not carry the retired type bench.gate.skipped"),

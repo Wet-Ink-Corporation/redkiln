@@ -351,22 +351,3 @@ pub struct MigrateContract {
     /// The migration's id.
     pub migration: String,
 }
-
-/// `orchestrate.ruled`: the orchestrator ruled on a call itself (registry v9).
-///
-/// It rules below D2's one-way threshold, in shadow, or with the bridge unavailable. Subject
-/// tag `task:` (the ticket).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OrchestrateRuled {
-    /// The ticket the call was made in.
-    pub ticket: String,
-    /// What was ruled.
-    pub what: String,
-    /// Why.
-    pub why: String,
-    /// What it costs to undo if the ruling is wrong.
-    pub cost_if_wrong: String,
-    /// The Clef D2 decision behind the ruling, if one was asked; written only when set.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decision: Option<String>,
-}
