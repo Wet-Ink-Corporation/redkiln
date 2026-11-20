@@ -12,20 +12,29 @@
 //!
 //! 1. the person resolved the dialog: no idle timeout, follow-up or free-text response;
 //! 2. the question is single-select;
-//! 3. the question is the item's own: `<id> <question>` exactly, or with [`ONE_WAY_SUFFIX`];
-//! 4. every eligible option (one that fails no MUST) was shown, under its [`label`];
-//! 5. exactly one label was selected, and it was one of the labels shown;
-//! 6. that label is the label of exactly one of the card's options, and that option is eligible.
+//! 3. the item's card passes [`Card::validate`], so its option ids are unique;
+//! 4. the question is the item's own: `<id> <question>` byte for byte, or with
+//!    [`ONE_WAY_SUFFIX`], and the item's question is not blank;
+//! 5. no label was shown twice;
+//! 6. every eligible option (one that fails no MUST) was shown under its [`label`], or the
+//!    card's recommended option under its label with [`RECOMMENDED_SUFFIX`];
+//! 7. exactly one label was selected, and it was one of the labels shown;
+//! 8. that label names exactly one of the card's options, and that option is eligible.
 //!
 //! A shown label that names no option, such as a `Defer to …` choice, is allowed, but picking it
-//! is not a choice of an option.
+//! is not a choice of an option. What the dialog showed besides the question and the labels
+//! (option descriptions, the header) is not checked here.
 
 use weighin_contract::ItemId;
-use weighin_contract::card::{Card, CardOption};
+use weighin_contract::card::{Card, CardError, CardOption};
 
 /// The one suffix a shown question may carry after the item's question: what a sitting appends
 /// to a one-way item's question, which it presents options first.
 pub const ONE_WAY_SUFFIX: &str = " (one-way: options first)";
+
+/// The one suffix a shown label may carry after [`label`], and only on the card's recommended
+/// option: what a sitting appends to the recommendation of a two-way item.
+pub const RECOMMENDED_SUFFIX: &str = " (Recommended)";
 
 /// A question as the dialog showed it to the person.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -79,7 +88,7 @@ pub struct Choice {
 }
 
 /// Why an answer does not witness a pick of one option.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Unwitnessed {
     /// The dialog ended at its idle timeout, so nobody answered.
     #[error("the dialog timed out with nobody answering")]
@@ -90,12 +99,19 @@ pub enum Unwitnessed {
     /// The person typed their own response, which names no shown option for certain.
     #[error("the person typed a response instead of selecting an option")]
     FreeText,
+    /// The item's card breaks a rule every card must pass, such as repeated option ids; cards
+    /// folded from the store or imported ledgers are not otherwise re-validated.
+    #[error("the item's card is not valid: {0}")]
+    InvalidCard(#[source] CardError),
     /// The question let the person select several options.
     #[error("the question was multi-select")]
     MultiSelect,
     /// The question shown is not the item's own question.
     #[error("the question shown is not the item's own")]
     NotTheItemsQuestion,
+    /// The same label was shown more than once; the label.
+    #[error("the label `{0}` was shown more than once")]
+    DuplicateLabel(String),
     /// An eligible option was not shown under its label; the option's id.
     #[error("eligible option `{0}` was not shown")]
     OptionNotShown(String),
@@ -185,16 +201,20 @@ pub fn witness(
     if shown.multi_select {
         return Err(Unwitnessed::MultiSelect);
     }
+    item.card.validate().map_err(Unwitnessed::InvalidCard)?;
     if !is_items_question(&shown.text, item) {
         return Err(Unwitnessed::NotTheItemsQuestion);
     }
-    let was_shown = |l: &str| shown.labels.iter().any(|s| s == l);
+    let mut seen = std::collections::BTreeSet::new();
+    if let Some(repeated) = shown.labels.iter().find(|l| !seen.insert(l.as_str())) {
+        return Err(Unwitnessed::DuplicateLabel(repeated.clone()));
+    }
     if let Some(missing) = item
         .card
         .options
         .iter()
         .filter(|o| o.fails_must.is_none())
-        .find(|o| !was_shown(&label(o)))
+        .find(|o| !shown.labels.iter().any(|l| names(item.card, o, l)))
     {
         return Err(Unwitnessed::OptionNotShown(missing.id.clone()));
     }
@@ -202,10 +222,14 @@ pub fn witness(
         [one] => one,
         many => return Err(Unwitnessed::SelectionCount(many.len())),
     };
-    if !was_shown(picked) {
+    if !shown.labels.contains(picked) {
         return Err(Unwitnessed::LabelNotShown(picked.clone()));
     }
-    let mut matching = item.card.options.iter().filter(|o| label(o) == *picked);
+    let mut matching = item
+        .card
+        .options
+        .iter()
+        .filter(|o| names(item.card, o, picked));
     let option = match (matching.next(), matching.next()) {
         (Some(option), None) => option,
         (None, _) => return Err(Unwitnessed::UnknownLabel(picked.clone())),
@@ -219,8 +243,21 @@ pub fn witness(
     })
 }
 
+/// Whether the shown label `shown` names `option` of `card`: its [`label`], or, for the card's
+/// recommended option only, its label followed by [`RECOMMENDED_SUFFIX`] once.
+fn names(card: &Card, option: &CardOption, shown: &str) -> bool {
+    let own = label(option);
+    shown == own
+        || (option.id == card.recommendation.option
+            && shown.strip_suffix(RECOMMENDED_SUFFIX) == Some(own.as_str()))
+}
+
 /// Whether `text` is `<id> <question>` for `item`, exactly or followed by [`ONE_WAY_SUFFIX`].
+/// An item with a blank question has no question of its own to match.
 fn is_items_question(text: &str, item: &ItemCard<'_>) -> bool {
+    if item.question.trim().is_empty() {
+        return false;
+    }
     let rest = text
         .strip_prefix(item.id.as_str())
         .and_then(|r| r.strip_prefix(' '))
@@ -282,13 +319,22 @@ mod tests {
     }
 
     fn check(shown: &ShownQuestion, answer: &Answer, card: &Card) -> Result<Choice, Unwitnessed> {
+        check_question(shown, answer, card, QUESTION)
+    }
+
+    fn check_question(
+        shown: &ShownQuestion,
+        answer: &Answer,
+        card: &Card,
+        question: &str,
+    ) -> Result<Choice, Unwitnessed> {
         let id = id();
         witness(
             shown,
             answer,
             &ItemCard {
                 id: &id,
-                question: QUESTION,
+                question,
                 card,
             },
         )
@@ -371,24 +417,94 @@ mod tests {
         }
     }
 
+    /// `shown(&id())` with `from` replaced by `to`.
+    fn relabelled(from: &str, to: &str) -> ShownQuestion {
+        let mut s = shown(&id());
+        for l in &mut s.labels {
+            if l == from {
+                to.clone_into(l);
+            }
+        }
+        s
+    }
+
     #[test]
-    fn an_eligible_option_left_out_or_relabelled_is_unwitnessed() {
+    fn an_eligible_option_left_out_is_unwitnessed() {
         let mut s = shown(&id());
         s.labels.retain(|l| l != "B: Option B");
         assert_eq!(
             check(&s, &picked("A: Option A"), &card()),
             Err(Unwitnessed::OptionNotShown("B".into()))
         );
-        let mut s = shown(&id());
-        for l in &mut s.labels {
-            if l == "B: Option B" {
-                "B: Option B (Recommended)".clone_into(l);
-            }
+    }
+
+    #[test]
+    fn the_recommended_option_may_carry_the_recommended_suffix() {
+        let s = relabelled("A: Option A", "A: Option A (Recommended)");
+        for (label, option) in [("A: Option A (Recommended)", "A"), ("B: Option B", "B")] {
+            assert_eq!(
+                check(&s, &picked(label), &card()),
+                Ok(Choice {
+                    option: option.into()
+                }),
+                "{label}"
+            );
         }
+    }
+
+    #[test]
+    fn the_recommended_suffix_on_another_option_or_twice_is_unwitnessed() {
+        let s = relabelled("B: Option B", &format!("B: Option B{RECOMMENDED_SUFFIX}"));
         assert_eq!(
             check(&s, &picked("A: Option A"), &card()),
             Err(Unwitnessed::OptionNotShown("B".into()))
         );
+        let s = relabelled("A: Option A", "A: Option A (Recommended) (Recommended)");
+        assert_eq!(
+            check(&s, &picked("B: Option B"), &card()),
+            Err(Unwitnessed::OptionNotShown("A".into()))
+        );
+    }
+
+    #[test]
+    fn a_label_shown_twice_is_unwitnessed() {
+        let mut s = shown(&id());
+        s.labels.push("B: Option B".into());
+        assert_eq!(
+            check(&s, &picked("A: Option A"), &card()),
+            Err(Unwitnessed::DuplicateLabel("B: Option B".into()))
+        );
+    }
+
+    #[test]
+    fn a_card_with_repeated_option_ids_is_unwitnessed() {
+        let mut keep = opt("A");
+        "Keep".clone_into(&mut keep.title);
+        let mut drop = opt("A");
+        "Drop".clone_into(&mut drop.title);
+        let mut c = card();
+        c.options = vec![keep, drop];
+        let mut s = shown(&id());
+        s.labels = vec!["A: Keep".into(), "A: Drop".into()];
+        assert_eq!(
+            check(&s, &picked("A: Drop"), &c),
+            Err(Unwitnessed::InvalidCard(CardError::DuplicateOption(
+                "A".into()
+            )))
+        );
+    }
+
+    #[test]
+    fn an_item_with_an_empty_question_is_unwitnessed() {
+        for question in ["", " "] {
+            let mut s = shown(&id());
+            s.text = format!("{} {question}", id());
+            assert_eq!(
+                check_question(&s, &picked("A: Option A"), &card(), question),
+                Err(Unwitnessed::NotTheItemsQuestion),
+                "{question:?}"
+            );
+        }
     }
 
     #[test]
@@ -437,6 +553,7 @@ mod tests {
         let mut second = opt("X");
         "y: z".clone_into(&mut second.title);
         c.options = vec![first, second];
+        "X".clone_into(&mut c.recommendation.option);
         let mut s = shown(&id());
         s.labels = vec!["X: y: z".into()];
         assert_eq!(
