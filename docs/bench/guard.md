@@ -222,9 +222,11 @@ The writes it checks:
 - the destination of `rsync` (its last operand, options read wherever they stand, a trailing
   `--delete` too), judged as `cp`'s is, except that a source ending in `/` copies only its
   contents, so it lands at no joined path; with `--remove-source-files`, its sources as `mv`'s
-  are (#117). A long option the guard does not list, written without `=`, may take a value, so
-  the command is read both with it as a flag and with it taking the next word, and either
-  reading's denial stands (`rsync -a x/ .claude/ --new-option L` is denied, #135);
+  are (#117). A long option the guard does not list, written without `=`, is read as a flag;
+  but when an operand at the end directly follows one, it may be that option's value, so the
+  operand before it is judged as the destination too, with the operands before it as sources,
+  walking back while that holds; any candidate's denial stands (`rsync -a x/ .claude/
+  --new-option L` and `rsync -av --delete x/ .claude/ --new-option L` are denied, #135);
 - the directory `tar` (also `gtar`, `bsdtar`) extracts into, when it extracts (`-x`,
   `--extract`, `--get`): every `-C DIR`, `-CDIR`, `--directory[=]DIR` and `--cd[=]DIR`, and an old-style
   first word's `C` (`tar xfC x.tar DIR`); and `unzip -d DIR` (or `-dDIR`). A config folder
@@ -432,6 +434,10 @@ it cannot model instead of modelling every shell feature, and it does not try to
   tree), `tar --transform` or `--one-top-level`, other extractors (`7z`, `bsdcpio`), and an
   `rsync`, `tar` or `unzip` behind a program the guard does not know (`caffeinate rsync ...`),
   since only the programs listed in "Unlisted wrappers" above start a nested read (#117);
+- an `rsync` over-denial, accepted: a flag the guard does not list before a trailing operand
+  makes the operand before it a candidate destination, so `rsync -av .claude/ .github/
+  --progress /tmp/backup/` is denied as writing `.github/`, though `--progress` takes no value
+  and the destination is `/tmp/backup/` (#135). Put the options before the operands;
 - a copy that rebuilds its sources' paths under the destination: `rsync -R /src/./.claude/x .`
   and `cp --parents src/.claude/settings.json dest` create a config folder below a destination
   that is not named as one (#117);
