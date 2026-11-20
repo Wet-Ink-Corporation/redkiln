@@ -5,9 +5,7 @@
 //! counts it (EV-10), as every one imported before step 7 does. Its payload is the record's
 //! keys but the context, unchanged; its subject tag is `task:<ticket>`, as before.
 
-use bench_contract::event::{
-    BRIDGE_UNAVAILABLE, ORCHESTRATE_RULED, RetiredType, WEIGHIN_PARKED,
-};
+use bench_contract::event::{BRIDGE_UNAVAILABLE, ORCHESTRATE_RULED, RetiredType, WEIGHIN_PARKED};
 use redkiln_core::envelope::{Class, Payload};
 use redkiln_core::journal::Mapped;
 use redkiln_core::store::{CoreKey, NewEvent, Stored, Tag};

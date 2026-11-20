@@ -173,8 +173,14 @@ fn ledger_append_refuses_each_retired_type_and_writes_nothing() -> TestResult {
     let store = dir.path().join("ledger.sqlite3");
 
     for (retired, data) in [
-        ("bench.weighin_parked", r#"{"item_id":"wi-e41e02","ticket":"36"}"#),
-        ("bench.bridge.unavailable", r#"{"ticket":"36","reason":"no weighin"}"#),
+        (
+            "bench.weighin_parked",
+            r#"{"item_id":"wi-e41e02","ticket":"36"}"#,
+        ),
+        (
+            "bench.bridge.unavailable",
+            r#"{"ticket":"36","reason":"no weighin"}"#,
+        ),
         (
             "bench.orchestrate.ruled",
             r#"{"ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert"}"#,
@@ -188,7 +194,9 @@ fn ledger_append_refuses_each_retired_type_and_writes_nothing() -> TestResult {
             refused["findings"][0]["key"], "ledger/schema",
             "D6 B: {retired} is no type append takes: {refused}"
         );
-        let message = refused["findings"][0]["message"].as_str().unwrap_or_default();
+        let message = refused["findings"][0]["message"]
+            .as_str()
+            .unwrap_or_default();
         assert!(message.contains(retired), "{retired}: {message}");
     }
     assert!(!store.exists(), "nothing was written");

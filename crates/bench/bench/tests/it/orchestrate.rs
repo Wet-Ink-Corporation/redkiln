@@ -145,7 +145,10 @@ fn fan_out_over_two_independent_tickets_exits_3_and_rule_raises_the_ruling() -> 
         requests,
         [(
             rule["data"]["position"].as_u64().ok_or("a position")?,
-            rule["data"]["item_id"].as_str().ok_or("an item id")?.to_owned()
+            rule["data"]["item_id"]
+                .as_str()
+                .ok_or("an item id")?
+                .to_owned()
         )],
         "the ruling is raised once, as the item the envelope names"
     );
@@ -160,7 +163,11 @@ fn requests(store: &Path) -> TestResult<Vec<(u64, String)>> {
     let filter = Filter::all().of_type("weighin.request_raised")?;
     let stored = Store::open_existing(store, Wait::Command)?
         .ok_or("the store")?
-        .read(&filter, 0, std::num::NonZeroUsize::new(8).ok_or("non-zero")?)?;
+        .read(
+            &filter,
+            0,
+            std::num::NonZeroUsize::new(8).ok_or("non-zero")?,
+        )?;
     stored
         .iter()
         .map(|event| {
