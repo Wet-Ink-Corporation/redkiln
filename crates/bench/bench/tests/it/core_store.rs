@@ -218,18 +218,17 @@ fn reads_and_session_start_create_no_store_beside_an_old_ledger_or_nothing() -> 
         );
     }
     // SessionStart creates nothing where there is nothing to import; beside an old ledger it
-    // imports it (step 3.5, Ryan's call 2026-11-11).
+    // imports it (step 3.5, Ryan's call 2026-11-11). That half is pinned in process with no
+    // deadline (`src/hook/bootstrap/import_tests.rs`,
+    // `session_start_imports_an_old_ledger_once_and_a_later_run_appends_nothing`, which asserts
+    // the same message and more), since through the binary a slow Windows runner passed the
+    // import's 2 s deadline (#131, TST-10).
     let started = bootstrap(empty.path(), None)?;
     assert_eq!(started.status.code(), Some(0), "{started:?}");
     assert!(
         !empty.path().join(".git/redkiln").exists(),
-        "SessionStart with nothing to import creates neither the store nor its directory"
-    );
-    let said = context(&bootstrap(with_old.path(), None)?)?;
-    assert!(
-        said.contains("the anneal ledger")
-            && said.contains("is left as it is: its events are imported"),
-        "SessionStart says it imported the old ledger: {said}"
+        "SessionStart with nothing to import creates neither the store nor its directory: \
+         {started:?}"
     );
     Ok(())
 }

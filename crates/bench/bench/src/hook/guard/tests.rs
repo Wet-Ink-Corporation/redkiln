@@ -11,12 +11,17 @@ use bench_contract::event::GateBlocked;
 use serde_json::{Value, json};
 
 use super::{
-    Decision, Fallback, GIT_TIMEOUT, HOOK_BUDGET, MAX_INPUT_BYTES, RECORD_STEPS, git_budget, run,
+    Decision, Fallback, GIT_TIMEOUT, HOOK_BUDGET, MAX_INPUT_BYTES, Ports, RECORD_STEPS, git_budget,
+    run, run_with,
 };
+use crate::decide::transport::NoHttpClient;
 use crate::hook::HookEnv;
+use crate::hook::clef_fake::Fixed;
 use crate::hook::store_wait::{FLOOR, every_remaining, share};
 
-/// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout.
+/// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout. The guard's
+/// clock stands still ([`Fixed`]), so a record always has the whole [`HOOK_BUDGET`] however
+/// slow the runner (#131, TST-10), and Clef is never reached ([`NoHttpClient`]).
 fn guard(stdin: &[u8], store: &Path) -> String {
     let lookup = |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(store));
     let env = HookEnv {
@@ -26,9 +31,33 @@ fn guard(stdin: &[u8], store: &Path) -> String {
         current_dir: || Ok(std::env::temp_dir()),
         lookup,
     };
+    let ports = Ports {
+        transport: &NoHttpClient,
+        clock: &Fixed,
+    };
     let mut out = Vec::new();
-    run(env, &mut out).expect("a Vec accepts every write");
+    run_with(env, &ports, &mut out).expect("a Vec accepts every write");
     String::from_utf8(out).expect("UTF-8")
+}
+
+/// The `point` of each `gate_blocked` event in the ledger at `store`; `said` (the guard's
+/// output, which notes why a record was skipped) goes into every failure message.
+fn blocked_points(store: &Path, said: &str) -> Vec<String> {
+    let events = Store::open(store)
+        .and_then(|ledger| {
+            ledger.query(&Filter {
+                types: vec![EventKind::GateBlocked],
+                ..Filter::default()
+            })
+        })
+        .unwrap_or_else(|error| panic!("the ledger reads: {error}; the guard said: {said}"));
+    events
+        .iter()
+        .map(|recorded| match &recorded.event.event {
+            LedgerEvent::GateBlocked(GateBlocked { point, .. }) => point.clone(),
+            other => panic!("a gate_blocked event, got {other:?}; the guard said: {said}"),
+        })
+        .collect()
 }
 
 fn bash(command: &str) -> Vec<u8> {
@@ -123,6 +152,72 @@ fn a_denial_is_recorded_as_gate_blocked_with_the_session() {
         recorded.event.session_id.as_deref(),
         Some("s-guard"),
         "tagged with the session"
+    );
+}
+
+/// Moved from `tests/it/hook_guard.rs` (#131): there, through the binary on the system clock,
+/// a slow Windows runner left too little of the guard's budget for the record, and the deny
+/// went out without its `gate_blocked` event. Here the guard's clock stands still, so the
+/// record always has the whole budget (TST-10). The command, session, `cwd`, ledger path and
+/// assertions are the binary test's; its input's other fields (`transcript_path`,
+/// `permission_mode`, `tool_use_id`) the guard does not read. Each failure message carries the
+/// deny reason, which says why a record was skipped.
+#[test]
+fn a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = dir.path().join("anneal").join("ledger.sqlite3");
+    let stdin = json!({
+        "session_id": "s-it",
+        "cwd": dir.path(),
+        HOOK_EVENT_NAME: "PreToolUse",
+        "tool_name": "Bash",
+        TOOL_INPUT: {"command": "cd x && git push --force origin main", "description": "test"},
+    })
+    .to_string();
+
+    let reason = denied(&guard(stdin.as_bytes(), &store));
+    assert!(
+        reason.starts_with("ERROR guard force-push: force push to protected branch main"),
+        "names the rule and the branch: {reason}"
+    );
+    let events = Store::open(&store)
+        .and_then(|ledger| {
+            ledger.query(&Filter {
+                types: vec![EventKind::GateBlocked],
+                ..Filter::default()
+            })
+        })
+        .unwrap_or_else(|error| panic!("the ledger reads: {error}; the deny said: {reason}"));
+    let [event] = events.as_slice() else {
+        panic!("one gate_blocked event, got {events:?}; the deny said: {reason}");
+    };
+    let LedgerEvent::GateBlocked(GateBlocked { point, .. }) = &event.event.event else {
+        panic!("a gate_blocked event: {event:?}");
+    };
+    assert_eq!(point, "guard.force-push", "{event:?}");
+    assert_eq!(event.event.session_id.as_deref(), Some("s-it"), "{event:?}");
+}
+
+/// The record half of `tests/it/hook_guard.rs`'s
+/// `a_model_s_human_verdict_is_denied_as_human_only_and_its_plan_approval_is_not`, moved here
+/// (#131) for the reason above: the same two commands, and the same assertion that the denial
+/// alone is recorded. The deny reason and the silent plan approval stay checked through the
+/// binary.
+#[test]
+fn a_model_s_human_verdict_is_recorded_as_human_only_and_its_plan_approval_is_not() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = dir.path().join("anneal").join("ledger.sqlite3");
+    let verdict = "bash -c 'bench verdict set --pr 7 --sha HEAD --level approved --source \
+                   human --actor human --via bash'";
+
+    let denied = guard(&bash(verdict), &store);
+    let approved = guard(&bash("bench plan approve p.md --actor human"), &store);
+
+    let said = format!("{denied}{approved}");
+    assert_eq!(
+        blocked_points(&store, &said),
+        ["guard.human-only"],
+        "the denial alone is recorded; the guard said: {said}"
     );
 }
 
