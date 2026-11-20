@@ -1,6 +1,8 @@
 //! Bash writes to lint or hook config: redirections, `tee`, `truncate`, `sed -i`, `cp`, `mv`,
 //! `ln`, `install`, `rm` and `chmod` aimed at a protected path, and hard links to one (`ln`
-//! without `-s`, `link`, `cp -l`), since writing the link writes the file.
+//! without `-s`, `link`, `cp -l`), since writing the link writes the file. `rsync`, `tar -x`
+//! and `unzip -d` destinations are read in [`unpack`], inline interpreter code in [`inline`]
+//! (#117).
 //!
 //! Paths are matched on their components by the guard kit ([`redkiln_guard::protect`]) against
 //! Bench's table ([`PROTECTED`]), so `docs/hooks.md` and `myhooks/x` are not `hooks/`. A
@@ -9,6 +11,9 @@
 //! it starts may land under any parent, so `../settings.json` counts as `.claude/settings.json`.
 //! A relative path after a `cd` is also read from the directory the `cd` named, and from
 //! anywhere after a `cd` the guard cannot follow.
+
+mod inline;
+mod unpack;
 
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::engine::Cwd;
@@ -133,7 +138,10 @@ pub(super) fn check(program: &str, args: &[Word], cwd: &Cwd) -> Option<Denial> {
         "sed" => sed(args, cwd),
         "cp" | "install" | "ln" | "link" => copy(program, args, false, cwd),
         "mv" => copy(program, args, true, cwd),
-        _ => None,
+        "rsync" => unpack::rsync(args, cwd),
+        "tar" | "gtar" | "bsdtar" => unpack::tar(program, args, cwd),
+        "unzip" => unpack::unzip(args, cwd),
+        _ => inline::check(program, args, cwd),
     }
 }
 
@@ -237,6 +245,15 @@ struct CopyArgs<'a> {
     symbolic: bool,
     /// `-l` or `--link` (`cp`): hard links instead of copies.
     link: bool,
+}
+
+/// What a source ending in `/` copies into a directory destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrailingSlash {
+    /// The source itself, at `<dest>/<its name>` (`cp`, `mv`, `ln`, `install`).
+    Itself,
+    /// Only its contents, so it lands at no joined path (`rsync`).
+    Contents,
 }
 
 impl<'a> CopyArgs<'a> {
@@ -343,6 +360,26 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
     {
         return Some(denial);
     }
+    let mode = CopyMode {
+        moves,
+        slash: TrailingSlash::Itself,
+    };
+    copy_into(program, &copy, mode, cwd)
+}
+
+/// How a copying program treats its sources.
+#[derive(Debug, Clone, Copy)]
+struct CopyMode {
+    /// It moves them away (`mv`, `rsync --remove-source-files`).
+    moves: bool,
+    /// What a source ending in `/` copies.
+    slash: TrailingSlash,
+}
+
+/// The denial for `program` writing its destination, or a source's joined path in it, when
+/// either is protected config; when it moves its sources, also for moving one that holds
+/// config away.
+fn copy_into(program: &str, copy: &CopyArgs<'_>, mode: CopyMode, cwd: &Cwd) -> Option<Denial> {
     // A source lands at `<dest>/<its name>` when the destination is a directory: always for
     // `-t`, and, since the guard cannot look, when the destination ends in `/` or names a
     // directory that holds config.
@@ -367,8 +404,13 @@ fn copy(program: &str, args: &[Word], moves: bool, cwd: &Cwd) -> Option<Denial> 
         return Some(deny(&format!("{program} writes {dest}"), label));
     }
     sources.iter().find_map(|source| {
-        if moves && let Some(label) = contains_protected(source.text(), source.shape(), cwd) {
+        if mode.moves
+            && let Some(label) = contains_protected(source.text(), source.shape(), cwd)
+        {
             return Some(deny(&format!("{program} moves {}", source.text()), label));
+        }
+        if mode.slash == TrailingSlash::Contents && source.text().ends_with(['/', '\\']) {
+            return None;
         }
         let joined = format!("{dest}/{}", basename(source.text()));
         let label =
