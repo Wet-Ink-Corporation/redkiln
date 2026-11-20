@@ -457,6 +457,22 @@ fn invalid_park_arguments_are_usage_errors_that_run_and_record_nothing() -> Test
     Ok(())
 }
 
+/// Each option of `request` as its id, label, when it holds and its cost if wrong.
+fn options_of(request: &Request) -> Vec<(OptionId, &str, &str, &str)> {
+    request
+        .options
+        .iter()
+        .map(|option| {
+            (
+                option.id,
+                option.label.as_str(),
+                option.holds_when.as_str(),
+                option.cost_if_wrong.as_str(),
+            )
+        })
+        .collect()
+}
+
 /// A ruling on ticket 7: one cache per tenant.
 const RULE: [&str; 9] = [
     "rule",
@@ -493,20 +509,8 @@ fn a_ruling_raises_one_two_way_judgment_request_defaulting_to_what_was_ruled() -
         json!(request.item_id()?.as_str())
     );
     assert_eq!(request.question, "Ticket 7: keep one cache per tenant");
-    let options: Vec<(OptionId, &str, &str, &str)> = request
-        .options
-        .iter()
-        .map(|option| {
-            (
-                option.id,
-                option.label.as_str(),
-                option.holds_when.as_str(),
-                option.cost_if_wrong.as_str(),
-            )
-        })
-        .collect();
     assert_eq!(
-        options,
+        options_of(request),
         [
             (
                 OptionId::A,
