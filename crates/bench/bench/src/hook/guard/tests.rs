@@ -11,9 +11,12 @@ use bench_contract::event::GateBlocked;
 use serde_json::{Value, json};
 
 use super::{
-    Decision, Fallback, GIT_TIMEOUT, HOOK_BUDGET, MAX_INPUT_BYTES, RECORD_STEPS, git_budget, run,
+    Decision, Fallback, GIT_TIMEOUT, HOOK_BUDGET, MAX_INPUT_BYTES, Ports, RECORD_STEPS, git_budget,
+    run, run_with,
 };
+use crate::decide::transport::NoHttpClient;
 use crate::hook::HookEnv;
+use crate::hook::clef_fake::Fixed;
 use crate::hook::store_wait::{FLOOR, every_remaining, share};
 
 /// Runs the guard on `stdin` with the ledger at `store`, and returns its stdout.
@@ -124,6 +127,59 @@ fn a_denial_is_recorded_as_gate_blocked_with_the_session() {
         Some("s-guard"),
         "tagged with the session"
     );
+}
+
+/// Moved from `tests/it/hook_guard.rs` (#131): there, through the binary on the system clock,
+/// a slow Windows runner left too little of the guard's budget for the record, and the deny
+/// went out without its `gate_blocked` event. Here the guard's clock stands still, so the
+/// record always has the whole budget (TST-10); the input and the assertions are the binary
+/// test's. Each failure message carries the deny reason, which says why a record was skipped.
+#[test]
+fn a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event() {
+    let dir = tempfile::tempdir().expect("a temporary directory");
+    let store = dir.path().join("anneal").join("ledger.sqlite3");
+    let stdin = json!({
+        "session_id": "s-it",
+        "cwd": dir.path(),
+        HOOK_EVENT_NAME: "PreToolUse",
+        "tool_name": "Bash",
+        TOOL_INPUT: {"command": "cd x && git push --force origin main", "description": "test"},
+    })
+    .to_string();
+    let env = HookEnv {
+        stdin: stdin.as_bytes(),
+        current_dir: || Ok(std::env::temp_dir()),
+        lookup: |var: &str| (var == "REDKILN_STORE").then(|| OsString::from(&store)),
+    };
+    let ports = Ports {
+        transport: &NoHttpClient,
+        clock: &Fixed,
+    };
+    let mut out = Vec::new();
+
+    run_with(env, &ports, &mut out).expect("a Vec accepts every write");
+
+    let reason = denied(&String::from_utf8(out).expect("UTF-8"));
+    assert!(
+        reason.starts_with("ERROR guard force-push: force push to protected branch main"),
+        "names the rule and the branch: {reason}"
+    );
+    let events = Store::open(&store)
+        .and_then(|ledger| {
+            ledger.query(&Filter {
+                types: vec![EventKind::GateBlocked],
+                ..Filter::default()
+            })
+        })
+        .unwrap_or_else(|error| panic!("the ledger reads: {error}; the deny said: {reason}"));
+    let [event] = events.as_slice() else {
+        panic!("one gate_blocked event, got {events:?}; the deny said: {reason}");
+    };
+    let LedgerEvent::GateBlocked(GateBlocked { point, .. }) = &event.event.event else {
+        panic!("a gate_blocked event: {event:?}");
+    };
+    assert_eq!(point, "guard.force-push", "{event:?}");
+    assert_eq!(event.event.session_id.as_deref(), Some("s-it"), "{event:?}");
 }
 
 #[test]

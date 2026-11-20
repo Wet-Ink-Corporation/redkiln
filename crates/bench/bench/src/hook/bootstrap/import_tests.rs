@@ -109,6 +109,26 @@ fn session_start(cwd: &Path) -> Result<String, Box<dyn Error>> {
         .to_owned())
 }
 
+/// The `SessionStart` half of `tests/it/core_store.rs`'s
+/// `reads_and_session_start_create_no_store_beside_an_old_ledger_or_nothing` beside an old
+/// ledger, moved here (#131): through the binary, a slow Windows runner passed the import's 2 s
+/// deadline and `SessionStart` did not say it had imported. The assertion is the binary test's;
+/// its message carries the whole context, which says why an import stopped or failed.
+#[test]
+#[cfg_attr(miri, ignore = "runs git and opens SQLite through FFI")]
+fn session_start_beside_an_old_ledger_says_it_imported_it() -> TestResult {
+    let (work, _old) = repository()?;
+
+    let said = session_start(work.path())?;
+
+    assert!(
+        said.contains("the anneal ledger")
+            && said.contains("is left as it is: its events are imported"),
+        "SessionStart says it imported the old ledger: {said}"
+    );
+    Ok(())
+}
+
 #[test]
 #[cfg_attr(miri, ignore = "runs git and opens SQLite through FFI")]
 fn session_start_imports_an_old_ledger_once_and_a_later_run_appends_nothing() -> TestResult {

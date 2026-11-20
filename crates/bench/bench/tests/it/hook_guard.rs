@@ -119,7 +119,11 @@ fn deny_reason(output: &Output) -> Result<String, Box<dyn Error>> {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event() -> TestResult {
+/// What stays here of `a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event`: the
+/// deny the binary writes. Its `gate_blocked` half runs in process with a clock that stands
+/// still (`src/hook/guard/tests.rs`, same name), since on a slow Windows runner the binary's
+/// budget left too little for the record (#131, TST-10).
+fn a_denied_command_gets_a_deny_decision_naming_the_rule_and_the_branch() -> TestResult {
     let scratch = Scratch::new()?;
 
     let output = scratch.guard(&scratch.bash("cd x && git push --force origin main")?)?;
@@ -128,20 +132,6 @@ fn a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event() -> TestResul
     assert!(
         reason.starts_with("ERROR guard force-push: force push to protected branch main"),
         "names the rule and the branch: {reason}"
-    );
-    let events = scratch.blocked()?;
-    let [event] = events.as_slice() else {
-        return Err(format!("one gate_blocked event, got {events:?}").into());
-    };
-    assert_eq!(
-        event.pointer("/event/data/point"),
-        Some(&Value::from("guard.force-push")),
-        "{event}"
-    );
-    assert_eq!(
-        event.pointer("/event/session"),
-        Some(&Value::from("s-it")),
-        "{event}"
     );
     Ok(())
 }
