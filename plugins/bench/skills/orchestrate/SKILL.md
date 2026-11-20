@@ -50,6 +50,6 @@ Rulings, not stalls. Fanning out costs about 15 times the tokens of one session,
 
 ## Verification
 
-- `weighin open --all` lists each ruling, defaulted.
+- `weighin open --all` lists each ruling.
 - `weighin open --repo` shows each parked item.
 - Each ticket has a verifier verdict within five rounds.
