@@ -463,3 +463,61 @@ fn this_repositorys_release_check_agrees_with_its_own_versions() {
         ),
     }
 }
+
+const OTHER_HOOKS: &str = r#"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/libexec/other","args":["hook","Stop"]}]}]}}"#;
+
+/// [`plugins`] plus an unrelated plugin whose binary has no build, as `plugins/bench/` is while
+/// only Weigh-In releases.
+fn plugins_with_an_unbuilt_one(root: &Path) -> std::io::Result<()> {
+    plugins(root, "2.0.0")?;
+    tree(
+        root,
+        &[
+            (
+                "other/.claude-plugin/plugin.json",
+                r#"{"name":"rk-other","version":"0.0.5","description":"Not released."}"#,
+            ),
+            ("other/hooks/hooks.json", OTHER_HOOKS),
+            ("other/libexec/other", "#!/bin/sh\n"),
+            ("other/libexec/other.cmd", "@echo off\r\n"),
+        ],
+    )
+}
+
+#[test]
+fn packaging_one_plugin_stages_it_and_the_plugins_sharing_its_binary_only()
+-> Result<(), Box<dyn std::error::Error>> {
+    let dir = scratch("release-package-one")?;
+    plugins_with_an_unbuilt_one(&dir.join("plugins"))?;
+    let out = dir.join("out");
+
+    let packaged = release::package_for(&dir.join("plugins"), &out, Download::Off, "demo")?;
+
+    let names: Vec<_> = packaged.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["rk-demo", "rk-demo-mod"]);
+    assert!(
+        !out.join("rk-other").exists(),
+        "an unrelated plugin is not staged"
+    );
+    Ok(())
+}
+
+#[test]
+fn packaging_a_plugin_that_does_not_exist_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = scratch("release-package-missing")?;
+    plugins_with_an_unbuilt_one(&dir.join("plugins"))?;
+
+    let refused = release::package_for(
+        &dir.join("plugins"),
+        &dir.join("out"),
+        Download::Off,
+        "nope",
+    );
+
+    assert!(
+        matches!(&refused, Err(ReleaseError::Plugin { plugin, .. }) if plugin == "nope"),
+        "{refused:?}"
+    );
+    assert!(!dir.join("out").exists(), "nothing is written");
+    Ok(())
+}

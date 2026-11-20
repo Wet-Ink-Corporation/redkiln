@@ -27,7 +27,7 @@ use crate::plugins;
 pub use build::build;
 pub use marketplace::assemble;
 pub use notes::{changelog_section, release_check};
-pub use package::{Download, Packaged, package, stamp};
+pub use package::{Download, Packaged, package, package_for, stamp};
 
 /// Why a release task could not finish.
 #[derive(Debug, thiserror::Error)]

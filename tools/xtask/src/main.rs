@@ -15,7 +15,8 @@
 //!
 //! - `build [--target <triple>]`: release builds of every plugin binary into the plugins'
 //!   `libexec/<target>/` (the host's target by default).
-//! - `package <out> [--download]`: every plugin staged into `<out>/<name>/` with its builds, the
+//! - `package <out> [--download] [--plugin <plugin>]`: every plugin (under `--plugin`, that one
+//!   and the plugins shipping its binary) staged into `<out>/<name>/` with its builds, the
 //!   Windows build at `libexec/<binary>.exe` and its Cowork fetch script stamped (with the musl
 //!   build's SHA-256 under `--download`), checked against the plugin rules.
 //! - `marketplace <packages> <release-repository>`: the packaged plugins written into a checkout
@@ -46,9 +47,17 @@ fn main() -> ExitCode {
         [name] if name == "plugins" => run_plugins(),
         [name] if name == "build" => run_build(None),
         [name, flag, target] if name == "build" && flag == "--target" => run_build(Some(target)),
-        [name, out] if name == "package" => run_package(out, release::Download::Off),
+        [name, out] if name == "package" => run_package(out, release::Download::Off, None),
         [name, out, flag] if name == "package" && flag == "--download" => {
-            run_package(out, release::Download::Stamp)
+            run_package(out, release::Download::Stamp, None)
+        }
+        [name, out, flag, plugin] if name == "package" && flag == "--plugin" => {
+            run_package(out, release::Download::Off, Some(plugin))
+        }
+        [name, out, download, flag, plugin]
+            if name == "package" && download == "--download" && flag == "--plugin" =>
+        {
+            run_package(out, release::Download::Stamp, Some(plugin))
         }
         [name, packages, repository] if name == "marketplace" => {
             run_marketplace(packages, repository)
@@ -144,10 +153,23 @@ fn run_build(target: Option<&OsStr>) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Stages every plugin into `out`.
-fn run_package(out: &OsStr, download: release::Download) -> Result<ExitCode, String> {
-    let packaged = release::package(&repository().join("plugins"), Path::new(out), download)
-        .map_err(|error| error_chain(&error))?;
+/// Stages every plugin, or one release's plugins under `--plugin`, into `out`.
+fn run_package(
+    out: &OsStr,
+    download: release::Download,
+    plugin: Option<&OsStr>,
+) -> Result<ExitCode, String> {
+    let plugins = repository().join("plugins");
+    let packaged = match plugin {
+        None => release::package(&plugins, Path::new(out), download),
+        Some(plugin) => {
+            let plugin = plugin
+                .to_str()
+                .ok_or_else(|| format!("plugin name {} is not UTF-8", plugin.display()))?;
+            release::package_for(&plugins, Path::new(out), download, plugin)
+        }
+    }
+    .map_err(|error| error_chain(&error))?;
     let mut stdout = io::stdout().lock();
     for plugin in &packaged {
         writeln!(
