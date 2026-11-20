@@ -154,8 +154,10 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # redkiln is public, so the Cowork fetch script may download the musl build from this
       # release with no login: stamp its checksum (weigh-in D-0021).
-      - name: Package (cargo xtask package --download)
-        run: cargo xtask package dist/plugins --download
+      # Only this plugin and the plugins shipping its binary (its mod): a plugin not being
+      # released, such as rk-bench before 0.1.0, is never staged or published.
+      - name: Package (cargo xtask package --download --plugin)
+        run: cargo xtask package dist/plugins --download --plugin "$PLUGIN"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22

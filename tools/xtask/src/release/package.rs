@@ -70,6 +70,69 @@ pub fn package(
     out: &Path,
     download: Download,
 ) -> Result<Vec<Packaged>, ReleaseError> {
+    let all = read_tree(plugins_dir, Tree::Source)?;
+    let every: Vec<&plugins::Plugin> = all.iter().filter(|p| p.folder).collect();
+    stage(plugins_dir, &all, &every, &Destination { out, download })
+}
+
+/// Stages one release: plugin folder `plugin` and every plugin that ships one of its binaries.
+///
+/// Each is staged as [`package`] stages it, so the release's mod comes along. Plugins sharing
+/// no binary with it are left out: a release never carries a plugin that is not being released,
+/// nor needs its builds.
+///
+/// # Errors
+///
+/// [`ReleaseError::Plugin`] when `plugin` has no folder under `plugins_dir` or ships no binary
+/// (nothing is written then), and every error of [`package`].
+pub fn package_for(
+    plugins_dir: &Path,
+    out: &Path,
+    download: Download,
+    plugin: &str,
+) -> Result<Vec<Packaged>, ReleaseError> {
+    let all = read_tree(plugins_dir, Tree::Source)?;
+    let target = all
+        .iter()
+        .find(|p| p.folder && p.name == plugin)
+        .ok_or_else(|| ReleaseError::Plugin {
+            plugin: plugin.to_owned(),
+            problem: format!("no folder under {}", plugins_dir.display()),
+        })?;
+    let binaries = plugins::launchers(target);
+    if binaries.is_empty() {
+        return Err(ReleaseError::Plugin {
+            plugin: plugin.to_owned(),
+            problem: "ships no launcher copy, so there is no binary to release".to_owned(),
+        });
+    }
+    let chosen: Vec<&plugins::Plugin> = all
+        .iter()
+        .filter(|p| {
+            p.folder
+                && (p.name == plugin || plugins::launchers(p).iter().any(|b| binaries.contains(b)))
+        })
+        .collect();
+    stage(plugins_dir, &all, &chosen, &Destination { out, download })
+}
+
+/// Where [`stage`] writes, and whether its Cowork fetch scripts may download.
+struct Destination<'a> {
+    /// The new folder the packages go into.
+    out: &'a Path,
+    /// How the fetch scripts are stamped.
+    download: Download,
+}
+
+/// Stages `chosen` (plugins of `all`, read from `plugins_dir`) into `to.out`, pooling builds from
+/// every plugin of `all`.
+fn stage(
+    plugins_dir: &Path,
+    all: &[plugins::Plugin],
+    chosen: &[&plugins::Plugin],
+    to: &Destination<'_>,
+) -> Result<Vec<Packaged>, ReleaseError> {
+    let &Destination { out, download } = to;
     match fs::symlink_metadata(out) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(source) => {
@@ -84,11 +147,10 @@ pub fn package(
             });
         }
     }
-    let all = read_tree(plugins_dir, Tree::Source)?;
-    let builds = pool_builds(&all, plugins_dir);
+    let builds = pool_builds(all, plugins_dir);
     let mut versions: BTreeMap<&str, (&str, String)> = BTreeMap::new();
     let mut packaged = Vec::new();
-    for plugin in all.iter().filter(|p| p.folder) {
+    for plugin in chosen.iter().copied() {
         let from = plugins_dir.join(&plugin.name);
         let manifest = read_manifest(&from)?;
         let to = out.join(checked_name(&manifest.name)?);
