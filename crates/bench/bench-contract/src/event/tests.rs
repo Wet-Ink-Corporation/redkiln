@@ -3,7 +3,7 @@
 // `TagKey` was the subject's key there, `SubjectKey` here.
 use super::{
     AgentStatus, BenchEvent as LedgerEvent, EventKind, GrillConfirmed, MigrateContract,
-    MigrateWave, Mode, ModeSet, OrchestrateRuled, REGISTRY_VERSION, RoundStarted, SubagentStatus,
+    MigrateWave, Mode, ModeSet, REGISTRY_VERSION, RoundStarted, SubagentStatus,
     SubjectKey as TagKey, TestOutcome, TestRun, TokenUsage, UnknownEventKind, Verdict, VerdictSet,
     VerdictSource,
 };
@@ -433,41 +433,6 @@ fn migrate_events_are_stored_under_their_dotted_names_with_the_migration_as_subj
             (event.kind().subject(), event.subject_value()),
             (TagKey::Migration, Some("users-email".into())),
             "its subject is the migration"
-        );
-    }
-}
-
-#[test]
-fn orchestrate_events_carry_their_ticket_as_the_task_subject() {
-    let cases = [(
-        json!({"type": "orchestrate.ruled", "ticket": "36", "what": "keep the cache",
-                   "why": "reversible", "cost_if_wrong": "one revert"}),
-        LedgerEvent::OrchestrateRuled(OrchestrateRuled {
-            ticket: "36".to_owned(),
-            what: "keep the cache".to_owned(),
-            why: "reversible".to_owned(),
-            cost_if_wrong: "one revert".to_owned(),
-            decision: None,
-        }),
-    )];
-
-    for (value, expected) in cases {
-        let event: LedgerEvent = serde_json::from_value(value.clone()).expect("registered");
-        assert_eq!(event, expected, "{value} reads");
-        assert_eq!(
-            serde_json::to_value(&event).expect("serialises"),
-            value,
-            "and is written back under the same keys, an absent decision left out"
-        );
-        assert_eq!(
-            Some(event.kind().as_str()),
-            value["type"].as_str(),
-            "its kind is the stored name"
-        );
-        assert_eq!(
-            (event.kind().subject(), event.subject_value()),
-            (TagKey::Task, Some("36".into())),
-            "its subject is the ticket, as a task"
         );
     }
 }

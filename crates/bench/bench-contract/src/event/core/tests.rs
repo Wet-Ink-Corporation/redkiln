@@ -208,7 +208,7 @@ fn head(kind: &str) -> String {
 }
 
 /// Each short name and the `data` bytes of [`one_of_each`]'s event of that kind, in order.
-fn data_goldens() -> [(&'static str, &'static str); 15] {
+fn data_goldens() -> [(&'static str, &'static str); 14] {
     [
         (
             "test_run",
