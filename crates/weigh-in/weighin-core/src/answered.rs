@@ -12,19 +12,24 @@
 //!
 //! 1. the person resolved the dialog: no idle timeout, follow-up or free-text response;
 //! 2. the question is single-select;
-//! 3. the item's card passes [`Card::validate`], so its option ids are unique;
+//! 3. the item's card passes [`Card::validate`], so its option ids are unique, no option's
+//!    title ends with [`RECOMMENDED_SUFFIX`], and no two options can be shown under the same
+//!    label, counting the recommended option's suffixed form;
 //! 4. the question is the item's own: `<id> <question>` byte for byte, or with
 //!    [`ONE_WAY_SUFFIX`], and the item's question is not blank;
-//! 5. no label was shown twice;
-//! 6. every eligible option (one that fails no MUST) was shown under its [`label`], or the
-//!    card's recommended option under its label with [`RECOMMENDED_SUFFIX`];
+//! 5. no label was shown twice, and no option under two labels;
+//! 6. every eligible option (one that fails no MUST) was shown under its [`label`]; the
+//!    recommended option may instead carry [`RECOMMENDED_SUFFIX`] once, but only when the card
+//!    earned its recommendation ([`Card::recommendation_earned`]) and the question is not
+//!    one-way, as a sitting presents it;
 //! 7. exactly one label was selected, and it was one of the labels shown;
-//! 8. that label names exactly one of the card's options, and that option is eligible.
+//! 8. that label names one of the card's options, and that option is eligible.
 //!
 //! A shown label that names no option, such as a `Defer to …` choice, is allowed, but picking it
 //! is not a choice of an option. What the dialog showed besides the question and the labels
 //! (option descriptions, the header) is not checked here.
 
+use std::collections::BTreeSet;
 use weighin_contract::ItemId;
 use weighin_contract::card::{Card, CardError, CardOption};
 
@@ -32,8 +37,10 @@ use weighin_contract::card::{Card, CardError, CardOption};
 /// to a one-way item's question, which it presents options first.
 pub const ONE_WAY_SUFFIX: &str = " (one-way: options first)";
 
-/// The one suffix a shown label may carry after [`label`], and only on the card's recommended
-/// option: what a sitting appends to the recommendation of a two-way item.
+/// The one suffix the recommended option's label may carry after [`label`].
+///
+/// It is allowed only when the card earned its recommendation and the question is not one-way:
+/// what a sitting appends to the recommendation it pre-selects.
 pub const RECOMMENDED_SUFFIX: &str = " (Recommended)";
 
 /// A question as the dialog showed it to the person.
@@ -103,6 +110,14 @@ pub enum Unwitnessed {
     /// folded from the store or imported ledgers are not otherwise re-validated.
     #[error("the item's card is not valid: {0}")]
     InvalidCard(#[source] CardError),
+    /// An option's title ends with [`RECOMMENDED_SUFFIX`], so its label would claim a
+    /// recommendation the card did not make; the option's id.
+    #[error("option `{0}` has a title that claims the recommendation")]
+    TitleMarksRecommended(String),
+    /// Two options can be shown under the same label, counting the recommended option's
+    /// suffixed form; the label.
+    #[error("two options can be shown as `{0}`")]
+    CollidingLabels(String),
     /// The question let the person select several options.
     #[error("the question was multi-select")]
     MultiSelect,
@@ -112,6 +127,9 @@ pub enum Unwitnessed {
     /// The same label was shown more than once; the label.
     #[error("the label `{0}` was shown more than once")]
     DuplicateLabel(String),
+    /// More than one shown label names the same option; the option's id.
+    #[error("option `{0}` was shown under more than one label")]
+    OptionShownTwice(String),
     /// An eligible option was not shown under its label; the option's id.
     #[error("eligible option `{0}` was not shown")]
     OptionNotShown(String),
@@ -124,9 +142,6 @@ pub enum Unwitnessed {
     /// The selected label is no option's label; the label.
     #[error("the selected label `{0}` names no option")]
     UnknownLabel(String),
-    /// The selected label is the label of more than one option; the label.
-    #[error("the selected label `{0}` names more than one option")]
-    AmbiguousLabel(String),
     /// The selected option fails a MUST, so it cannot be decided; the option's id.
     #[error("the selected option `{0}` fails a MUST")]
     IneligibleOption(String),
@@ -201,20 +216,29 @@ pub fn witness(
     if shown.multi_select {
         return Err(Unwitnessed::MultiSelect);
     }
-    item.card.validate().map_err(Unwitnessed::InvalidCard)?;
-    if !is_items_question(&shown.text, item) {
+    let card = item.card;
+    check_card(card)?;
+    let Some(one_way) = items_question(&shown.text, item) else {
         return Err(Unwitnessed::NotTheItemsQuestion);
-    }
-    let mut seen = std::collections::BTreeSet::new();
+    };
+    let marked = card.recommendation_earned() && !one_way;
+    let names = |o: &CardOption, l: &str| names(card, marked, o, l);
+    let mut seen = BTreeSet::new();
     if let Some(repeated) = shown.labels.iter().find(|l| !seen.insert(l.as_str())) {
         return Err(Unwitnessed::DuplicateLabel(repeated.clone()));
     }
-    if let Some(missing) = item
-        .card
+    if let Some(twice) = card
+        .options
+        .iter()
+        .find(|o| shown.labels.iter().filter(|l| names(o, l)).nth(1).is_some())
+    {
+        return Err(Unwitnessed::OptionShownTwice(twice.id.clone()));
+    }
+    if let Some(missing) = card
         .options
         .iter()
         .filter(|o| o.fails_must.is_none())
-        .find(|o| !shown.labels.iter().any(|l| names(item.card, o, l)))
+        .find(|o| !shown.labels.iter().any(|l| names(o, l)))
     {
         return Err(Unwitnessed::OptionNotShown(missing.id.clone()));
     }
@@ -225,15 +249,9 @@ pub fn witness(
     if !shown.labels.contains(picked) {
         return Err(Unwitnessed::LabelNotShown(picked.clone()));
     }
-    let mut matching = item
-        .card
-        .options
-        .iter()
-        .filter(|o| names(item.card, o, picked));
-    let option = match (matching.next(), matching.next()) {
-        (Some(option), None) => option,
-        (None, _) => return Err(Unwitnessed::UnknownLabel(picked.clone())),
-        (Some(_), Some(_)) => return Err(Unwitnessed::AmbiguousLabel(picked.clone())),
+    // No two options share a label (`shared_label`), so the first that matches is the only one.
+    let Some(option) = card.options.iter().find(|o| names(o, picked)) else {
+        return Err(Unwitnessed::UnknownLabel(picked.clone()));
     };
     if option.fails_must.is_some() {
         return Err(Unwitnessed::IneligibleOption(option.id.clone()));
@@ -243,32 +261,72 @@ pub fn witness(
     })
 }
 
-/// Whether the shown label `shown` names `option` of `card`: its [`label`], or, for the card's
-/// recommended option only, its label followed by [`RECOMMENDED_SUFFIX`] once.
-fn names(card: &Card, option: &CardOption, shown: &str) -> bool {
+/// Rule 3: the card is valid, no title claims the recommendation and no two options share a
+/// label.
+fn check_card(card: &Card) -> Result<(), Unwitnessed> {
+    card.validate().map_err(Unwitnessed::InvalidCard)?;
+    if let Some(o) = card
+        .options
+        .iter()
+        .find(|o| o.title.ends_with(RECOMMENDED_SUFFIX))
+    {
+        return Err(Unwitnessed::TitleMarksRecommended(o.id.clone()));
+    }
+    match shared_label(card) {
+        Some(shared) => Err(Unwitnessed::CollidingLabels(shared)),
+        None => Ok(()),
+    }
+}
+
+/// Whether the shown label `shown` names `option` of `card`: its [`label`], or, when `marked`
+/// allows it and `option` is the card's recommended one, its label with [`RECOMMENDED_SUFFIX`]
+/// once.
+fn names(card: &Card, marked: bool, option: &CardOption, shown: &str) -> bool {
     let own = label(option);
     shown == own
-        || (option.id == card.recommendation.option
+        || (marked
+            && option.id == card.recommendation.option
             && shown.strip_suffix(RECOMMENDED_SUFFIX) == Some(own.as_str()))
 }
 
-/// Whether `text` is `<id> <question>` for `item`, exactly or followed by [`ONE_WAY_SUFFIX`].
-/// An item with a blank question has no question of its own to match.
-fn is_items_question(text: &str, item: &ItemCard<'_>) -> bool {
+/// A label two of `card`'s options could both be shown under, counting the recommended
+/// option's suffixed form whether or not the recommendation is marked.
+fn shared_label(card: &Card) -> Option<String> {
+    let mut forms = Vec::with_capacity(card.options.len().saturating_add(1));
+    for o in &card.options {
+        let own = label(o);
+        if o.id == card.recommendation.option {
+            forms.push(format!("{own}{RECOMMENDED_SUFFIX}"));
+        }
+        forms.push(own);
+    }
+    // An option's two forms differ, so a repeat is always two options.
+    let mut seen = BTreeSet::new();
+    forms.iter().find(|f| !seen.insert(f.as_str())).cloned()
+}
+
+/// Whether `text` is `<id> <question>` for `item`: `Some(false)` when exactly, `Some(true)`
+/// when followed by [`ONE_WAY_SUFFIX`], `None` otherwise. An item with a blank question has no
+/// question of its own to match.
+fn items_question(text: &str, item: &ItemCard<'_>) -> Option<bool> {
     if item.question.trim().is_empty() {
-        return false;
+        return None;
     }
     let rest = text
         .strip_prefix(item.id.as_str())
         .and_then(|r| r.strip_prefix(' '))
-        .and_then(|r| r.strip_prefix(item.question));
-    matches!(rest, Some("" | ONE_WAY_SUFFIX))
+        .and_then(|r| r.strip_prefix(item.question))?;
+    match rest {
+        "" => Some(false),
+        ONE_WAY_SUFFIX => Some(true),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use weighin_contract::card::Recommendation;
+    use weighin_contract::card::{EvasionCheck, Recommendation, Stability};
 
     const QUESTION: &str = "Keep holds per series?";
 
@@ -546,19 +604,83 @@ mod tests {
     }
 
     #[test]
-    fn a_label_two_options_render_to_is_unwitnessed() {
+    fn a_card_on_which_two_options_share_a_label_is_unwitnessed() {
+        let titled = |id: &str, title: &str| CardOption {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        };
         let mut c = card();
-        let mut first = opt("X: y");
-        "z".clone_into(&mut first.title);
-        let mut second = opt("X");
-        "y: z".clone_into(&mut second.title);
-        c.options = vec![first, second];
-        "X".clone_into(&mut c.recommendation.option);
+        c.options = vec![titled("X: y", "z"), titled("X", "y: z"), titled("C", "c")];
+        "C".clone_into(&mut c.recommendation.option);
         let mut s = shown(&id());
-        s.labels = vec!["X: y: z".into()];
+        s.labels = vec!["X: y: z".into(), "C: c".into()];
         assert_eq!(
-            check(&s, &picked("X: y: z"), &c),
-            Err(Unwitnessed::AmbiguousLabel("X: y: z".into()))
+            check(&s, &picked("C: c"), &c),
+            Err(Unwitnessed::CollidingLabels("X: y: z".into()))
+        );
+    }
+
+    #[test]
+    fn an_option_title_that_claims_the_recommendation_is_unwitnessed() {
+        let mut c = card();
+        if let Some(b) = c.options.get_mut(1) {
+            "Option B (Recommended)".clone_into(&mut b.title);
+        }
+        let s = relabelled("B: Option B", "B: Option B (Recommended)");
+        assert_eq!(
+            check(&s, &picked("A: Option A"), &c),
+            Err(Unwitnessed::TitleMarksRecommended("B".into()))
+        );
+    }
+
+    #[test]
+    fn the_recommended_suffix_on_a_one_way_question_names_no_option() {
+        let mut s = relabelled("A: Option A", "A: Option A (Recommended)");
+        s.text.push_str(ONE_WAY_SUFFIX);
+        let marked = picked("A: Option A (Recommended)");
+        assert_eq!(
+            check(&s, &marked, &card()),
+            Err(Unwitnessed::OptionNotShown("A".into()))
+        );
+        s.labels.push("A: Option A".into());
+        assert_eq!(
+            check(&s, &marked, &card()),
+            Err(Unwitnessed::UnknownLabel(
+                "A: Option A (Recommended)".into()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_recommended_suffix_on_an_unearned_recommendation_names_no_option() {
+        let mut evasive = card();
+        evasive.evasion = Some(EvasionCheck {
+            passed: false,
+            flags: vec!["revisit later".into()],
+        });
+        let mut unstable = card();
+        unstable.recommendation.stability = Some(Stability {
+            agree: 1,
+            of: 4,
+            ..Default::default()
+        });
+        let s = relabelled("A: Option A", "A: Option A (Recommended)");
+        for c in [evasive, unstable] {
+            assert_eq!(
+                check(&s, &picked("A: Option A (Recommended)"), &c),
+                Err(Unwitnessed::OptionNotShown("A".into()))
+            );
+        }
+    }
+
+    #[test]
+    fn an_option_shown_under_two_labels_is_unwitnessed() {
+        let mut s = shown(&id());
+        s.labels.push("A: Option A (Recommended)".into());
+        assert_eq!(
+            check(&s, &picked("B: Option B"), &card()),
+            Err(Unwitnessed::OptionShownTwice("A".into()))
         );
     }
 
