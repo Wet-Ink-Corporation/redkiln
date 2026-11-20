@@ -168,6 +168,35 @@ fn type_takes_the_stored_name_and_the_short_name_with_a_warning() -> TestResult 
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
+fn ledger_append_refuses_each_retired_type_and_writes_nothing() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = dir.path().join("ledger.sqlite3");
+
+    for (retired, data) in [
+        ("bench.weighin_parked", r#"{"item_id":"wi-e41e02","ticket":"36"}"#),
+        ("bench.bridge.unavailable", r#"{"ticket":"36","reason":"no weighin"}"#),
+        (
+            "bench.orchestrate.ruled",
+            r#"{"ticket":"36","what":"keep the cache","why":"reversible","cost_if_wrong":"one revert"}"#,
+        ),
+    ] {
+        let event = format!(r#"{{"type":"{retired}","data":{data}}}"#);
+        let output = ledger_at(dir.path(), &store, &["append", &event])?;
+        let refused = envelope(&output, 1)?;
+
+        assert_eq!(
+            refused["findings"][0]["key"], "ledger/schema",
+            "D6 B: {retired} is no type append takes: {refused}"
+        );
+        let message = refused["findings"][0]["message"].as_str().unwrap_or_default();
+        assert!(message.contains(retired), "{retired}: {message}");
+    }
+    assert!(!store.exists(), "nothing was written");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
 fn a_bad_event_exits_1_with_an_envelope_and_writes_nothing() -> TestResult {
     let dir = tempfile::tempdir()?;
     let store = dir.path().join("ledger.sqlite3");
