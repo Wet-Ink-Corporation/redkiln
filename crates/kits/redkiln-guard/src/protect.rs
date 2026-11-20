@@ -105,6 +105,16 @@ impl Protected {
         }
     }
 
+    /// How text names this entry, for [`ProtectedPaths::named_in`]: the first component of its
+    /// parent, else its name; and whether anything may follow it (an affix's prefix).
+    fn needle(&self) -> (&'static str, bool) {
+        match (self.parent, self.name) {
+            (Some(parent), _) => (first_component(parent), false),
+            (None, Name::Exact(name)) => (name, false),
+            (None, Name::Affix { prefix, .. }) => (prefix, true),
+        }
+    }
+
     fn matches(&self, path: &Resolved<'_>, glob: bool) -> bool {
         let components = path.components.as_slice();
         match self.parent {
@@ -224,6 +234,68 @@ impl<'t> ProtectedPaths<'t> {
             })
         })
     }
+}
+
+impl ProtectedPaths<'_> {
+    /// The label of the first container, then entry, that `text` names as a word of a path,
+    /// ASCII case ignored on both sides: for code the guard cannot read as commands
+    /// (`python -c`), where any mention may be a write. A container is named by its first
+    /// component (`.redkiln` for `.redkiln/bench`), and labelled as the container; an entry by
+    /// the first component of its parent (`.claude` for `.claude/settings*.json`), else by its
+    /// name (`clippy.toml`, `hooks`) or an affix's prefix (`.eslintrc`). A name counts only
+    /// when no letter, digit, `_` or `-` comes before it and, except for a prefix, none of
+    /// those nor `.` after it, so `webhooks`, `my.claude` and `.claude.bak` name nothing; a
+    /// name without a `.` (`hooks`) counts only beside a `/` or `\` (`.git/hooks/x`,
+    /// `hooks/x`), so `import hooks` names nothing. Code that builds a name at run time is
+    /// not seen.
+    ///
+    /// Each name is compared at every position of `text`; names are short, so this is linear
+    /// in its length.
+    #[must_use]
+    pub fn named_in(&self, text: &str) -> Option<&'static str> {
+        let containers = self
+            .containers
+            .iter()
+            .map(|(dirs, label)| (first_component(dirs), false, *label));
+        let entries = self.paths.iter().map(|protected| {
+            let (needle, open) = protected.needle();
+            (needle, open, protected.label)
+        });
+        containers
+            .chain(entries)
+            .find(|(needle, open, _)| names(text, needle, *open))
+            .map(|(_, _, label)| label)
+    }
+}
+
+/// The first `/`-separated component of `dirs`.
+fn first_component(dirs: &'static str) -> &'static str {
+    dirs.split('/').next().unwrap_or(dirs)
+}
+
+/// Whether `text` holds `needle` as a word of a path (see [`ProtectedPaths::named_in`]);
+/// `open` lets anything follow it.
+fn names(text: &str, needle: &str, open: bool) -> bool {
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
+    let is_separator = |c: char| matches!(c, '/' | '\\');
+    let dotless = !needle.contains('.');
+    let end_of = |at: usize| at.saturating_add(needle.len());
+    !needle.is_empty()
+        && text
+            .char_indices()
+            .filter(|(at, _)| {
+                text.get(*at..end_of(*at))
+                    .is_some_and(|found| found.eq_ignore_ascii_case(needle))
+            })
+            .any(|(at, _)| {
+                let before = text.get(..at).and_then(|head| head.chars().next_back());
+                let after = text.get(end_of(at)..).and_then(|tail| tail.chars().next());
+                before.is_none_or(|c| !is_word(c))
+                    && (open || after.is_none_or(|c| !is_word(c) && c != '.'))
+                    && (!dotless
+                        || before.is_some_and(is_separator)
+                        || after.is_some_and(is_separator))
+            })
 }
 
 /// A path's components after `.` and `..` are resolved, and whether `..` climbed above where
