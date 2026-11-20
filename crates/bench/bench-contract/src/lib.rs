@@ -1,7 +1,7 @@
 //! Bench's contract: what other crates may name of Bench without depending on its internals
 //! (M2-C).
 //!
-//! * [`event`]: the 15 `bench.*` event types, their payloads and the 0.x flat form
+//! * [`event`]: the 14 `bench.*` event types, their payloads and the 0.x flat form
 //!   ([`BenchEvent`]) the `bench ledger` CLI reads and writes.
 //! * [`cli`]: the `bench` command line's binary, subcommands and value options.
 //! * [`plugin`]: the `rk-bench` plugin's name that its skills are namespaced under.
