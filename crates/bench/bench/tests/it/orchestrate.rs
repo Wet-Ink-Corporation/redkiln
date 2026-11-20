@@ -64,23 +64,6 @@ fn envelope(output: &Output, code: i32) -> TestResult<Value> {
     crate::support::envelope(output)
 }
 
-/// The payloads (`data`) of the events of type `kind` in the ledger the commands in `dir` use.
-fn events(dir: &Path, kind: &str) -> TestResult<Vec<Value>> {
-    let output = anneal_in(dir)
-        .env("REDKILN_STORE", dir.join("ledger.sqlite3"))
-        .args(["ledger", "query", "--type", kind])
-        .output()?;
-    let queried = envelope(&output, 0)?;
-    // The caller keeps its own copy of each event.
-    Ok(queried
-        .pointer("/data/events")
-        .and_then(Value::as_array)
-        .ok_or("events")?
-        .iter()
-        .filter_map(|recorded| recorded.pointer("/event/data").cloned())
-        .collect())
-}
-
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
 fn with_weigh_in_absent_the_park_exits_4_and_writes_nothing() -> TestResult {
@@ -125,7 +108,7 @@ fn bench_events(dir: &Path) -> TestResult<Value> {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
-fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() -> TestResult {
+fn fan_out_over_two_independent_tickets_exits_3_and_rule_raises_the_ruling() -> TestResult {
     let dir = tempfile::tempdir()?;
     let tickets =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../evals/bench/fixtures/dry-run/tickets");
@@ -134,7 +117,8 @@ fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() ->
     let fan_out = anneal_in(dir.path())
         .args(["orchestrate", "fan-out", "--dir", "tickets"])
         .output()?;
-    let rule = anneal_in(dir.path())
+    // A `WEIGHIN_BIN` naming no file, so no `weighin` on the runner's PATH changes the finding.
+    let rule = anneal(dir.path(), &dir.path().join("no-weighin-here"), &[])
         .env("REDKILN_STORE", dir.path().join("ledger.sqlite3"))
         .args([
             "orchestrate",
@@ -152,12 +136,43 @@ fn fan_out_over_two_independent_tickets_exits_3_and_rule_records_the_ruling() ->
     crate::support::golden("bench.orchestrate-fan-out/1", &fan_out, &[dir.path()], &[])?;
     let rule = envelope(&rule, 0)?;
     assert_eq!(
-        events(dir.path(), "bench.orchestrate.ruled")?.len(),
-        1,
-        "the ruling is recorded once"
+        bench_events(dir.path())?,
+        json!([]),
+        "no orchestrate.ruled: the request is the record (D6 B)"
     );
-    crate::support::golden("bench.orchestrate-rule/1", &rule, &[dir.path()], &[])?;
+    let requests = requests(&dir.path().join("ledger.sqlite3"))?;
+    assert_eq!(
+        requests,
+        [(
+            rule["data"]["position"].as_u64().ok_or("a position")?,
+            rule["data"]["item_id"].as_str().ok_or("an item id")?.to_owned()
+        )],
+        "the ruling is raised once, as the item the envelope names"
+    );
+    crate::support::golden("bench.orchestrate-rule/2", &rule, &[dir.path()], &[])?;
     Ok(())
+}
+
+/// The position and item tag of every `weighin.request_raised` in `store`.
+fn requests(store: &Path) -> TestResult<Vec<(u64, String)>> {
+    use redkiln_core::store::{CoreKey, Filter, Store, Wait};
+
+    let filter = Filter::all().of_type("weighin.request_raised")?;
+    let stored = Store::open_existing(store, Wait::Command)?
+        .ok_or("the store")?
+        .read(&filter, 0, std::num::NonZeroUsize::new(8).ok_or("non-zero")?)?;
+    stored
+        .iter()
+        .map(|event| {
+            let item = event
+                .tags
+                .iter()
+                .find(|tag| tag.key() == Some(CoreKey::Item.as_str()))
+                .and_then(|tag| tag.value())
+                .ok_or("an item tag")?;
+            Ok((event.position, item.to_owned()))
+        })
+        .collect()
 }
 
 /// The fake `weighin`: logs its arguments to `$FAKE_WEIGHIN_LOG` and answers `status --json` as
