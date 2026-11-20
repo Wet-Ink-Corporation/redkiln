@@ -100,7 +100,7 @@ Not in this move: `bench activity show|check` and the catalog (Move 4), Bench ca
 
 | # | Call | Door | When |
 | --- | --- | --- | --- |
-| M2-G | Cut SPEC 1.0.0 and Core 1.0 (the OW items freeze) | One-way | **Decided 2026-11-18** (Ryan, B): cut right after step 7, with step 7's additive SPEC text; any OW change is its own card first. Cut 2026-11-20 (FZ-D1 A, FZ-D2 A, FZ-D3 A; step 6's status) |
+| M2-G | Cut SPEC 1.0.0 and Core 1.0 (the OW items freeze) | One-way | **Decided 2026-11-18** (Ryan, B): cut right after step 7, with step 7's additive SPEC text; any OW-11 change is its own card first. Cut 2026-11-20 (the plan's FZ-D1 to FZ-D3, A each; step 6's status) |
 | M2-H | Whether `weighin`'s and Bench's hook adapters become a kit, and its name | H-16 | Step 5, if the shared code is measured |
 | M2-I | Bench calls A to F that are still open (A: retire anneal's templates for the catalog's; B, C, D, F two-way) | As each says | A with the catalog (Move 4); the others proceed on their recommendations |
 | M2-J | Which older optional anneal calls to take (a nextest slow-timeout, a typed `DoneTasks` error, an injectable git ledger-lookup budget for the Windows `preconditions` flake) | Two-way | **Decided 2026-11-15** (Ryan, card A): none of the three, since the `preconditions` flake never appeared here. The Windows failures that did (9 of 24 pushes to `main` from 2026-11-10 to 2026-11-14, all hook-budget timing tests in Weigh-In, Bench and Core) are fixed as one class in their own thread, the way #90 and #92 did |
