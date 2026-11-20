@@ -23,8 +23,9 @@ anneal orchestrate rule --ticket <id> --what <text> --why <text> --cost <text>
 ```
 
 Exit codes: 0 fan out (park: parked; rule: raised), 3 `fan-out`: fewer than 3 independent
-tickets, 4 `park`: Weigh-In cannot take the call (nothing recorded), rule instead; 2 for refused arguments, 70 when the
-ledger or the tickets cannot be read ([exit-codes.md](exit-codes.md)).
+tickets, 4 `park`: Weigh-In cannot take the call (nothing recorded), rule instead; 2 for
+refused arguments, 70 when the ledger or the tickets cannot be read
+([exit-codes.md](exit-codes.md)).
 
 ## `fan-out`
 
@@ -80,8 +81,8 @@ same ticket is the same item. The item id is the contract's 10-hex id, extended 
 The append is conditioned on no event already holding the item (DR-03), so a park run again (a
 retried hook, a resumed session), or two parks racing, writes one request: the second reports
 the item with `data.recorded: false` and the first one's `data.position`. `data` is
-`{ticket, parked: true, item_id, recorded, position}` (`bench.orchestrate-park/2`; version 1's `position` was
-a `weighin_parked` event's).
+`{ticket, parked: true, item_id, recorded, position}` (`bench.orchestrate-park/2`; version
+1's `position` was a `weighin_parked` event's).
 
 **Failing open.** With no `weighin`, or one that cannot start, times out, exits non-zero,
 answers what is not a status, cannot take requests or keeps another store, the park writes
@@ -130,10 +131,11 @@ by hand with `bench decide label <id> <outcome>`.
 
 Unit tests drive `status --json` through the `Runner` port with a fake on every platform; the
 integration tests run the binary with Weigh-In absent (every platform) and with a fake
-`weighin` shell script answering `status --json` (unix). `orchestrate::the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6`
-and `orchestrate::a_raised_ruling_shows_as_an_unacknowledged_default_in_weighin_digest` run
+`weighin` shell script answering `status --json` (unix).
+`orchestrate::the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6` and
+`orchestrate::a_raised_ruling_shows_as_an_unacknowledged_default_in_weighin_digest` run
 against a real Weigh-In when `WEIGHIN_BIN` names one that folds requests (Move 2 step 7 or
-later). CI's Linux `rust` job builds `weighin` from the same commit and runs both with
-`WEIGHIN_BIN` set (decision D8); without it each test prints that it skipped. The first also raises 13 more items, decides the one whose id
-sorts last and removes the decision atoms, so D6 can find that ruling only past `open`'s
-default 12.
+later). CI's Linux `rust` job builds `weighin` from the same commit and runs exactly these
+two, by their full names, with `WEIGHIN_BIN` set (decision D8); without it each test prints
+that it skipped. The first also raises 13 more items, decides the one whose id sorts last and
+removes the decision atoms, so D6 can find that ruling only past `open`'s default 12.

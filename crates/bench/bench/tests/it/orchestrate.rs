@@ -399,7 +399,7 @@ fn the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6() -> TestResult {
     let Some(bin) = std::env::var_os("WEIGHIN_BIN").filter(|bin| !bin.is_empty()) else {
         writeln!(
             std::io::stderr().lock(),
-            "skipped: WEIGHIN_BIN is unset; CI sets it to the pinned weigh-in release"
+            "skipped: WEIGHIN_BIN is unset; CI sets it to the in-repo weighin build"
         )?;
         return Ok(());
     };
@@ -465,7 +465,7 @@ fn a_raised_ruling_shows_as_an_unacknowledged_default_in_weighin_digest() -> Tes
     let Some(bin) = std::env::var_os("WEIGHIN_BIN").filter(|bin| !bin.is_empty()) else {
         writeln!(
             std::io::stderr().lock(),
-            "skipped: WEIGHIN_BIN is unset; CI sets it to the pinned weigh-in release"
+            "skipped: WEIGHIN_BIN is unset; CI sets it to the in-repo weighin build"
         )?;
         return Ok(());
     };

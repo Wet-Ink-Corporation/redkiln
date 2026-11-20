@@ -29,6 +29,15 @@ fn rsync_into_a_config_folder_or_onto_protected_config_is_a_config_write() {
         ("rsync -a x/ .claude/ --outbuf L", CONFIG),
         ("rsync -a x/ .claude/ --stderr all", CONFIG),
         ("rsync -a x/ .claude/ --copy-as user", CONFIG),
+        // Flags after the operands (#135): a trailing `--delete` and its kin take no value.
+        ("rsync -a x/ .claude/ --delete", CONFIG),
+        ("rsync x/ .redkiln/ --delete --delete-excluded -v", CONFIG),
+        ("rsync x/ .github/ --delete --exclude tmp", CONFIG),
+        // An unlisted long option after the destination may take a value: both readings are
+        // judged, so its value cannot stand in for the destination (#135, #130 review).
+        ("rsync -a x/ .claude/ --unlisted-option L", CONFIG),
+        ("rsync -a x/ .redkiln/ --delete --unlisted-option L", CONFIG),
+        ("rsync -a x/ build/ --unlisted-option .claude", CONFIG),
         ("cd .redkiln && rsync -a /tmp/x/ bench/", CONFIG),
         ("bash -c 'rsync -a x/ .redkiln/'", CONFIG),
         ("sudo rsync -a x/ .redkiln/", CONFIG),
@@ -61,6 +70,8 @@ fn rsync_elsewhere_is_left_to_the_fallback() {
         ("rsync -a -e 'ssh -F .claude/x' x/ build/", ALLOW),
         ("rsync --list-only .redkiln", ALLOW),
         ("rsync -a x/ ..", ALLOW),
+        ("rsync -a x/ build/ --delete", ALLOW),
+        ("rsync -a .claude/ /tmp/backup/ --unlisted-option L", ALLOW),
     ]);
 }
 

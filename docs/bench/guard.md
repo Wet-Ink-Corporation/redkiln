@@ -219,9 +219,12 @@ The writes it checks:
   `--target-directory` (or `--target`, `--t`). When the destination
   is a directory (`-t`, a trailing `/`, or `.redkiln`, `.redkiln/bench`, `.anneal`, `.claude`, `.github`, `.cargo`), the destination is
   also checked joined with each source's name, so `cp settings.json .claude/` is denied;
-- the destination of `rsync` (its last operand, options read wherever they stand), judged as
-  `cp`'s is, except that a source ending in `/` copies only its contents, so it lands at no
-  joined path; with `--remove-source-files`, its sources as `mv`'s are (#117);
+- the destination of `rsync` (its last operand, options read wherever they stand, a trailing
+  `--delete` too), judged as `cp`'s is, except that a source ending in `/` copies only its
+  contents, so it lands at no joined path; with `--remove-source-files`, its sources as `mv`'s
+  are (#117). A long option the guard does not list, written without `=`, may take a value, so
+  the command is read both with it as a flag and with it taking the next word, and either
+  reading's denial stands (`rsync -a x/ .claude/ --new-option L` is denied, #135);
 - the directory `tar` (also `gtar`, `bsdtar`) extracts into, when it extracts (`-x`,
   `--extract`, `--get`): every `-C DIR`, `-CDIR`, `--directory[=]DIR` and `--cd[=]DIR`, and an old-style
   first word's `C` (`tar xfC x.tar DIR`); and `unzip -d DIR` (or `-dDIR`). A config folder
@@ -417,6 +420,12 @@ it cannot model instead of modelling every shell feature, and it does not try to
   `npm run`, `python3 script.py`); inline `python -c`, `node -e`, `perl -e` and `ruby -e` code
   is denied only when it names protected config as written, so code that builds a name at run
   time (`'.cl' + 'aude'`) or reads it from elsewhere is not seen (#117);
+- interpreter code fed on stdin: `python3 - <<'EOF'`, `python3 < fix.py`, `node -` and
+  `perl <<'EOF'` are not judged, since only `-c`/`-e`-style arguments are read as inline code
+  and a heredoc's body is data. Denying every such form that names a protected path anywhere
+  was weighed and not built: the guard is a tripwire, not the boundary (guide TS-1, tensions
+  T3 and T4). A shell reading a static script from stdin (`sh -s <<'EOF'`, `bash <<'EOF'`) is
+  read as commands, as above (#135);
 - what an archive or a copied tree brings into a directory that is not named as config:
   `tar -xf x.tar`, `unzip x.zip` or `rsync -a x/ .` in a directory where the archive or tree
   holds `.claude/` (the guard does not read member names, as it does not read `cp -r x/. .`'s

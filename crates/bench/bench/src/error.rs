@@ -141,8 +141,8 @@ pub enum CliError {
          written"
     )]
     RequestIdTaken {
-        /// The subcommand: `park` or `rule`.
-        command: &'static str,
+        /// The subcommand that raised the request.
+        command: RequestCommand,
         /// The id at its default length.
         item: String,
     },
@@ -159,6 +159,33 @@ pub enum CliError {
     /// stdout or stderr could not be written.
     #[error("writing output")]
     Output(#[source] io::Error),
+}
+
+/// The `bench orchestrate` subcommands that raise a Weigh-In decision request, as an error
+/// names them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestCommand {
+    /// `orchestrate park`: a one-way call parked for a human.
+    Park,
+    /// `orchestrate rule`: a two-way call ruled and raised already defaulted.
+    Rule,
+}
+
+impl RequestCommand {
+    /// The subcommand as typed: `park` or `rule`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Park => "park",
+            Self::Rule => "rule",
+        }
+    }
+}
+
+impl std::fmt::Display for RequestCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// A `--ticket` that is not a plain ticket name is a usage error.
@@ -211,7 +238,7 @@ impl CliError {
 
 #[cfg(test)]
 mod tests {
-    use super::CliError;
+    use super::{CliError, RequestCommand};
     use crate::command::CommandName;
     use crate::paths::PathError;
     use std::io;
@@ -252,6 +279,30 @@ mod tests {
             error.to_string(),
             "bench floor-guard is not implemented yet",
             "the reason names the command as typed"
+        );
+    }
+
+    #[test]
+    fn a_taken_request_id_names_the_command_that_raised_it() {
+        let messages: Vec<String> = [RequestCommand::Park, RequestCommand::Rule]
+            .into_iter()
+            .map(|command| {
+                CliError::RequestIdTaken {
+                    command,
+                    item: "wi-0123456789".to_owned(),
+                }
+                .to_string()
+            })
+            .collect();
+
+        assert_eq!(
+            messages,
+            [
+                "orchestrate park: wi-0123456789 and its longer forms all name other items; \
+                 nothing was written",
+                "orchestrate rule: wi-0123456789 and its longer forms all name other items; \
+                 nothing was written",
+            ]
         );
     }
 }

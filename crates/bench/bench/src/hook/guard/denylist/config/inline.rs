@@ -3,8 +3,10 @@
 //! when any argument, the code included, names a config folder or a protected file (as a
 //! path, or as a word of a path inside the code: [`ProtectedPaths::named_in`]), the call is
 //! denied. Code that builds a name at run time (`'.cl' + 'aude'`) and a script file
-//! (`python3 script.py`) are limits: the guard is a tripwire (guide TS-1). `sh -c` and
-//! `bash -c` are not here: the engine reads their code as commands.
+//! (`python3 script.py`) are limits: the guard is a tripwire (guide TS-1). So is code fed on
+//! stdin (`python3 - <<'EOF'`, `python3 < x.py`, `perl <<EOF`): only `-c`/`-e`-style arguments
+//! are read, and a heredoc's body is data (#135). `sh -c` and `bash -c` are not here: the
+//! engine reads their code as commands, and a shell's static stdin script (`sh -s <<'EOF'`) too.
 //!
 //! [`ProtectedPaths::named_in`]: redkiln_guard::protect::ProtectedPaths::named_in
 

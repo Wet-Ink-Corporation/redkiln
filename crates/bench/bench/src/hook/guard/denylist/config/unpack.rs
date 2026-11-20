@@ -3,7 +3,8 @@
 //! is judged as `cp`'s is: a protected file, or a config folder the tree may bring its own
 //! config into, since the guard cannot tell whether the folder exists. What lands in the
 //! working directory itself (`rsync -a x/ .`, `tar -xf x.tar`, `unzip x.zip`) is a limit, as
-//! `cp -r x/. .` is: the guard does not read an archive's member names.
+//! `cp -r x/. .` is: the guard does not read an archive's member names. `rsync`'s options are
+//! read wherever they stand, after the operands too (a trailing `--delete`, #135).
 
 use super::{CopyArgs, CopyMode, TrailingSlash, copy_into, creates_protected, deny};
 use crate::hook::guard::Denial;
@@ -141,9 +142,20 @@ fn long_name(text: &str) -> &str {
     text.split_once('=').map_or(text, |(name, _)| name)
 }
 
+/// How `rsync`'s command line is read: whether a long option not in [`RSYNC_LONG_VALUES`],
+/// written without `=`, takes the next word when that is no option.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unlisted {
+    /// It is a flag (`--delete`), as most of rsync's long options are.
+    Flag,
+    /// It takes a value: a later rsync's new option, which the table does not list yet.
+    TakesValue,
+}
+
 /// `rsync`'s operands, read past its options wherever they stand (popt permutes them), and
-/// whether it removes its sources (`--remove-source-files`).
-fn rsync_operands(args: &[Word]) -> (Vec<&Word>, bool) {
+/// whether it removes its sources (`--remove-source-files`); `unlisted` says how a long option
+/// the table does not list is read.
+fn rsync_operands(args: &[Word], unlisted: Unlisted) -> (Vec<&Word>, bool) {
     let mut operands = Vec::new();
     let mut removes = false;
     let mut rest = args;
@@ -159,7 +171,9 @@ fn rsync_operands(args: &[Word]) -> (Vec<&Word>, bool) {
         } else if text.starts_with("--") {
             let name = long_name(text);
             removes |= name == "--remove-source-files";
-            if !text.contains('=') && RSYNC_LONG_VALUES.contains(&name) {
+            let unlisted_value = unlisted == Unlisted::TakesValue
+                && tail.first().is_some_and(|next| !is_option(next));
+            if !text.contains('=') && (RSYNC_LONG_VALUES.contains(&name) || unlisted_value) {
                 rest = skip_one(rest);
             }
         } else if Cluster::read(first, 1, tail, &RSYNC_SHORT_VALUES).takes_next {
@@ -171,18 +185,24 @@ fn rsync_operands(args: &[Word]) -> (Vec<&Word>, bool) {
 
 /// `rsync [OPTION]... SRC... DEST`: the destination and joined sources judged as `cp`'s are
 /// (a source ending in `/` copies only its contents), and with `--remove-source-files` each
-/// source as `mv` judges what it moves away.
+/// source as `mv` judges what it moves away. A long option the table does not list may take a
+/// value, which would shift the destination when it follows the operands (`rsync -a x/ .claude/
+/// --new-option L`), so both readings are judged and either one's denial stands (fail closed).
 pub(super) fn rsync(args: &[Word], cwd: &Cwd) -> Option<Denial> {
-    let (operands, removes) = rsync_operands(args);
-    let copy = CopyArgs {
-        operands,
-        ..CopyArgs::default()
-    };
-    let mode = CopyMode {
-        moves: removes,
-        slash: TrailingSlash::Contents,
-    };
-    copy_into("rsync", &copy, mode, cwd)
+    [Unlisted::Flag, Unlisted::TakesValue]
+        .into_iter()
+        .find_map(|unlisted| {
+            let (operands, removes) = rsync_operands(args, unlisted);
+            let copy = CopyArgs {
+                operands,
+                ..CopyArgs::default()
+            };
+            let mode = CopyMode {
+                moves: removes,
+                slash: TrailingSlash::Contents,
+            };
+            copy_into("rsync", &copy, mode, cwd)
+        })
 }
 
 /// Whether `tar` extracts, and every directory it changes to (`-C DIR`, `--directory DIR`).

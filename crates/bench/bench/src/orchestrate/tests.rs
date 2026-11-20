@@ -13,7 +13,7 @@ use redkiln_core::envelope::decode;
 use redkiln_core::store::Filter as CoreFilter;
 use serde_json::{Value, json};
 use tempfile::TempDir;
-use weighin_contract::request::{Blocks, OptionId, Request, TrustNeeded};
+use weighin_contract::request::{ANCHOR, Blocks, OptionId, Request, TrustNeeded};
 use weighin_contract::vocab::{Authority, Door};
 
 use super::{OrchestrateArgs, Ports, run};
@@ -244,6 +244,40 @@ fn a_park_raises_one_one_way_request_with_its_options_and_deadline() -> TestResu
         world.events()?,
         [],
         "no Bench event: the request is the record"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_park_carries_its_anchor_and_d2_decision_as_attachments() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+    let words: Vec<&str> = PARK
+        .iter()
+        .copied()
+        .chain(["--decision", "d1760000000000-42-7"])
+        .collect();
+
+    let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
+
+    assert_eq!(code.ok(), Some(0), "{envelope}");
+    let requests = world.requests()?;
+    let [(_, request)] = requests.as_slice() else {
+        panic!("one request: {requests:?}");
+    };
+    let attachments: Vec<(&str, &str)> = request
+        .attachments
+        .iter()
+        .flatten()
+        .map(|a| (a.kind.as_str(), a.locator.as_str()))
+        .collect();
+    assert_eq!(
+        attachments,
+        [
+            (ANCHOR, "src/cache.rs:12"),
+            ("bench.clef_decision", "d1760000000000-42-7"),
+        ],
+        "T9: the D2 decision travels with the park, after its anchor"
     );
     Ok(())
 }
