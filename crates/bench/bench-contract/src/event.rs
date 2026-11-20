@@ -65,9 +65,10 @@ pub const ORCHESTRATE_RULED: RetiredType = RetiredType {
     stored: "bench.orchestrate.ruled",
 };
 
-/// Every retired type: `weighin_parked` and `bridge.unavailable`, which a park wrote before it
-/// became a Weigh-In decision request, and `orchestrate.ruled`, which a ruling wrote before it
-/// became a two-way one (call F).
+/// Every retired type, the three Move 2 step 7 stopped writing (D6 B).
+///
+/// `weighin_parked` and `bridge.unavailable` a park wrote before it became a Weigh-In decision
+/// request; `orchestrate.ruled` a ruling wrote before it became a two-way one (call F).
 pub const RETIRED_TYPES: [RetiredType; 3] = [WEIGHIN_PARKED, BRIDGE_UNAVAILABLE, ORCHESTRATE_RULED];
 
 /// The version of anneal's 0.x event registry, the last whose shapes the one-time import reads.
