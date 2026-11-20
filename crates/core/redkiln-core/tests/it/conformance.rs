@@ -6,6 +6,7 @@
 mod cli;
 mod decision_request;
 mod envelope;
+mod frozen;
 mod journal;
 mod records;
 mod schema;

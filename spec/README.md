@@ -2,7 +2,7 @@
 
 The SPEC is the part of Redkiln Core that is text: the formats every Redkiln binary reads and writes, so that the suite's shared data means the same thing whichever plugin wrote it. `redkiln-core` is the code that implements it, and the golden fixtures and schemas under [fixtures/](fixtures/README.md) and `schemas/` are what check it; `redkiln-core`'s tests read every one. Move 1 (Weigh-In) gave this text its first code.
 
-**Version: 1.0.0-draft.1** (2026-10-31). The SPEC is versioned on its own (semver), and each plugin declares the SPEC version it conforms to in its `status --json` ([cli.md](cli.md)). It freezes as 1.0.0 at Move 2, when Bench's ledger conforms and Core has two real users (migration plan, Work sequence). Until then every section may change; the one-way items below are the ones that become expensive to change once events are written, so they are the ones to read first.
+**Version: 1.0.0** (2026-11-20). The SPEC is versioned on its own (semver), and each plugin declares the SPEC version it conforms to in its `status --json` ([cli.md](cli.md)). It froze as 1.0.0 at Move 2, once Bench's ledger conformed and Core had two real users (migration plan, Work sequence; Ryan's call M2-G). A minor (1.1.0) may add (a section, a requirement, an event type, a namespace, an optional field, a word or key where the SPEC says its list may grow, a new version of a type or document beside the old one) and may change a two-way item, so long as every event, journal and document that conformed to 1.0.0 still conforms and means what it meant. Anything else is a major (2.0.0), and so is any change to a one-way item below; those are the ones to read first. A writer built before the freeze stamped `1.0.0` while this text was 1.0.0-draft.1 (weighin 2.0.0 and Bench among them); its events conform to 1.0.0, because every change between that draft and the freeze was additive or a two-way change that narrows nothing; no one-way item changed.
 
 ## Sections
 
@@ -26,9 +26,9 @@ Each requirement has an id (`ST-03`, `EV-11`) so that a conformance fixture, a t
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as in RFC 2119.
 
-## Not in this draft
+## Not in 1.0
 
-The Blueprint puts more in the SPEC than this draft covers. These follow, each with the move that first needs it:
+The Blueprint puts more in the SPEC than 1.0 covers. These follow, each with the move that first needs it:
 
 | Part | Arrives with | Source |
 | --- | --- | --- |
@@ -39,9 +39,9 @@ The Blueprint puts more in the SPEC than this draft covers. These follow, each w
 
 ## One-way items
 
-These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event carrying it has been written outside a test, and costly after: every stored event, journal and plugin that reads them would need a migration. Ryan confirmed OW-1 to OW-15 as drafted on 2026-10-31 (decision card in the SPEC thread); OW-13 was settled by the refs spike on 2026-11-01 (decision card in the refs spike thread). A change to any of them now needs his decision.
+These froze with 1.0.0. Each was cheap to change while no event carrying it had been written outside a test, and is costly after: every stored event, journal and plugin that reads them would need a migration. Ryan confirmed OW-1 to OW-15 as drafted on 2026-10-31 (decision card in the SPEC thread); OW-13 was settled by the refs spike on 2026-11-01 (decision card in the refs spike thread). OW-16 and OW-17 joined at the freeze (CAL-D4 A, Ryan, 2026-11-16). A change to any of them needs his decision and a SPEC major.
 
-| # | Item | Draft recommendation | Section |
+| # | Item | As frozen | Section |
 | --- | --- | --- | --- |
 | OW-1 | Store location and file name | `<git-common-dir>/redkiln/events.sqlite3`; `<folder>/.redkiln/events.sqlite3` outside git | ST-01 |
 | OW-2 | Schema version encoding in `user_version` | `major * 1000 + minor`; a reader refuses only a newer major | ST-06 |
@@ -58,10 +58,12 @@ These freeze at Move 2 with SPEC 1.0. Each is cheap to change while no event car
 | OW-13 | Where journals live | Append-only refs `refs/redkiln/journal/<name>`, one per journal (JR-06), pushed directly or, where a ref push fails (Claude Code cloud), through an inbox branch and a relay workflow; import reads every source | JR-07 |
 | OW-14 | Hash method names and digest forms | `sha256`, `git-commit`, `git-tree`, `patch-id`, `rust-fingerprint`, written `<method>:<hex>` | ID-09 |
 | OW-15 | Content-hash id derivations | Each id kind's domain string and input fields; Weigh-In's captured-item input kept as today | ID-04, DR-03 |
+| OW-16 | The user scope's root and layout | `$REDKILN_HOME`, else `$HOME/.redkiln`, else `%USERPROFILE%\.redkiln`; `<root>/<plugin>/` and `<root>/calibrate/<producer>/`; old homes read, never written | ST-17 |
+| OW-17 | Calibration record types | `core.judgement_recorded` and `core.judgement_labelled`, version 1, with CA-02's fields | CA-02 |
 
 One dependency sits beside the table: identity across imports needs a public happenstance ingest call. Ryan decided on 2026-10-31 that it comes from a happenstance release that Core then pins; 0.4.5 was that release; Core now pins every `happenstance-*` crate at `=0.6.0`, with `happenstance-sqlite`'s `sync` feature (ST-04, ST-08; Ryan, 2026-11-09).
 
-Everything else in the draft is two-way: it can change in a SPEC minor or a Core release without touching stored data.
+Everything else in 1.0 is two-way: it can change in a SPEC minor or a Core release without touching stored data.
 
 ## Where this comes from
 

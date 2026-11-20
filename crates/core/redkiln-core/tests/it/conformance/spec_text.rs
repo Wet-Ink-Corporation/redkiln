@@ -92,3 +92,23 @@ fn et_10_example_is_the_golden() {
         "turns.md ET-10 and turn/et-10-example.md"
     );
 }
+
+/// The version the SPEC's README declares on its one `**Version: <x>**` line.
+fn readme_version() -> String {
+    let text = std::fs::read_to_string(spec_dir().join("README.md")).expect("the SPEC's README");
+    let mut versions = text.lines().filter_map(|line| {
+        line.strip_prefix("**Version: ")
+            .and_then(|rest| rest.split_once("**"))
+            .map(|(version, _)| version.to_owned())
+    });
+    let version = versions.next().expect("the README has a version line");
+    assert_eq!(versions.next(), None, "the README has one version line");
+    version
+}
+
+#[test]
+fn spec_version_is_the_readme_version() {
+    // Every writer stamps `SPEC_VERSION` as `writer.spec` and `status --json`'s `spec`, so it
+    // names the SPEC text in force, never a draft (M2-G, FZ-D1 A).
+    assert_eq!(redkiln_core::envelope::SPEC_VERSION, readme_version());
+}

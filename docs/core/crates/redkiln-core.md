@@ -1,6 +1,6 @@
 # `redkiln-core`: public surface
 
-Moved from `crates/core/redkiln-core/AGENTS.md` on 2026-11-14 (Move 2 step 5.0), so the charter chains fit their 24 KiB budget (`tools/charters/check.sh`) as the step 5 crates join the root's crate map. The charter points here; keep this list current when the surface changes.
+Moved from `crates/core/redkiln-core/AGENTS.md` on 2026-11-14 (Move 2 step 5.0), so the charter chains fit their 24 KiB budget (`tools/charters/check.sh`) as the step 5 crates join the root's crate map. The charter points here; keep this list current when the surface changes. The crate is at 1.0.0 since SPEC 1.0.0's freeze (M2-G, 2026-11-20); `envelope::SPEC_VERSION` is `"1.0.0"`, pinned to the SPEC README's version line by `conformance/spec_text.rs`.
 
 ## Modules and items
 - `store`: `Store`, `Wait`, `NewEvent`, `Tag`, `TagError`, `CoreKey`, `Filter`, `Page`, `Condition`, `Appended`, `Stored`, `TelemetryEvent`, `Recorded`, `OpenError`, `Step`, `StoreError`, `STORE_SCHEMA`, `StoreSchema`, `StampOutOfRange`, `TELEMETRY_WINDOW`.
