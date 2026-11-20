@@ -1,6 +1,7 @@
-//! `bench hook guard` through the built binary: a deny decision with one `ERROR` line and a
-//! `gate_blocked` event, silence on pass, and failing closed on bad input, a usage error or an
-//! unwritable stdout.
+//! `bench hook guard` through the built binary: a deny decision with one `ERROR` line, silence
+//! on pass, and failing closed on bad input, a usage error or an unwritable stdout. The
+//! `gate_blocked` record a deny makes is pinned in process with a clock that stands still
+//! (`src/hook/guard/tests.rs`), since the binary's budget runs on the system clock (#131).
 
 use std::error::Error;
 use std::io::{self, Write};
@@ -49,22 +50,6 @@ impl Scratch {
             "tool_input": {"command": command, "description": "test"},
             "tool_use_id": "toolu_1",
         }))?)
-    }
-
-    /// The `gate_blocked` events in the ledger, through `bench ledger query`.
-    fn blocked(&self) -> Result<Vec<Value>, Box<dyn Error>> {
-        let output = anneal_in(self.path())
-            .args(["ledger", "--store"])
-            .arg(&self.store)
-            .args(["query", "--type", "bench.gate_blocked"])
-            .output()?;
-        assert_eq!(output.status.code(), Some(0), "query: {output:?}");
-        let envelope: Value = crate::support::envelope(&output)?;
-        Ok(envelope
-            .pointer("/data/events")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default())
     }
 }
 
@@ -117,12 +102,12 @@ fn deny_reason(output: &Output) -> Result<String, Box<dyn Error>> {
     Ok(reason.to_owned())
 }
 
-#[test]
-#[cfg_attr(miri, ignore = "runs the binary")]
 /// What stays here of `a_denied_command_gets_a_deny_decision_and_a_gate_blocked_event`: the
 /// deny the binary writes. Its `gate_blocked` half runs in process with a clock that stands
 /// still (`src/hook/guard/tests.rs`, same name), since on a slow Windows runner the binary's
 /// budget left too little for the record (#131, TST-10).
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
 fn a_denied_command_gets_a_deny_decision_naming_the_rule_and_the_branch() -> TestResult {
     let scratch = Scratch::new()?;
 
@@ -171,6 +156,10 @@ fn a_brace_built_option_beside_an_expansion_is_read_as_the_option() -> TestResul
     Ok(())
 }
 
+/// That the denial alone is recorded runs in process with a clock that stands still
+/// (`src/hook/guard/tests.rs`,
+/// `a_model_s_human_verdict_is_recorded_as_human_only_and_its_plan_approval_is_not`), since on
+/// a slow Windows runner the binary's budget left too little for the record (#131, TST-10).
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
 fn a_model_s_human_verdict_is_denied_as_human_only_and_its_plan_approval_is_not() -> TestResult {
@@ -195,16 +184,6 @@ fn a_model_s_human_verdict_is_denied_as_human_only_and_its_plan_approval_is_not(
         ),
         (Some(0), true, true),
         "plan approve stays allowed, silently: {approved:?}"
-    );
-    let events = scratch.blocked()?;
-    let points: Vec<Option<&Value>> = events
-        .iter()
-        .map(|event| event.pointer("/event/data/point"))
-        .collect();
-    assert_eq!(
-        points,
-        [Some(&Value::from("guard.human-only"))],
-        "the denial alone is recorded"
     );
     Ok(())
 }
