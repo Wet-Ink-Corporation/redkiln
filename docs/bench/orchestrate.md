@@ -133,7 +133,7 @@ integration tests run the binary with Weigh-In absent (every platform) and with 
 `weighin` shell script answering `status --json` (unix). `orchestrate::the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6`
 and `orchestrate::a_raised_ruling_shows_as_an_unacknowledged_default_in_weighin_digest` run
 against a real Weigh-In when `WEIGHIN_BIN` names one that folds requests (Move 2 step 7 or
-later; the CI step that builds it is PR 7.7, decision D8); without it each test prints that it
-skipped. The first also raises 13 more items, decides the one whose id
+later). CI's Linux `rust` job builds `weighin` from the same commit and runs both with
+`WEIGHIN_BIN` set (decision D8); without it each test prints that it skipped. The first also raises 13 more items, decides the one whose id
 sorts last and removes the decision atoms, so D6 can find that ruling only past `open`'s
 default 12.
