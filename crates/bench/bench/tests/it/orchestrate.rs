@@ -448,3 +448,63 @@ fn the_pinned_weigh_in_parks_once_and_its_ruling_reaches_d6() -> TestResult {
 
     d6_reads_past_the_default_top(&bin, repo.path(), item)
 }
+
+/// Against a real weigh-in (call F, D4 B): a ruling arrives already defaulted to what was
+/// ruled, listed among the digest's unacknowledged defaults, and is presented to nobody. Runs
+/// only with `WEIGHIN_BIN` naming a weighin that folds decision requests.
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary and weighin")]
+fn a_raised_ruling_shows_as_an_unacknowledged_default_in_weighin_digest() -> TestResult {
+    let Some(bin) = std::env::var_os("WEIGHIN_BIN").filter(|bin| !bin.is_empty()) else {
+        writeln!(
+            std::io::stderr().lock(),
+            "skipped: WEIGHIN_BIN is unset; CI sets it to the pinned weigh-in release"
+        )?;
+        return Ok(());
+    };
+    let bin = std::path::PathBuf::from(bin);
+    let repo = tempfile::tempdir()?;
+    git(repo.path(), &["init", "-q"]);
+    git(
+        repo.path(),
+        &["commit", "-q", "--allow-empty", "-m", "init"],
+    );
+    let ruling = [
+        "orchestrate",
+        "rule",
+        "--ticket",
+        "7",
+        "--what",
+        "keep one cache per tenant",
+        "--why",
+        "reversible in one commit",
+        "--cost",
+        "a revert and a cache flush",
+    ];
+
+    let rule = envelope(&anneal(repo.path(), &bin, &ruling).output()?, 0)?;
+
+    assert_eq!(rule["findings"], json!([]), "weigh-in is installed");
+    let item = rule["data"]["item_id"].as_str().ok_or("an item id")?;
+    let digest: Value =
+        serde_json::from_slice(&weighin(&bin, repo.path(), &["digest", "--json"])?)?;
+    let defaults = digest["defaults"].as_array().ok_or("a defaults list")?;
+    let [taken] = defaults.as_slice() else {
+        panic!("one default: {digest}");
+    };
+    assert_eq!(taken["id"], json!(item));
+    assert_eq!(taken["status"], json!("defaulted"));
+    assert_eq!(
+        (
+            &taken["default"]["option"],
+            &taken["default"]["cause"],
+            &taken["default"]["acknowledged"]
+        ),
+        (&json!("a"), &json!("two-way"), &json!(false)),
+        "defaulted to the ruling, the raiser's own call, not yet seen: {taken}"
+    );
+    let open: Value =
+        serde_json::from_slice(&weighin(&bin, repo.path(), &["open", "--repo", "--json"])?)?;
+    assert_eq!(open, json!([]), "nobody is asked");
+    Ok(())
+}
