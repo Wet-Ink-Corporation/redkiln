@@ -6,6 +6,13 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 2.1.0 (2026-11-20)
+
+Weigh-In becomes the place other Redkiln plugins bring their decisions: Bench's parked tickets
+and `/orchestrate` rulings arrive as decision requests, answered with `decide` like any other
+item, and an answer can say whether it holds once or always. Nothing about 2.0.0's store,
+journals or install changes.
+
 - Decision requests from other Redkiln plugins now show up: a `weighin.request_raised` event
   becomes an item of channel `request`, already grounded with the raiser's own card (options `a`
   to `d`), listed by `open` and answered with `decide` like any other. A two-way judgment call
