@@ -2,16 +2,19 @@
 //! witnesses the option picked, breaking any one rule gives that rule's reason, and whatever
 //! the input, a choice only ever comes with every rule holding.
 
-use crate::support::{CASES, Rng, adversarial, one_line};
+use crate::support::{CASES, Rng, TestResult, adversarial, one_line};
 use weighin_core::ItemId;
 use weighin_core::answered::{
     Answer, Choice, ItemCard, ONE_WAY_SUFFIX, RECOMMENDED_SUFFIX, Resolution, ShownQuestion,
     Unwitnessed, label, witness,
 };
 use weighin_core::card::{Card, CardOption, Recommendation, Stability};
+use weighin_core::marker::Door;
 
 const SEED: u64 = 0x1250_A115_3E4E_D001;
 const IDS: [&str; 4] = ["A", "B", "C", "D"];
+const DOORS: [Door; 3] = [Door::OneWay, Door::TwoWay, Door::Unsure];
+const NOT_TWO_WAY: [Door; 2] = [Door::OneWay, Door::Unsure];
 const UNRESOLVED: [Resolution; 3] = [
     Resolution::AfkTimeout,
     Resolution::FollowUp,
@@ -20,11 +23,13 @@ const UNRESOLVED: [Resolution; 3] = [
 /// A shown label that names no option: no option label starts with `Defer`.
 const DEFER: &str = "Defer to the DPA review (default A by 2026-12-01)";
 
-/// A generated item: its id, question and a card whose first option is eligible and recommended.
+/// A generated item: its id, question, door and a card whose first option is eligible and
+/// recommended.
 struct Generated {
     id: ItemId,
     question: String,
     card: Card,
+    door: Door,
 }
 
 impl Generated {
@@ -33,7 +38,18 @@ impl Generated {
             id: &self.id,
             question: &self.question,
             card: &self.card,
+            door: self.door,
         }
+    }
+
+    /// The question as a sitting shows it: with the one-way suffix unless the door is two-way.
+    fn text(&self) -> String {
+        let suffix = if self.door == Door::TwoWay {
+            ""
+        } else {
+            ONE_WAY_SUFFIX
+        };
+        format!("{} {}{suffix}", self.id, self.question)
     }
 
     fn eligible(&self) -> Vec<&CardOption> {
@@ -45,10 +61,10 @@ impl Generated {
     }
 }
 
-/// Whether a dialog showing `text` may mark `card`'s recommendation: it was earned, and the
-/// question is not one-way.
-fn may_mark(card: &Card, text: &str) -> bool {
-    card.recommendation_earned() && !text.ends_with(ONE_WAY_SUFFIX)
+/// Whether a dialog may mark the item's recommendation: the item's door is two-way, and the
+/// recommendation was earned. The door decides, never the text shown.
+fn may_mark(g: &Generated) -> bool {
+    g.door == Door::TwoWay && g.card.recommendation_earned()
 }
 
 /// Whether `shown` names `option` of `card`, written apart from the module: the option's label,
@@ -110,6 +126,7 @@ fn item(rng: &mut Rng, plain_ids: bool) -> Generated {
             recommendation,
             ..Default::default()
         },
+        door: *rng.pick(&DOORS),
     }
 }
 
@@ -117,11 +134,8 @@ fn item(rng: &mut Rng, plain_ids: bool) -> Generated {
 /// order, the recommendation perhaps marked, perhaps with the ineligible options and a defer
 /// choice), and one eligible option picked under the label it was shown with.
 fn well_formed(rng: &mut Rng, g: &Generated) -> (ShownQuestion, Answer, String) {
-    let mut text = format!("{} {}", g.id, g.question);
-    if rng.one_in(2) {
-        text.push_str(ONE_WAY_SUFFIX);
-    }
-    let marked = may_mark(&g.card, &text) && rng.one_in(2);
+    let text = g.text();
+    let marked = may_mark(g) && rng.one_in(2);
     let shown_label = |o: &CardOption| {
         if marked && o.id == g.card.recommendation.option {
             label(o) + RECOMMENDED_SUFFIX
@@ -205,24 +219,24 @@ fn pick_ineligible(
     g: &mut Generated,
     shown: &mut ShownQuestion,
     answer: &mut Answer,
-) -> Unwitnessed {
-    if !g.card.options.iter().any(|o| o.fails_must.is_some())
-        && let Some(last) = g.card.options.last_mut()
-    {
-        last.fails_must = Some("a MUST".to_owned());
-    }
-    let ineligible = g
+) -> Option<Unwitnessed> {
+    let last = g.card.options.len().checked_sub(1)?;
+    let i = g
         .card
         .options
         .iter()
-        .find(|o| o.fails_must.is_some())
-        .expect("the card has an ineligible option");
+        .position(|o| o.fails_must.is_some())
+        .unwrap_or(last);
+    let ineligible = g.card.options.get_mut(i)?;
+    ineligible
+        .fails_must
+        .get_or_insert_with(|| "a MUST".to_owned());
     let picked = label(ineligible);
     if !shown.labels.contains(&picked) {
         shown.labels.push(picked.clone());
     }
     answer.selected = vec![picked];
-    Unwitnessed::IneligibleOption(ineligible.id.clone())
+    Some(Unwitnessed::IneligibleOption(ineligible.id.clone()))
 }
 
 /// Show one of the labels a second time.
@@ -233,61 +247,76 @@ fn repeat_label(rng: &mut Rng, shown: &mut ShownQuestion) -> Unwitnessed {
 }
 
 /// The recommended option, the first of every generated card.
-fn recommended(g: &Generated) -> CardOption {
-    g.card.options.first().cloned().expect("a card has options")
+fn recommended(g: &Generated) -> Option<CardOption> {
+    g.card.options.first().cloned()
 }
 
-/// Mark the recommendation on a one-way question, where a sitting never marks it.
-fn mark_one_way(g: &Generated, shown: &mut ShownQuestion) -> Unwitnessed {
-    if !shown.text.ends_with(ONE_WAY_SUFFIX) {
-        shown.text.push_str(ONE_WAY_SUFFIX);
-    }
-    let rec = recommended(g);
+/// Mark the recommendation of an item that is not two-way, shown as such, where a sitting never
+/// marks it.
+fn mark_one_way(
+    rng: &mut Rng,
+    g: &mut Generated,
+    shown: &mut ShownQuestion,
+) -> Option<Unwitnessed> {
+    g.door = *rng.pick(&NOT_TWO_WAY);
+    shown.text = g.text();
+    let rec = recommended(g)?;
     shown.labels.retain(|l| !names(&g.card, true, &rec, l));
     shown.labels.push(label(&rec) + RECOMMENDED_SUFFIX);
-    Unwitnessed::OptionNotShown(rec.id)
+    Some(Unwitnessed::OptionNotShown(rec.id))
+}
+
+/// Show the question as the other kind of door: two-way text for an item that is not two-way
+/// (whatever the labels claim), or the one-way suffix on a two-way item.
+fn swap_door(rng: &mut Rng, g: &mut Generated) -> Unwitnessed {
+    g.door = if g.door == Door::TwoWay {
+        *rng.pick(&NOT_TWO_WAY)
+    } else {
+        Door::TwoWay
+    };
+    Unwitnessed::NotTheItemsQuestion
 }
 
 /// Show the recommended option under both of its labels, where marking is allowed.
-fn show_twice(g: &mut Generated, shown: &mut ShownQuestion) -> Unwitnessed {
+fn show_twice(g: &mut Generated, shown: &mut ShownQuestion) -> Option<Unwitnessed> {
     g.card.recommendation.stability = None;
-    if let Some(plain) = shown.text.strip_suffix(ONE_WAY_SUFFIX) {
-        shown.text = plain.to_owned();
-    }
-    let rec = recommended(g);
+    g.door = Door::TwoWay;
+    shown.text = g.text();
+    let rec = recommended(g)?;
     shown.labels.retain(|l| !names(&g.card, true, &rec, l));
     shown.labels.push(label(&rec));
     shown.labels.push(label(&rec) + RECOMMENDED_SUFFIX);
-    Unwitnessed::OptionShownTwice(rec.id)
+    Some(Unwitnessed::OptionShownTwice(rec.id))
 }
 
 /// Give one option a title that claims the recommendation.
-fn claim_recommendation(rng: &mut Rng, g: &mut Generated) -> Unwitnessed {
+fn claim_recommendation(rng: &mut Rng, g: &mut Generated) -> Option<Unwitnessed> {
     let i = rng.below(g.card.options.len());
-    let option = g.card.options.get_mut(i).expect("an option at i");
+    let option = g.card.options.get_mut(i)?;
     option.title.push_str(RECOMMENDED_SUFFIX);
-    Unwitnessed::TitleMarksRecommended(option.id.clone())
+    Some(Unwitnessed::TitleMarksRecommended(option.id.clone()))
 }
 
 /// Make the first two options render to the same label: `A` titled `y: z` and `A: y` titled `z`.
-fn collide(g: &mut Generated) -> Unwitnessed {
-    if let [first, second, ..] = g.card.options.as_mut_slice() {
-        "y: z".clone_into(&mut first.title);
-        second.id = format!("{}: y", first.id);
-        "z".clone_into(&mut second.title);
-    }
-    let first = recommended(g);
-    Unwitnessed::CollidingLabels(label(&first))
+fn collide(g: &mut Generated) -> Option<Unwitnessed> {
+    let [first, second, ..] = g.card.options.as_mut_slice() else {
+        return None;
+    };
+    "y: z".clone_into(&mut first.title);
+    second.id = format!("{}: y", first.id);
+    "z".clone_into(&mut second.title);
+    Some(Unwitnessed::CollidingLabels(label(first)))
 }
 
-/// Break one rule of a well-formed dialog, and say which reason that must give.
+/// Break one rule of a well-formed dialog, and say which reason that must give; `None` when the
+/// generated card was too small to break it, which never happens.
 fn break_one_rule(
     rng: &mut Rng,
     g: &mut Generated,
     shown: &mut ShownQuestion,
     answer: &mut Answer,
-) -> Unwitnessed {
-    match rng.below(13) {
+) -> Option<Unwitnessed> {
+    Some(match rng.below(14) {
         0 => {
             answer.resolution = *rng.pick(&UNRESOLVED);
             match answer.resolution {
@@ -316,34 +345,40 @@ fn break_one_rule(
         }
         5 => pick_unshown(g, shown, answer),
         6 => pick_extra(shown, answer),
-        7 => pick_ineligible(g, shown, answer),
+        7 => return pick_ineligible(g, shown, answer),
         8 => repeat_label(rng, shown),
-        9 => mark_one_way(g, shown),
-        10 => show_twice(g, shown),
-        11 => claim_recommendation(rng, g),
-        _ => collide(g),
-    }
+        9 => return mark_one_way(rng, g, shown),
+        10 => return show_twice(g, shown),
+        11 => return claim_recommendation(rng, g),
+        12 => swap_door(rng, g),
+        _ => return collide(g),
+    })
 }
 
 #[test]
-fn breaking_any_one_rule_gives_that_rules_reason() {
+fn breaking_any_one_rule_gives_that_rules_reason() -> TestResult {
     for case in 0..CASES {
         let mut rng = Rng::new(SEED ^ 1, case);
         let mut g = item(&mut rng, true);
         let (mut shown, mut answer, _) = well_formed(&mut rng, &g);
-        let expected = break_one_rule(&mut rng, &mut g, &mut shown, &mut answer);
+        let expected = break_one_rule(&mut rng, &mut g, &mut shown, &mut answer)
+            .ok_or_else(|| format!("case {case}: no rule broken"))?;
         assert_eq!(
             witness(&shown, &answer, &g.item()),
             Err(expected),
             "case {case}"
         );
     }
+    Ok(())
 }
 
 /// Break any number of rules at random, each with some probability.
-fn scramble(rng: &mut Rng, shown: &mut ShownQuestion, answer: &mut Answer) {
+fn scramble(rng: &mut Rng, g: &mut Generated, shown: &mut ShownQuestion, answer: &mut Answer) {
     if rng.one_in(4) {
         answer.resolution = *rng.pick(&UNRESOLVED);
+    }
+    if rng.one_in(4) {
+        g.door = *rng.pick(&DOORS);
     }
     if rng.one_in(4) {
         shown.multi_select = true;
@@ -389,12 +424,8 @@ fn assert_every_rule_holds(
     assert_eq!(answer.resolution, Resolution::Person, "case {case}");
     assert!(!shown.multi_select, "case {case}");
     assert_card_holds(case, &g.card);
-    let marked = may_mark(&g.card, &shown.text);
-    let rest = shown
-        .text
-        .strip_prefix(&format!("{} {}", g.id, g.question))
-        .unwrap_or("not the item's question");
-    assert!(rest.is_empty() || rest == ONE_WAY_SUFFIX, "case {case}");
+    let marked = may_mark(g);
+    assert_eq!(shown.text, g.text(), "case {case}");
     for (i, l) in shown.labels.iter().enumerate() {
         assert!(
             !shown.labels.iter().take(i).any(|e| e == l),
@@ -436,9 +467,9 @@ fn a_choice_only_ever_comes_with_every_rule_holding() {
     for case in 0..CASES {
         let mut rng = Rng::new(SEED ^ 2, case);
         let plain_ids = rng.one_in(2);
-        let g = item(&mut rng, plain_ids);
+        let mut g = item(&mut rng, plain_ids);
         let (mut shown, mut answer, _) = well_formed(&mut rng, &g);
-        scramble(&mut rng, &mut shown, &mut answer);
+        scramble(&mut rng, &mut g, &mut shown, &mut answer);
         if let Ok(choice) = witness(&shown, &answer, &g.item()) {
             assert_every_rule_holds(case, &g, (&shown, &answer), &choice);
             choices += 1;

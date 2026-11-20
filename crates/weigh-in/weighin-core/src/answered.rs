@@ -15,13 +15,14 @@
 //! 3. the item's card passes [`Card::validate`], so its option ids are unique, no option's
 //!    title ends with [`RECOMMENDED_SUFFIX`], and no two options can be shown under the same
 //!    label, counting the recommended option's suffixed form;
-//! 4. the question is the item's own: `<id> <question>` byte for byte, or with
-//!    [`ONE_WAY_SUFFIX`], and the item's question is not blank;
+//! 4. the question is the item's own: `<id> <question>` byte for byte, followed by
+//!    [`ONE_WAY_SUFFIX`] exactly when the item's door is not two-way (one-way or unsure), and
+//!    the item's question is not blank;
 //! 5. no label was shown twice, and no option under two labels;
 //! 6. every eligible option (one that fails no MUST) was shown under its [`label`]; the
-//!    recommended option may instead carry [`RECOMMENDED_SUFFIX`] once, but only when the card
-//!    earned its recommendation ([`Card::recommendation_earned`]) and the question is not
-//!    one-way, as a sitting presents it;
+//!    recommended option may instead carry [`RECOMMENDED_SUFFIX`] once, but only when the
+//!    item's door is two-way and the card earned its recommendation
+//!    ([`Card::recommendation_earned`]), as a sitting presents it;
 //! 7. exactly one label was selected, and it was one of the labels shown;
 //! 8. that label names one of the card's options, and that option is eligible.
 //!
@@ -29,17 +30,18 @@
 //! is not a choice of an option. What the dialog showed besides the question and the labels
 //! (option descriptions, the header) is not checked here.
 
+use crate::marker::Door;
 use std::collections::BTreeSet;
 use weighin_contract::ItemId;
 use weighin_contract::card::{Card, CardError, CardOption};
 
-/// The one suffix a shown question may carry after the item's question: what a sitting appends
-/// to a one-way item's question, which it presents options first.
+/// The suffix a shown question carries after the item's question exactly when the item's door
+/// is not two-way: a sitting presents such an item options first.
 pub const ONE_WAY_SUFFIX: &str = " (one-way: options first)";
 
 /// The one suffix the recommended option's label may carry after [`label`].
 ///
-/// It is allowed only when the card earned its recommendation and the question is not one-way:
+/// It is allowed only when the item's door is two-way and the card earned its recommendation:
 /// what a sitting appends to the recommendation it pre-selects.
 pub const RECOMMENDED_SUFFIX: &str = " (Recommended)";
 
@@ -85,6 +87,9 @@ pub struct ItemCard<'a> {
     pub question: &'a str,
     /// The item's card from its latest grounding.
     pub card: &'a Card,
+    /// The item's door as triaged, else as hinted (`Item::door`). Only a two-way item is shown
+    /// without [`ONE_WAY_SUFFIX`] and may have its recommendation marked.
+    pub door: Door,
 }
 
 /// A witnessed pick: the option the person chose.
@@ -176,6 +181,7 @@ pub fn label(option: &CardOption) -> String {
 ///     Answer, Choice, ItemCard, Resolution, ShownQuestion, Unwitnessed, witness,
 /// };
 /// use weighin_core::card::{Card, CardOption, Recommendation};
+/// use weighin_core::marker::Door;
 /// use weighin_core::ItemId;
 ///
 /// let option = |id: &str, title: &str| CardOption {
@@ -189,7 +195,12 @@ pub fn label(option: &CardOption) -> String {
 ///     ..Default::default()
 /// };
 /// let id = ItemId::mint("s1", "Keep holds per series?");
-/// let item = ItemCard { id: &id, question: "Keep holds per series?", card: &card };
+/// let item = ItemCard {
+///     id: &id,
+///     question: "Keep holds per series?",
+///     card: &card,
+///     door: Door::TwoWay,
+/// };
 /// let shown = ShownQuestion {
 ///     text: format!("{id} Keep holds per series?"),
 ///     multi_select: false,
@@ -218,10 +229,13 @@ pub fn witness(
     }
     let card = item.card;
     check_card(card)?;
-    let Some(one_way) = items_question(&shown.text, item) else {
+    // The door, not the text the model wrote, decides how the question must be shown: only a
+    // two-way item goes without the one-way suffix, and only its recommendation may be marked.
+    let two_way = item.door == Door::TwoWay;
+    if items_question(&shown.text, item) != Some(!two_way) {
         return Err(Unwitnessed::NotTheItemsQuestion);
-    };
-    let marked = card.recommendation_earned() && !one_way;
+    }
+    let marked = two_way && card.recommendation_earned();
     let names = |o: &CardOption, l: &str| names(card, marked, o, l);
     let mut seen = BTreeSet::new();
     if let Some(repeated) = shown.labels.iter().find(|l| !seen.insert(l.as_str())) {
@@ -376,15 +390,16 @@ mod tests {
         }
     }
 
+    /// Check against the two-way item asking [`QUESTION`].
     fn check(shown: &ShownQuestion, answer: &Answer, card: &Card) -> Result<Choice, Unwitnessed> {
-        check_question(shown, answer, card, QUESTION)
+        check_item(shown, answer, card, (QUESTION, Door::TwoWay))
     }
 
-    fn check_question(
+    fn check_item(
         shown: &ShownQuestion,
         answer: &Answer,
         card: &Card,
-        question: &str,
+        (question, door): (&str, Door),
     ) -> Result<Choice, Unwitnessed> {
         let id = id();
         witness(
@@ -394,6 +409,7 @@ mod tests {
                 id: &id,
                 question,
                 card,
+                door,
             },
         )
     }
@@ -407,12 +423,52 @@ mod tests {
     }
 
     #[test]
-    fn a_one_way_question_with_its_suffix_is_still_the_items_own() {
+    fn a_one_way_or_unsure_question_with_its_suffix_is_still_the_items_own() {
         let mut s = shown(&id());
         s.text.push_str(ONE_WAY_SUFFIX);
+        for door in [Door::OneWay, Door::Unsure] {
+            assert_eq!(
+                check_item(&s, &picked("A: Option A"), &card(), (QUESTION, door)),
+                Ok(Choice { option: "A".into() }),
+                "{door:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_one_way_suffix_must_match_the_items_door() {
+        let mut one_way = shown(&id());
+        one_way.text.push_str(ONE_WAY_SUFFIX);
         assert_eq!(
-            check(&s, &picked("A: Option A"), &card()),
-            Ok(Choice { option: "A".into() })
+            check(&one_way, &picked("A: Option A"), &card()),
+            Err(Unwitnessed::NotTheItemsQuestion)
+        );
+        for door in [Door::OneWay, Door::Unsure] {
+            assert_eq!(
+                check_item(
+                    &shown(&id()),
+                    &picked("A: Option A"),
+                    &card(),
+                    (QUESTION, door)
+                ),
+                Err(Unwitnessed::NotTheItemsQuestion),
+                "{door:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_one_way_item_shown_as_two_way_with_its_recommendation_marked_is_unwitnessed() {
+        let mut s = shown(&id());
+        s.labels = vec!["A: Option A (Recommended)".into(), "B: Option B".into()];
+        assert_eq!(
+            check_item(
+                &s,
+                &picked("A: Option A (Recommended)"),
+                &card(),
+                (QUESTION, Door::OneWay)
+            ),
+            Err(Unwitnessed::NotTheItemsQuestion)
         );
     }
 
@@ -558,7 +614,12 @@ mod tests {
             let mut s = shown(&id());
             s.text = format!("{} {question}", id());
             assert_eq!(
-                check_question(&s, &picked("A: Option A"), &card(), question),
+                check_item(
+                    &s,
+                    &picked("A: Option A"),
+                    &card(),
+                    (question, Door::TwoWay)
+                ),
                 Err(Unwitnessed::NotTheItemsQuestion),
                 "{question:?}"
             );
@@ -639,13 +700,16 @@ mod tests {
         let mut s = relabelled("A: Option A", "A: Option A (Recommended)");
         s.text.push_str(ONE_WAY_SUFFIX);
         let marked = picked("A: Option A (Recommended)");
-        assert_eq!(
-            check(&s, &marked, &card()),
-            Err(Unwitnessed::OptionNotShown("A".into()))
-        );
+        for door in [Door::OneWay, Door::Unsure] {
+            assert_eq!(
+                check_item(&s, &marked, &card(), (QUESTION, door)),
+                Err(Unwitnessed::OptionNotShown("A".into())),
+                "{door:?}"
+            );
+        }
         s.labels.push("A: Option A".into());
         assert_eq!(
-            check(&s, &marked, &card()),
+            check_item(&s, &marked, &card(), (QUESTION, Door::OneWay)),
             Err(Unwitnessed::UnknownLabel(
                 "A: Option A (Recommended)".into()
             ))
