@@ -146,6 +146,13 @@ jobs:
       - name: Feature combinations (API-16)
         run: cargo hack check --locked --workspace --feature-powerset
       - run: cargo nextest run --locked --workspace --all-features --no-tests=fail
+      # Bench against the Weigh-In of the same commit (Move 2 step 7, D8, Ryan 2026-11-18): the
+      # cross-plugin tests, which skip without WEIGHIN_BIN. Linux only.
+      - name: Bench against the real Weigh-In (D8)
+        shell: bash
+        run: |
+          cargo build --locked -p weighin
+          WEIGHIN_BIN="$PWD/target/debug/weighin" cargo nextest run --locked -p bench --all-features --no-tests=fail -E 'test(the_pinned_weigh_in) | test(a_raised_ruling_shows)'
       - run: cargo test --locked --doc --workspace --all-features
       - name: SPEC fixtures (ID-09 patch-id recipe)
         run: sh spec/fixtures/patch-id/check.sh
