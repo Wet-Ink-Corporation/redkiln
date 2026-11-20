@@ -94,7 +94,7 @@ A hook checks for the plugin's own marker (`.redkiln/suite.toml`, or the plugin'
 ## Open problems
 
 - **Regex claim detection over prose keeps growing.** anneal's completeness hook carries a hand-built grammar that still has named false positives and judges only the final message; any green test run satisfies it (anneal `docs/hooks.md:270-347`, #135).
-- **The end-of-turn grammar diverged.** anneal records temper's `WIP` as a violation; the blueprint's one Core grammar fixes this at Move 2 (anneal `docs/hooks.md:394-400`).
+- **The end-of-turn grammar diverged.** anneal records temper's `WIP` as a violation; the blueprint's one Core grammar fixes this at Move 2 (anneal `docs/hooks.md:394-400`). *Resolved (Move 2 step 6): `spec/turns.md` (ET-04, ET-05), read through `redkiln_core::turn` by Bench since #121, frozen in SPEC 1.0.0.*
 - **Double capture** when org sync and repository wiring both load a plugin in a cloud session has never been checked (weigh-in `docs/roadmap.md:32`, #143).
 
 ## Prior art

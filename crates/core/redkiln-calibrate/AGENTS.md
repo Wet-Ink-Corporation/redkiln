@@ -11,7 +11,7 @@ Core leaf. Depends on no other Core crate (it may depend on `redkiln-core`, and 
 - Never a kit, a plugin crate, a contract crate or `anyhow`.
 
 ## Public surface
-Only what a producer calls is `pub` (API-14).
+Only what a producer calls is `pub` (API-14). Version 1.0.0 since the freeze (M2-G, 2026-11-20), with CA-02's record types frozen as OW-17 and the user scope as OW-16.
 - `scope`: `UserScope` (`from_lookup`, `root`, `legacy_home`, `decisions`), `user_root` (the root alone, never reading anneal's home; wi-ad764d8531 A), `DecisionDirs { current, legacy }`, `ScopeError { NoHome, RelativeHome, Producer }`, and `HOME_VAR`; the folder names are crate-private.
 - `log`: `DecisionLog` (`new`, `dir`, `path`, `append`, `files`), `LogError`, `LOG_FILE`, `MAX_ROW_BYTES`, `MAX_FILE_BYTES`, `ROTATED_FILES`.
 - `record`: `JudgementRecorded`, `JudgementLabelled`, `Answer`, `Mode`, `LabelBy`, `LabelActor`, the words `JudgementId`, `Outcome`, `Vocab` (`TryFrom<String>`, `FromStr`, `as_str`, `into_string`) with `WordError`, which hands the text back, `Producer` (ST-17's plain name, through `scope`'s rule) and `Subject` (ID-09's `<method>:<hex>`) built the same way with `ProducerError` and `SubjectError`, which hand the text back, `RecordError` (`field`), and `JUDGEMENT_RECORDED`, `JUDGEMENT_LABELLED`, `VERSION`. Read and written through private wire shapes (OUT-05); no `Payload` impl and no `core` feature while nothing writes an envelope.

@@ -13,7 +13,7 @@ Core, the hub (`cargo xtask layers`): other Core crates may depend only on it.
 - Never: `anyhow` (a library, H-09), a plugin's crates, or anything that prints.
 
 ## Public surface
-Modules `store`, `location`, `suite`, `envelope`, `trust`, `approval`, `ids`, `canonical`, `subject`, `journal` (with `journal::refs`), `turn` (the end-of-turn report, ET) and `legacy`, plus happenstance's `EventId` and `StoreId` re-exported at the root (ID-01, ID-02). The item list is [`docs/core/crates/redkiln-core.md`](../../../docs/core/crates/redkiln-core.md). Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published.
+Modules `store`, `location`, `suite`, `envelope`, `trust`, `approval`, `ids`, `canonical`, `subject`, `journal` (with `journal::refs`), `turn` (the end-of-turn report, ET) and `legacy`, plus happenstance's `EventId` and `StoreId` re-exported at the root (ID-01, ID-02). The item list is [`docs/core/crates/redkiln-core.md`](../../../docs/core/crates/redkiln-core.md). Error variants carry rusqlite's and happenstance's errors as sources: Core is their adapter and pins both. Workspace-internal, never published. Version 1.0.0 since the freeze (M2-G, 2026-11-20): it implements SPEC 1.0.0, which `envelope::SPEC_VERSION` names and every writer stamps.
 
 ## Invariants
 - The store runs under TRUNCATE, never WAL or DELETE. Nothing here deletes a file beside the store; files are set aside by renaming (ST-05). No SQLite connection Core opens can delete or play back a stale `-journal`: it is probed through a read-only read lock and renamed aside before any read-write connection sees the file, and renamed back when a writer holds it.

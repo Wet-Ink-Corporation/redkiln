@@ -57,7 +57,7 @@ When a pilot measures a behaviour, behaviour-changing PRs wait until its report,
 
 ## Patterns worth copying
 
-- **One convention line in the end-of-turn grammar moved capture from 1/7 to 12/13** ("a list of calls for the user gets one block per call") (weigh-in #68).
+- **One convention line in the end-of-turn grammar moved capture from 1/7 to 12/13** ("a list of calls for the user gets one block per call") (weigh-in #68). *The grammar is now the SPEC's, `spec/turns.md` (ET-08 for the blocks), frozen in SPEC 1.0.0.*
 - **The end-of-turn block is forgiving everywhere except its key field**: values case-insensitive with aliases and defaults, a block without `q:` is not an item, a `#` comment needs a following space so `#123` survives, a block inside an outer example fence is not captured (weigh-in `crates/weighin-core/src/marker.rs`).
 - **Measure whether the rendering was enough**: Loop's `answer` requires `--explain-sufficed` and `--toml-opened` on every gate answer (redkiln-rs D21-96).
 - **Budget a decision sitting in requests, not tokens**: three requests re-reading a 585k-token context made up 60-75% of a sitting's cost (weigh-in D-0016).
