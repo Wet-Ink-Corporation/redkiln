@@ -11,9 +11,11 @@
 //! * [`card`] is the grounded decision card (the board and the atoms both render from it).
 //! * [`atom`] renders `.kb` decision and open-question atoms that pass Redkiln's `KbFrontmatter`.
 //! * [`board`] is the exchange format with the Artifact board.
+//! * [`answered`] decides whether an answered dialog witnesses a pick of one of an item's options.
 
 #![forbid(unsafe_code)]
 
+pub mod answered;
 pub mod atom;
 pub mod board;
 pub mod marker;

@@ -4,6 +4,8 @@
 //! the SPEC's end-of-turn fixtures (ET-08).
 
 #[cfg(test)]
+mod answered_props;
+#[cfg(test)]
 mod atom_props;
 #[cfg(test)]
 mod id_props;

@@ -12,7 +12,7 @@ domain. Pure: nothing here reads a clock, a file, a process or the environment, 
 - Never: `weighin`, happenstance, tokio, clap, anyhow, `time` or anything that does I/O. Timestamps arrive as values from the caller.
 
 ## Public surface
-The modules `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `event` and `id` re-exported from `weighin-contract`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
+The modules `answered`, `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `event` and `id` re-exported from `weighin-contract`, re-exporting `Card`, `EventEnvelope`, `LedgerEvent`, `ItemId`, `Item`, `Ledger` and `Status` at the root. Workspace-internal, never published (`publish = false`, D-0007).
 
 ## Invariants
 - Current state is a fold of events in store-position order. Nothing trusts timestamps for ordering (`projection`).
@@ -20,14 +20,16 @@ The modules `atom`, `board`, `marker`, `projection` and `scan`, with `card`, `ev
 - Atoms are written through `knowledge-contract` (`atom`): frontmatter, ids and paths are Knowledge's; the MADR body is Weigh-In's rendering. Decision atoms of 6- and 8-hex items are byte for byte what 1.x wrote.
 - A card has 2 to 4 options with unique ids, and it never recommends an option that fails a MUST or is flagged as evasive (`card::CardError`).
 - Card field names are the board's, so `board.html` renders a card as-is (`card`).
+- A pick is witnessed only when the person resolved the dialog, the question is single-select and is the item's own (`<id> <question>`), every eligible option was shown under its `<id>: <title>` label, and the one label selected names exactly one eligible option (`answered`). The module takes plain values; the harness payload stays in the binary's adapter.
 
 ## Errors
 - `card::CardError`: a card that breaks the invariants above. These are domain rejections.
 - `board::AnswerError`: a board answer the ledger cannot accept, such as an unknown or non-open item, an unknown or ineligible option, an incomplete deferral, or an unknown dismiss reason. These are domain rejections.
+- `answered::Unwitnessed`: why an answered dialog does not witness a pick of one option (not resolved by the person, multi-select, not the item's own question, an eligible option not shown, not exactly one shown label selected, a label naming no option or several, an ineligible option). These are domain rejections: the caller records nothing `witnessed`.
 - There are no infrastructure failures in this crate, because it has no I/O.
 
 ## Test strategy
-Unit tests sit beside the code in each module: id, marker, scan, card, atom, board, projection and event, and the public docs carry doctests. Property tests live in one integration binary, `tests/it/` (TST-02, TST-14): a fixed-seed splitmix64 PRNG and adversarial-text generators in `tests/it/support.rs` (std only, no property-testing dependency) drive the public API of `id`, `marker`, `projection` and `atom` through a few thousand cases each. Run with `cargo test -p weighin-core`.
+Unit tests sit beside the code in each module: id, marker, scan, card, atom, board, answered, projection and event, and the public docs carry doctests. Property tests live in one integration binary, `tests/it/` (TST-02, TST-14): a fixed-seed splitmix64 PRNG and adversarial-text generators in `tests/it/support.rs` (std only, no property-testing dependency) drive the public API of `id`, `marker`, `projection`, `atom` and `answered` through a few thousand cases each. Run with `cargo test -p weighin-core`.
 
 ## Do not
 - Add I/O, a clock read or an environment read. Those belong in `weighin` (the "no I/O" rule in `lib.rs`).
@@ -39,3 +41,4 @@ Unit tests sit beside the code in each module: id, marker, scan, card, atom, boa
 |---|---|---|---|
 | 2026-10-19 | `event::Surface` names the spellings of `item_presented.surface` and `item_decided.via`, `pane` among them; the stored fields stay strings. Only `as_str` is public; `weighin stats --json` counts standing decisions by surface in the binary, so `Health` is unchanged (B-30, #115). Additive public API. | API-14, H-16 | session lead (Claude), open to Ryan |
 | 2026-11-01 | Decision ageing (D-0022, #173): `Decision::reviewed_ts` (serialised only once set), `Item::reviews` and `Item::reopened_after_review` (not serialised), and `Item::last_reviewed`, `Item::flip_condition`, `Item::due_for_review` and `Ledger::due_for_review`, which take `now` from the caller. `item_acknowledged` on a decided item records a review; on a default it folds as before. `Health` is unchanged: `weighin stats` counts reviews in the binary. Additive public API. | API-14, H-16 | Ryan Britton (D-0022) |
+| 2026-11-20 | #125 PR 1a (D7 A): new public module `answered`, pure: `witness(&ShownQuestion, &Answer, &ItemCard) -> Result<Choice, Unwitnessed>`, `label(&CardOption)` (`<id>: <title>`), `ONE_WAY_SUFFIX`, and the plain input types `ShownQuestion`, `Answer`, `Resolution`, `ItemCard`. No harness protocol: PR 1b's `weighin` adapter maps the `AskUserQuestion` payload onto these types and writes `witnessed` (TR-03, DR-06); every other path stays `asserted` (TR-05). Additive public API. | TR-03, TR-05, DR-06, API-14, H-16 | Ryan (D7 A, #125) |
