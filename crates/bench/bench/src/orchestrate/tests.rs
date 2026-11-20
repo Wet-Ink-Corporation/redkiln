@@ -556,6 +556,37 @@ fn a_ruling_raises_one_two_way_judgment_request_defaulting_to_what_was_ruled() -
 }
 
 #[test]
+fn a_ruling_carries_its_d2_decision_as_an_attachment() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+    let words: Vec<&str> = RULE
+        .iter()
+        .copied()
+        .chain(["--decision", "d1760000000000-42-7"])
+        .collect();
+
+    let (code, envelope) = world.run(&words, Some(&world.bin()), &fake);
+
+    assert_eq!(code.ok(), Some(0), "{envelope}");
+    let requests = world.requests()?;
+    let [(_, request)] = requests.as_slice() else {
+        panic!("one request: {requests:?}");
+    };
+    let attachments: Vec<(&str, &str)> = request
+        .attachments
+        .iter()
+        .flatten()
+        .map(|a| (a.kind.as_str(), a.locator.as_str()))
+        .collect();
+    assert_eq!(
+        attachments,
+        [("bench.clef_decision", "d1760000000000-42-7")],
+        "T9: the D2 decision travels with the request"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_ruling_run_again_writes_nothing() -> TestResult {
     let world = World::new()?;
     let fake = world.able();
