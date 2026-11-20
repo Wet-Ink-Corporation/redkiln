@@ -487,6 +487,35 @@ const RULE: [&str; 9] = [
 ];
 
 #[test]
+fn a_ruling_reports_its_request_as_rule_version_2() -> TestResult {
+    let world = World::new()?;
+    let fake = world.able();
+
+    let (code, envelope) = world.run(&RULE, Some(&world.bin()), &fake);
+
+    assert_eq!(code.ok(), Some(0), "{envelope}");
+    let requests = world.requests()?;
+    let [(position, request)] = requests.as_slice() else {
+        panic!("one request: {requests:?}");
+    };
+    assert_eq!(
+        (
+            &envelope["schema"],
+            &envelope["data"],
+            &envelope["findings"]
+        ),
+        (
+            &json!("bench.orchestrate-rule/2"),
+            &json!({"ticket": "7", "item_id": request.item_id()?.as_str(), "recorded": true,
+                    "position": position}),
+            &json!([])
+        ),
+        "D7: item_id and recorded are new, position is the request's"
+    );
+    Ok(())
+}
+
+#[test]
 fn a_ruling_raises_one_two_way_judgment_request_defaulting_to_what_was_ruled() -> TestResult {
     let world = World::new()?;
     let fake = world.able();
@@ -494,20 +523,11 @@ fn a_ruling_raises_one_two_way_judgment_request_defaulting_to_what_was_ruled() -
     let (code, envelope) = world.run(&RULE, Some(&world.bin()), &fake);
 
     assert_eq!(code.ok(), Some(0), "{envelope}");
-    assert_eq!(envelope["schema"], json!("bench.orchestrate-rule/2"));
-    assert_eq!(envelope["data"]["ticket"], json!("7"));
-    assert_eq!(envelope["data"]["recorded"], json!(true));
-    assert_eq!(envelope["findings"], json!([]));
     assert_eq!(fake.calls(), 0, "a ruling never asks weigh-in (T11)");
     let requests = world.requests()?;
-    let [(position, request)] = requests.as_slice() else {
+    let [(_, request)] = requests.as_slice() else {
         panic!("one request: {requests:?}");
     };
-    assert_eq!(envelope["data"]["position"], json!(position));
-    assert_eq!(
-        envelope["data"]["item_id"],
-        json!(request.item_id()?.as_str())
-    );
     assert_eq!(request.question, "Ticket 7: keep one cache per tenant");
     assert_eq!(
         options_of(request),
