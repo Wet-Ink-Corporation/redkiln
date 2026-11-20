@@ -1,8 +1,9 @@
 //! Inline interpreter code (#117): the guard cannot read `python -c`, `node -e`, `perl -e` or
 //! `ruby -e` code as commands, so one whose code or arguments name a config folder or a
-//! protected file is denied. Code that builds a name at run time and a script file are limits.
+//! protected file is denied. Code that builds a name at run time, a script file and code fed on
+//! stdin are limits.
 
-use super::{ALLOW, CONFIG, assert_table};
+use super::{ALLOW, CONFIG, Verdict, assert_table, check, context};
 
 #[test]
 fn python_inline_code_naming_config_is_a_config_write() {
@@ -117,4 +118,51 @@ fn inline_code_naming_no_config_and_script_files_are_left_to_the_fallback() {
         ("ruby -E utf-8 script.rb .claude", ALLOW),
         ("python3 -c 'print(1)' ..", ALLOW),
     ]);
+}
+
+#[test]
+fn code_fed_to_an_interpreter_on_stdin_is_a_limit() {
+    // The body of a heredoc is data on the interpreter's stdin, which the guard does not read
+    // as code (#135; guide TS-1: the guard is a tripwire). A shell reading its script from
+    // stdin is read as commands instead.
+    assert_table(&[
+        (
+            "python3 - <<'EOF'\nopen('.claude/settings.json', 'w')\nEOF",
+            ALLOW,
+        ),
+        ("python3 < fix.py", ALLOW),
+        (
+            "node - <<'EOF'\nfs.rmSync('.redkiln', {recursive: true})\nEOF",
+            ALLOW,
+        ),
+        ("perl <<'EOF'\nopen(F, '>.claude/x')\nEOF", ALLOW),
+        ("sh -s <<'EOF'\necho x > .claude/settings.json\nEOF", CONFIG),
+    ]);
+}
+
+#[test]
+fn a_redkiln_mention_is_labelled_as_redkiln_state() {
+    let commands = [
+        "python3 -c 'import shutil; shutil.copytree(\"x\", \".redkiln\")'",
+        "rm -r .redkiln",
+    ];
+
+    let reasons: Vec<String> = commands
+        .iter()
+        .map(|command| match check(command, &context()) {
+            Verdict::Deny(denial) => denial.reason,
+            Verdict::Undecided => format!("{command}: undecided"),
+        })
+        .collect();
+
+    assert_eq!(
+        reasons,
+        [
+            "python3 runs inline code, which may write what it names: Redkiln state (.redkiln/) \
+             is lint or hook config, which a Bash command may not change; change it in an edit \
+             a human reviews",
+            "rm changes .redkiln: Redkiln state (.redkiln/) is lint or hook config, which a Bash \
+             command may not change; change it in an edit a human reviews",
+        ]
+    );
 }

@@ -68,10 +68,13 @@ const PROTECTED: [Protected; 14] = [
 ];
 
 /// Directories that hold protected config: removing, moving or re-permissioning one changes it.
-/// `.redkiln/bench` is matched on its last two components.
+/// `.redkiln/bench` is matched on its last two components. `.redkiln` comes first so a mention
+/// of it in inline code ([`inline`]), which names a container by its first component, is
+/// labelled as itself rather than as `.redkiln/bench` (#135); a path is matched on its last
+/// components, so the order does not change which paths match.
 const CONTAINERS: [(&str, &str); 6] = [
+    (".redkiln", "Redkiln state (.redkiln/)"),
     (".redkiln/bench", ".redkiln/bench/"),
-    (".redkiln", ".redkiln/"),
     (".anneal", ".anneal/"),
     (".claude", ".claude/"),
     (".github", ".github/"),

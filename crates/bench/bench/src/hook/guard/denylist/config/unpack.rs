@@ -3,7 +3,8 @@
 //! is judged as `cp`'s is: a protected file, or a config folder the tree may bring its own
 //! config into, since the guard cannot tell whether the folder exists. What lands in the
 //! working directory itself (`rsync -a x/ .`, `tar -xf x.tar`, `unzip x.zip`) is a limit, as
-//! `cp -r x/. .` is: the guard does not read an archive's member names.
+//! `cp -r x/. .` is: the guard does not read an archive's member names. `rsync`'s options are
+//! read wherever they stand, after the operands too (a trailing `--delete`, #135).
 
 use super::{CopyArgs, CopyMode, TrailingSlash, copy_into, creates_protected, deny};
 use crate::hook::guard::Denial;
@@ -16,7 +17,7 @@ const RSYNC_SHORT_VALUES: [char; 6] = ['e', 'f', 'T', 'B', 'M', '@'];
 
 /// Long options of `rsync` that take a value (`--name VALUE` or `--name=VALUE`). popt reads
 /// long names whole, never abbreviated, so they are matched exactly.
-const RSYNC_LONG_VALUES: [&str; 57] = [
+const RSYNC_LONG_VALUES: [&str; 58] = [
     "--rsh",
     "--rsync-path",
     "--filter",
@@ -56,6 +57,7 @@ const RSYNC_LONG_VALUES: [&str; 57] = [
     "--port",
     "--sockopts",
     "--out-format",
+    "--log-format",
     "--log-file",
     "--log-file-format",
     "--password-file",
@@ -141,26 +143,38 @@ fn long_name(text: &str) -> &str {
     text.split_once('=').map_or(text, |(name, _)| name)
 }
 
-/// `rsync`'s operands, read past its options wherever they stand (popt permutes them), and
-/// whether it removes its sources (`--remove-source-files`).
-fn rsync_operands(args: &[Word]) -> (Vec<&Word>, bool) {
+/// An `rsync` operand, and whether it comes right after a long option not in
+/// [`RSYNC_LONG_VALUES`] written without `=`, whose value it may be.
+type Operand<'a> = (&'a Word, bool);
+
+/// `rsync`'s operands, read past its options wherever they stand (popt permutes them), with a
+/// long option the table does not list read as a flag, and whether it removes its sources
+/// (`--remove-source-files`).
+fn rsync_operands(args: &[Word]) -> (Vec<Operand<'_>>, bool) {
     let mut operands = Vec::new();
     let mut removes = false;
+    let mut after_unlisted = false;
     let mut rest = args;
     while let [first, tail @ ..] = rest {
         rest = tail;
         let text = first.text();
         if text == "--" {
-            operands.extend(tail);
+            operands.extend(tail.iter().map(|word| (word, false)));
             break;
         }
+        let was_after_unlisted = after_unlisted;
+        after_unlisted = false;
         if !is_option(first) {
-            operands.push(first);
+            operands.push((first, was_after_unlisted));
         } else if text.starts_with("--") {
             let name = long_name(text);
             removes |= name == "--remove-source-files";
-            if !text.contains('=') && RSYNC_LONG_VALUES.contains(&name) {
-                rest = skip_one(rest);
+            if !text.contains('=') {
+                if RSYNC_LONG_VALUES.contains(&name) {
+                    rest = skip_one(rest);
+                } else {
+                    after_unlisted = true;
+                }
             }
         } else if Cluster::read(first, 1, tail, &RSYNC_SHORT_VALUES).takes_next {
             rest = skip_one(rest);
@@ -169,20 +183,43 @@ fn rsync_operands(args: &[Word]) -> (Vec<&Word>, bool) {
     (operands, removes)
 }
 
+/// How many of `operands` may come before the destination, the destination included: all of
+/// them, and, walking back from the end, one fewer for each trailing operand that may be the
+/// value of the unlisted long option before it (so `x/ .claude/ --new L` gives 3, then 2).
+fn rsync_destinations(operands: &[Operand<'_>]) -> Vec<usize> {
+    let mut counts = vec![operands.len()];
+    let mut count = operands.len();
+    while let Some(index) = count.checked_sub(1)
+        && operands.get(index).is_some_and(|(_, after)| *after)
+        && index > 0
+    {
+        count = index;
+        counts.push(count);
+    }
+    counts
+}
+
 /// `rsync [OPTION]... SRC... DEST`: the destination and joined sources judged as `cp`'s are
 /// (a source ending in `/` copies only its contents), and with `--remove-source-files` each
-/// source as `mv` judges what it moves away.
+/// source as `mv` judges what it moves away. A long option the table does not list, written
+/// without `=`, is read as a flag, but one after the operands may take a value, which would then
+/// stand where the destination is read (`rsync -a x/ .claude/ --new-option L`). So each trailing
+/// operand that directly follows such an option also makes the operand before it a candidate
+/// destination, judged with the operands before it as sources, and any candidate's denial
+/// stands (fail closed; an option before a source never drops that source).
 pub(super) fn rsync(args: &[Word], cwd: &Cwd) -> Option<Denial> {
     let (operands, removes) = rsync_operands(args);
-    let copy = CopyArgs {
-        operands,
-        ..CopyArgs::default()
-    };
     let mode = CopyMode {
         moves: removes,
         slash: TrailingSlash::Contents,
     };
-    copy_into("rsync", &copy, mode, cwd)
+    rsync_destinations(&operands).into_iter().find_map(|count| {
+        let copy = CopyArgs {
+            operands: operands.iter().take(count).map(|(word, _)| *word).collect(),
+            ..CopyArgs::default()
+        };
+        copy_into("rsync", &copy, mode, cwd)
+    })
 }
 
 /// Whether `tar` extracts, and every directory it changes to (`-C DIR`, `--directory DIR`).

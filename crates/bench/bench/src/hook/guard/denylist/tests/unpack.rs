@@ -29,6 +29,35 @@ fn rsync_into_a_config_folder_or_onto_protected_config_is_a_config_write() {
         ("rsync -a x/ .claude/ --outbuf L", CONFIG),
         ("rsync -a x/ .claude/ --stderr all", CONFIG),
         ("rsync -a x/ .claude/ --copy-as user", CONFIG),
+        // Flags after the operands (#135): a trailing `--delete` and its kin take no value.
+        ("rsync -a x/ .claude/ --delete", CONFIG),
+        ("rsync x/ .redkiln/ --delete --delete-excluded -v", CONFIG),
+        ("rsync x/ .github/ --delete --exclude tmp", CONFIG),
+        // An unlisted long option after the destination may take a value: the operand before
+        // its value is judged as the destination too, so the value cannot stand in for it
+        // (#135, #130 review).
+        ("rsync -a x/ .claude/ --unlisted-option L", CONFIG),
+        ("rsync -a x/ .redkiln/ --delete --unlisted-option L", CONFIG),
+        ("rsync -a x/ build/ --unlisted-option .claude", CONFIG),
+        // An unlisted flag before the operands must not swallow a source when a later unlisted
+        // option's value is weighed (#156 review F1).
+        ("rsync -av --delete x/ .claude/ --unlisted-option L", CONFIG),
+        (
+            "rsync -a --progress x/ .claude/ --unlisted-option L",
+            CONFIG,
+        ),
+        (
+            "rsync -a x/ --progress .claude/ --unlisted-option L",
+            CONFIG,
+        ),
+        // `--log-format` is the old name of `--out-format` and takes a value.
+        ("rsync -a --delete x/ .claude/ --log-format L", CONFIG),
+        // Over-denial, accepted (#156 review F3): `--progress` is a flag, so `/tmp/backup/` is
+        // the destination, but read as taking a value it leaves `.github/` as one.
+        (
+            "rsync -av .claude/ .github/ --progress /tmp/backup/",
+            CONFIG,
+        ),
         ("cd .redkiln && rsync -a /tmp/x/ bench/", CONFIG),
         ("bash -c 'rsync -a x/ .redkiln/'", CONFIG),
         ("sudo rsync -a x/ .redkiln/", CONFIG),
@@ -61,6 +90,8 @@ fn rsync_elsewhere_is_left_to_the_fallback() {
         ("rsync -a -e 'ssh -F .claude/x' x/ build/", ALLOW),
         ("rsync --list-only .redkiln", ALLOW),
         ("rsync -a x/ ..", ALLOW),
+        ("rsync -a x/ build/ --delete", ALLOW),
+        ("rsync -a .claude/ /tmp/backup/ --unlisted-option L", ALLOW),
     ]);
 }
 

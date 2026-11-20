@@ -28,7 +28,7 @@ use crate::brief::ticket::Ticket;
 use crate::command::CommandName;
 use crate::decide::id::DecisionId;
 use crate::envelope::{Envelope, Finding};
-use crate::error::CliError;
+use crate::error::{CliError, RequestCommand};
 use crate::error_chain;
 use crate::exit_codes::{self, Code};
 use crate::hook::injection_scan::detect;
@@ -167,7 +167,7 @@ where
     let request = park.request();
     request
         .check(&probe.ts.to_core())
-        .map_err(|error| refused("park", &error))?;
+        .map_err(|error| refused(RequestCommand::Park, &error))?;
     let location = paths::ledger_store(None, &ports.lookup, ports.cwd)?;
     // Weigh-In is asked before the store is opened, so the exit-4 path creates no store and
     // runs no import (D3).
@@ -179,7 +179,8 @@ where
     }
     let store = legacy_import::open_for_command(&location)?;
     let envelope = store.envelope_for(&probe, request)?;
-    let (item, position, recorded) = raised("park", weighin::raise(&store, &envelope))?;
+    let (item, position, recorded) =
+        raised(RequestCommand::Park, weighin::raise(&store, &envelope))?;
     let data = ParkData {
         ticket: ticket.as_str(),
         parked: true,
@@ -195,11 +196,11 @@ where
     )
 }
 
-/// The item, position and whether it was written now, of `command`'s (`park` or `rule`) raise
+/// The item, position and whether it was written now, of `command`'s raise
 /// `outcome`; a refusal is a usage error, all three id lengths taken
 /// [`CliError::RequestIdTaken`].
 fn raised(
-    command: &'static str,
+    command: RequestCommand,
     outcome: Result<Raised, RaiseError>,
 ) -> Result<(weighin_contract::ItemId, u64, bool), CliError> {
     match outcome {
@@ -261,9 +262,9 @@ fn park_options(args: &ParkArgs) -> Result<Vec<ParkOption<'_>>, CliError> {
         .collect()
 }
 
-/// A `command`'s (`park` or `rule`) request weigh-in's contract refused (a DR-04 guard: a
+/// A `command`'s request weigh-in's contract refused (a DR-04 guard: a
 /// deadline already past, a recommendation that is no option), as a usage error.
-fn refused(command: &str, error: &RequestError) -> CliError {
+fn refused(command: RequestCommand, error: &RequestError) -> CliError {
     CliError::Usage {
         reason: format!(
             "weigh-in's contract refused the {command}: {}",
@@ -309,7 +310,7 @@ where
     let request = ruling.request();
     request
         .check(&probe.ts.to_core())
-        .map_err(|error| refused("rule", &error))?;
+        .map_err(|error| refused(RequestCommand::Rule, &error))?;
     let location = paths::ledger_store(None, &ports.lookup, ports.cwd)?;
     let findings: Vec<Finding> = weighin::locate(&ports.lookup)
         .err()
@@ -318,7 +319,8 @@ where
         .collect();
     let store = legacy_import::open_for_command(&location)?;
     let envelope = store.envelope_for(&probe, request)?;
-    let (item, position, recorded) = raised("rule", weighin::raise(&store, &envelope))?;
+    let (item, position, recorded) =
+        raised(RequestCommand::Rule, weighin::raise(&store, &envelope))?;
     let data = RuleData {
         ticket: ticket.as_str(),
         item_id: item.as_str(),
