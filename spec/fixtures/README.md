@@ -83,7 +83,7 @@ The tables in `conformance/schema.rs` give each `invalid/` and `lenient/` file's
 | `cli-envelope-1.schema.json` | the CLI result envelope | CLI-02, CLI-03 |
 | `status-1.schema.json` | the `data` of `status --json` | CLI-12 |
 
-Each file is self-contained: no `$ref` crosses files, since the validator resolves none. `journal-line-1` copies `envelope-1`'s `$defs` and properties, and `decision-request-1` copies AP-01's `subject`; `shared_defs_are_identical` checks the copies. The closed lists (namespaces, `via` values and the levels they may back, hash methods, the tag keys Core sets) are checked against Core's registries. `-1` is the shape's version: until SPEC 1.0 freezes at Move 2 a draft schema may be edited in place, and after that a new version is a new file (EV-06, CLI-04).
+Each file is self-contained: no `$ref` crosses files, since the validator resolves none. `journal-line-1` copies `envelope-1`'s `$defs` and properties, and `decision-request-1` copies AP-01's `subject`; `shared_defs_are_identical` checks the copies. The closed lists (namespaces, `via` values and the levels they may back, hash methods, the tag keys Core sets) are checked against Core's registries. `-1` is the shape's version. Every `-1` schema froze with SPEC 1.0.0 and is never edited in place: a changed shape is a new file, `-2` beside `-1` (EV-06, CLI-04), and `conformance/frozen.rs` (`frozen_schemas_are_unchanged`) holds the sha256 of each frozen schema, so an edit fails it unless its table changes too, which a reviewer must justify.
 
 ## What a schema cannot say
 

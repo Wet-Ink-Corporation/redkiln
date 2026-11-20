@@ -61,7 +61,7 @@ A writer that appends again and again gives way between its transactions, and Co
 
 ## Repo class and config
 
-**ST-12.** `.redkiln/suite.toml` is committed and reviewed. SPEC 1.0 defines three keys in its `[suite]` table; the rest of the file arrives later (README, Not in this draft):
+**ST-12.** `.redkiln/suite.toml` is committed and reviewed. SPEC 1.0 defines three keys in its `[suite]` table; the rest of the file arrives later (README, Not in 1.0):
 
 | Key | Values | Default |
 | --- | --- | --- |
