@@ -32,7 +32,7 @@ These amend the migration plan's "Not here: any Rust code for 2.0. The port star
 
 | # | Precondition | State | Evidence |
 | --- | --- | --- | --- |
-| P1 | Move 2 closed: Core 1.0 and SPEC 1.0.0 cut (M2-G) | Open (Core side met) | Core 1.0 and SPEC 1.0.0 cut 2026-11-20 (M2-G); Move 2's step 8 owner steps remain ([move-2-bench.md](move-2-bench.md)) |
+| P1 | Move 2 closed: Core 1.0 and SPEC 1.0.0 cut (M2-G) | **Met** | Core 1.0 and SPEC 1.0.0 cut 2026-11-20 (M2-G); Move 2 closed 2026-11-20 with anneal archived ([move-2-bench.md](move-2-bench.md)). The import is tracked as #163 in the milestone "Rust 2.0 import + witnessed answers" |
 | P2 | temper frozen, nothing half-finished | **Met** | No merge since 2026-11-08. Open: issues #21, #101, #103, #172, #173, #190 (all "keep, transfer" in the manifest) and one Dependabot PR (#203, actions; workflows are not imported, so it closes at the archive). Branches: `main` and that Dependabot branch |
 | P3 | The root's `toml` 1.1 and `sha2` 0.11 | **Met** | #77 (2026-11-10) |
 | P4 | The root's vendored temper at the latest 1.x | **Met** | #78 (1.6.0, 2026-11-10). The trial's `baseline --check` over the four crates found 0 findings, so the import adds no baseline entries |
