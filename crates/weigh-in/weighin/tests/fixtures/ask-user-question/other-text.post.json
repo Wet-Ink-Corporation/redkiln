@@ -1,0 +1,69 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/redacted/transcript.jsonl",
+  "cwd": "/redacted/ask-capture-kit",
+  "scratchpad_dir": "/redacted/scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000001",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PostToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which format should captured hook payloads be saved in?",
+        "header": "Format",
+        "options": [
+          {
+            "label": "JSONL",
+            "description": "One JSON object per line in ~/ask-capture.jsonl (current behavior)."
+          },
+          {
+            "label": "Pretty JSON files",
+            "description": "One indented .json file per payload, in a capture folder."
+          },
+          {
+            "label": "CSV",
+            "description": "One row per payload with a timestamp, tool name, and raw JSON column."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answers": {
+      "Which format should captured hook payloads be saved in?": "Typing some \"other\" text"
+    },
+    "annotations": {}
+  },
+  "tool_response": {
+    "questions": [
+      {
+        "question": "Which format should captured hook payloads be saved in?",
+        "header": "Format",
+        "options": [
+          {
+            "label": "JSONL",
+            "description": "One JSON object per line in ~/ask-capture.jsonl (current behavior)."
+          },
+          {
+            "label": "Pretty JSON files",
+            "description": "One indented .json file per payload, in a capture folder."
+          },
+          {
+            "label": "CSV",
+            "description": "One row per payload with a timestamp, tool name, and raw JSON column."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answers": {
+      "Which format should captured hook payloads be saved in?": "Typing some \"other\" text"
+    },
+    "annotations": {}
+  },
+  "tool_use_id": "toolu_01Gy1kjxXYN9cCKZ9B3m5CYc",
+  "duration_ms": 2
+}
