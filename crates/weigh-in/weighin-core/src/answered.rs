@@ -13,7 +13,8 @@
 //! 1. the person resolved the dialog: no idle timeout, follow-up or free-text response;
 //! 2. the question is single-select;
 //! 3. the item's card passes [`Card::validate`], so its option ids are unique, no option's
-//!    title ends with [`RECOMMENDED_SUFFIX`], and no two options can be shown under the same
+//!    title marks itself recommended (`recommended`, in any case, inside parentheses anywhere
+//!    in it, as [`RECOMMENDED_SUFFIX`] does), and no two options can be shown under the same
 //!    label, counting the recommended option's suffixed form;
 //! 4. the question is the item's own: `<id> <question>` byte for byte, followed by
 //!    [`ONE_WAY_SUFFIX`] exactly when the item's door is not two-way (one-way or unsure), and
@@ -115,8 +116,9 @@ pub enum Unwitnessed {
     /// folded from the store or imported ledgers are not otherwise re-validated.
     #[error("the item's card is not valid: {0}")]
     InvalidCard(#[source] CardError),
-    /// An option's title ends with [`RECOMMENDED_SUFFIX`], so its label would claim a
-    /// recommendation the card did not make; the option's id.
+    /// An option's title carries `recommended`, in any case, inside parentheses (as
+    /// [`RECOMMENDED_SUFFIX`] does), so its label would claim a recommendation the card did not
+    /// make; the option's id.
     #[error("option `{0}` has a title that claims the recommendation")]
     TitleMarksRecommended(String),
     /// Two options can be shown under the same label, counting the recommended option's
@@ -282,7 +284,7 @@ fn check_card(card: &Card) -> Result<(), Unwitnessed> {
     if let Some(o) = card
         .options
         .iter()
-        .find(|o| o.title.ends_with(RECOMMENDED_SUFFIX))
+        .find(|o| claims_recommendation(&o.title))
     {
         return Err(Unwitnessed::TitleMarksRecommended(o.id.clone()));
     }
@@ -290,6 +292,24 @@ fn check_card(card: &Card) -> Result<(), Unwitnessed> {
         Some(shared) => Err(Unwitnessed::CollidingLabels(shared)),
         None => Ok(()),
     }
+}
+
+/// Whether `title` carries a recommendation marker of its own: `recommended`, in any ASCII
+/// case, inside a parenthesised span anywhere in it (an unclosed `(` runs to the end). Wider
+/// than [`RECOMMENDED_SUFFIX`] itself, so spelling, spacing and placement variants fail closed
+/// too (#159): a title refused here only costs the witness, while one let through could show
+/// the person a recommendation the card did not make.
+fn claims_recommendation(title: &str) -> bool {
+    let folded = title.to_ascii_lowercase();
+    let mut rest = folded.as_str();
+    while let Some((_, opened)) = rest.split_once('(') {
+        let (inside, after) = opened.split_once(')').unwrap_or((opened, ""));
+        if inside.contains("recommended") {
+            return true;
+        }
+        rest = after;
+    }
+    false
 }
 
 /// Whether the shown label `shown` names `option` of `card`: its [`label`], or, when `marked`
@@ -692,6 +712,46 @@ mod tests {
         assert_eq!(
             check(&s, &picked("A: Option A"), &c),
             Err(Unwitnessed::TitleMarksRecommended("B".into()))
+        );
+    }
+
+    /// #159: a variant of the marker still shows the person a recommendation the card did not
+    /// make, wherever it sits in the title and however it is spelled.
+    #[test]
+    fn a_title_marking_recommended_in_any_case_spacing_or_place_is_unwitnessed() {
+        for title in [
+            "Option B (recommended)",
+            "Option B(Recommended)",
+            "Option B (Recommended) ",
+            "Option B (RECOMMENDED)",
+            "(Recommended) Option B",
+            "Option B (recommended option)",
+            "Option B ( Recommended )",
+            "Option B (Recommended",
+        ] {
+            let mut c = card();
+            if let Some(b) = c.options.get_mut(1) {
+                title.clone_into(&mut b.title);
+            }
+            let s = relabelled("B: Option B", &format!("B: {title}"));
+            assert_eq!(
+                check(&s, &picked("A: Option A"), &c),
+                Err(Unwitnessed::TitleMarksRecommended("B".into())),
+                "{title:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_title_naming_a_recommendation_outside_parentheses_is_allowed() {
+        let mut c = card();
+        if let Some(b) = c.options.get_mut(1) {
+            "Follow the recommended defaults".clone_into(&mut b.title);
+        }
+        let s = relabelled("B: Option B", "B: Follow the recommended defaults");
+        assert_eq!(
+            check(&s, &picked("B: Follow the recommended defaults"), &c),
+            Ok(Choice { option: "B".into() })
         );
     }
 
