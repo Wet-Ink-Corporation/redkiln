@@ -215,7 +215,8 @@ impl Importer<'_> {
             ts: self.ts.clone(),
             author: self.author.clone(),
         };
-        let report = import(self.store, Cursor::new(file), recording).map_err(RefsError::Import)?;
+        let report = import(self.store, Cursor::new(file), recording)
+            .map_err(|error| RefsError::Import(Box::new(error)))?;
         Ok(ImportedRef {
             source,
             commit: commit.to_string(),
