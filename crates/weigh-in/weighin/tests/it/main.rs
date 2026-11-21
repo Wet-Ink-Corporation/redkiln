@@ -34,3 +34,4 @@ mod scratch;
 mod status;
 #[cfg(test)]
 mod support;
+mod witnessed;

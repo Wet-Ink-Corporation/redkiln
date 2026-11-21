@@ -214,6 +214,19 @@ pub(super) fn to_new_event(
     env: EventEnvelope,
     writer: &Writer,
 ) -> Result<(NewEvent, EventEnvelope)> {
+    to_new_event_as(env, writer, Trust::asserted())
+}
+
+/// [`to_new_event`] with `trust` in place of `asserted`: only a
+/// [`Witness`](crate::witness::Witness)'s, through [`super::Store::append_witnessed`].
+///
+/// # Errors
+/// As [`to_new_event`].
+pub(super) fn to_new_event_as(
+    env: EventEnvelope,
+    writer: &Writer,
+    trust: Trust,
+) -> Result<(NewEvent, EventEnvelope)> {
     let tags = tags_of(&env.event)?;
     let EventEnvelope {
         event,
@@ -230,7 +243,7 @@ pub(super) fn to_new_event(
         // Each envelope owns its writer: two small words, copied per event.
         author: Author {
             actor: Actor::parse(&actor).context("the event's actor")?,
-            trust: Trust::asserted(),
+            trust,
             writer: writer.clone(),
         },
         session: session_id

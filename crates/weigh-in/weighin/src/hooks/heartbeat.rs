@@ -262,7 +262,7 @@ impl SlotEvent {
             HookEvent::SessionStart { .. } => Some(Self::SessionStart),
             HookEvent::Stop(_) => Some(Self::Stop),
             HookEvent::SubagentStop(_) => Some(Self::SubagentStop),
-            HookEvent::PostToolUse(_) => Some(Self::PostToolUse),
+            HookEvent::PostToolUse(_) | HookEvent::Answered(_) => Some(Self::PostToolUse),
             HookEvent::Other(_) | HookEvent::Unnamed => None,
         }
     }

@@ -3,14 +3,24 @@
 use anyhow::{Result, anyhow, bail};
 use std::fmt::Write as _;
 use weighin_core::event::{
-    Applies, Decided, DefaultCause, Defaulted, Deferred, DismissReason, Dismissed, LedgerEvent,
-    Provenance, Reopened,
+    Applies, Decided, DefaultCause, Defaulted, Deferred, DismissReason, Dismissed, EventEnvelope,
+    LedgerEvent, Provenance, Reopened,
 };
 use weighin_core::marker::{Authority, Door, authority_tripwire};
-use weighin_core::{Item, Status};
+use weighin_core::{Item, ItemId, Status};
 
 use super::{Change, DecideOp, DeferOp, Session};
 use crate::env;
+use crate::witness::Witness;
+
+/// A witnessed decision that was written ([`Session::decide_witnessed`]).
+#[derive(Debug)]
+pub(crate) struct Witnessed {
+    /// What was written, as `decide` says it.
+    pub(crate) receipt: String,
+    /// What failed after the decision was written, when something did.
+    pub(crate) after: Option<anyhow::Error>,
+}
 
 impl Session<'_> {
     pub(super) fn defer(&mut self, d: &DeferOp) -> Result<String> {
@@ -47,8 +57,64 @@ impl Session<'_> {
 
     pub(super) fn decide(&mut self, d: &DecideOp) -> Result<String> {
         let item = self.item(&d.id)?;
-        let matched = check_answer(&item, &d.option)?;
-        let applies = check_applies(&item, d)?;
+        let (envelope, matched) = self.decision(&item, d)?;
+        self.write_envelopes(&item.id, vec![envelope], None)?;
+        self.decision_receipt(&item.id, &d.option, matched)
+    }
+
+    /// Record that the person picked `option` of the open item `id` on the surface `witness`
+    /// vouches for: the same `item_decided` [`Session::decide`] writes, with `via` the
+    /// witness's surface, its envelope's actor the owner (`human:<owner>`) and its trust the
+    /// witness's (TR-03). Once the decision is written, a failure of what follows it (the atom,
+    /// the source annotation) does not undo it: the receipt then says only that it was decided,
+    /// and the failure comes back beside it for the caller to log.
+    ///
+    /// # Errors
+    /// Nothing was written: the item is not in the ledger or not open, the option is not one it
+    /// can take, the owner is no EV-01 actor name, or the store refuses the write.
+    pub(crate) fn decide_witnessed(
+        &mut self,
+        id: &ItemId,
+        option: &str,
+        witness: &Witness,
+    ) -> Result<Witnessed> {
+        // The write folds into the session's ledger, so the item is copied out of it first, as
+        // `Session::item` does for every other operation.
+        let item = self
+            .ledger
+            .get(id)
+            .cloned()
+            .ok_or_else(|| anyhow!("no item {id} in the ledger"))?;
+        let op = DecideOp {
+            id: id.as_str().to_owned(),
+            option: option.to_owned(),
+            note: None,
+            provenance: None,
+            via: witness.trust().via().map(|via| via.as_str().to_owned()),
+            seconds: None,
+            applies: None,
+            confirmation: None,
+        };
+        let (mut envelope, matched) = self.decision(&item, &op)?;
+        envelope.actor = self.env.human();
+        self.write_envelopes(&item.id, vec![envelope], Some(witness))?;
+        Ok(match self.decision_receipt(&item.id, option, matched) {
+            Ok(receipt) => Witnessed {
+                receipt,
+                after: None,
+            },
+            Err(e) => Witnessed {
+                receipt: format!("decided {id} → {option}; recording it beside the ledger failed"),
+                after: Some(e.context(format!("recording {id}'s witnessed decision"))),
+            },
+        })
+    }
+
+    /// The `item_decided` envelope `d` makes of `item`, under the session's actor, and whether
+    /// it chose the recommendation (`None`: the item has no card).
+    fn decision(&mut self, item: &Item, d: &DecideOp) -> Result<(EventEnvelope, Option<bool>)> {
+        let matched = check_answer(item, &d.option)?;
+        let applies = check_applies(item, d)?;
         let provenance = match d.provenance.as_deref() {
             Some("user-approved") => Provenance::UserApproved,
             Some("user-directed") => Provenance::UserDirected,
@@ -94,8 +160,7 @@ impl Session<'_> {
             &self.actor,
         );
         envelope.cites = cites;
-        self.write_envelopes(&item.id, vec![envelope])?;
-        self.decision_receipt(&item.id, &d.option, matched)
+        Ok((envelope, matched))
     }
 }
 

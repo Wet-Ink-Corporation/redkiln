@@ -25,6 +25,7 @@ mod shell_bin;
 mod state_file;
 mod store;
 mod text;
+mod witness;
 
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Parser, Subcommand};

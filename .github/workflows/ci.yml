@@ -191,6 +191,37 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           node tools/launcher/exec-form-check.mjs "$env:RUNNER_TEMP\pkg\rk-weigh-in"
 
+  # clippy's size lints (result_large_err, large_enum_variant) and cfg(not(unix)) code see
+  # Windows' own type layouts and items, so Lint runs here too, as the Linux rust job runs it
+  # (#158, wi-f06c27e875 A, Ryan 2026-11-21).
+  lint-windows:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0       # the lint ratchet diffs against the merge base
+          persist-credentials: false
+      - name: Baseline mode
+        if: hashFiles('.claude/temper-baseline.json') != ''
+        shell: bash
+        run: echo "CARGO_BUILD_WARNINGS=warn" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15
+        with:
+          toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
+          components: clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Lint (temper)
+        shell: bash
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+        run: |
+          args=()
+          if [ -n "$BASE" ]; then args=(--base "$BASE"); fi
+          node .claude/temper/temper.mjs baseline --check --locked "${args[@]}"
+
   # macOS is a release target of every binary, and its symlinked temp dirs are a case weigh-in's
   # tests pin (weigh-in B-08), so the tests run there as they did in weigh-in's CI.
   rust-macos:
@@ -404,7 +435,7 @@ jobs:
       - run: cargo nextest run -p skillcheck --locked --no-tests=fail
 
   ok:
-    needs: [changes, rust, rust-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, bench, skillcheck, charters, kb]
+    needs: [changes, rust, rust-windows, lint-windows, rust-macos, launcher, plugins, typescript, labels, weigh-in, bench, skillcheck, charters, kb]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:

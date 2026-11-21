@@ -53,7 +53,7 @@ pub(crate) enum Raised {
 pub(crate) enum RaiseError {
     /// A DR-04 guard or a field shape refused it.
     #[error("weigh-in's contract refused the request")]
-    Refused(#[source] RequestError),
+    Refused(#[source] Box<RequestError>),
     /// Every id length (10, 12, 16 hex) names another item.
     #[error("{item} and its longer forms all name another item")]
     IdTaken {
@@ -65,6 +65,13 @@ pub(crate) enum RaiseError {
     Store(#[from] StoreError),
 }
 
+impl RaiseError {
+    /// [`RaiseError::Refused`], with the contract's refusal boxed to keep the error small.
+    fn refused(error: RequestError) -> Self {
+        Self::Refused(Box::new(error))
+    }
+}
+
 /// Raises `envelope`'s request in `store` (DR-01, DR-03, ID-04).
 ///
 /// # Errors
@@ -72,9 +79,9 @@ pub(crate) enum RaiseError {
 /// every id length names another item, [`RaiseError::Store`] when the store fails.
 pub(crate) fn raise(store: &Store, envelope: &Envelope<Request>) -> Result<Raised, RaiseError> {
     for len in LENGTHS {
-        let item = envelope.data.item_id_at(len).map_err(RaiseError::Refused)?;
-        let event = raise_event_at(envelope, len).map_err(RaiseError::Refused)?;
-        let condition = raise_condition(&item).map_err(RaiseError::Refused)?;
+        let item = envelope.data.item_id_at(len).map_err(RaiseError::refused)?;
+        let event = raise_event_at(envelope, len).map_err(RaiseError::refused)?;
+        let condition = raise_condition(&item).map_err(RaiseError::refused)?;
         match store.append_foreign_if(event, &condition)? {
             Appended::At(position) => return Ok(Raised::New { item, position }),
             Appended::Conflict => {
@@ -87,7 +94,7 @@ pub(crate) fn raise(store: &Store, envelope: &Envelope<Request>) -> Result<Raise
     let item = envelope
         .data
         .item_id_at(HexLen::Ten)
-        .map_err(RaiseError::Refused)?;
+        .map_err(RaiseError::refused)?;
     Err(RaiseError::IdTaken { item })
 }
 

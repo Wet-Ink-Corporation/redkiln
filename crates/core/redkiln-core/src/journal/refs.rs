@@ -86,7 +86,7 @@ pub enum RefsError {
     },
     /// An import from git stopped; the imports stored before it stay.
     #[error("importing a journal from git")]
-    Import(#[source] ImportError),
+    Import(#[source] Box<ImportError>),
     /// The branch given to [`relay`] is not an inbox branch.
     #[error("`{0}` is not an inbox branch, redkiln/inbox/<name>")]
     NotInbox(String),

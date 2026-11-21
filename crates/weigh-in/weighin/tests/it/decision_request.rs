@@ -5,7 +5,7 @@
 //! request a sibling appends through the contract, folded, listed and decided end to end (DR-01).
 
 use crate::scratch::{Repo, TestResult};
-use crate::support::store_of;
+use crate::support::{ask_user_question, store_of};
 use redkiln_core::envelope::{Actor, Author, Envelope, Timestamp, Writer, decode};
 use redkiln_core::store::{Appended, Filter, Store, Wait};
 use redkiln_core::trust::{Level, Trust};
@@ -181,6 +181,53 @@ fn a_request_appended_through_the_contract_is_listed_by_open_json() -> TestResul
         Ok(OptionId::B)
     );
     // DR-05: the answer to a request says how far it applies, and cites the request it answers.
+    let raised = Store::open(&store, Wait::Command)?.read(
+        &Filter::all().of_type(REQUEST_RAISED.name)?,
+        0,
+        NonZeroUsize::MIN,
+    )?;
+    let raised = raised.first().ok_or("the request")?;
+    assert_eq!(decided.data.applies, Some(Applies::Once));
+    assert_eq!(decided.cites.as_slice(), std::slice::from_ref(&raised.id));
+    Ok(())
+}
+
+/// DR-06 end to end (#125): a request a sibling raised through the contract, presented as a
+/// sitting presents it and answered by the person in the `AskUserQuestion` dialog, is decided
+/// `witnessed` by the `PostToolUse` hook, and its raiser accepts the answer.
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_request_answered_in_ask_user_question_is_accepted_by_its_raiser() -> TestResult {
+    let repo = Repo::new(true)?;
+    let store = store_of(&repo.root);
+    let request = bench_request()?;
+    let id = raise_as_a_sibling(&store, bench_request()?)?;
+    let text = format!("{id} {}", request.question);
+    let payload = ask_user_question(
+        &repo.root,
+        "s1",
+        "toolu_01EvEUdQAy1Q9Wx4BiceFect",
+        (&text, &["a: Ship", "b: Rerun"], "b: Rerun"),
+    )?;
+
+    let out = repo.hook(&payload)?;
+
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let decided = Store::open(&store, Wait::Command)?.read(
+        &Filter::all().of_type("weighin.item_decided")?,
+        0,
+        NonZeroUsize::MIN,
+    )?;
+    let decided = decode::<Decided>(decided.first().ok_or("the decision")?)?;
+    assert_eq!(decided.trust.level(), Level::Witnessed);
+    assert_eq!(
+        accepts(
+            &request,
+            &Answer::of(&decided.data, decided.trust.level()),
+            None
+        ),
+        Ok(OptionId::B)
+    );
     let raised = Store::open(&store, Wait::Command)?.read(
         &Filter::all().of_type(REQUEST_RAISED.name)?,
         0,
