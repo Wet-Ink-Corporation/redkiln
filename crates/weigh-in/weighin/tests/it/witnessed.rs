@@ -171,6 +171,38 @@ fn an_answer_that_does_not_witness_a_pick_writes_nothing_and_says_why() -> TestR
     Ok(())
 }
 
+/// Once the witnessed decision is written, a failure to write its atom does not hide it from
+/// the model: batch 2 must not try to decide it again.
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_witnessed_decision_whose_atom_fails_is_still_told_as_recorded() -> TestResult {
+    let repo = Repo::new(true)?;
+    let id = presented(&repo, QUESTION)?;
+    let text = format!("{id} {QUESTION}");
+    let kb = repo.root.join(".kb");
+    std::fs::create_dir_all(&kb)?;
+    std::fs::write(kb.join("decision"), "a file where the atoms' folder goes")?;
+
+    let out = answer(&repo, &repo.root, (&text, &LABELS, "B: Per record"))?;
+
+    let lines = context(&out)?;
+    assert!(
+        matches!(lines.as_slice(), [line] if line.starts_with("Weigh-In recorded")
+            && line.contains(&format!("Leave {id} out of batch 2"))),
+        "{lines:?}"
+    );
+    let decided = decisions(&store_of(&repo.root))?;
+    assert_eq!(
+        decided.iter().map(|d| d.trust.level()).collect::<Vec<_>>(),
+        [Level::Witnessed]
+    );
+    assert!(
+        state_of(&repo.root).join("hook-errors.log").exists(),
+        "the atom's failure is logged"
+    );
+    Ok(())
+}
+
 /// The answers are keyed by question text, so a text shown twice cannot say which question an
 /// answer was to.
 #[test]

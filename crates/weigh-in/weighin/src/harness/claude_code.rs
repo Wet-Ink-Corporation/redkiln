@@ -307,6 +307,7 @@ fn answered(payload: &mut Value) -> Option<Answered> {
         .into_iter()
         .filter(Value::is_object)
         .map(|mut question| {
+            // An absent text reads as empty, which names no card (a card needs `<id> `).
             let text = take_str(&mut question, "question").unwrap_or_default();
             let selected = match answers.get_mut(&text).map(Value::take) {
                 Some(Value::String(label)) => vec![label],

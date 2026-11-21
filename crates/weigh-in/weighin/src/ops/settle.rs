@@ -13,6 +13,15 @@ use super::{Change, DecideOp, DeferOp, Session};
 use crate::env;
 use crate::witness::Witness;
 
+/// A witnessed decision that was written ([`Session::decide_witnessed`]).
+#[derive(Debug)]
+pub(crate) struct Witnessed {
+    /// What was written, as `decide` says it.
+    pub(crate) receipt: String,
+    /// What failed after the decision was written, when something did.
+    pub(crate) after: Option<anyhow::Error>,
+}
+
 impl Session<'_> {
     pub(super) fn defer(&mut self, d: &DeferOp) -> Result<String> {
         let item = self.item(&d.id)?;
@@ -56,17 +65,19 @@ impl Session<'_> {
     /// Record that the person picked `option` of the open item `id` on the surface `witness`
     /// vouches for: the same `item_decided` [`Session::decide`] writes, with `via` the
     /// witness's surface, its envelope's actor the owner (`human:<owner>`) and its trust the
-    /// witness's (TR-03). The receipt is `decide`'s.
+    /// witness's (TR-03). Once the decision is written, a failure of what follows it (the atom,
+    /// the source annotation) does not undo it: the receipt then says only that it was decided,
+    /// and the failure comes back beside it for the caller to log.
     ///
     /// # Errors
-    /// As `decide`: the item is not in the ledger or not open, the option is not one it can
-    /// take, the owner is no EV-01 actor name, or the store refuses the write.
+    /// Nothing was written: the item is not in the ledger or not open, the option is not one it
+    /// can take, the owner is no EV-01 actor name, or the store refuses the write.
     pub(crate) fn decide_witnessed(
         &mut self,
         id: &ItemId,
         option: &str,
         witness: &Witness,
-    ) -> Result<String> {
+    ) -> Result<Witnessed> {
         // The write folds into the session's ledger, so the item is copied out of it first, as
         // `Session::item` does for every other operation.
         let item = self
@@ -87,7 +98,16 @@ impl Session<'_> {
         let (mut envelope, matched) = self.decision(&item, &op)?;
         envelope.actor = self.env.human();
         self.write_envelopes(&item.id, vec![envelope], Some(witness))?;
-        self.decision_receipt(&item.id, option, matched)
+        Ok(match self.decision_receipt(&item.id, option, matched) {
+            Ok(receipt) => Witnessed {
+                receipt,
+                after: None,
+            },
+            Err(e) => Witnessed {
+                receipt: format!("decided {id} → {option}; recording it beside the ledger failed"),
+                after: Some(e.context(format!("recording {id}'s witnessed decision"))),
+            },
+        })
     }
 
     /// The `item_decided` envelope `d` makes of `item`, under the session's actor, and whether

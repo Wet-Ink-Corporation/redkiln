@@ -23,6 +23,7 @@ mod triage;
 pub(crate) use input::{DecideOp, DeferOp, Op, RaiseInput, parse_ops};
 pub(crate) use paths::{is_markdown, scannable};
 pub(crate) use raise::RaiseOutcome;
+pub(crate) use settle::Witnessed;
 pub(crate) use trailer::Trailer;
 
 use anyhow::{Context as _, Result, anyhow, bail};

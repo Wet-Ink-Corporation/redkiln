@@ -16,7 +16,7 @@ use weighin_core::ItemId;
 use weighin_core::answered::{self, ItemCard};
 
 use super::{Answered, Asked, Failures, Hook, HookOutput};
-use crate::ops::Session;
+use crate::ops::{Session, Witnessed};
 use crate::witness::Witness;
 
 /// The actor the hook's session writes as; the decision's envelope names the owner instead.
@@ -54,8 +54,12 @@ impl Hook {
         for asked in &answered.asked {
             let repeated = shown.get(asked.shown.text.as_str()).is_some_and(|n| *n > 1);
             match record(&mut session, asked, repeated, &witness) {
-                Ok(Some(line)) => lines.push(line),
-                Ok(None) => {}
+                Ok(Said { line, after }) => {
+                    lines.extend(line);
+                    if let Some(e) = after {
+                        self.log(failures, &e);
+                    }
+                }
                 Err(e) => self.log(failures, &e),
             }
         }
@@ -87,7 +91,9 @@ fn card_id(asked: &Asked) -> Option<ItemId> {
 }
 
 /// Decide the card `asked` shows when its answer witnesses a pick, and the line saying what
-/// happened; `None` for a question that is no open item's card.
+/// happened; nothing for a question that is no open item's card. Once the decision is written
+/// the line says so, even when its atom or annotation then failed (that failure comes back in
+/// [`Said::after`]), so batch 2 never decides it again.
 ///
 /// # Errors
 /// The decision could not be written.
@@ -96,18 +102,18 @@ fn record(
     asked: &Asked,
     repeated: bool,
     witness: &Witness,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<Said> {
     let Some(id) = card_id(asked) else {
-        return Ok(None);
+        return Ok(Said::default());
     };
     let Some(item) = session.ledger.get(&id) else {
-        return Ok(None);
+        return Ok(Said::default());
     };
     if !item.status.is_open() {
-        return Ok(None);
+        return Ok(Said::default());
     }
     let unrecorded = |why: &str| {
-        Some(format!(
+        Said::line(format!(
             "Weigh-In did not record {id} from the dialog: {why}; record the person's answer in \
              batch 2 as usual."
         ))
@@ -128,9 +134,30 @@ fn record(
         Ok(choice) => choice.option,
         Err(why) => return Ok(unrecorded(&why.to_string())),
     };
-    let receipt = session.decide_witnessed(&id, &option, witness)?;
-    Ok(Some(format!(
-        "Weigh-In recorded the person's answer from the dialog, witnessed: {receipt}. Leave {id} \
-         out of batch 2."
-    )))
+    let Witnessed { receipt, after } = session.decide_witnessed(&id, &option, witness)?;
+    Ok(Said {
+        line: Some(format!(
+            "Weigh-In recorded the person's answer from the dialog, witnessed: {receipt}. Leave \
+             {id} out of batch 2."
+        )),
+        after,
+    })
+}
+
+/// What [`record`] tells the model of one question, and what failed after its decision was
+/// written, for the hook to log.
+#[derive(Debug, Default)]
+struct Said {
+    line: Option<String>,
+    after: Option<anyhow::Error>,
+}
+
+impl Said {
+    /// A line for the model and nothing to log.
+    fn line(line: String) -> Self {
+        Self {
+            line: Some(line),
+            after: None,
+        }
+    }
 }

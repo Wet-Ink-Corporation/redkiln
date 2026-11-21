@@ -13,8 +13,8 @@
 //! 1. the person resolved the dialog: no idle timeout, follow-up or free-text response;
 //! 2. the question is single-select;
 //! 3. the item's card passes [`Card::validate`], so its option ids are unique, no option's
-//!    title marks itself recommended (`recommended`, in any case, inside parentheses anywhere
-//!    in it, as [`RECOMMENDED_SUFFIX`] does), and no two options can be shown under the same
+//!    title marks itself recommended (`recommended`, in any case, anywhere after its first `(`
+//!    or `[`, as [`RECOMMENDED_SUFFIX`] does), and no two options can be shown under the same
 //!    label, counting the recommended option's suffixed form;
 //! 4. the question is the item's own: `<id> <question>` byte for byte, followed by
 //!    [`ONE_WAY_SUFFIX`] exactly when the item's door is not two-way (one-way or unsure), and
@@ -116,7 +116,7 @@ pub enum Unwitnessed {
     /// folded from the store or imported ledgers are not otherwise re-validated.
     #[error("the item's card is not valid: {0}")]
     InvalidCard(#[source] CardError),
-    /// An option's title carries `recommended`, in any case, inside parentheses (as
+    /// An option's title carries `recommended`, in any case, after its first `(` or `[` (as
     /// [`RECOMMENDED_SUFFIX`] does), so its label would claim a recommendation the card did not
     /// make; the option's id.
     #[error("option `{0}` has a title that claims the recommendation")]
@@ -295,21 +295,14 @@ fn check_card(card: &Card) -> Result<(), Unwitnessed> {
 }
 
 /// Whether `title` carries a recommendation marker of its own: `recommended`, in any ASCII
-/// case, inside a parenthesised span anywhere in it (an unclosed `(` runs to the end). Wider
-/// than [`RECOMMENDED_SUFFIX`] itself, so spelling, spacing and placement variants fail closed
-/// too (#159): a title refused here only costs the witness, while one let through could show
-/// the person a recommendation the card did not make.
+/// case, anywhere after the title's first `(` or `[`. Wider than [`RECOMMENDED_SUFFIX`] itself,
+/// so spelling, spacing, nesting, bracket and placement variants fail closed too (#159): a
+/// title refused here only costs the witness, while one let through could show the person a
+/// recommendation the card did not make.
 fn claims_recommendation(title: &str) -> bool {
-    let folded = title.to_ascii_lowercase();
-    let mut rest = folded.as_str();
-    while let Some((_, opened)) = rest.split_once('(') {
-        let (inside, after) = opened.split_once(')').unwrap_or((opened, ""));
-        if inside.contains("recommended") {
-            return true;
-        }
-        rest = after;
-    }
-    false
+    title
+        .split_once(['(', '['])
+        .is_some_and(|(_, opened)| opened.to_ascii_lowercase().contains("recommended"))
 }
 
 /// Whether the shown label `shown` names `option` of `card`: its [`label`], or, when `marked`
@@ -728,6 +721,8 @@ mod tests {
             "Option B (recommended option)",
             "Option B ( Recommended )",
             "Option B (Recommended",
+            "Option B ((x) recommended)",
+            "Option B [Recommended]",
         ] {
             let mut c = card();
             if let Some(b) = c.options.get_mut(1) {
