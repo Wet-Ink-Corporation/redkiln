@@ -48,7 +48,7 @@ pub enum Command {
     Lint(LintArgs),
     /// Run evaluation suites, such as skill routing
     #[command(after_help = command_help(CommandName::Eval))]
-    Eval(EvalArgs),
+    Eval(Box<EvalArgs>),
 }
 
 /// Arguments of `skillcheck lint`.
