@@ -120,7 +120,7 @@ jobs:
           toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml; MSRV equals it, so no msrv job
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-nextest,cargo-deny,cargo-hack,cargo-machete
       - run: cargo fmt --all -- --check
@@ -429,7 +429,7 @@ jobs:
         with:
           toolchain: "1.98.1"  # keep in sync with rust-toolchain.toml
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
         with:
           tool: cargo-nextest
       - run: cargo nextest run -p skillcheck --locked --no-tests=fail
