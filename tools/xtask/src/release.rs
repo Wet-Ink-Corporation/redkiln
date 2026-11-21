@@ -282,8 +282,14 @@ fn make_executable(path: &Path) -> Result<(), ReleaseError> {
     fs::set_permissions(path, permissions).map_err(io_error)
 }
 
-/// Windows has no executable bit; the release repository is assembled on Linux.
+/// Windows has no executable bit, so the file need only exist; the release repository is
+/// assembled on Linux.
 #[cfg(not(unix))]
-fn make_executable(_path: &Path) -> Result<(), ReleaseError> {
-    Ok(())
+fn make_executable(path: &Path) -> Result<(), ReleaseError> {
+    fs::metadata(path)
+        .map(drop)
+        .map_err(|source| ReleaseError::Io {
+            path: path.to_owned(),
+            source,
+        })
 }
