@@ -1,0 +1,37 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/redacted/transcript.jsonl",
+  "cwd": "/redacted/ask-capture-kit",
+  "scratchpad_dir": "/redacted/scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000001",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Fallback lines in capture.mjs (when stdin isn't valid JSON) have no captured_at timestamp. What should I do about it?",
+        "header": "Fallback fix",
+        "options": [
+          {
+            "label": "Add timestamp (Recommended)",
+            "description": "Add captured_at to the fallback line so every line in ask-capture.jsonl has the same format."
+          },
+          {
+            "label": "Add timestamp + tests",
+            "description": "Add the timestamp and a node:test file that covers valid and invalid stdin."
+          },
+          {
+            "label": "Leave as is",
+            "description": "Don't change capture.mjs."
+          }
+        ],
+        "multiSelect": false
+      }
+    ]
+  },
+  "tool_use_id": "toolu_018u6LeRcJGom4kQk88xJJxQ"
+}

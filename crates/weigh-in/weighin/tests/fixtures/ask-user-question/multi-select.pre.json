@@ -1,0 +1,41 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/redacted/transcript.jsonl",
+  "cwd": "/redacted/ask-capture-kit",
+  "scratchpad_dir": "/redacted/scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000001",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "Which fields should capture.mjs record for each hook payload? Pick all that apply.",
+        "header": "Fields",
+        "options": [
+          {
+            "label": "Timestamp",
+            "description": "ISO time the payload was captured (recorded today, except on fallback lines)."
+          },
+          {
+            "label": "Session ID",
+            "description": "The session_id from the hook payload, pulled up to the top level."
+          },
+          {
+            "label": "Tool name",
+            "description": "The tool_name from the payload, so lines are easy to filter."
+          },
+          {
+            "label": "Raw payload",
+            "description": "The full original JSON payload, unchanged."
+          }
+        ],
+        "multiSelect": true
+      }
+    ]
+  },
+  "tool_use_id": "toolu_01EvEUdQAy1Q9Wx4BiceFect"
+}
