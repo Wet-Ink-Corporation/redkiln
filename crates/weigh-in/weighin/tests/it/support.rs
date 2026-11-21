@@ -109,6 +109,41 @@ pub(crate) fn hook(dir: &Path, payload: &Value) -> String {
     out
 }
 
+/// What a dialog showed and what the person picked: the question text, the option labels in
+/// order, and the label picked.
+pub(crate) type Dialog<'a> = (&'a str, &'a [&'a str], &'a str);
+
+/// The `PostToolUse` payload of an `AskUserQuestion` dialog in `cwd` for `session`, with tool
+/// use id `tool_use_id`, that showed and was answered as `dialog` says: the live capture
+/// `tests/fixtures/ask-user-question/answered.post.json` with its question, options and answer
+/// replaced, in both `tool_input` and `tool_response` as Claude Code sends them.
+pub(crate) fn ask_user_question(
+    cwd: &Path,
+    session: &str,
+    tool_use_id: &str,
+    (text, labels, pick): Dialog<'_>,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/ask-user-question/answered.post.json");
+    let mut payload: Value = serde_json::from_slice(&std::fs::read(path)?)?;
+    let options: Vec<Value> = labels
+        .iter()
+        .map(|label| json!({"label": label, "description": "holds if it holds"}))
+        .collect();
+    let call = json!({
+        "questions": [{"question": text, "header": "2-way·Q", "options": options, "multiSelect": false}],
+        "answers": {text: pick},
+        "annotations": {}
+    });
+    // On PostToolUse the two really are equal copies (the fixtures' README).
+    payload["tool_input"] = call.clone();
+    payload["tool_response"] = call;
+    payload["tool_use_id"] = json!(tool_use_id);
+    payload["cwd"] = json!(cwd);
+    payload["session_id"] = json!(session);
+    Ok(payload)
+}
+
 pub(crate) fn setup() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let repo = tmp.path().join("repo");

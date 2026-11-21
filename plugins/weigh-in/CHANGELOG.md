@@ -6,6 +6,17 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+- A card you answer in Claude Code's question dialog is now recorded by the `PostToolUse` hook
+  itself, from the dialog's own result, as a `witnessed` decision (`via: ask-user-question`,
+  the tool use as its `ref`), so another Redkiln plugin whose decision request needs a witnessed
+  answer can act on it. The hook's matcher gains `AskUserQuestion`. It records a pick only when
+  you chose exactly one of the card's options as the sitting showed them; anything else (Other
+  text, a multi-select, a question it cannot match) is left for the sitting to record as before,
+  and the hook says so to the model. `weighin decide`, `batch`, the board and the pane still
+  write `asserted`, whatever they are given.
+- An option title that marks itself recommended in any spelling, such as `(recommended)` or
+  `(Recommended)` without a space, no longer counts as a witnessed pick (#159).
+
 ## 2.1.0 (2026-11-20)
 
 Weigh-In becomes the place other Redkiln plugins bring their decisions: Bench's parked tickets

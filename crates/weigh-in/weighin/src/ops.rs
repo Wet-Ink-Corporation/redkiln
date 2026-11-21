@@ -38,6 +38,7 @@ use self::triage::{ground_event, triage_event};
 use crate::env::{self, Env};
 use crate::git;
 use crate::store::{Guard, Loaded, Store, Written};
+use crate::witness::Witness;
 
 /// The ledger as it stands, for commands that only read, or `None` when no store exists yet.
 ///
@@ -178,17 +179,26 @@ impl<'a> Session<'a> {
             .into_iter()
             .map(|e| self.env.envelope(e, &self.actor))
             .collect();
-        self.write_envelopes(id, envs)
+        self.write_envelopes(id, envs, None)
     }
 
     /// [`Session::write`] of envelopes the caller built, for one that carries more than the
-    /// session's context (an answer's `cites`, DR-05).
-    fn write_envelopes(&mut self, id: &ItemId, envs: Vec<EventEnvelope>) -> Result<()> {
+    /// session's context (an answer's `cites`, DR-05), with `witness`'s trust when given and
+    /// `asserted` otherwise.
+    fn write_envelopes(
+        &mut self,
+        id: &ItemId,
+        envs: Vec<EventEnvelope>,
+        witness: Option<&Witness>,
+    ) -> Result<()> {
         let since = self.ledger.get(id).map_or(0, |i| i.last_position);
-        match self
-            .store()?
-            .append(envs, &Guard::ItemUnchangedSince(id.clone(), since))?
-        {
+        let guard = Guard::ItemUnchangedSince(id.clone(), since);
+        let store = self.store()?;
+        let written = match witness {
+            Some(witness) => store.append_witnessed(envs, &guard, witness)?,
+            None => store.append(envs, &guard)?,
+        };
+        match written {
             Written::At { last, events } => {
                 self.apply_written(last, &events)?;
                 Ok(())

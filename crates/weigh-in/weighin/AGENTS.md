@@ -17,7 +17,7 @@ binary. The composition root holds the store, git, context packs, environment di
 - Never: a second writer of the ledger, `happenstance-*`, `rusqlite` or `tokio` (only Core opens the store), or a git library. Git goes through the command line (`git.rs`).
 
 ## Invariants in short
-Among them: one write path (`ops::Session`); conditioned writes; the store is Core's, reached only through `redkiln-core`; old ledgers are imported once and never opened; hooks never fail a session; `ci-check` never opens a store or fetches; `status` imports nothing. All twelve are in the full charter.
+Among them: one write path (`ops::Session`); conditioned writes; the store is Core's, reached only through `redkiln-core`; old ledgers are imported once and never opened; hooks never fail a session; `ci-check` never opens a store or fetches; `status` imports nothing; only `witness.rs` raises trust above `asserted`. All thirteen are in the full charter.
 
 ## Hooks
 The plugin's hook rules are the SPEC's (`spec/cli.md` CLI-09 to CLI-11, `spec/hooks.md`); how Weigh-In meets each: [`docs/weigh-in/hooks.md`](../../../docs/weigh-in/hooks.md), with how each is met and what is not yet. In short: every `hooks.json` entry is exec-form `hook <event>` and fails open (CLI-09); a guard fails closed (CLI-10); no build lets every hook through (CLI-11; on Windows the missing `.exe` fails to spawn, a hook error that lets the call through, HK-11); never off without a word (HK-2); a guard is linear-time (HK-4); each hook budgets its own timeout and keeps a heartbeat (HK-5); stdin capped, every field optional (HK-6); a Stop hook never blocks, or has honest exits and a loop breaker (HK-7); denies name the route (HK-8). Weigh-In has no guard, and its Stop hook never blocks.

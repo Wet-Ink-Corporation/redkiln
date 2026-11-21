@@ -9,6 +9,10 @@
 //!   on (D12). `SubagentStop` exports nothing: its events leave at the session's Stop (D11).
 //! * `PostToolUse` (`Write`, `Edit`, `MultiEdit`) scans only the text the tool wrote, then gives
 //!   the decisions anchored at that file, at most three, as context (`recall`, #116).
+//! * `Answered`, the `PostToolUse` of the dialog that asks the person questions, decides each
+//!   card the person picked one option of at `witnessed` trust, from the hook's own input, and
+//!   says what it did and did not record as context (`answered`, #125, TR-03). It is the only
+//!   write above `asserted` (`crate::witness`).
 //!
 //! These are command hooks: they cost no model tokens. They never fail a session: any error,
 //! including output that cannot be written, is appended to `<state dir>/hook-errors.log` and the
@@ -32,6 +36,7 @@
 //! `SessionStart` prints the convention, `Stop` nudges on one-way markers, and `/weigh-in` sweeps
 //! the conversation and records through the computer's shell.
 
+mod answered;
 mod errors;
 mod failures;
 mod heartbeat;
@@ -45,6 +50,7 @@ use anyhow::Result;
 use redkiln_core::store::Wait;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use weighin_core::answered::{Answer, ShownQuestion};
 use weighin_core::scan::{scan_markdown, scan_todos};
 
 use crate::env::{Env, Vars};
@@ -81,6 +87,9 @@ pub(crate) enum HookEvent {
     SubagentStop(Turn),
     /// A tool ran; `None` when it named no tool input or no file.
     PostToolUse(Option<ToolWrite>),
+    /// A `PostToolUse` of the dialog that asks the person questions; `None` when the payload
+    /// names no tool use or carries no result.
+    Answered(Option<Answered>),
     /// A named event weighin does not handle: dispatches nothing; its name labels log lines.
     Other(String),
     /// No event named (no payload, or not JSON): labelled `hook` in the log.
@@ -116,7 +125,7 @@ impl HookEvent {
         match self {
             Self::SessionStart { .. } => EventKind::SessionStart,
             Self::Stop(_) | Self::SubagentStop(_) => EventKind::Turn,
-            Self::PostToolUse(_) => EventKind::PostToolUse,
+            Self::PostToolUse(_) | Self::Answered(_) => EventKind::PostToolUse,
             Self::Other(_) | Self::Unnamed => EventKind::Other,
         }
     }
@@ -127,7 +136,7 @@ impl HookEvent {
             Self::SessionStart { .. } => "SessionStart",
             Self::Stop(_) => "Stop",
             Self::SubagentStop(_) => "SubagentStop",
-            Self::PostToolUse(_) => "PostToolUse",
+            Self::PostToolUse(_) | Self::Answered(_) => "PostToolUse",
             Self::Other(name) => name,
             Self::Unnamed => "hook",
         }
@@ -152,6 +161,24 @@ pub(crate) struct ToolWrite {
     /// The text written: a `Write`'s content, an `Edit`'s or each `MultiEdit` edit's new text.
     /// Empty for any other tool.
     pub(crate) texts: Vec<String>,
+}
+
+/// What the person answered in the dialog that asks them questions, as the harness's own
+/// result of that tool reported it: the only input a [`crate::witness::Witness`] is built from
+/// (TR-03, TR-05).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Answered {
+    /// The harness's id of this tool use: the witness's `ref`.
+    pub(crate) tool_use_id: String,
+    /// Each question shown, in the order shown, with the person's answer to it.
+    pub(crate) asked: Vec<Asked>,
+}
+
+/// One question of an [`Answered`] dialog and the person's answer to it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Asked {
+    pub(crate) shown: ShownQuestion,
+    pub(crate) answer: Answer,
 }
 
 /// The tools whose writes a `PostToolUse` hook reads.
@@ -235,6 +262,7 @@ impl Hook {
             HookEvent::SessionStart { .. }
             | HookEvent::SubagentStop(_)
             | HookEvent::PostToolUse(_)
+            | HookEvent::Answered(_)
             | HookEvent::Other(_)
             | HookEvent::Unnamed => Budget::SESSION_START,
         };
@@ -330,9 +358,10 @@ impl Hook {
                     context: None,
                     message: cowork_nudge(&turn.message),
                 },
-                HookEvent::PostToolUse(_) | HookEvent::Other(_) | HookEvent::Unnamed => {
-                    HookOutput::default()
-                }
+                HookEvent::PostToolUse(_)
+                | HookEvent::Answered(_)
+                | HookEvent::Other(_)
+                | HookEvent::Unnamed => HookOutput::default(),
             };
         }
         let result = match &self.event {
@@ -352,6 +381,7 @@ impl Hook {
             // A subagent's events leave at its session's Stop (D11).
             HookEvent::SubagentStop(turn) => capture(env, turn),
             HookEvent::PostToolUse(write) => return self.post_tool_use(failures, write.as_ref()),
+            HookEvent::Answered(answered) => return self.answered(failures, answered.as_ref()),
             HookEvent::Other(_) | HookEvent::Unnamed => Ok(None),
         };
         let message = result.unwrap_or_else(|e| {
