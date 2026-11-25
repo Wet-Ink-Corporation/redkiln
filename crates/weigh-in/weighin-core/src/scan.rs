@@ -240,14 +240,19 @@ fn tag_offset(upper: &str) -> Option<usize> {
     })
 }
 
-/// "Revisit later" style prose, which counts as a deferral without a tag.
+/// "Revisit later" style prose, which counts as a deferral without a tag. `temporary` counts only
+/// in a deferral phrase: alone it describes temp files ("the temporary disk"), not deferred work
+/// (#175).
 fn has_prose_hint(comment: &str) -> bool {
     let lower = comment.to_lowercase();
     [
         "revisit later",
         "revisit this",
         "for now",
-        "temporary",
+        "temporary until",
+        "temporary fix",
+        "temporary hack",
+        "temporary workaround",
         "temporarily",
         "hardcoded for now",
         "come back to",
@@ -530,6 +535,30 @@ mod tests {
         let c = scan_todos("x = 1  # temporary until the vendor ships\n");
         assert_eq!(c.len(), 1);
         assert_eq!(c[0].question, "temporary until the vendor ships");
+    }
+
+    #[test]
+    fn descriptive_temporary_comments_are_not_deferrals() {
+        let code = concat!(
+            "//! git's stdout and stderr go to anonymous files on the local temporary disk, then\n",
+            "/// Reads every event of the old ledger from a copy on the temporary disk.\n",
+            "let f = tempfile()?; // write to a temporary file\n",
+        );
+        assert_eq!(scan_todos(code), Vec::new());
+    }
+
+    #[test]
+    fn temporary_deferral_phrases_still_count() {
+        let c =
+            scan_todos("call(x); // temporary fix until upstream lands\n# temporary workaround\n");
+        let questions: Vec<_> = c.iter().map(|c| (c.line, c.question.as_str())).collect();
+        assert_eq!(
+            questions,
+            [
+                (1, "temporary fix until upstream lands"),
+                (2, "temporary workaround")
+            ]
+        );
     }
 
     #[test]
