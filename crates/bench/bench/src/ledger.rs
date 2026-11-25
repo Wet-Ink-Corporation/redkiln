@@ -249,9 +249,10 @@ fn append<O: Write>(
 fn parse_event(
     args: &AppendArgs,
 ) -> Result<Result<EventEnvelope, crate::store::SchemaError>, CliError> {
-    let mut value: Value = match serde_json::from_str(&args.event) {
+    // Strictly, so a repeated key is refused rather than read last-wins (#135).
+    let mut value = match crate::store::parse_ev01(&args.event) {
         Ok(value) => value,
-        Err(error) => return Ok(Err(crate::store::SchemaError::Json(error))),
+        Err(error) => return Ok(Err(error)),
     };
     if let Value::Object(fields) = &mut value {
         fill(fields, "actor", || Ok(Value::from(args.actor.as_str())))?;
@@ -375,7 +376,7 @@ fn emit<D: Serialize, O: Write>(envelope: &Envelope<'_, D>, out: &mut O) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{AppendArgs, FilterArgs, parse_event, type_name};
-    use crate::store::EventKind;
+    use crate::store::{EventKind, SchemaError};
 
     fn args(event: &str, session: Option<&str>) -> AppendArgs {
         AppendArgs {
@@ -399,6 +400,21 @@ mod tests {
         assert_eq!(event.actor, "hook", "the event's own actor wins");
         assert_eq!(event.session_id.as_deref(), Some("s9"), "null is filled");
         assert!(event.ts.as_str().ends_with('Z'), "ts filled with now");
+    }
+
+    #[test]
+    fn append_refuses_a_repeated_key_in_data_rather_than_read_the_last() {
+        let given = args(
+            r#"{"type":"bench.task_done","data":{"task":"T1","task":"T2"}}"#,
+            None,
+        );
+
+        let parsed = parse_event(&given).expect("the clock works");
+
+        assert!(
+            matches!(&parsed, Err(SchemaError::RepeatedKey { field }) if field == "data.task"),
+            "{parsed:?}"
+        );
     }
 
     #[test]

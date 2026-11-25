@@ -13,6 +13,8 @@ use serde_json::Value;
 use super::tag::{LedgerTag, TagError, TagKey};
 use crate::store::{EventKind, LedgerEvent};
 
+mod strict;
+
 /// Why an event given to `bench ledger append` is not one it writes.
 #[derive(Debug, thiserror::Error)]
 pub enum SchemaError {
@@ -61,9 +63,27 @@ pub enum SchemaError {
         /// The key that is not part of it, `data.` first.
         field: String,
     },
+    /// The envelope names a key twice in one object. JSON leaves open which one counts, so
+    /// `append` refuses it rather than keep the last, as Core refuses a stored envelope that
+    /// does (EV-10; #135, `kb-decision-e09e24b848`).
+    #[error("key {field:?} is given twice: give each key once")]
+    RepeatedKey {
+        /// The repeated key, as a path from the envelope's root (`data.task`, `data.items[0].b`).
+        field: String,
+    },
     /// A tag value (session, worktree or subject) is not a valid tag.
     #[error(transparent)]
     Tag(#[from] TagError),
+}
+
+/// The JSON of the EV-01 envelope `bench ledger append` takes, before
+/// [`EventEnvelope::from_ev01`] reads it: each object, at every depth, names each key once.
+///
+/// # Errors
+/// [`SchemaError::RepeatedKey`] naming the first repeated key, or [`SchemaError::Json`] when
+/// `text` is not JSON.
+pub fn parse_ev01(text: &str) -> Result<Value, SchemaError> {
+    strict::parse(text)
 }
 
 /// Why a timestamp could not be read or made.
