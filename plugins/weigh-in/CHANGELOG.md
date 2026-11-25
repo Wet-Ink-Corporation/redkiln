@@ -6,6 +6,13 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 
 ## Unreleased
 
+## 2.2.0 (2026-11-25)
+
+Witnessed answers: an `AskUserQuestion` answer to a presented item is now recorded at `witnessed`
+trust by the `PostToolUse` hook (#125, #167), so a plugin that raised a decision request can
+accept that answer under DR-06. `weighin decide`, the board and Cowork answers stay `asserted`.
+Nothing about 2.1.0's store, journals or install changes.
+
 - A card you answer in Claude Code's question dialog is now recorded by the `PostToolUse` hook
   itself, from the dialog's own result, as a `witnessed` decision (`via: ask-user-question`,
   the tool use as its `ref`), so another Redkiln plugin whose decision request needs a witnessed
