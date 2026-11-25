@@ -222,7 +222,9 @@ bench ledger [--store <file>] journal
   default `cli`), `session` (from `--session`) and `ts` (now) when it leaves them out or sets
   them to `null`; Bench writes `version`, `trust` and `writer`. Its envelope's `data` holds
   `store`, `source`, `position` and `event`, the envelope as stored (read back from its
-  position). It refuses a `by` on `bench.plan_approved` or `bench.verdict_set` as a usage error
+  position). An envelope that names a key twice in one object, at any depth (`"data":
+  {"task":"T1","task":"T2"}`), is a schema error naming the key's path, never read last-wins,
+  as Core refuses a stored one (EV-10; #135, `kb-decision-e09e24b848`). It refuses a `by` on `bench.plan_approved` or `bench.verdict_set` as a usage error
   (exit 2, one `bench: error:` line on stderr, nothing on stdout, nothing appended and no ledger
   opened): who gave an approval or a verdict is recorded only by their writers, `bench plan
   approve` and `bench verdict set` (`--actor`, `--via`). For `verdict_set` that is where the

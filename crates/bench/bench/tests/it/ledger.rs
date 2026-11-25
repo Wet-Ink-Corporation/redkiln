@@ -205,6 +205,39 @@ fn ledger_append_refuses_each_retired_type_and_writes_nothing() -> TestResult {
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
+fn ledger_append_refuses_a_repeated_key_rather_than_read_the_last() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let store = dir.path().join("ledger.sqlite3");
+
+    for (event, field) in [
+        (
+            r#"{"type":"bench.task_done","data":{"task":"T1","task":"T2"}}"#,
+            "data.task",
+        ),
+        (
+            r#"{"type":"bench.subagent_status","data":{"agent":"Explore","tokens":{"input":1,"output":2,"input":3}}}"#,
+            "data.tokens.input",
+        ),
+    ] {
+        let output = ledger_at(dir.path(), &store, &["append", event])?;
+        let refused = envelope(&output, 1)?;
+
+        assert_eq!(
+            refused["findings"][0]["key"], "ledger/schema",
+            "{event}: {refused}"
+        );
+        let message = refused["findings"][0]["message"].as_str().unwrap_or("");
+        assert!(
+            message.contains(&format!("{field:?}")),
+            "{event}: the finding names {field}: {refused}"
+        );
+    }
+    assert!(!store.exists(), "nothing was written");
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
 fn a_bad_event_exits_1_with_an_envelope_and_writes_nothing() -> TestResult {
     let dir = tempfile::tempdir()?;
     let store = dir.path().join("ledger.sqlite3");

@@ -56,7 +56,9 @@ use redkiln_core::store::{
 
 use bench_contract::event::RETIRED_TYPES;
 pub use bench_contract::event::{BenchEvent as LedgerEvent, EventKind, TYPES, UnknownEventKind};
-pub use envelope::{EventEnvelope, SchemaError, Timestamp, TimestampError, WRITTEN_VERSION};
+pub use envelope::{
+    EventEnvelope, SchemaError, Timestamp, TimestampError, WRITTEN_VERSION, parse_ev01,
+};
 pub use stored::{CoreEnvelope, StoredEvent};
 pub use tag::{LedgerTag, TagError, TagKey};
 pub(crate) use wire::Context as EventContext;
