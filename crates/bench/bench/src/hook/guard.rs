@@ -72,6 +72,8 @@ pub(crate) enum Rule {
     ConfigWrite,
     /// `bench verdict set` or `bench decide label` with `--actor human` from a model (#62).
     HumanOnly,
+    /// `weighin hook`, the harness's entry point, from a model (#168, the #125 D2 tripwire).
+    WeighinHook,
     /// The command could not be read.
     Unparseable,
     /// The hook input could not be read.
@@ -89,6 +91,7 @@ impl Rule {
             Self::ForceAdd => "git-add-force",
             Self::ConfigWrite => "config-write",
             Self::HumanOnly => "human-only",
+            Self::WeighinHook => "weighin-hook",
             Self::Unparseable => "unparseable",
             Self::BadInput => "bad-input",
             Self::Destructive => "destructive",

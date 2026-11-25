@@ -1,13 +1,15 @@
 //! The guard's rule pack: the denylist's entries, [`git`](super::git) (force push to a
 //! protected branch, `git add -f`, settings it cannot follow), [`rm`](super::rm) (recursive
 //! force delete outside temp and scratch), [`config`](super::config) (Bash writes to lint or
-//! hook config) and [`anneal`](super::anneal) (a human verdict or label from a model's call).
+//! hook config), [`anneal`](super::anneal) (a human verdict or label from a model's call) and
+//! [`weighin`](super::weighin) (`weighin hook`, the harness's entry point, from a model's call).
 
 use super::Context;
 use super::anneal;
 use super::config;
 use super::git;
 use super::rm;
+use super::weighin;
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::engine::{Call, Cwd, Pack, Program};
 use redkiln_guard::shell::{SimpleCommand, Word};
@@ -90,6 +92,11 @@ impl Pack for GuardPack<'_> {
             Program::Named(name) => anneal::is_anneal(name)
                 .then(|| anneal::check(args, appended))
                 .flatten()
+                .or_else(|| {
+                    weighin::is_weighin(name)
+                        .then(|| weighin::check(args, appended))
+                        .flatten()
+                })
                 .or_else(|| config::check(name, args, cwd)),
             Program::Unknown(word) => git::check(args)
                 .or_else(|| rm::check(args, self.context, appended))
@@ -98,14 +105,20 @@ impl Pack for GuardPack<'_> {
                     anneal::may_name_anneal(word)
                         .then(|| anneal::check(args, appended))
                         .flatten()
+                })
+                .or_else(|| {
+                    weighin::may_name_weighin(word)
+                        .then(|| weighin::check(args, appended))
+                        .flatten()
                 }),
         }
     }
 
     /// `anneal`, whose own arguments are still read as a command, as `task done -- <cmd>` runs
-    /// them ([`anneal::is_anneal`]).
+    /// them ([`anneal::is_anneal`]), and `weighin`, so that an unknown program's arguments that
+    /// run it (`caffeinate weighin hook`) are read ([`weighin::is_weighin`]).
     fn watches(&self, name: &str) -> bool {
-        anneal::is_anneal(name)
+        anneal::is_anneal(name) || weighin::is_weighin(name)
     }
 
     fn mark(&self) {}

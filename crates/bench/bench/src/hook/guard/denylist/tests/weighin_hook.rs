@@ -1,0 +1,110 @@
+//! `weighin-hook` (#168, the #125 D2 tripwire): a model's Bash call may not run `weighin hook`,
+//! however the shell forms the words; weighin's other subcommands, and `hook` as data, stay
+//! allowed.
+
+use super::forms::{forms, still_runs};
+use super::{ALLOW, assert_table, rule_for};
+use crate::harness::claude_code::PLUGIN_ROOT_VAR;
+use crate::hook::guard::Rule;
+
+const WEIGHIN_HOOK: Option<Rule> = Some(Rule::WeighinHook);
+
+/// The hook run as `hooks.json` runs it, which a model's Bash call may not.
+const BASE: &str = "weighin hook PostToolUse";
+
+#[test]
+fn a_weighin_hook_run_is_denied_in_every_wrapping_form() {
+    let missed: Vec<String> = forms()
+        .into_iter()
+        .map(|(name, form)| (name, form(BASE)))
+        .filter_map(|(name, command)| {
+            let actual = rule_for(&command);
+            (actual != WEIGHIN_HOOK).then(|| format!("{name}: {command:?} -> {actual:?}"))
+        })
+        .collect();
+
+    assert!(missed.is_empty(), "misjudged:\n{}", missed.join("\n"));
+}
+
+#[test]
+fn a_weighin_hook_run_stays_denied_in_every_pair_of_forms() {
+    let forms = forms();
+    let mut missed = Vec::new();
+    for (inner_name, inner) in &forms {
+        let inner = inner(BASE);
+        for (outer_name, outer) in &forms {
+            if !still_runs(outer_name, &inner) {
+                continue;
+            }
+            let command = outer(&inner);
+            if rule_for(&command).is_none() {
+                missed.push(format!("{outer_name} of {inner_name}: {command:?}"));
+            }
+        }
+    }
+
+    assert!(missed.is_empty(), "allowed:\n{}", missed.join("\n"));
+}
+
+#[test]
+fn a_weighin_hook_run_is_denied_however_the_program_and_options_are_written() {
+    let rows: Vec<String> = vec![
+        "weighin hook".to_owned(),
+        "weighin hook PostToolUse < payload.json".to_owned(),
+        "echo '{}' | weighin hook PostToolUse".to_owned(),
+        "weighin --session s1 --dir /work/proj hook PostToolUse".to_owned(),
+        "weighin --store=/tmp/s.db hook".to_owned(),
+        "weighin --dir=/work/proj --session \"$S\" hook Stop".to_owned(),
+        "weighin --version hook".to_owned(),
+        "weighin -- hook".to_owned(),
+        "/opt/plugin/libexec/weighin hook PostToolUse".to_owned(),
+        format!("\"${{{PLUGIN_ROOT_VAR}}}/libexec/weighin\" hook PostToolUse"),
+        "./libexec/weighin.exe hook PostToolUse".to_owned(),
+        "weighin.exe hook".to_owned(),
+        "WeighIn.EXE hook".to_owned(),
+        "C:/plugins/weigh-in/libexec/x86_64-pc-windows-msvc/weighin.exe hook".to_owned(),
+        "\"$WEIGHIN\" hook PostToolUse".to_owned(),
+        "$(command -v weighin) hook PostToolUse".to_owned(),
+        "weighin \"$sub\" PostToolUse".to_owned(),
+        "weighin --dir d h\"$rest\"".to_owned(),
+        "weighin ho{o,}k".to_owned(),
+        "sub=hook; weighin $sub PostToolUse".to_owned(),
+        "cat args | xargs weighin".to_owned(),
+        "cat args | xargs weighin --dir /work/proj".to_owned(),
+        "caffeinate weighin hook PostToolUse".to_owned(),
+        "env -i PATH=/bin weighin hook PostToolUse".to_owned(),
+        "f() { weighin \"$@\"; }; f hook PostToolUse".to_owned(),
+        "bash -c 'weighin --session s hook PostToolUse'".to_owned(),
+    ];
+    let rows: Vec<(&str, Option<Rule>)> = rows
+        .iter()
+        .map(|command| (command.as_str(), WEIGHIN_HOOK))
+        .collect();
+
+    assert_table(&rows);
+}
+
+#[test]
+fn weighins_other_subcommands_and_hook_as_data_stay_allowed() {
+    assert_table(&[
+        ("weighin open", ALLOW),
+        ("weighin open --with-context --top 8", ALLOW),
+        ("weighin scan", ALLOW),
+        ("weighin --session s1 --dir /work/proj open", ALLOW),
+        ("weighin --dir hook open", ALLOW),
+        ("weighin --store hook status --json", ALLOW),
+        ("weighin show hook", ALLOW),
+        ("weighin decide wi-123 -- hook", ALLOW),
+        ("weighin raise \"$question\" hook", ALLOW),
+        ("weighin o\"$x\" hook", ALLOW),
+        ("weighin HOOK", ALLOW),
+        ("weighin hooks", ALLOW),
+        ("cat args | xargs weighin open", ALLOW),
+        ("echo weighin hook", ALLOW),
+        ("grep -r 'weighin hook' docs", ALLOW),
+        ("git commit -m 'weighin hook PostToolUse'", ALLOW),
+        ("weighin-other hook", ALLOW),
+        ("bench hook guard", ALLOW),
+        ("\"$EDITOR\" notes.md", ALLOW),
+    ]);
+}

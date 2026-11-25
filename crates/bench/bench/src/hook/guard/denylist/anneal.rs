@@ -25,6 +25,7 @@
 //! as one word: word splitting of an unquoted expansion into `--actor human` (`--sha $x`) is
 //! the guard's documented limit (#128).
 
+use super::names::{self, PATTERN, may_be, written_start};
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::engine::braces;
 use redkiln_guard::shell::Word;
@@ -91,17 +92,8 @@ pub(super) fn denial() -> Denial {
 /// its name before Move 2 (an anneal 0.x build may still be on `PATH`), in any ASCII case, with
 /// or without `.exe` in any case, as a case-insensitive file system (APFS, NTFS) finds it.
 pub(super) fn is_anneal(name: &str) -> bool {
-    let stem = name
-        .len()
-        .checked_sub(EXE.len())
-        .and_then(|at| name.split_at_checked(at))
-        .filter(|(_, extension)| extension.eq_ignore_ascii_case(EXE))
-        .map_or(name, |(stem, _)| stem);
-    stem.eq_ignore_ascii_case(bench_contract::cli::BINARY) || stem.eq_ignore_ascii_case("anneal")
+    names::is(name, bench_contract::cli::BINARY) || names::is(name, "anneal")
 }
-
-/// The extension a Windows program name may end in.
-const EXE: &str = ".exe";
 
 /// The words after the first subcommand-path word of `anneal <args>` that is not read as
 /// written, when there is one (`anneal "$@"`, `anneal $SUB`, `bench verdict "$@"`): such a
@@ -184,19 +176,7 @@ impl Seen {
 /// Whether the program `word` may be anneal: its last path component is anneal
 /// ([`is_anneal`]), or is not known before the command runs.
 pub(super) fn may_name_anneal(word: &Word) -> bool {
-    let start = word
-        .text()
-        .rfind(['/', '\\'])
-        .map_or(0, |at| at.saturating_add(1));
-    let Some(tail) = word.text().get(start..) else {
-        return true;
-    };
-    let unknown = word
-        .expansions()
-        .iter()
-        .any(|expansion| expansion.range.end > start)
-        || (!braces::reads_as_written(word) && tail.contains(PATTERN));
-    unknown || is_anneal(tail)
+    names::may_name(word, is_anneal)
 }
 
 /// Whether `args`, and any arguments `appended` at run time, may run `target` with
@@ -309,36 +289,4 @@ fn may_be_several(word: &Word) -> bool {
                 .get(expansion.range.clone())
                 .is_none_or(|source| source.contains('@'))
     })
-}
-
-/// Characters after which a pattern word's text is no longer what it matches.
-const PATTERN: [char; 9] = ['*', '?', '[', '{', '(', '~', '@', '+', '!'];
-
-/// Whether `word` may be `text` once the shell has expanded it: exactly `text` when it is read
-/// as written, else when `text` starts with what is written before its first expansion or
-/// pattern character.
-fn may_be(word: &Word, text: &str) -> bool {
-    if braces::reads_as_written(word) {
-        return word.text() == text;
-    }
-    text.starts_with(written_start(word))
-}
-
-/// What is written of `word` before its first expansion or pattern character: all of it when
-/// it is read as written, and nothing when the cut is not on a character boundary (so the word
-/// may be any text). A quoted pattern character is cut at too: the written start is then
-/// shorter, which only lets the word be more texts.
-fn written_start(word: &Word) -> &str {
-    let text = word.text();
-    if braces::reads_as_written(word) {
-        return text;
-    }
-    let end = word
-        .expansions()
-        .iter()
-        .map(|expansion| expansion.range.start)
-        .chain(text.find(PATTERN))
-        .min()
-        .unwrap_or(text.len());
-    text.get(..end).unwrap_or_default()
 }

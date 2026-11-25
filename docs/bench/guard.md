@@ -340,6 +340,35 @@ and `verdict_set` as a usage error and appends nothing (`docs/ledger.md`), so a 
 reaches the ledger only through `verdict set`, where this rule sees it. Writing to the label
 log or the ledger file by other means is a limit below.
 
+### `weighin-hook`: `weighin hook` from a model (#168)
+
+A Bash call may not run `weighin hook`. It is the harness's entry point: Weigh-In's
+`hooks.json` runs it with the hook's own payload on stdin, and its `PostToolUse` path records
+an `AskUserQuestion` answer as `witnessed`. A model running it from Bash could feed it a forged
+payload; #125 D2 A (Ryan, 2026-11-20) accepted that as the hook's surface, as SPEC TR-03
+frames it, with this entry as the TR-09 tripwire. The reason is
+`ERROR guard weighin-hook: weighin hook is the harness's entry point, run by hooks.json with the hook's own payload; a payload fed from Bash could forge a witnessed answer (#125 D2), so run another weighin command`.
+Weigh-In's other subcommands stay allowed (`weighin open`, `weighin scan`, `weighin show hook`),
+as does `hook` as data (`echo weighin hook`, `grep -r 'weighin hook' docs`).
+
+The words are judged as the shell forms them, as for every entry, then as clap reads weighin's:
+the program's last path component is `weighin` in any ASCII case, with or without `.exe`
+(`/x/libexec/weighin`, `weighin.EXE`), or is not known before the command runs (`"$W"`); the
+global options before the subcommand are skipped, each of `weighin_contract::cli::VALUE_OPTIONS`
+(`--dir`, `--session`, `--store`) with its value, so `weighin --dir hook open` runs `open` and
+is allowed; `--` ends them. The first operand is the subcommand, denied when it may be `hook`:
+`hook` itself, or a word not read as written whose written start allows it (`weighin "$sub"`,
+`f() { weighin "$@"; }; f hook`). Arguments `xargs` appends with no subcommand before them may
+be `hook`, so `cat args | xargs weighin` is denied. `weighin` joins the names an unknown
+program's arguments are read from (`caffeinate weighin hook`).
+
+It is a tripwire, not a wall (SPEC HK-12). A command built where the engine cannot read it
+escapes it: the launcher copy run as a script file (`sh .../libexec/weighin hook PostToolUse`,
+which the engine reads as a file it does not open), any script file written and then run, an
+interpreter's inline code, a binary copied under another name. It runs only where Bench's
+guard runs (the `rk-bench` plugin); Weigh-In ships no Bash guard. Nothing else detects a
+forged payload: the residual is accepted (#125 D2 A, `docs/weigh-in/hooks.md`).
+
 ## Bypass handling
 
 The guard is a denylist: defence in depth, not a sandbox. It models the shell features that
