@@ -23,7 +23,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|MultiEdit|AskUserQuestion",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/libexec/weighin", "args": ["hook", "PostToolUse"], "timeout": 10 }
         ]

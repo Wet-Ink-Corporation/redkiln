@@ -30,6 +30,8 @@ use weighin_contract::names::REQUEST_RAISED;
 use weighin_core::event::EventEnvelope;
 use weighin_core::{ItemId, Ledger};
 
+use crate::witness::Witness;
+
 /// How many events one read of the store returns at most.
 const PAGE: NonZeroUsize = match NonZeroUsize::new(512) {
     Some(page) => page,
@@ -225,6 +227,25 @@ impl Store {
     /// Fails when an envelope field or tag is one Core refuses (nothing is written), or on a
     /// store error. A guard match is [`Written::Conflict`], not an error.
     pub(crate) fn append(&self, envs: Vec<EventEnvelope>, guard: &Guard) -> Result<Written> {
+        self.append_as(envs, guard, &Trust::asserted())
+    }
+
+    /// [`Store::append`] of envelopes that carry `witness`'s trust: the one write above
+    /// `asserted`, a decision the person made on a surface the agent cannot drive (TR-03).
+    ///
+    /// # Errors
+    /// As [`Store::append`].
+    pub(crate) fn append_witnessed(
+        &self,
+        envs: Vec<EventEnvelope>,
+        guard: &Guard,
+        witness: &Witness,
+    ) -> Result<Written> {
+        self.append_as(envs, guard, witness.trust())
+    }
+
+    /// [`Store::append`] with every envelope carrying `trust`.
+    fn append_as(&self, envs: Vec<EventEnvelope>, guard: &Guard, trust: &Trust) -> Result<Written> {
         let condition = match guard {
             // DR-03's condition: neither a captured raise nor a sibling's request holds the item.
             Guard::NotYetRaised(id) => weighin_contract::request::raise_condition(id)
@@ -239,7 +260,8 @@ impl Store {
         let mut events = Vec::with_capacity(envs.len());
         let mut kept = Vec::with_capacity(envs.len());
         for env in envs {
-            let (event, env) = wire::to_new_event(env, &self.writer)?;
+            // Each envelope owns its trust: the same evidence, written into every event.
+            let (event, env) = wire::to_new_event_as(env, &self.writer, trust.clone())?;
             events.push(event);
             kept.push(env);
         }

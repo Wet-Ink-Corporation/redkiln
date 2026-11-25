@@ -5,7 +5,9 @@
 //! `session_id` the folder and session, `source` the session start's kind (`startup` when
 //! absent), `last_assistant_message` (and a subagent's `agent_id`) the turn a `Stop` or
 //! `SubagentStop` captures, and `tool_name` with `tool_input`'s `file_path`, `content`,
-//! `new_string` or `edits` what a `PostToolUse` wrote. Input that cannot be read is
+//! `new_string` or `edits` what a `PostToolUse` wrote; for an `AskUserQuestion` call,
+//! `tool_use_id` and `tool_response` (never `tool_input`) what the person answered
+//! ([`answered`]). Input that cannot be read is
 //! dispatched as far as it was read; input that is not JSON, or is over its event's [`Cap`], is
 //! the null payload, which names no event, so the event the command line names stands in for
 //! its labels and form.
@@ -26,8 +28,10 @@ use std::time::{Duration, Instant};
 
 use crate::env::{Harness, Vars};
 use crate::hooks::{
-    self, EventKind, Failures, Hook, HookEvent, HookInput, HookOutput, Tool, ToolWrite, Turn,
+    self, Answered, Asked, EventKind, Failures, Hook, HookEvent, HookInput, HookOutput, Tool,
+    ToolWrite, Turn,
 };
+use weighin_core::answered::{Answer, Resolution, ShownQuestion};
 
 /// The variables Claude Code gives the session in, read after `WEIGHIN_SESSION`.
 pub(crate) const SESSION_VARS: [&str; 2] = ["CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"];
@@ -93,7 +97,7 @@ fn timeout(event: &HookEvent) -> Option<Duration> {
         HookEvent::SessionStart { .. } => Some(SESSION_START_TIMEOUT),
         HookEvent::Stop(_) => Some(STOP_TIMEOUT),
         HookEvent::SubagentStop(_) => Some(SUBAGENT_STOP_TIMEOUT),
-        HookEvent::PostToolUse(_) => Some(POST_TOOL_USE_TIMEOUT),
+        HookEvent::PostToolUse(_) | HookEvent::Answered(_) => Some(POST_TOOL_USE_TIMEOUT),
         HookEvent::Other(_) | HookEvent::Unnamed => None,
     }
 }
@@ -238,6 +242,9 @@ fn event_of(name: Option<String>, payload: &mut Value) -> HookEvent {
         },
         "Stop" => HookEvent::Stop(turn(payload)),
         "SubagentStop" => HookEvent::SubagentStop(turn(payload)),
+        "PostToolUse" if payload.get("tool_name").and_then(Value::as_str) == Some(ASK) => {
+            HookEvent::Answered(answered(payload))
+        }
         "PostToolUse" => HookEvent::PostToolUse(tool_write(payload)),
         "" => HookEvent::Unnamed,
         _ => HookEvent::Other(name),
@@ -258,6 +265,76 @@ fn turn(payload: &mut Value) -> Turn {
         message: take_str(payload, "last_assistant_message").unwrap_or_default(),
         agent: take_str(payload, "agent_id"),
     }
+}
+
+/// The tool that asks the person questions in a dialog.
+const ASK: &str = "AskUserQuestion";
+
+/// What the person answered in an `AskUserQuestion` dialog, read only from `tool_response`,
+/// the harness's own result of the call, never from `tool_input`, which the model wrote (on
+/// `PostToolUse` the two are equal, and only `PreToolUse` holds the model's prefill; TR-03).
+/// `None` when the payload names no `tool_use_id` or has no `tool_response` object.
+///
+/// Each object in `tool_response.questions` is one shown question: its `question` text (empty
+/// when absent), `multiSelect`, and the `label` of each option that has one. Its answer is
+/// `tool_response.answers[<text>]`, kept whole as one selection: a multi-select answer arrives as
+/// the labels joined by `", "`, and Other text as the text itself, with no marker (the captures
+/// of Claude Code 2.1.325, `tests/fixtures/ask-user-question/`). A non-null `afkTimeoutMs`,
+/// `followUp` or `response` in `tool_response` says the person did not pick: no capture showed
+/// one, so they are read as a defence only.
+fn answered(payload: &mut Value) -> Option<Answered> {
+    let tool_use_id = take_str(payload, "tool_use_id")?;
+    let response = payload.get_mut("tool_response").filter(|r| r.is_object())?;
+    let present = |key: &str| response.get(key).is_some_and(|v| !v.is_null());
+    let resolution = if present("afkTimeoutMs") {
+        Resolution::AfkTimeout
+    } else if present("followUp") {
+        Resolution::FollowUp
+    } else if present("response") {
+        Resolution::FreeText
+    } else {
+        Resolution::Person
+    };
+    let mut answers = match response.get_mut("answers").map(Value::take) {
+        Some(Value::Object(answers)) => answers,
+        _ => Map::new(),
+    };
+    let questions = match response.get_mut("questions").map(Value::take) {
+        Some(Value::Array(questions)) => questions,
+        _ => Vec::new(),
+    };
+    let asked = questions
+        .into_iter()
+        .filter(Value::is_object)
+        .map(|mut question| {
+            // An absent text reads as empty, which names no card (a card needs `<id> `).
+            let text = take_str(&mut question, "question").unwrap_or_default();
+            let selected = match answers.get_mut(&text).map(Value::take) {
+                Some(Value::String(label)) => vec![label],
+                _ => Vec::new(),
+            };
+            let labels = match question.get_mut("options") {
+                Some(Value::Array(options)) => options
+                    .iter_mut()
+                    .filter_map(|option| take_str(option, "label"))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            Asked {
+                shown: ShownQuestion {
+                    text,
+                    multi_select: question.get("multiSelect").and_then(Value::as_bool)
+                        == Some(true),
+                    labels,
+                },
+                answer: Answer {
+                    resolution,
+                    selected,
+                },
+            }
+        })
+        .collect();
+    Some(Answered { tool_use_id, asked })
 }
 
 /// What a `PostToolUse` tool wrote; `None` when the payload names no tool input or no file.
@@ -342,5 +419,7 @@ fn json_of(context: Option<(&str, String)>, message: Option<String>) -> String {
     Value::Object(out).to_string()
 }
 
+#[cfg(test)]
+mod answered_tests;
 #[cfg(test)]
 mod tests;

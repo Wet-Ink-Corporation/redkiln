@@ -2,7 +2,7 @@
 
 Weigh-In's hooks shipped in Move 1, before the SPEC had a hook section; Move 2 step 6 wrote it, so these rules are now the SPEC's: CLI-09 to CLI-11 (`spec/cli.md`) and HK-2, HK-4 to HK-8 and HK-11 to HK-15 (`spec/hooks.md`, which kept the field guide's numbers for the rules it lifted). The SPEC wins where the wording here differs. The `weighin` crate charter (`crates/weigh-in/weighin/AGENTS.md`, Hooks) carries the short form, and its full text is `docs/weigh-in/crates/weighin.md`; this page has each rule, how Weigh-In meets it today, and what is not yet met.
 
-Weigh-In's hooks are all observers: SessionStart primes, Stop and SubagentStop capture `weigh-in` blocks, and PostToolUse scans what `Write`, `Edit` and `MultiEdit` wrote and recalls decisions anchored at that file (`hooks.json`, `src/hooks.rs`, behind the adapter `src/harness/claude_code.rs`). None is a guard or a gate. A rule that speaks of guards, denies or Stop gates binds any such hook the plugin adds; it is written here so the hook arrives already under it.
+Weigh-In's hooks are all observers: SessionStart primes, Stop and SubagentStop capture `weigh-in` blocks, PostToolUse scans what `Write`, `Edit` and `MultiEdit` wrote and recalls decisions anchored at that file, and PostToolUse on `AskUserQuestion` records the cards the person answered in the dialog as `witnessed` decisions (#125) (`hooks.json`, `src/hooks.rs`, behind the adapter `src/harness/claude_code.rs`). None is a guard or a gate. A rule that speaks of guards, denies or Stop gates binds any such hook the plugin adds; it is written here so the hook arrives already under it.
 
 ## The rules
 
@@ -37,6 +37,12 @@ Weigh-In's hooks are all observers: SessionStart primes, Stop and SubagentStop c
 
 **HK-8. Deny messages name the sanctioned route.** A refusal says what to do instead and that a retry will be refused again.
 - *Not applicable today* (no deny). Weigh-In's warnings follow its spirit: each names what to fix or run (the store path, the config file, `/weigh-in`).
+
+## The witnessed answer (#125 PR 1b)
+
+`hooks.json`'s PostToolUse matcher includes `AskUserQuestion`. When the person answers Weigh-In cards in that dialog, the hook decides each one whose answer witnesses a pick: the adapter reads the answer from the payload's `tool_response` only, never from `tool_input`, which the model wrote (`answered`, `harness/claude_code.rs`), and `weighin_core::answered::witness` checks it against the item's card (the person resolved the dialog, single-select, the item's own question, every eligible option shown under `<id>: <title>`, one label picked naming an eligible option). The decision is the same `weighin.item_decided` `weighin decide` writes, with `via: ask-user-question`; only its envelope differs: actor `human:<owner>` and trust `{witnessed, ask-user-question, ref: <tool_use_id>}`. The trust is built in one place, `src/witness.rs`, from the hook's own input, and nothing a command, `batch` (whatever its `via`), the board, the pane, a variable or a config key carries raises it (TR-05; `only_witness_rs_raises_trust`, `no_command_writes_above_asserted`). A question that is no card (no `wi-` id the ledger holds) is passed over in silence; a card of an item no longer open is too, so a repeated payload writes nothing; an answer that witnesses no pick (Other text, a multi-select, a question shown twice, a label off the card) writes nothing and the hook tells the model in its context, so step 5 of the sitting records it `asserted` as before. Every failure is logged and noted like any hook's (CLI-09), and the hook exits 0. In Cowork it writes nothing. The live captures behind the payload shape are `crates/weigh-in/weighin/tests/fixtures/ask-user-question/` (Claude Code 2.1.325; Esc sends no payload, so no timeout or follow-up case reaches the hook).
+
+*Residual (D2 A, Ryan 2026-11-20):* anything that can run a binary can feed `weighin hook PostToolUse` a forged `AskUserQuestion` payload and so write a `witnessed` decision. TR-03 frames the hook's input as the surface, and this is accepted as it frames it. A follow-up adds a redkiln-guard TR-09 rule-pack tripwire that denies an agent's Bash run of `weighin hook`; until then nothing detects it. Board answers stay `asserted` (D3 A).
 
 ## New in the SPEC's hook section
 
