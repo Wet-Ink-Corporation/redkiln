@@ -226,7 +226,12 @@ The writes it checks:
   but when an operand at the end directly follows one, it may be that option's value, so the
   operand before it is judged as the destination too, with the operands before it as sources,
   walking back while that holds; any candidate's denial stands (`rsync -a x/ .claude/
-  --new-option L` and `rsync -av --delete x/ .claude/ --new-option L` are denied, #135);
+  --new-option L` and `rsync -av --delete x/ .claude/ --new-option L` are denied, #135).
+  Since rsync takes a value's next word whole even when it starts with `-`, such an option
+  may also take a listed value option as its value, leaving that option's value an operand:
+  any word some reading leaves as the last operand is a candidate destination, judged with
+  the operands before it as sources (`rsync x/ L --new-option --exclude .claude/` is denied,
+  #160). The value-option table is rsync 3.5.2's (`options.c`), daemon options included;
 - the directory `tar` (also `gtar`, `bsdtar`) extracts into, when it extracts (`-x`,
   `--extract`, `--get`): every `-C DIR`, `-CDIR`, `--directory[=]DIR` and `--cd[=]DIR`, and an old-style
   first word's `C` (`tar xfC x.tar DIR`); and `unzip -d DIR` (or `-dDIR`). A config folder
@@ -437,7 +442,9 @@ it cannot model instead of modelling every shell feature, and it does not try to
 - an `rsync` over-denial, accepted: a flag the guard does not list before a trailing operand
   makes the operand before it a candidate destination, so `rsync -av .claude/ .github/
   --progress /tmp/backup/` is denied as writing `.github/`, though `--progress` takes no value
-  and the destination is `/tmp/backup/` (#135). Put the options before the operands;
+  and the destination is `/tmp/backup/` (#135). Likewise `rsync x/ build/ --progress
+  --exclude .claude` is denied, since `--progress` read as taking `--exclude` leaves `.claude`
+  the destination (#160). Put the options before the operands;
 - a copy that rebuilds its sources' paths under the destination: `rsync -R /src/./.claude/x .`
   and `cp --parents src/.claude/settings.json dest` create a config folder below a destination
   that is not named as one (#117);

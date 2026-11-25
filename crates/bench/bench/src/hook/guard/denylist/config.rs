@@ -73,7 +73,7 @@ const PROTECTED: [Protected; 14] = [
 /// labelled as itself rather than as `.redkiln/bench` (#135); a path is matched on its last
 /// components, so the order does not change which paths match.
 const CONTAINERS: [(&str, &str); 6] = [
-    (".redkiln", "Redkiln state (.redkiln/)"),
+    (".redkiln", "Redkiln's config (.redkiln/)"),
     (".redkiln/bench", ".redkiln/bench/"),
     (".anneal", ".anneal/"),
     (".claude", ".claude/"),

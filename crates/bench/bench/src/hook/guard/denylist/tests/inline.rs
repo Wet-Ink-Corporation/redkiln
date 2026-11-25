@@ -141,7 +141,7 @@ fn code_fed_to_an_interpreter_on_stdin_is_a_limit() {
 }
 
 #[test]
-fn a_redkiln_mention_is_labelled_as_redkiln_state() {
+fn a_redkiln_mention_is_labelled_as_redkiln_config() {
     let commands = [
         "python3 -c 'import shutil; shutil.copytree(\"x\", \".redkiln\")'",
         "rm -r .redkiln",
@@ -158,11 +158,11 @@ fn a_redkiln_mention_is_labelled_as_redkiln_state() {
     assert_eq!(
         reasons,
         [
-            "python3 runs inline code, which may write what it names: Redkiln state (.redkiln/) \
-             is lint or hook config, which a Bash command may not change; change it in an edit \
-             a human reviews",
-            "rm changes .redkiln: Redkiln state (.redkiln/) is lint or hook config, which a Bash \
-             command may not change; change it in an edit a human reviews",
+            "python3 runs inline code, which may write what it names: Redkiln's config \
+             (.redkiln/) is lint or hook config, which a Bash command may not change; change it \
+             in an edit a human reviews",
+            "rm changes .redkiln: Redkiln's config (.redkiln/) is lint or hook config, which a \
+             Bash command may not change; change it in an edit a human reviews",
         ]
     );
 }
