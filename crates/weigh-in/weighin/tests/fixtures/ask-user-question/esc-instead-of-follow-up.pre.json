@@ -1,0 +1,37 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/redacted/transcript.jsonl",
+  "cwd": "/redacted/ask-capture-kit",
+  "scratchpad_dir": "/redacted/scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000001",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "When a hook payload has no session_id, what should capture.mjs write for it?",
+        "header": "Missing ID",
+        "options": [
+          {
+            "label": "Write null (Recommended)",
+            "description": "Keep session_id: null, so every parsed line has the same keys (current behavior)."
+          },
+          {
+            "label": "Leave field out",
+            "description": "Write session_id only when the payload has one."
+          },
+          {
+            "label": "Write \"unknown\"",
+            "description": "Use the string \"unknown\" as a placeholder instead of null."
+          }
+        ],
+        "multiSelect": false
+      }
+    ]
+  },
+  "tool_use_id": "toolu_01H5zdAVEmJrd8GZfJ6M4gRh"
+}

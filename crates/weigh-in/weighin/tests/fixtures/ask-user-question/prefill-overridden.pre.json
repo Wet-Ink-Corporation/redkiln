@@ -1,0 +1,40 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000000",
+  "transcript_path": "/redacted/transcript.jsonl",
+  "cwd": "/redacted/ask-capture-kit",
+  "scratchpad_dir": "/redacted/scratchpad",
+  "prompt_id": "00000000-0000-4000-8000-000000000001",
+  "permission_mode": "bypassPermissions",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [
+      {
+        "question": "How should capture.mjs handle a log file that gets very large?",
+        "header": "Log size",
+        "options": [
+          {
+            "label": "No limit",
+            "description": "Keep appending forever (current behavior)."
+          },
+          {
+            "label": "Rotate at 10 MB",
+            "description": "Rename the file to ask-capture.1.jsonl once it passes 10 MB, then start a new one."
+          },
+          {
+            "label": "Daily files",
+            "description": "Write to a new file each day, such as ask-capture-2026-11-20.jsonl."
+          }
+        ],
+        "multiSelect": false
+      }
+    ],
+    "answers": {
+      "How should capture.mjs handle a log file that gets very large?": "Rotate at 10 MB"
+    }
+  },
+  "tool_use_id": "toolu_01U6uUvaCuUoi6WaVpMWUN1E"
+}
