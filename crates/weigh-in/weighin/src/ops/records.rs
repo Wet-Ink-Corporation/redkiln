@@ -20,10 +20,7 @@ impl Session<'_> {
         option: &str,
         matched: Option<bool>,
     ) -> Result<String> {
-        let mut receipt = format!("decided {id} → {option}");
-        if matched == Some(false) {
-            receipt.push_str(" (override)");
-        }
+        let mut receipt = decided_head(id, option, matched);
         if let Some(path) = self.write_decision_atom(id)? {
             write!(receipt, " · atom {path}")?;
             if let Some(tracking) = self.supersede_open_question(id, option)? {
@@ -220,6 +217,28 @@ impl Session<'_> {
     }
 }
 
+/// The start of every decide receipt: `decided <id> → <option>`, marked ` (override)` when the
+/// option is not the card's recommendation (`matched` is `Some(false)`).
+fn decided_head(id: &ItemId, option: &str, matched: Option<bool>) -> String {
+    let override_mark = if matched == Some(false) {
+        " (override)"
+    } else {
+        ""
+    };
+    format!("decided {id} → {option}{override_mark}")
+}
+
+/// The receipt of a decision that was written when what follows it beside the ledger (the
+/// atom, the annotation, folding it into the session) failed: what [`Session::decision_receipt`]
+/// says of the decision itself, its override marker and its trailer, without what failed.
+pub(super) fn written_only_receipt(id: &ItemId, option: &str, matched: Option<bool>) -> String {
+    format!(
+        "{}; recording it beside the ledger failed · trailer `{}`",
+        decided_head(id, option, matched),
+        Trailer { id, option }
+    )
+}
+
 /// What settled a deferred item, as its open-question atom records it.
 struct Settled<'a> {
     option: &'a str,
@@ -336,11 +355,35 @@ fn render_ctx(today: &str) -> RenderContext {
 mod tests {
     use anyhow::Result;
 
-    use super::{Settled, moved_from_intake, reviewed_atom, superseded_open_question};
+    use super::{
+        Settled, moved_from_intake, reviewed_atom, superseded_open_question, written_only_receipt,
+    };
     use crate::ops::Session;
     use crate::ops::test_support::{ONE_WAY, TWO_WAY, atom_key, card, env_in, id_of, run};
     use knowledge_contract::Kind;
     use weighin_core::event::{LedgerEvent, RecordWritten};
+
+    /// Only a pick that is not the recommendation is marked an override; a recommended pick, or
+    /// one of an item with no card, is not, and every one keeps its trailer (#171).
+    #[test]
+    fn a_written_only_receipt_marks_only_an_override() {
+        let id = id_of(TWO_WAY);
+        let receipts: Vec<_> = [Some(false), Some(true), None]
+            .into_iter()
+            .map(|matched| written_only_receipt(&id, "B", matched))
+            .collect();
+
+        let failed = "recording it beside the ledger failed";
+        let trailer = format!("trailer `Weigh-In: {id} decided B`");
+        assert_eq!(
+            receipts,
+            [
+                format!("decided {id} → B (override); {failed} · {trailer}"),
+                format!("decided {id} → B; {failed} · {trailer}"),
+                format!("decided {id} → B; {failed} · {trailer}"),
+            ]
+        );
+    }
 
     #[test]
     #[cfg_attr(miri, ignore = "opens SQLite through FFI")]

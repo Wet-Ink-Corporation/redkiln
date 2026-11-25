@@ -109,6 +109,13 @@ struct Change {
     receipt: String,
 }
 
+/// Events the store took ([`Session::append_envelopes`]).
+struct Appended {
+    /// Why the session's ledger does not show them, when folding them in failed: the store
+    /// holds them all the same.
+    unfolded: Option<anyhow::Error>,
+}
+
 pub(crate) struct Session<'a> {
     pub(crate) env: &'a Env,
     /// The store, once one exists: it is created by the first append, so a command that fails
@@ -192,6 +199,21 @@ impl<'a> Session<'a> {
         envs: Vec<EventEnvelope>,
         witness: Option<&Witness>,
     ) -> Result<()> {
+        match self.append_envelopes(id, envs, witness)?.unfolded {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    /// [`Session::write_envelopes`], telling apart a write that never reached the store (the
+    /// error) from one that did and then could not be folded into the session's ledger
+    /// ([`Appended::unfolded`]), for a caller that must say the write happened either way.
+    fn append_envelopes(
+        &mut self,
+        id: &ItemId,
+        envs: Vec<EventEnvelope>,
+        witness: Option<&Witness>,
+    ) -> Result<Appended> {
         let since = self.ledger.get(id).map_or(0, |i| i.last_position);
         let guard = Guard::ItemUnchangedSince(id.clone(), since);
         let store = self.store()?;
@@ -200,10 +222,12 @@ impl<'a> Session<'a> {
             None => store.append(envs, &guard)?,
         };
         match written {
-            Written::At { last, events } => {
-                self.apply_written(last, &events)?;
-                Ok(())
-            }
+            Written::At { last, events } => Ok(Appended {
+                unfolded: self
+                    .apply_written(last, &events)
+                    .err()
+                    .map(|e| e.context(format!("folding {id}'s new events into the session"))),
+            }),
             Written::Conflict => {
                 let Loaded { ledger, unusable } = self.store()?.ledger()?;
                 self.ledger = ledger;

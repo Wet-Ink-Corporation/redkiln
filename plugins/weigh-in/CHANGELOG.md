@@ -16,6 +16,10 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
   write `asserted`, whatever they are given.
 - An option title that marks itself recommended in any spelling, such as `(recommended)` or
   `(Recommended)` without a space, no longer counts as a witnessed pick (#159).
+- When the hook records a witnessed decision but writing its atom or annotation fails, the line
+  it gives the model still marks an override and still gives the commit trailer; and a decision
+  the store took is told as recorded even if folding it into the hook's own reading of the
+  ledger fails, with that failure logged (#171).
 
 ## 2.1.0 (2026-11-20)
 
