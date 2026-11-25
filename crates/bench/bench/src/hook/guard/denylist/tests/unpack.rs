@@ -106,7 +106,15 @@ fn rsync_option_looking_values_cannot_hide_the_destination() {
         ("rsync x/ L --newa --newb --exclude .claude/", CONFIG),
         ("rsync x/ L --newa --exclude .claude/ --newb M", CONFIG),
         ("rsync -a x/ L --newa --filter .redkiln/bench", CONFIG),
-        ("rsync x/ L --newa -- .claude/", CONFIG),
+        // Read as `--newa` taking `--exclude`, the `--` ends the options, so `--filter` and
+        // `.claude/` are operands.
+        ("rsync x/ L --newa --exclude -- --filter .claude/", CONFIG),
+        // In the reading that makes `--exclude` the value, `x/` is a source copied into
+        // `.claude/` (review of #179, F1).
+        ("rsync --newa --exclude x/ .claude/", CONFIG),
+        // Over-denial, accepted: `--progress` is a flag, but read as taking `--exclude` it
+        // leaves `.claude` a source copied to `build/.claude`.
+        ("rsync --progress --exclude .claude x/ build/", CONFIG),
         (
             "rsync x/ .claude/settings.json --newa --exclude --remove-source-files /tmp/x",
             CONFIG,
@@ -117,9 +125,9 @@ fn rsync_option_looking_values_cannot_hide_the_destination() {
 #[test]
 fn rsync_option_looking_values_elsewhere_stay_allowed() {
     assert_table(&[
-        // A word freed only when an unlisted option takes the listed one is followed by
-        // operands, so it is never the destination, and it joins no source list.
-        ("rsync --progress --exclude .claude x/ build/", ALLOW),
+        // A word freed when an unlisted option takes the listed one is judged as a source or
+        // a destination like any other operand.
+        ("rsync --progress --exclude tmp x/ build/", ALLOW),
         ("rsync x/ L --newa --exclude build/", ALLOW),
         ("rsync x/ L --exclude .claude/", ALLOW),
         ("rsync x/ L --newa=v --exclude .claude/", ALLOW),

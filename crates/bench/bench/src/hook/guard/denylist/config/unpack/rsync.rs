@@ -218,22 +218,15 @@ impl<'a> Readings<'a> {
         })
     }
 
-    /// Where the operands stand when each unlisted long option is read as a flag.
-    fn plain_operands(&self) -> Vec<usize> {
-        let mut operands = Vec::new();
-        let mut at = 0;
-        while let Some(step) = self.steps.get(at) {
-            match step {
-                Step::EndOfOptions => {
-                    operands.extend(at.saturating_add(1)..self.words.len());
-                    break;
-                }
-                Step::Operand => operands.push(at),
-                Step::Flag | Step::Valued | Step::Unlisted => {}
-            }
-            at = at.saturating_add(step.strides().first().copied().unwrap_or(1));
-        }
-        operands
+    /// Where every word some reading reads as an operand stands, in order: a non-option it
+    /// reaches while reading options, or any word after a `--` it reaches.
+    fn possible_operands(&self) -> Vec<usize> {
+        (0..self.words.len())
+            .filter(|at| {
+                (flag_at(&self.reached, *at, false) && self.steps.get(*at) == Some(&Step::Operand))
+                    || self.end_of_options.is_some_and(|end| end < *at)
+            })
+            .collect()
     }
 
     /// Whether some reading makes word `at` the last operand: read as an operand with nothing
@@ -254,12 +247,12 @@ impl<'a> Readings<'a> {
 /// without `=`, may be a flag or take the next word, whatever it looks like, so another word may
 /// stand where the destination is read (`rsync -a x/ .claude/ --new-option L`, #135; `rsync x/
 /// L --new-option --exclude .claude/`, #160). Every word some reading leaves as the last operand
-/// is a candidate destination, judged with the operands before it (unlisted options read as
-/// flags) as sources, and any candidate's denial stands (fail closed; an option before a source
-/// never drops that source).
+/// is a candidate destination, judged with every word some reading leaves as an operand before
+/// it as a source (`rsync --new-option --exclude x/ .claude/` copies `x/`), and any candidate's
+/// denial stands (fail closed).
 pub(in crate::hook::guard::denylist::config) fn rsync(args: &[Word], cwd: &Cwd) -> Option<Denial> {
     let readings = Readings::new(args);
-    let plain = readings.plain_operands();
+    let operands = readings.possible_operands();
     let mode = CopyMode {
         moves: readings.removes(),
         slash: TrailingSlash::Contents,
@@ -268,7 +261,7 @@ pub(in crate::hook::guard::denylist::config) fn rsync(args: &[Word], cwd: &Cwd) 
         .rev()
         .filter(|at| readings.may_be_destination(*at))
         .find_map(|dest| {
-            let sources = plain.iter().take_while(|at| **at < dest);
+            let sources = operands.iter().take_while(|at| **at < dest);
             let copy = CopyArgs {
                 operands: sources
                     .chain(std::iter::once(&dest))
