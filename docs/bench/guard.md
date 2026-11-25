@@ -347,7 +347,7 @@ A Bash call may not run `weighin hook`. It is the harness's entry point: Weigh-I
 an `AskUserQuestion` answer as `witnessed`. A model running it from Bash could feed it a forged
 payload; #125 D2 A (Ryan, 2026-11-20) accepted that as the hook's surface, as SPEC TR-03
 frames it, with this entry as the TR-09 tripwire. The reason is
-`ERROR guard weighin-hook: weighin hook is the harness's entry point, run by hooks.json with the hook's own payload; a payload fed from Bash could forge a witnessed answer (#125 D2), so run another weighin command`.
+`ERROR guard weighin-hook: weighin hook is the harness's entry point, run by hooks.json with the hook's own payload; a payload fed from Bash could forge a witnessed answer (#125 D2), so run another weighin command or write the subcommand out`.
 Weigh-In's other subcommands stay allowed (`weighin open`, `weighin scan`, `weighin show hook`),
 as does `hook` as data (`echo weighin hook`, `grep -r 'weighin hook' docs`).
 
@@ -358,14 +358,30 @@ global options before the subcommand are skipped, each of `weighin_contract::cli
 (`--dir`, `--session`, `--store`) with its value, so `weighin --dir hook open` runs `open` and
 is allowed; `--` ends them. The first operand is the subcommand, denied when it may be `hook`:
 `hook` itself, or a word not read as written whose written start allows it (`weighin "$sub"`,
-`f() { weighin "$@"; }; f hook`). Arguments `xargs` appends with no subcommand before them may
-be `hook`, so `cat args | xargs weighin` is denied. `weighin` joins the names an unknown
-program's arguments are read from (`caffeinate weighin hook`).
+`f() { weighin "$@"; }; f hook`). A word that may become several words (`"$@"`, an unquoted
+expansion) before the subcommand, as an option, a value or the subcommand, may supply `hook`,
+so it is denied (`f() { weighin --dir "$@"; }; f /x hook`, `weighin --dir $DIR open`: quote
+the value). An option word not read as written that may be a value-taking option
+(`weighin --di"$r" /x hook`) is read both with and without a value. Arguments `xargs` appends
+with no subcommand before them may be `hook`, so `cat args | xargs weighin` is denied.
+`weighin` joins the names an unknown program's arguments are read from
+(`caffeinate weighin hook`).
+
+The launcher copy run as a shell script, the way Weigh-In's skill runs weighin
+(`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" ... hook`), is read by the entry itself, since the
+engine reads a shell's script-file operand as a file it does not open and calls no pack for
+it: in each simple command's words, after leading assignments and reserved words, a shell
+named as written (`sh`, `bash`, `dash`, `zsh`, `ksh`, `mksh`, `ash`, `posh`), its plain
+options (`-e`, `-o posix`, `--norc`, `--`), then a script file whose last path component is
+weighin, known before the command runs; the words after it are read as weighin's arguments.
+A `-c` string or a script on standard input stays the engine's.
 
 It is a tripwire, not a wall (SPEC HK-12). A command built where the engine cannot read it
-escapes it: the launcher copy run as a script file (`sh .../libexec/weighin hook PostToolUse`,
-which the engine reads as a file it does not open), any script file written and then run, an
-interpreter's inline code, a binary copied under another name. It runs only where Bench's
+escapes it: the launcher run as a script behind a wrapper (`sudo sh ...`, `env sh ...`,
+`exec sh ...`), through shell options not read as written, or from a path known only at run
+time (`sh "$SCRIPT" hook`); any script file written and then run; an interpreter's inline
+code; a binary copied under another name. Reading the wrapped forms would need the kit's
+engine to tell packs about a shell's script file (a seam change). It runs only where Bench's
 guard runs (the `rk-bench` plugin); Weigh-In ships no Bash guard. Nothing else detects a
 forged payload: the residual is accepted (#125 D2 A, `docs/weigh-in/hooks.md`).
 

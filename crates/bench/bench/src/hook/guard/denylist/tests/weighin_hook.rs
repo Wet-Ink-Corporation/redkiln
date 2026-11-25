@@ -106,5 +106,57 @@ fn weighins_other_subcommands_and_hook_as_data_stay_allowed() {
         ("weighin-other hook", ALLOW),
         ("bench hook guard", ALLOW),
         ("\"$EDITOR\" notes.md", ALLOW),
+        // After `--` the next word is the subcommand, so `--version` is no option here.
+        ("weighin -- --version hook", ALLOW),
+        ("weighin --dir \"$DIR\" open", ALLOW),
+    ]);
+}
+
+#[test]
+fn a_global_option_whose_words_may_split_or_take_a_value_may_hide_hook() {
+    assert_table(&[
+        // The function's arguments are `--dir`'s value and whatever follows it.
+        (
+            "f() { weighin --dir \"$@\"; }; f /work/proj hook PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+        // An unquoted value may split into the value and `hook`.
+        ("weighin --dir $DIR PostToolUse", WEIGHIN_HOOK),
+        ("weighin --store=$S PostToolUse", WEIGHIN_HOOK),
+        // A word not read as written may be `--dir`, taking `/work/proj` as its value.
+        ("weighin --di\"$r\" /work/proj hook", WEIGHIN_HOOK),
+        (
+            "weighin \"--$opt\" /work/proj hook PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+    ]);
+}
+
+#[test]
+fn the_launcher_copy_run_as_a_shell_script_may_not_run_hook() {
+    let skill_form = format!(
+        "sh \"${{{PLUGIN_ROOT_VAR}}}/libexec/weighin\" --session s --dir /work/proj hook \
+         PostToolUse"
+    );
+    assert_table(&[
+        (
+            "sh /opt/plugin/libexec/weighin hook PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+        (skill_form.as_str(), WEIGHIN_HOOK),
+        ("bash -e ./libexec/weighin hook", WEIGHIN_HOOK),
+        ("sh -o posix libexec/weighin hook", WEIGHIN_HOOK),
+        ("dash -- libexec/weighin hook", WEIGHIN_HOOK),
+        ("CI=1 sh libexec/weighin hook", WEIGHIN_HOOK),
+        (
+            "bash -c 'sh libexec/weighin hook PostToolUse'",
+            WEIGHIN_HOOK,
+        ),
+        ("f() { sh libexec/weighin hook; }; f", WEIGHIN_HOOK),
+        ("sh libexec/weighin open", ALLOW),
+        ("sh libexec/weighin --dir hook open", ALLOW),
+        ("sh script.sh weighin hook", ALLOW),
+        ("sh -c 'echo weighin hook'", ALLOW),
+        ("sh \"$SCRIPT\" hook", ALLOW),
     ]);
 }

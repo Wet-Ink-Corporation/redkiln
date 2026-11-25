@@ -25,7 +25,7 @@
 //! as one word: word splitting of an unquoted expansion into `--actor human` (`--sha $x`) is
 //! the guard's documented limit (#128).
 
-use super::names::{self, PATTERN, may_be, written_start};
+use super::names::{self, PATTERN, may_be, may_be_several, written_start};
 use crate::hook::guard::{Denial, Rule};
 use redkiln_guard::engine::braces;
 use redkiln_guard::shell::Word;
@@ -272,21 +272,4 @@ impl Count {
         (self.unsure_one && (counted || self.several >= 1))
             || (self.unsure_several && (counted || self.several >= 2))
     }
-}
-
-/// Whether `word` may become several words: it holds an unquoted expansion, which the shell
-/// field-splits (`$x`, `$*`, `${x[*]}`, `$(cmd)`), or a quoted one whose source text holds an
-/// `@`, which may expand to one word per element: `"$@"`, `"${x[@]}"`, `"${!prefix@}"`, and
-/// `$@` nested in another expansion (`"${x:-$@}"`, `"${x-"$@"}"`). A quoted `@` that gives one
-/// word (`"${x@Q}"`) is counted too: in [`Count`] such a word may supply any number of
-/// operands, and in [`Halves`] it is no value on its own, except right after a literal
-/// `--actor`, where any word that may be `human` is the value.
-fn may_be_several(word: &Word) -> bool {
-    word.expansions().iter().any(|expansion| {
-        !expansion.quoted
-            || word
-                .text()
-                .get(expansion.range.clone())
-                .is_none_or(|source| source.contains('@'))
-    })
 }

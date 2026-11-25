@@ -53,6 +53,13 @@ impl Pack for GuardPack<'_> {
 
     fn leave_command(&mut self, _words: &[Word], (): ()) {}
 
+    /// The `weighin-hook` denial for a list of words that run the launcher copy as a shell
+    /// script (`sh libexec/weighin hook`), whose script file the engine does not read
+    /// ([`weighin::script`]).
+    fn words(&mut self, words: &[Word]) -> Option<Denial> {
+        weighin::script(words)
+    }
+
     fn redirect(&mut self, target: &Word, cwd: &Cwd) -> Option<Denial> {
         config::redirect(target, cwd)
     }

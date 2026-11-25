@@ -30,19 +30,45 @@ pub(super) fn is(name: &str, binary: &str) -> bool {
 /// (`"${CLAUDE_PLUGIN_ROOT}/libexec/weighin"`), or it is not known before the command runs
 /// (`"$W"`, `$(command -v weighin)`, a pattern).
 pub(super) fn may_name(word: &Word, named: impl FnOnce(&str) -> bool) -> bool {
+    known_tail(word).is_none_or(named)
+}
+
+/// Whether the path `word` names a file `named` accepts by its last path component, known
+/// before the command runs (`"${CLAUDE_PLUGIN_ROOT}/libexec/weighin"`); a word whose last
+/// component is not known (`"$SCRIPT"`) names none.
+pub(super) fn surely_names(word: &Word, named: impl FnOnce(&str) -> bool) -> bool {
+    known_tail(word).is_some_and(named)
+}
+
+/// The last path component of `word` when it is known before the command runs: no expansion
+/// reaches into it and, in a word not read as written, it holds no pattern character.
+fn known_tail(word: &Word) -> Option<&str> {
     let start = word
         .text()
         .rfind(['/', '\\'])
         .map_or(0, |at| at.saturating_add(1));
-    let Some(tail) = word.text().get(start..) else {
-        return true;
-    };
+    let tail = word.text().get(start..)?;
     let unknown = word
         .expansions()
         .iter()
         .any(|expansion| expansion.range.end > start)
         || (!braces::reads_as_written(word) && tail.contains(PATTERN));
-    unknown || named(tail)
+    (!unknown).then_some(tail)
+}
+
+/// Whether `word` may become several words: it holds an unquoted expansion, which the shell
+/// field-splits (`$x`, `$*`, `${x[*]}`, `$(cmd)`), or a quoted one whose source text holds an
+/// `@`, which may expand to one word per element: `"$@"`, `"${x[@]}"`, `"${!prefix@}"`, and
+/// `$@` nested in another expansion (`"${x:-$@}"`, `"${x-"$@"}"`). A quoted `@` that gives one
+/// word (`"${x@Q}"`) is counted too, which only lets the word stand for more.
+pub(super) fn may_be_several(word: &Word) -> bool {
+    word.expansions().iter().any(|expansion| {
+        !expansion.quoted
+            || word
+                .text()
+                .get(expansion.range.clone())
+                .is_none_or(|source| source.contains('@'))
+    })
 }
 
 /// Whether `word` may be `text` once the shell has expanded it: exactly `text` when it is read
