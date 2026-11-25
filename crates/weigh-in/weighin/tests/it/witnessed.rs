@@ -203,6 +203,29 @@ fn a_witnessed_decision_whose_atom_fails_is_still_told_as_recorded() -> TestResu
     Ok(())
 }
 
+/// The fallback receipt of a written decision whose atom failed still says it overrode the
+/// recommendation and still gives the commit trailer, as the full receipt does (#171).
+#[test]
+#[cfg_attr(miri, ignore = "spawns the weighin binary and git")]
+fn a_witnessed_override_whose_atom_fails_keeps_override_and_trailer() -> TestResult {
+    let repo = Repo::new(true)?;
+    let id = presented(&repo, QUESTION)?;
+    let text = format!("{id} {QUESTION}");
+    let kb = repo.root.join(".kb");
+    std::fs::create_dir_all(&kb)?;
+    std::fs::write(kb.join("decision"), "a file where the atoms' folder goes")?;
+
+    let out = answer(&repo, &repo.root, (&text, &LABELS, "B: Per record"))?;
+
+    let lines = context(&out)?;
+    assert!(
+        matches!(lines.as_slice(), [line] if line.contains(&format!("decided {id} → B (override)"))
+            && line.contains(&format!("trailer `Weigh-In: {id} decided B`"))),
+        "{lines:?}"
+    );
+    Ok(())
+}
+
 /// The answers are keyed by question text, so a text shown twice cannot say which question an
 /// answer was to.
 #[test]

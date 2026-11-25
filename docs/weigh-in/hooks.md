@@ -44,6 +44,8 @@ Weigh-In's hooks are all observers: SessionStart primes, Stop and SubagentStop c
 
 *Residual (D2 A, Ryan 2026-11-20):* anything that can run a binary can feed `weighin hook PostToolUse` a forged `AskUserQuestion` payload and so write a `witnessed` decision. TR-03 frames the hook's input as the surface, and this is accepted as it frames it. A follow-up adds a redkiln-guard TR-09 rule-pack tripwire that denies an agent's Bash run of `weighin hook`; until then nothing detects it. Board answers stay `asserted` (D3 A).
 
+*Why board answers stay `asserted` (D3 A, Ryan 2026-11-20):* an answer imported from the board (`via: board`) is written at `asserted`, like `weighin decide`, even though `spec/trust.md` TR-03 lists a board submission as a `witnessed` path. The board is no surface the agent cannot drive: agents act with the owner's claude.ai identity and hold admin write on the board's `answers`, so a single `ArtifactData set` can write an answer the person never gave, and nothing in the import can tell the two apart. This is the reason TR-10 gives for keeping a GitHub review by the owner's account `asserted`. Whether TR-03's board row should be reworded the same way is an open SPEC question for Ryan (#125); until it is answered, Weigh-In keeps the stricter reading, and only the `AskUserQuestion` hook above writes above `asserted`.
+
 ## New in the SPEC's hook section
 
 - **HK-11 and HK-12** (guards): not applicable, as Weigh-In has no guard.
