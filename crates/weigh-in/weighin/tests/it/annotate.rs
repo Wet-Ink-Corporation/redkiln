@@ -78,7 +78,7 @@ const LEFT_ALONE: &[(&str, &str)] = &[
     ("src/d.rs", "    *limit = todo!(\"pick a cap\");\n"),
     (
         "src/half.py",
-        "half = len(items) // 2 if use_temporary_cache else 0\n",
+        "half = len(items) // 2 if temporarily_cached else 0\n",
     ),
     (
         "src/get.sh",
