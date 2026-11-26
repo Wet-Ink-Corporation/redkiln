@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use super::grammar::{Grammar, Name, Parsed, Read};
 use super::tables::{ENV, FLOCK, SCRIPT, SU, SU_TO_USER, SUDO, WATCH};
-use super::{Long, Peel, Run, Shared, is_option, join, skip_one, skip_options};
+use super::{Long, Peel, Run, is_option, join, skip_one, skip_options};
 use crate::engine::braces::reads_as_written;
 use crate::shell::{Shape, Word};
 
@@ -437,38 +437,48 @@ pub(super) fn shell_option_words(words: &[Word]) -> usize {
 /// The paths through which a script file is standard input.
 const STDIN_PATHS: [&str; 3] = ["/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"];
 
-/// `shell` (or `source`) running the script file `script`, with its arguments in `words` from
-/// `from` on: stdin when it names it, unseen when it is a process substitution or a
-/// descriptor, else a file the guard does not read, which the pack is told about
-/// ([`Run::ScriptFile`]).
-fn script_file<'a>(shell: &'a str, script: &'a Word, words: &Shared<'a>, from: usize) -> Run<'a> {
+/// What a script-file operand runs ([`script_kind`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScriptKind {
+    /// Standard input (`/dev/stdin`), read as a static feed or refused.
+    Stdin,
+    /// A process substitution or a descriptor, known only at run time.
+    Unseen,
+    /// A file on disk, which the guard does not open; the pack is told
+    /// ([`Pack::script_files`](crate::engine::Pack::script_files)).
+    File,
+}
+
+/// What the script-file operand `script` runs.
+fn script_kind(script: &Word) -> ScriptKind {
     let path = script.text.as_str();
     let descriptor = path.starts_with("/dev/fd/") || path.starts_with("/proc/");
     if reads_as_written(script) && STDIN_PATHS.contains(&path) {
-        Run::StdinScript(shell)
+        ScriptKind::Stdin
     } else if script.is_process_substitution() || descriptor {
-        Run::Unseen(shell)
+        ScriptKind::Unseen
     } else {
-        Run::ScriptFile {
-            runner: shell,
-            script,
-            words: words.clone(),
-            from,
-            appended: false,
-        }
+        ScriptKind::File
     }
 }
 
 /// `source FILE ARGS...` (or `. FILE ARGS...`): the file runs in this shell, the words after
 /// it its positional arguments.
 pub(super) fn source(words: &[Word]) -> Peel<'_> {
-    Peel::Done(
-        skip_options(words, &[])
-            .split_first()
-            .map_or(Run::Nothing, |(script, args)| {
-                script_file("source", script, &Shared::new(args), 0)
-            }),
-    )
+    let words = skip_options(words, &[]);
+    let Some(first) = words.first() else {
+        return Peel::Done(Run::Nothing);
+    };
+    Peel::Done(match script_kind(first) {
+        ScriptKind::Stdin => Run::StdinScript("source"),
+        ScriptKind::Unseen => Run::Unseen("source"),
+        ScriptKind::File => Run::ScriptFiles {
+            runner: "source",
+            words: words.iter().collect(),
+            scripts: vec![0],
+            appended: false,
+        },
+    })
 }
 
 /// `alias NAME=VALUE...`: each value is shell text, run where the alias is used.

@@ -11,7 +11,7 @@ use super::git;
 use super::rm;
 use super::weighin;
 use crate::hook::guard::{Denial, Rule};
-use redkiln_guard::engine::{Call, Cwd, Pack, Program, ScriptFile};
+use redkiln_guard::engine::{Call, Cwd, Pack, Program, ScriptFiles};
 use redkiln_guard::shell::{SimpleCommand, Word};
 
 /// The guard's pack: the denylist's entries for one check, with the `rm` entry's safe roots.
@@ -54,9 +54,9 @@ impl Pack for GuardPack<'_> {
     fn leave_command(&mut self, _words: &[Word], (): ()) {}
 
     /// The `weighin-hook` denial for a script file that is the launcher copy run with
-    /// arguments that may run `hook` (`sudo sh libexec/weighin hook`; [`weighin::script_file`]).
-    fn script_file(&mut self, file: &ScriptFile<'_>) -> Option<Denial> {
-        weighin::script_file(file)
+    /// arguments that may run `hook` (`sudo sh libexec/weighin hook`; [`weighin::script_files`]).
+    fn script_files(&mut self, files: &ScriptFiles<'_>) -> Option<Denial> {
+        weighin::script_files(files)
     }
 
     fn redirect(&mut self, target: &Word, cwd: &Cwd) -> Option<Denial> {

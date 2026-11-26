@@ -369,11 +369,13 @@ with no subcommand before them may be `hook`, so `cat args | xargs weighin` is d
 
 The launcher copy run as a shell script, the way Weigh-In's skill runs weighin
 (`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" ... hook`), is judged through the guard kit's
-script-file call (`Pack::script_file`, wi-22281f307b): the engine tells the pack about every
+script-file call (`Pack::script_files`, wi-22281f307b): the engine tells the pack about every
 script file a shell (`sh`, `bash`, `dash`, `zsh`, `ksh`, `mksh`, `ash`, su's shell) or
-`source` (and `.`) runs, with the words after it, in every reading it follows. A script file
-whose last path component is weighin, known before the command runs, has those words read as
-weighin's arguments. So the launcher is seen behind a wrapper (`sudo sh ...`, `env sh ...`,
+`source` (and `.`) runs, with the words after it, in every reading it follows, all of one
+shell's in one call. A script file whose last path component is weighin, known before the
+command runs, has those words read as weighin's arguments, every script judged from one
+backward pass over the shell's words, so a shell whose options are read several ways
+(`sh $o w1 ... wn`, each word the script in some reading) stays linear. So the launcher is seen behind a wrapper (`sudo sh ...`, `env sh ...`,
 `exec sh ...`, `nice`, `timeout`, `find -exec sh ...`), inside `bash -c '...'`, with shell
 options read several ways (`sh "$o" .../weighin hook`, where `$o` may be an option), with
 arguments `xargs` appends (`cat args | xargs sh .../weighin` is denied), run by `source`

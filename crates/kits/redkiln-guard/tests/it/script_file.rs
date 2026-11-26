@@ -1,10 +1,11 @@
-//! `Pack::script_file`: the engine tells a pack about every script file a shell (or `source`)
-//! runs, in each reading it follows, and never about a script it reads itself.
+//! `Pack::script_files`: the engine tells a pack about every script file a shell (or `source`)
+//! runs, in each reading it follows, once per shell however many readings find one, and never
+//! about a script it reads itself.
 
-use redkiln_guard::engine::{self, Call, Cwd, Denial, Pack, ScriptFile};
+use redkiln_guard::engine::{self, Call, Cwd, Denial, Pack, ScriptFiles};
 use redkiln_guard::shell::{SimpleCommand, Word};
 
-/// One `script_file` call as the pack saw it: the runner, the script word and its argument
+/// One script file a `script_files` call reported: the runner, the script word and its argument
 /// words as text, and whether arguments are appended at run time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Seen {
@@ -14,10 +15,12 @@ struct Seen {
     appended: bool,
 }
 
-/// A pack that denies nothing and records every script file the engine reports.
+/// A pack that denies nothing and records every script file the engine reports, and how many
+/// times it was called.
 #[derive(Debug, Default)]
 struct Recorder {
     seen: Vec<Seen>,
+    calls: usize,
 }
 
 impl Pack for Recorder {
@@ -39,17 +42,16 @@ impl Pack for Recorder {
         None
     }
 
-    fn script_file(&mut self, file: &ScriptFile<'_>) -> Option<Denial<()>> {
-        self.seen.push(Seen {
-            runner: file.runner.to_owned(),
-            script: file.script.text().to_owned(),
-            args: file
-                .args
-                .iter()
-                .map(|word| word.text().to_owned())
-                .collect(),
-            appended: file.appended,
-        });
+    fn script_files(&mut self, files: &ScriptFiles<'_>) -> Option<Denial<()>> {
+        self.calls += 1;
+        for (script, args) in files.files() {
+            self.seen.push(Seen {
+                runner: files.runner.to_owned(),
+                script: script.text().to_owned(),
+                args: args.iter().map(|word| word.text().to_owned()).collect(),
+                appended: files.appended,
+            });
+        }
         None
     }
 
@@ -131,4 +133,22 @@ fn no_script_file_is_reported_for_a_script_the_engine_reads_itself() {
         let (seen, _) = seen(command);
         assert_eq!(seen, Vec::new(), "{command:?}");
     }
+}
+
+#[test]
+fn a_shell_whose_readings_find_many_script_files_is_reported_in_one_call() {
+    // `$o` may be an option taking any number of values, so every later word is a script file
+    // in some reading: one call carries them all, so a pack can judge them in one pass.
+    let words = 2_000;
+    let command = format!("sh $o {}", vec!["x/run"; words].join(" "));
+    let mut pack = Recorder::default();
+    let denied = engine::check(&command, &mut pack).is_some();
+
+    assert!(!denied);
+    assert_eq!(pack.calls, 1);
+    assert_eq!(
+        pack.seen.len(),
+        words.saturating_add(1),
+        "$o and every later word"
+    );
 }

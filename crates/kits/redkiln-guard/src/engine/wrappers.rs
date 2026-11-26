@@ -12,7 +12,6 @@ mod tables;
 use std::borrow::Cow;
 use std::ops::Range;
 use std::ptr;
-use std::rc::Rc;
 
 use super::program::Program;
 use super::{braces, readings};
@@ -65,18 +64,17 @@ pub(super) enum Run<'a> {
     Split(Cow<'a, str>),
     /// A shell (named) reading its script from standard input.
     StdinScript(&'a str),
-    /// A shell (named), or `source`, running a script file on disk, which the guard does not
-    /// open, with the words after it as its arguments.
-    ScriptFile {
+    /// A shell (named), or `source`, running script files on disk, which the guard does not
+    /// open: every one its readings find, each with the words after it as its arguments, in
+    /// one run so that the pack judges them in one pass ([`ScriptFiles`](super::ScriptFiles)).
+    ScriptFiles {
         /// The shell, or `source`.
         runner: &'a str,
-        /// The script-file operand.
-        script: &'a Word,
-        /// The words the shell (or `source`) got, shared by every script file its readings
-        /// find, so that finding one is not a copy of the words after it (H-13).
-        words: Shared<'a>,
-        /// Where the script's arguments start in `words`: just past the script.
-        from: usize,
+        /// The words the shell (or `source`) got. References, as su's shell gets words su
+        /// permuted.
+        words: Vec<&'a Word>,
+        /// Where a script file stands in `words`, ascending.
+        scripts: Vec<usize>,
         /// Whether arguments are appended at run time (`xargs sh FILE`).
         appended: bool,
     },
@@ -117,49 +115,20 @@ impl<'a> Run<'a> {
     }
 }
 
-/// The words a shell (or `source`) got, one list shared by every script file its readings
-/// find ([`Run::ScriptFile`]). References, as su's shell gets words su permuted. Two are equal
-/// only when they are the same list, so that dropping a repeated run ([`Run::either`]) never
-/// compares the words themselves, which would make it quadratic in them.
-#[derive(Debug, Clone)]
-pub(super) struct Shared<'a>(Rc<[&'a Word]>);
-
-impl<'a> Shared<'a> {
-    /// The list of `words`.
-    fn new(words: impl IntoIterator<Item = &'a Word>) -> Self {
-        Self(words.into_iter().collect())
-    }
-
-    /// The words from `start` on: none past the end.
-    pub(super) fn starting_at(&self, start: usize) -> &[&'a Word] {
-        self.0.get(start..).unwrap_or(&[])
-    }
-}
-
-impl PartialEq for Shared<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-impl Eq for Shared<'_> {}
-
 impl Run<'_> {
     /// This run with arguments appended at run time (`xargs` before the wrapper that ran it)
     /// to each script file it runs; the other runs keep what they are.
     fn appending(self, appended: bool) -> Self {
         match self {
-            Self::ScriptFile {
+            Self::ScriptFiles {
                 runner,
-                script,
                 words,
-                from,
+                scripts,
                 appended: already,
-            } => Self::ScriptFile {
+            } => Self::ScriptFiles {
                 runner,
-                script,
                 words,
-                from,
+                scripts,
                 appended: already || appended,
             },
             Self::Either(runs) if appended => Self::Either(
@@ -227,7 +196,7 @@ pub(crate) fn layout(words: &[Word]) -> (Layout<'_>, Vec<Role>) {
         // Several readings, or `env -S`'s string as env splits it: the redaction trusts none.
         Run::Nothing
         | Run::StdinScript(_)
-        | Run::ScriptFile { .. }
+        | Run::ScriptFiles { .. }
         | Run::Unseen(_)
         | Run::Split(_)
         | Run::Either(_)

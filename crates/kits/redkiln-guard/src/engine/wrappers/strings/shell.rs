@@ -33,10 +33,10 @@ mod options;
 use std::borrow::Cow;
 
 use self::options::{Phase, Read, value_ends};
-use super::script_file;
+use super::{ScriptKind, script_kind};
 use crate::engine::braces::reads_as_written;
 use crate::engine::readings::may_start_shell_options;
-use crate::engine::wrappers::{Run, Shared};
+use crate::engine::wrappers::Run;
 use crate::shell::Word;
 
 /// What one reading of a shell's options has set so far: `c` (the first operand is the
@@ -319,31 +319,28 @@ pub(super) fn run<'a>(
         .map(|(string, _)| Run::Script(Cow::Borrowed(string.text())));
     // A script file is one the guard does not read, stdin (`/dev/stdin`) or a descriptor.
     let (mut stdin, mut unseen) = (walk.stdin, false);
-    let mut files = Vec::new();
-    // The shell's words, without su's string, which only ever stands first: shared by every
-    // script file found, each with where its arguments start.
-    let words = Shared::new(args.iter().filter_map(|arg| arg.word()));
+    // The shell's words, without su's string, which only ever stands first, and where each
+    // script file on disk stands among them: one run, for the pack to judge in one pass.
+    let words: Vec<&Word> = args.iter().filter_map(|arg| arg.word()).collect();
     let lead = usize::from(lead.is_some());
+    let mut files = Vec::new();
     for (at, _) in walk.files.iter().enumerate().filter(|(_, file)| **file) {
         // su's string is read with `c` set, so it is never a script file.
-        let Some(Arg::Word(script)) = args.get(at) else {
+        let Some(Arg::Word(word)) = args.get(at) else {
             continue;
         };
-        let from = at.saturating_sub(lead).saturating_add(1);
-        match script_file(name, script, &words, from) {
-            Run::StdinScript(_) => stdin = true,
-            Run::Unseen(_) | Run::UnsureOption { .. } => unseen = true,
-            // A file on disk (`script_file` gives no other run): the guard does not read it, and
-            // the pack is told (`Pack::script_file`).
-            file @ (Run::ScriptFile { .. }
-            | Run::Nothing
-            | Run::Command { .. }
-            | Run::Script(_)
-            | Run::Split(_)
-            | Run::Exec(_)
-            | Run::Either(_)) => files.push(file),
+        match script_kind(word) {
+            ScriptKind::Stdin => stdin = true,
+            ScriptKind::Unseen => unseen = true,
+            ScriptKind::File => files.push(at.saturating_sub(lead)),
         }
     }
+    let files = (!files.is_empty()).then_some(Run::ScriptFiles {
+        runner: name,
+        words,
+        scripts: files,
+        appended: false,
+    });
     let mut runs: Vec<Run<'a>> = scripts
         .chain(files)
         .chain(unseen.then_some(Run::Unseen(name)))

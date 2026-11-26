@@ -6,7 +6,7 @@ use super::cwd::Cwd;
 use super::feed::{Feed, own_feed};
 use super::git_settings;
 use super::program::Program;
-use super::seam::{Call, Denial, Pack, ScriptFile};
+use super::seam::{Call, Denial, Pack, ScriptFiles};
 use super::variables::{self, Variables};
 use super::wrappers::{self, Run};
 use super::{braces, readings};
@@ -224,16 +224,15 @@ impl<'p, P: Pack> Checker<'p, P> {
             Run::Script(text) => self.text(&text, scope.nested()),
             Run::Split(text) => self.lexed_by(&text, scope.nested(), shell::parse_without_extglob),
             Run::StdinScript(shell) => self.stdin_script(shell, scope),
-            Run::ScriptFile {
+            Run::ScriptFiles {
                 runner,
-                script,
                 words,
-                from,
+                scripts,
                 appended,
-            } => self.pack.script_file(&ScriptFile {
+            } => self.pack.script_files(&ScriptFiles {
                 runner,
-                script,
-                args: words.starting_at(from),
+                words: &words,
+                scripts: &scripts,
                 appended: scope.appended || appended,
                 cwd: &self.position.cwd,
             }),

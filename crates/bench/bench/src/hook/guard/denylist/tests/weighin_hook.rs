@@ -3,7 +3,7 @@
 //! allowed.
 
 use super::forms::{forms, still_runs};
-use super::{ALLOW, assert_table, rule_for};
+use super::{ALLOW, RM_RF, assert_table, rule_for};
 use crate::harness::claude_code::PLUGIN_ROOT_VAR;
 use crate::hook::guard::Rule;
 
@@ -209,5 +209,20 @@ fn the_launcher_path_built_by_brace_expansion_may_not_run_hook() {
         ("sudo sh {/opt/plugin/libexec/weighin,hook}", WEIGHIN_HOOK),
         ("sh /opt/plugin/libexec/weighin {hook,open}", WEIGHIN_HOOK),
         ("sh {/opt/plugin/libexec/weighin,open}", ALLOW),
+    ]);
+}
+
+#[test]
+fn a_shell_whose_readings_find_the_launcher_many_times_is_judged_whole() {
+    // `$o` may be an option taking any number of values, so every `weighin` below is the
+    // script in some reading, each with the rest as its arguments (#181 review, H-13).
+    let pairs = vec!["libexec/weighin --dir"; 2_000].join(" ");
+    let then_rm = format!("sh $o {pairs} x; rm -rf /");
+    let with_hook = format!("sh $o {pairs} libexec/weighin hook");
+    let without = format!("sh $o {pairs} x");
+    assert_table(&[
+        (then_rm.as_str(), RM_RF),
+        (with_hook.as_str(), WEIGHIN_HOOK),
+        (without.as_str(), ALLOW),
     ]);
 }

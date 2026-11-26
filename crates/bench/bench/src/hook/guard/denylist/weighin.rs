@@ -7,7 +7,7 @@
 //!
 //! The launcher copy run as a script (`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" hook`, the way
 //! Weigh-In's skill runs weighin) is judged through the engine's script-file call
-//! ([`script_file`], `Pack::script_file`, wi-22281f307b): a script file whose last path
+//! ([`script_files`], `Pack::script_files`, wi-22281f307b): a script file whose last path
 //! component is weighin, known before the command runs, has the words after it read as
 //! weighin's, in every reading the engine follows, so `sudo sh`, `env sh`, `exec sh`, `xargs sh`,
 //! `source`, shell options read several ways and a path brace expansion builds
@@ -32,11 +32,10 @@
 //! before them the call is denied.
 
 use std::borrow::Borrow;
-use std::collections::BTreeSet;
 
 use super::names;
 use crate::hook::guard::{Denial, Rule};
-use redkiln_guard::engine::{ScriptFile, braces};
+use redkiln_guard::engine::{ScriptFiles, braces};
 use redkiln_guard::shell::Word;
 use weighin_contract::cli::{BINARY, VALUE_OPTIONS};
 
@@ -66,11 +65,25 @@ pub(super) fn check(args: &[Word], appended: bool) -> Option<Denial> {
     may_run_hook(args, appended).then(denial)
 }
 
-/// The denial for a script file a shell or `source` runs ([`ScriptFile`]) when it is the
-/// launcher copy, named before the command runs, and its arguments may run `hook`
-/// (`sudo sh libexec/weighin hook`).
-pub(super) fn script_file(file: &ScriptFile<'_>) -> Option<Denial> {
-    (names::surely_names(file.script, is_weighin) && may_run_hook(file.args, file.appended))
+/// The denial for the script files one shell or `source` runs ([`ScriptFiles`]) when one is
+/// the launcher copy, named before the command runs, and its arguments may run `hook`
+/// (`sudo sh libexec/weighin hook`). Every script is judged from one pass over the shell's
+/// words ([`hook_from`]), so a shell whose readings find many is still linear (H-13).
+pub(super) fn script_files(files: &ScriptFiles<'_>) -> Option<Denial> {
+    let mut launchers = files
+        .scripts
+        .iter()
+        .filter(|at| {
+            files
+                .words
+                .get(**at)
+                .is_some_and(|script| names::surely_names(script, is_weighin))
+        })
+        .peekable();
+    launchers.peek()?;
+    let from = hook_from(files.words, files.appended);
+    launchers
+        .any(|at| from.get(at.saturating_add(1)).is_some_and(|hook| *hook))
         .then(denial)
 }
 
@@ -79,39 +92,41 @@ fn denial() -> Denial {
 }
 
 /// Whether `weighin <args>`, with any arguments `appended` at run time, may run `hook`.
+fn may_run_hook(args: &[Word], appended: bool) -> bool {
+    hook_from(args, appended).first().is_some_and(|hook| *hook)
+}
+
+/// For each position of `args`, and the end past them, whether a reading of weighin's global
+/// options that reads its next word there, with any arguments `appended` at run time, may run
+/// `hook`; `weighin <args>` may run it when the first does.
 ///
-/// Every reading of the global options is followed: `pending` holds the positions some
-/// reading may next read a word at, before its subcommand. Each position is read once, and
-/// a reading only moves forward, so the walk is linear in the words.
-fn may_run_hook<W: Borrow<Word>>(args: &[W], appended: bool) -> bool {
-    let mut pending = BTreeSet::from([0_usize]);
-    while let Some(at) = pending.pop_first() {
+/// A word moves a reading only forward and only by what it and the word after it are
+/// ([`step`]), so each position is answered from later ones, in one pass from the end: linear
+/// in the words, whichever position a reading starts at.
+fn hook_from<W: Borrow<Word>>(args: &[W], appended: bool) -> Vec<bool> {
+    let end = args.len();
+    let mut from = vec![appended; end.saturating_add(1)];
+    for at in (0..end).rev() {
         let Some(word) = args.get(at).map(Borrow::borrow) else {
-            if appended {
-                return true;
-            }
             continue;
         };
         let next = at.saturating_add(1);
-        match step(word, args.get(next).map(Borrow::borrow)) {
-            Step::Hook => return true,
-            Step::Subcommand => {}
-            Step::Skip(words) => {
-                pending.insert(at.saturating_add(words));
-            }
-            Step::SkipOneOrTwo => {
-                pending.insert(next);
-                pending.insert(at.saturating_add(2));
-            }
-            Step::Ended => {
-                let subcommand = args.get(next).map(Borrow::borrow);
-                if subcommand.map_or(appended, |word| names::may_be(word, HOOK)) {
-                    return true;
-                }
-            }
+        let at_or_end = |position: usize| from.get(position.min(end)).is_some_and(|hook| *hook);
+        let hook = match step(word, args.get(next).map(Borrow::borrow)) {
+            Step::Hook => true,
+            Step::Subcommand => false,
+            Step::Skip(words) => at_or_end(at.saturating_add(words)),
+            Step::SkipOneOrTwo => at_or_end(next) || at_or_end(at.saturating_add(2)),
+            Step::Ended => args
+                .get(next)
+                .map(Borrow::borrow)
+                .map_or(appended, |subcommand| names::may_be(subcommand, HOOK)),
+        };
+        if let Some(slot) = from.get_mut(at) {
+            *slot = hook;
         }
     }
-    false
+    from
 }
 
 /// What one word before weighin's subcommand does to a reading.
@@ -178,5 +193,40 @@ fn value_step(value: Option<&Word>, skip: Step) -> Step {
         Step::Hook
     } else {
         skip
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hook_from;
+    use redkiln_guard::shell;
+
+    /// The pass over a whole list answers, at each position, what a pass over the words from
+    /// there answers at its start: a script's arguments are judged in the shell's one pass.
+    #[test]
+    fn each_position_of_one_pass_answers_as_a_pass_over_the_words_from_there() {
+        let lines = [
+            "--dir weighin --dir x hook",
+            "--session s -- hook open",
+            "--di\"$r\" /x hook",
+            "a --store b hook --dir",
+            "open hook",
+            "--dir $DIR hook",
+        ];
+        for line in lines {
+            let commands = shell::parse(line).expect("the line lexes");
+            let words = commands.first().expect("one command").words();
+            for appended in [false, true] {
+                let whole = hook_from(words, appended);
+                for start in 0..=words.len() {
+                    let tail = words.get(start..).expect("start is in range");
+                    assert_eq!(
+                        whole.get(start).copied(),
+                        hook_from(tail, appended).first().copied(),
+                        "{line:?} from {start}, appended {appended}"
+                    );
+                }
+            }
+        }
     }
 }

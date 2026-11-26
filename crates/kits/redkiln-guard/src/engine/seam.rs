@@ -52,28 +52,48 @@ pub struct Call<'a> {
     pub cwd: &'a Cwd,
 }
 
-/// A script file a shell runs, which the engine does not open.
+/// The script files one shell runs, which the engine does not open.
 ///
 /// That is `sh FILE ARGS...` (and `bash`, `dash`, ... ; su's shell), or `source FILE ARGS...`
 /// and `. FILE ARGS...`, which run it in the current shell with the same positional
-/// arguments. Found in every reading the engine
-/// follows: wrappers removed (`sudo sh FILE`), inside a `bash -c` string or a `find` action,
-/// brace groups expanded and the variables the command set put in. A `-c` string, a script
-/// read from standard input (`sh -s`, `sh /dev/stdin`) and one from a process substitution or a
-/// descriptor are the engine's own and never come here.
+/// arguments. Found in every reading the engine follows: wrappers removed (`sudo sh FILE`),
+/// inside a `bash -c` string or a `find` action, brace groups expanded and the variables the
+/// command set put in. A `-c` string, a script read from standard input (`sh -s`,
+/// `sh /dev/stdin`) and one from a process substitution or a descriptor are the engine's own
+/// and never come here.
+///
+/// A shell's options may be read several ways, each leaving a different word as the script
+/// (`sh $o a b c`: `$o`, `a`, `b` or `c`), so every script the readings find comes in one call,
+/// as positions in one list of words. A pack that judges each script's arguments with a walk
+/// of its own is quadratic in the words; judge them in one pass over [`ScriptFiles::words`]
+/// instead (H-13).
 #[derive(Debug, Clone, Copy)]
-pub struct ScriptFile<'a> {
-    /// What runs the file: the shell's name, `su` for su's shell, or `source` (for `.` too).
+pub struct ScriptFiles<'a> {
+    /// What runs the files: the shell's name, `su` for su's shell, or `source` (for `.` too).
     pub runner: &'a str,
-    /// The script-file operand, in the reading of the shell's options that took it as one.
-    pub script: &'a Word,
-    /// The words after it: the script's positional arguments. References, since su's shell
-    /// gets words su permuted rather than one run of the command's words.
-    pub args: &'a [&'a Word],
-    /// Whether arguments are appended after them at run time (`xargs`, `find -exec ... +`).
+    /// The words the runner got: each script and, after it, its positional arguments.
+    /// References, since su's shell gets words su permuted rather than one run of the
+    /// command's words.
+    pub words: &'a [&'a Word],
+    /// Where a script stands in [`ScriptFiles::words`], in ascending order, one per position
+    /// some reading takes as the script file.
+    pub scripts: &'a [usize],
+    /// Whether arguments are appended after the words at run time (`xargs`,
+    /// `find -exec ... +`).
     pub appended: bool,
     /// Where relative paths start, as far as the `cd` commands seen so far say.
     pub cwd: &'a Cwd,
+}
+
+impl<'a> ScriptFiles<'a> {
+    /// Each script file with its arguments, the words after it.
+    pub fn files(&self) -> impl Iterator<Item = (&'a Word, &'a [&'a Word])> + use<'a> {
+        let (words, scripts) = (self.words, self.scripts);
+        scripts.iter().filter_map(move |&at| {
+            let (script, args) = words.get(at..)?.split_first()?;
+            Some((*script, args))
+        })
+    }
 }
 
 /// A rule pack: what the engine asks at each point of its walk.
@@ -121,9 +141,9 @@ pub trait Pack {
         None
     }
 
-    /// A shell, or `source`, runs a script file the engine does not open ([`ScriptFile`]), in
-    /// one reading of its arguments; a shell read several ways may report several.
-    fn script_file(&mut self, _file: &ScriptFile<'_>) -> Option<Denial<Self::Rule>> {
+    /// A shell, or `source`, runs script files the engine does not open ([`ScriptFiles`]):
+    /// every one its readings find, in one call per shell.
+    fn script_files(&mut self, _files: &ScriptFiles<'_>) -> Option<Denial<Self::Rule>> {
         None
     }
 
