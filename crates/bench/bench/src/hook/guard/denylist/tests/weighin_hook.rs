@@ -160,3 +160,54 @@ fn the_launcher_copy_run_as_a_shell_script_may_not_run_hook() {
         ("sh \"$SCRIPT\" hook", ALLOW),
     ]);
 }
+
+#[test]
+fn the_launcher_copy_run_as_a_script_behind_a_wrapper_may_not_run_hook() {
+    assert_table(&[
+        (
+            "sudo sh /opt/plugin/libexec/weighin hook PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+        (
+            "env sh /opt/plugin/libexec/weighin hook PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+        (
+            "exec sh /opt/plugin/libexec/weighin hook PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+        ("sudo -u root bash -e libexec/weighin hook", WEIGHIN_HOOK),
+        ("env -i PATH=/bin sh libexec/weighin hook", WEIGHIN_HOOK),
+        ("nice -n 5 sh libexec/weighin hook", WEIGHIN_HOOK),
+        ("timeout 5 sh libexec/weighin hook", WEIGHIN_HOOK),
+        ("command sh libexec/weighin hook", WEIGHIN_HOOK),
+        ("find . -exec sh libexec/weighin hook {} +", WEIGHIN_HOOK),
+        // xargs appends the subcommand at run time.
+        ("cat args | xargs sh libexec/weighin", WEIGHIN_HOOK),
+        // A shell option word read as options in one reading leaves the launcher the script.
+        ("sh \"$o\" libexec/weighin hook", WEIGHIN_HOOK),
+        // `source` hands the launcher its arguments as a shell does.
+        ("source libexec/weighin hook PostToolUse", WEIGHIN_HOOK),
+        (". libexec/weighin hook", WEIGHIN_HOOK),
+        // A shell the engine does not unwrap has its arguments read as a command.
+        ("posh libexec/weighin hook", WEIGHIN_HOOK),
+        ("sudo sh libexec/weighin open", ALLOW),
+        ("env sh libexec/weighin --dir hook open", ALLOW),
+        ("cat args | xargs sh libexec/weighin open", ALLOW),
+        ("source libexec/weighin open", ALLOW),
+        ("sudo sh -c 'echo weighin hook'", ALLOW),
+    ]);
+}
+
+#[test]
+fn the_launcher_path_built_by_brace_expansion_may_not_run_hook() {
+    assert_table(&[
+        (
+            "sh {/opt/plugin/libexec/weighin,hook} PostToolUse",
+            WEIGHIN_HOOK,
+        ),
+        ("sudo sh {/opt/plugin/libexec/weighin,hook}", WEIGHIN_HOOK),
+        ("sh /opt/plugin/libexec/weighin {hook,open}", WEIGHIN_HOOK),
+        ("sh {/opt/plugin/libexec/weighin,open}", ALLOW),
+    ]);
+}

@@ -12,6 +12,7 @@ mod tables;
 use std::borrow::Cow;
 use std::ops::Range;
 use std::ptr;
+use std::rc::Rc;
 
 use super::program::Program;
 use super::{braces, readings};
@@ -64,6 +65,21 @@ pub(super) enum Run<'a> {
     Split(Cow<'a, str>),
     /// A shell (named) reading its script from standard input.
     StdinScript(&'a str),
+    /// A shell (named), or `source`, running a script file on disk, which the guard does not
+    /// open, with the words after it as its arguments.
+    ScriptFile {
+        /// The shell, or `source`.
+        runner: &'a str,
+        /// The script-file operand.
+        script: &'a Word,
+        /// The words the shell (or `source`) got, shared by every script file its readings
+        /// find, so that finding one is not a copy of the words after it (H-13).
+        words: Shared<'a>,
+        /// Where the script's arguments start in `words`: just past the script.
+        from: usize,
+        /// Whether arguments are appended at run time (`xargs sh FILE`).
+        appended: bool,
+    },
     /// A shell (named) running a script from a process substitution or a file descriptor,
     /// known only at run time.
     Unseen(&'a str),
@@ -97,6 +113,61 @@ impl<'a> Run<'a> {
             Run::Either(distinct)
         } else {
             distinct.pop().unwrap_or(Run::Nothing)
+        }
+    }
+}
+
+/// The words a shell (or `source`) got, one list shared by every script file its readings
+/// find ([`Run::ScriptFile`]). References, as su's shell gets words su permuted. Two are equal
+/// only when they are the same list, so that dropping a repeated run ([`Run::either`]) never
+/// compares the words themselves, which would make it quadratic in them.
+#[derive(Debug, Clone)]
+pub(super) struct Shared<'a>(Rc<[&'a Word]>);
+
+impl<'a> Shared<'a> {
+    /// The list of `words`.
+    fn new(words: impl IntoIterator<Item = &'a Word>) -> Self {
+        Self(words.into_iter().collect())
+    }
+
+    /// The words from `start` on: none past the end.
+    pub(super) fn starting_at(&self, start: usize) -> &[&'a Word] {
+        self.0.get(start..).unwrap_or(&[])
+    }
+}
+
+impl PartialEq for Shared<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for Shared<'_> {}
+
+impl Run<'_> {
+    /// This run with arguments appended at run time (`xargs` before the wrapper that ran it)
+    /// to each script file it runs; the other runs keep what they are.
+    fn appending(self, appended: bool) -> Self {
+        match self {
+            Self::ScriptFile {
+                runner,
+                script,
+                words,
+                from,
+                appended: already,
+            } => Self::ScriptFile {
+                runner,
+                script,
+                words,
+                from,
+                appended: already || appended,
+            },
+            Self::Either(runs) if appended => Self::Either(
+                runs.into_iter()
+                    .map(|run| run.appending(appended))
+                    .collect(),
+            ),
+            run => run,
         }
     }
 }
@@ -156,6 +227,7 @@ pub(crate) fn layout(words: &[Word]) -> (Layout<'_>, Vec<Role>) {
         // Several readings, or `env -S`'s string as env splits it: the redaction trusts none.
         Run::Nothing
         | Run::StdinScript(_)
+        | Run::ScriptFile { .. }
         | Run::Unseen(_)
         | Run::Split(_)
         | Run::Either(_)
@@ -295,7 +367,7 @@ fn walk_wrappers<'a>(words: &'a [Word], others: &mut Vec<Run<'a>>) -> Run<'a> {
                 appended = true;
                 skip_prefix(inner)
             }
-            Peel::Done(run) => return run,
+            Peel::Done(run) => return run.appending(appended),
             Peel::Program => {
                 return Run::Command {
                     program,

@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use super::grammar::{Grammar, Name, Parsed, Read};
 use super::tables::{ENV, FLOCK, SCRIPT, SU, SU_TO_USER, SUDO, WATCH};
-use super::{Long, Peel, Run, is_option, join, skip_one, skip_options};
+use super::{Long, Peel, Run, Shared, is_option, join, skip_one, skip_options};
 use crate::engine::braces::reads_as_written;
 use crate::shell::{Shape, Word};
 
@@ -437,9 +437,11 @@ pub(super) fn shell_option_words(words: &[Word]) -> usize {
 /// The paths through which a script file is standard input.
 const STDIN_PATHS: [&str; 3] = ["/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"];
 
-/// `shell` (or `source`) running the script file `script`: stdin when it names it, unseen
-/// when it is a process substitution, else a file the guard does not read.
-fn script_file<'a>(shell: &'a str, script: &Word) -> Run<'a> {
+/// `shell` (or `source`) running the script file `script`, with its arguments in `words` from
+/// `from` on: stdin when it names it, unseen when it is a process substitution or a
+/// descriptor, else a file the guard does not read, which the pack is told about
+/// ([`Run::ScriptFile`]).
+fn script_file<'a>(shell: &'a str, script: &'a Word, words: &Shared<'a>, from: usize) -> Run<'a> {
     let path = script.text.as_str();
     let descriptor = path.starts_with("/dev/fd/") || path.starts_with("/proc/");
     if reads_as_written(script) && STDIN_PATHS.contains(&path) {
@@ -447,16 +449,25 @@ fn script_file<'a>(shell: &'a str, script: &Word) -> Run<'a> {
     } else if script.is_process_substitution() || descriptor {
         Run::Unseen(shell)
     } else {
-        Run::Nothing
+        Run::ScriptFile {
+            runner: shell,
+            script,
+            words: words.clone(),
+            from,
+            appended: false,
+        }
     }
 }
 
-/// `source FILE` (or `. FILE`).
+/// `source FILE ARGS...` (or `. FILE ARGS...`): the file runs in this shell, the words after
+/// it its positional arguments.
 pub(super) fn source(words: &[Word]) -> Peel<'_> {
     Peel::Done(
         skip_options(words, &[])
-            .first()
-            .map_or(Run::Nothing, |script| script_file("source", script)),
+            .split_first()
+            .map_or(Run::Nothing, |(script, args)| {
+                script_file("source", script, &Shared::new(args), 0)
+            }),
     )
 }
 

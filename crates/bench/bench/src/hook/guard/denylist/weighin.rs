@@ -5,13 +5,20 @@
 //! `witnessed`. A model that runs it from Bash can feed it a forged payload, which #125 D2 A
 //! (Ryan, 2026-11-20) accepted as the hook's surface, with this entry as the tripwire.
 //!
+//! The launcher copy run as a script (`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" hook`, the way
+//! Weigh-In's skill runs weighin) is judged through the engine's script-file call
+//! ([`script_file`], `Pack::script_file`, wi-22281f307b): a script file whose last path
+//! component is weighin, known before the command runs, has the words after it read as
+//! weighin's, in every reading the engine follows, so `sudo sh`, `env sh`, `exec sh`, `xargs sh`,
+//! `source`, shell options read several ways and a path brace expansion builds
+//! (`sh {/x/libexec/weighin,hook}`, expanded under the engine's cap) are all seen.
+//!
 //! It is a tripwire, not a wall (HK-12): it judges the words as the engine forms them (wrappers,
 //! `bash -c`, `eval`, variables the command sets, braces), and a command built where the
-//! engine cannot read it escapes it: a script file other than the plain launcher form
-//! ([`script`] reads `sh <path>/libexec/weighin hook` itself, but not `sudo sh ...` or a script
-//! written and then run), an interpreter's inline code, a copy of the binary under another
-//! name. It runs only where Bench's guard runs; nothing else detects a forged payload,
-//! a residual #125 D2 A accepted (`docs/weigh-in/hooks.md`).
+//! engine cannot read it escapes it: a script path known only at run time (`sh "$SCRIPT"
+//! hook`), a script written and then run, an interpreter's inline code, a copy of the binary
+//! under another name. It runs only where Bench's guard runs; nothing else detects a forged
+//! payload, a residual #125 D2 A accepted (`docs/weigh-in/hooks.md`).
 //!
 //! The words are read as clap reads weighin's: global options before the subcommand, each of
 //! [`VALUE_OPTIONS`] taking the next word as its value (`--dir hook open` runs `open`), any
@@ -24,15 +31,14 @@
 //! a value. Arguments `xargs` appends at run time may be anything, so with no subcommand
 //! before them the call is denied.
 
+use std::borrow::Borrow;
 use std::collections::BTreeSet;
 
 use super::names;
 use crate::hook::guard::{Denial, Rule};
-use redkiln_guard::engine::braces;
+use redkiln_guard::engine::{ScriptFile, braces};
 use redkiln_guard::shell::Word;
 use weighin_contract::cli::{BINARY, VALUE_OPTIONS};
-
-mod script;
 
 /// The subcommand `hooks.json` runs and a model may not.
 const HOOK: &str = "hook";
@@ -60,11 +66,11 @@ pub(super) fn check(args: &[Word], appended: bool) -> Option<Denial> {
     may_run_hook(args, appended).then(denial)
 }
 
-/// The denial for one simple command's `words` when they run the launcher copy as a shell
-/// script that may run `hook` (`sh libexec/weighin hook`; [`script`]).
-pub(super) fn script(words: &[Word]) -> Option<Denial> {
-    script::arguments(words, is_weighin)
-        .is_some_and(|args| may_run_hook(args, false))
+/// The denial for a script file a shell or `source` runs ([`ScriptFile`]) when it is the
+/// launcher copy, named before the command runs, and its arguments may run `hook`
+/// (`sudo sh libexec/weighin hook`).
+pub(super) fn script_file(file: &ScriptFile<'_>) -> Option<Denial> {
+    (names::surely_names(file.script, is_weighin) && may_run_hook(file.args, file.appended))
         .then(denial)
 }
 
@@ -77,17 +83,17 @@ fn denial() -> Denial {
 /// Every reading of the global options is followed: `pending` holds the positions some
 /// reading may next read a word at, before its subcommand. Each position is read once, and
 /// a reading only moves forward, so the walk is linear in the words.
-fn may_run_hook(args: &[Word], appended: bool) -> bool {
+fn may_run_hook<W: Borrow<Word>>(args: &[W], appended: bool) -> bool {
     let mut pending = BTreeSet::from([0_usize]);
     while let Some(at) = pending.pop_first() {
-        let Some(word) = args.get(at) else {
+        let Some(word) = args.get(at).map(Borrow::borrow) else {
             if appended {
                 return true;
             }
             continue;
         };
         let next = at.saturating_add(1);
-        match step(word, args.get(next)) {
+        match step(word, args.get(next).map(Borrow::borrow)) {
             Step::Hook => return true,
             Step::Subcommand => {}
             Step::Skip(words) => {
@@ -98,7 +104,7 @@ fn may_run_hook(args: &[Word], appended: bool) -> bool {
                 pending.insert(at.saturating_add(2));
             }
             Step::Ended => {
-                let subcommand = args.get(next);
+                let subcommand = args.get(next).map(Borrow::borrow);
                 if subcommand.map_or(appended, |word| names::may_be(word, HOOK)) {
                     return true;
                 }

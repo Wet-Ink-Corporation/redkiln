@@ -36,7 +36,7 @@ use self::options::{Phase, Read, value_ends};
 use super::script_file;
 use crate::engine::braces::reads_as_written;
 use crate::engine::readings::may_start_shell_options;
-use crate::engine::wrappers::Run;
+use crate::engine::wrappers::{Run, Shared};
 use crate::shell::Word;
 
 /// What one reading of a shell's options has set so far: `c` (the first operand is the
@@ -140,6 +140,14 @@ impl<'a> Arg<'a> {
         match self {
             Self::Word(word) | Self::Operand(word) => &word.text,
             Self::Lead(text) => text,
+        }
+    }
+
+    /// The word the argument is, unless it is su's `-c` string.
+    fn word(self) -> Option<&'a Word> {
+        match self {
+            Self::Word(word) | Self::Operand(word) => Some(word),
+            Self::Lead(_) => None,
         }
     }
 
@@ -310,25 +318,34 @@ pub(super) fn run<'a>(
         .filter(|(_, script)| **script)
         .map(|(string, _)| Run::Script(Cow::Borrowed(string.text())));
     // A script file is one the guard does not read, stdin (`/dev/stdin`) or a descriptor.
-    let (mut stdin, mut unseen, mut nothing) = (walk.stdin, false, walk.exits);
-    for (arg, _) in args.iter().zip(&walk.files).filter(|(_, file)| **file) {
+    let (mut stdin, mut unseen) = (walk.stdin, false);
+    let mut files = Vec::new();
+    // The shell's words, without su's string, which only ever stands first: shared by every
+    // script file found, each with where its arguments start.
+    let words = Shared::new(args.iter().filter_map(|arg| arg.word()));
+    let lead = usize::from(lead.is_some());
+    for (at, _) in walk.files.iter().enumerate().filter(|(_, file)| **file) {
         // su's string is read with `c` set, so it is never a script file.
-        let Arg::Word(script) = arg else {
+        let Some(Arg::Word(script)) = args.get(at) else {
             continue;
         };
-        match script_file(name, script) {
+        let from = at.saturating_sub(lead).saturating_add(1);
+        match script_file(name, script, &words, from) {
             Run::StdinScript(_) => stdin = true,
             Run::Unseen(_) | Run::UnsureOption { .. } => unseen = true,
-            // A file on disk: the guard does not read it, and it runs nothing to judge here.
-            Run::Nothing
+            // A file on disk (`script_file` gives no other run): the guard does not read it, and
+            // the pack is told (`Pack::script_file`).
+            file @ (Run::ScriptFile { .. }
+            | Run::Nothing
             | Run::Command { .. }
             | Run::Script(_)
             | Run::Split(_)
             | Run::Exec(_)
-            | Run::Either(_) => nothing = true,
+            | Run::Either(_)) => files.push(file),
         }
     }
     let mut runs: Vec<Run<'a>> = scripts
+        .chain(files)
         .chain(unseen.then_some(Run::Unseen(name)))
         .chain(stdin.then_some(Run::StdinScript(name)))
         .collect();
@@ -336,7 +353,7 @@ pub(super) fn run<'a>(
         0 | 1 => runs.pop().unwrap_or(Run::Nothing),
         _ => Run::Either(runs),
     }
-    .or_nothing(nothing)
+    .or_nothing(walk.exits)
 }
 
 /// How many of the shell's arguments `words` some reading still reads as options: up to and

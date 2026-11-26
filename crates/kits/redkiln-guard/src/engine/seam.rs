@@ -52,6 +52,30 @@ pub struct Call<'a> {
     pub cwd: &'a Cwd,
 }
 
+/// A script file a shell runs, which the engine does not open.
+///
+/// That is `sh FILE ARGS...` (and `bash`, `dash`, ... ; su's shell), or `source FILE ARGS...`
+/// and `. FILE ARGS...`, which run it in the current shell with the same positional
+/// arguments. Found in every reading the engine
+/// follows: wrappers removed (`sudo sh FILE`), inside a `bash -c` string or a `find` action,
+/// brace groups expanded and the variables the command set put in. A `-c` string, a script
+/// read from standard input (`sh -s`, `sh /dev/stdin`) and one from a process substitution or a
+/// descriptor are the engine's own and never come here.
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptFile<'a> {
+    /// What runs the file: the shell's name, `su` for su's shell, or `source` (for `.` too).
+    pub runner: &'a str,
+    /// The script-file operand, in the reading of the shell's options that took it as one.
+    pub script: &'a Word,
+    /// The words after it: the script's positional arguments. References, since su's shell
+    /// gets words su permuted rather than one run of the command's words.
+    pub args: &'a [&'a Word],
+    /// Whether arguments are appended after them at run time (`xargs`, `find -exec ... +`).
+    pub appended: bool,
+    /// Where relative paths start, as far as the `cd` commands seen so far say.
+    pub cwd: &'a Cwd,
+}
+
 /// A rule pack: what the engine asks at each point of its walk.
 ///
 /// A hook that denies stops the
@@ -94,6 +118,12 @@ pub trait Pack {
     /// Every reading of a program's arguments, whatever the program, before the engine
     /// follows it (git's settings, `cd`) or asks [`Pack::command`].
     fn read(&mut self, _call: &Call<'_>) -> Option<Denial<Self::Rule>> {
+        None
+    }
+
+    /// A shell, or `source`, runs a script file the engine does not open ([`ScriptFile`]), in
+    /// one reading of its arguments; a shell read several ways may report several.
+    fn script_file(&mut self, _file: &ScriptFile<'_>) -> Option<Denial<Self::Rule>> {
         None
     }
 

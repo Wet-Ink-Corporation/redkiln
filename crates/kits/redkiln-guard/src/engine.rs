@@ -30,7 +30,7 @@ pub use checker::{MAX_DEPTH, MAX_LEXED_MIB, check};
 pub use cwd::Cwd;
 pub(crate) use cwd::is_absolute;
 pub use program::Program;
-pub use seam::{Call, Denial, Pack};
+pub use seam::{Call, Denial, Pack, ScriptFile};
 
 #[cfg(test)]
 mod tests;

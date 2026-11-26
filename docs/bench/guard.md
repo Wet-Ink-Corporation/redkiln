@@ -368,22 +368,26 @@ with no subcommand before them may be `hook`, so `cat args | xargs weighin` is d
 (`caffeinate weighin hook`).
 
 The launcher copy run as a shell script, the way Weigh-In's skill runs weighin
-(`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" ... hook`), is read by the entry itself, since the
-engine reads a shell's script-file operand as a file it does not open and calls no pack for
-it: in each simple command's words, after leading assignments and reserved words, a shell
-named as written (`sh`, `bash`, `dash`, `zsh`, `ksh`, `mksh`, `ash`, `posh`), its plain
-options (`-e`, `-o posix`, `--norc`, `--`), then a script file whose last path component is
-weighin, known before the command runs; the words after it are read as weighin's arguments.
-A `-c` string or a script on standard input stays the engine's.
+(`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" ... hook`), is judged through the guard kit's
+script-file call (`Pack::script_file`, wi-22281f307b): the engine tells the pack about every
+script file a shell (`sh`, `bash`, `dash`, `zsh`, `ksh`, `mksh`, `ash`, su's shell) or
+`source` (and `.`) runs, with the words after it, in every reading it follows. A script file
+whose last path component is weighin, known before the command runs, has those words read as
+weighin's arguments. So the launcher is seen behind a wrapper (`sudo sh ...`, `env sh ...`,
+`exec sh ...`, `nice`, `timeout`, `find -exec sh ...`), inside `bash -c '...'`, with shell
+options read several ways (`sh "$o" .../weighin hook`, where `$o` may be an option), with
+arguments `xargs` appends (`cat args | xargs sh .../weighin` is denied), run by `source`
+(`source .../libexec/weighin hook`), and with a path brace expansion builds
+(`sh {/opt/plugin/libexec/weighin,hook} PostToolUse`, expanded under the engine's 256-word cap
+before the call). A `-c` string or a script on standard input stays the engine's, which reads
+it as commands. A shell the engine does not unwrap (`posh`) has its arguments read as a
+command, where `weighin` is a watched name.
 
 It is a tripwire, not a wall (SPEC HK-12). A command built where the engine cannot read it
-escapes it: the launcher run as a script behind a wrapper (`sudo sh ...`, `env sh ...`,
-`exec sh ...`), through shell options not read as written, or from a path known only at run
-time (`sh "$SCRIPT" hook`); any script file written and then run; an interpreter's inline
-code; a binary copied under another name. Reading the wrapped forms would need the kit's
-engine to tell packs about a shell's script file (a seam change). It runs only where Bench's
-guard runs (the `rk-bench` plugin); Weigh-In ships no Bash guard. Nothing else detects a
-forged payload: the residual is accepted (#125 D2 A, `docs/weigh-in/hooks.md`).
+escapes it: the launcher run from a path known only at run time (`sh "$SCRIPT" hook`); any
+script file written and then run; an interpreter's inline code; a binary copied under another
+name. It runs only where Bench's guard runs (the `rk-bench` plugin); Weigh-In ships no Bash
+guard. Nothing else detects a forged payload: the residual is accepted (#125 D2 A, `docs/weigh-in/hooks.md`).
 
 ## Bypass handling
 
