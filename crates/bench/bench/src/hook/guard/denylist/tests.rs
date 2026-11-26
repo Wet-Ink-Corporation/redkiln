@@ -16,6 +16,7 @@ mod shell_options;
 mod shell_reader_merge;
 mod unpack;
 mod watch_exec;
+mod weighin_hook;
 mod wrapper_options;
 
 use crate::harness::claude_code::PROJECT_DIR_VAR;

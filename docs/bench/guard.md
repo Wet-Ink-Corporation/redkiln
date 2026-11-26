@@ -340,6 +340,57 @@ and `verdict_set` as a usage error and appends nothing (`docs/ledger.md`), so a 
 reaches the ledger only through `verdict set`, where this rule sees it. Writing to the label
 log or the ledger file by other means is a limit below.
 
+### `weighin-hook`: `weighin hook` from a model (#168)
+
+A Bash call may not run `weighin hook`. It is the harness's entry point: Weigh-In's
+`hooks.json` runs it with the hook's own payload on stdin, and its `PostToolUse` path records
+an `AskUserQuestion` answer as `witnessed`. A model running it from Bash could feed it a forged
+payload; #125 D2 A (Ryan, 2026-11-20) accepted that as the hook's surface, as SPEC TR-03
+frames it, with this entry as the TR-09 tripwire. The reason is
+`ERROR guard weighin-hook: weighin hook is the harness's entry point, run by hooks.json with the hook's own payload; a payload fed from Bash could forge a witnessed answer (#125 D2), so run another weighin command or write the subcommand out`.
+Weigh-In's other subcommands stay allowed (`weighin open`, `weighin scan`, `weighin show hook`),
+as does `hook` as data (`echo weighin hook`, `grep -r 'weighin hook' docs`).
+
+The words are judged as the shell forms them, as for every entry, then as clap reads weighin's:
+the program's last path component is `weighin` in any ASCII case, with or without `.exe`
+(`/x/libexec/weighin`, `weighin.EXE`), or is not known before the command runs (`"$W"`); the
+global options before the subcommand are skipped, each of `weighin_contract::cli::VALUE_OPTIONS`
+(`--dir`, `--session`, `--store`) with its value, so `weighin --dir hook open` runs `open` and
+is allowed; `--` ends them. The first operand is the subcommand, denied when it may be `hook`:
+`hook` itself, or a word not read as written whose written start allows it (`weighin "$sub"`,
+`f() { weighin "$@"; }; f hook`). A word that may become several words (`"$@"`, an unquoted
+expansion) before the subcommand, as an option, a value or the subcommand, may supply `hook`,
+so it is denied (`f() { weighin --dir "$@"; }; f /x hook`, `weighin --dir $DIR open`: quote
+the value). An option word not read as written that may be a value-taking option
+(`weighin --di"$r" /x hook`) is read both with and without a value. Arguments `xargs` appends
+with no subcommand before them may be `hook`, so `cat args | xargs weighin` is denied.
+`weighin` joins the names an unknown program's arguments are read from
+(`caffeinate weighin hook`).
+
+The launcher copy run as a shell script, the way Weigh-In's skill runs weighin
+(`sh "${CLAUDE_PLUGIN_ROOT}/libexec/weighin" ... hook`), is judged through the guard kit's
+script-file call (`Pack::script_files`, wi-22281f307b): the engine tells the pack about every
+script file a shell (`sh`, `bash`, `dash`, `zsh`, `ksh`, `mksh`, `ash`, su's shell) or
+`source` (and `.`) runs, with the words after it, in every reading it follows, all of one
+shell's in one call. A script file whose last path component is weighin, known before the
+command runs, has those words read as weighin's arguments, every script judged from one
+backward pass over the shell's words, so a shell whose options are read several ways
+(`sh $o w1 ... wn`, each word the script in some reading) stays linear. So the launcher is seen behind a wrapper (`sudo sh ...`, `env sh ...`,
+`exec sh ...`, `nice`, `timeout`, `find -exec sh ...`), inside `bash -c '...'`, with shell
+options read several ways (`sh "$o" .../weighin hook`, where `$o` may be an option), with
+arguments `xargs` appends (`cat args | xargs sh .../weighin` is denied), run by `source`
+(`source .../libexec/weighin hook`), and with a path brace expansion builds
+(`sh {/opt/plugin/libexec/weighin,hook} PostToolUse`, expanded under the engine's 256-word cap
+before the call). A `-c` string or a script on standard input stays the engine's, which reads
+it as commands. A shell the engine does not unwrap (`posh`) has its arguments read as a
+command, where `weighin` is a watched name.
+
+It is a tripwire, not a wall (SPEC HK-12). A command built where the engine cannot read it
+escapes it: the launcher run from a path known only at run time (`sh "$SCRIPT" hook`); any
+script file written and then run; an interpreter's inline code; a binary copied under another
+name. It runs only where Bench's guard runs (the `rk-bench` plugin); Weigh-In ships no Bash
+guard. Nothing else detects a forged payload: the residual is accepted (#125 D2 A, `docs/weigh-in/hooks.md`).
+
 ## Bypass handling
 
 The guard is a denylist: defence in depth, not a sandbox. It models the shell features that

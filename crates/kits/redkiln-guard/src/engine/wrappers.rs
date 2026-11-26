@@ -64,6 +64,20 @@ pub(super) enum Run<'a> {
     Split(Cow<'a, str>),
     /// A shell (named) reading its script from standard input.
     StdinScript(&'a str),
+    /// A shell (named), or `source`, running script files on disk, which the guard does not
+    /// open: every one its readings find, each with the words after it as its arguments, in
+    /// one run so that the pack judges them in one pass ([`ScriptFiles`](super::ScriptFiles)).
+    ScriptFiles {
+        /// The shell, or `source`.
+        runner: &'a str,
+        /// The words the shell (or `source`) got. References, as su's shell gets words su
+        /// permuted.
+        words: Vec<&'a Word>,
+        /// Where a script file stands in `words`, ascending.
+        scripts: Vec<usize>,
+        /// Whether arguments are appended at run time (`xargs sh FILE`).
+        appended: bool,
+    },
     /// A shell (named) running a script from a process substitution or a file descriptor,
     /// known only at run time.
     Unseen(&'a str),
@@ -97,6 +111,32 @@ impl<'a> Run<'a> {
             Run::Either(distinct)
         } else {
             distinct.pop().unwrap_or(Run::Nothing)
+        }
+    }
+}
+
+impl Run<'_> {
+    /// This run with arguments appended at run time (`xargs` before the wrapper that ran it)
+    /// to each script file it runs; the other runs keep what they are.
+    fn appending(self, appended: bool) -> Self {
+        match self {
+            Self::ScriptFiles {
+                runner,
+                words,
+                scripts,
+                appended: already,
+            } => Self::ScriptFiles {
+                runner,
+                words,
+                scripts,
+                appended: already || appended,
+            },
+            Self::Either(runs) if appended => Self::Either(
+                runs.into_iter()
+                    .map(|run| run.appending(appended))
+                    .collect(),
+            ),
+            run => run,
         }
     }
 }
@@ -156,6 +196,7 @@ pub(crate) fn layout(words: &[Word]) -> (Layout<'_>, Vec<Role>) {
         // Several readings, or `env -S`'s string as env splits it: the redaction trusts none.
         Run::Nothing
         | Run::StdinScript(_)
+        | Run::ScriptFiles { .. }
         | Run::Unseen(_)
         | Run::Split(_)
         | Run::Either(_)
@@ -295,7 +336,7 @@ fn walk_wrappers<'a>(words: &'a [Word], others: &mut Vec<Run<'a>>) -> Run<'a> {
                 appended = true;
                 skip_prefix(inner)
             }
-            Peel::Done(run) => return run,
+            Peel::Done(run) => return run.appending(appended),
             Peel::Program => {
                 return Run::Command {
                     program,

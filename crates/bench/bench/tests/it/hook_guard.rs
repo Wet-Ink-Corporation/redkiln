@@ -190,6 +190,35 @@ fn a_model_s_human_verdict_is_denied_as_human_only_and_its_plan_approval_is_not(
 
 #[test]
 #[cfg_attr(miri, ignore = "runs the binary")]
+fn a_model_s_weighin_hook_run_is_denied_as_weighin_hook_and_its_open_is_not() -> TestResult {
+    let scratch = Scratch::new()?;
+
+    let denied = deny_reason(
+        &scratch.guard(&scratch.bash("weighin --session s1 hook PostToolUse < payload.json")?)?,
+    )?;
+    let opened = scratch.guard(&scratch.bash("weighin open --top 8")?)?;
+
+    assert_eq!(
+        denied,
+        "ERROR guard weighin-hook: weighin hook is the harness's entry point, run by hooks.json \
+         with the hook's own payload; a payload fed from Bash could forge a witnessed answer \
+         (#125 D2), so run another weighin command or write the subcommand out",
+        "the rule and the one line"
+    );
+    assert_eq!(
+        (
+            opened.status.code(),
+            opened.stdout.is_empty(),
+            opened.stderr.is_empty()
+        ),
+        (Some(0), true, true),
+        "weighin open stays allowed, silently: {opened:?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "runs the binary")]
 fn an_allowed_command_is_silent_and_records_nothing() -> TestResult {
     let scratch = Scratch::new()?;
 

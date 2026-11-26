@@ -5,4 +5,5 @@
 mod named;
 mod pack;
 mod protect;
+mod script_file;
 mod seam;

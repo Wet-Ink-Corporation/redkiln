@@ -7,15 +7,18 @@
 //! ([`entries::GuardPack`]: [`git`], force push to a protected branch and `git add -f`;
 //! [`rm`], recursive force delete outside temp and scratch; [`config`], Bash writes to lint or
 //! hook config; [`anneal`], a human verdict or label, `--actor human`, from a model's Bash
-//! call) and the merge gate's probe ([`probe::MergeProbe`]). See `docs/guard.md`.
+//! call; [`weighin`], `weighin hook` from a model's Bash call) and the merge gate's probe
+//! ([`probe::MergeProbe`]). See `docs/guard.md`.
 
 mod anneal;
 mod config;
 mod entries;
 mod gh;
 mod git;
+mod names;
 mod probe;
 mod rm;
+mod weighin;
 
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};

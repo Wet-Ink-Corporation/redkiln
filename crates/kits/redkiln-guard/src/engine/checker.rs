@@ -6,7 +6,7 @@ use super::cwd::Cwd;
 use super::feed::{Feed, own_feed};
 use super::git_settings;
 use super::program::Program;
-use super::seam::{Call, Denial, Pack};
+use super::seam::{Call, Denial, Pack, ScriptFiles};
 use super::variables::{self, Variables};
 use super::wrappers::{self, Run};
 use super::{braces, readings};
@@ -224,6 +224,18 @@ impl<'p, P: Pack> Checker<'p, P> {
             Run::Script(text) => self.text(&text, scope.nested()),
             Run::Split(text) => self.lexed_by(&text, scope.nested(), shell::parse_without_extglob),
             Run::StdinScript(shell) => self.stdin_script(shell, scope),
+            Run::ScriptFiles {
+                runner,
+                words,
+                scripts,
+                appended,
+            } => self.pack.script_files(&ScriptFiles {
+                runner,
+                words: &words,
+                scripts: &scripts,
+                appended: scope.appended || appended,
+                cwd: &self.position.cwd,
+            }),
             Run::Unseen(shell) => Some(Self::unreadable(format!(
                 "{shell} runs a script from a process substitution, known only at run time; \
                  pass the script as text the guard can read, as in bash -c '...'"
