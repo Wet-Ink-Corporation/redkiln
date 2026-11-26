@@ -17,6 +17,13 @@ bumps the version. Keep an `Unreleased` section at the top while work lands on `
 - An option title that marks itself recommended in any spelling, such as `(recommended)` or
   `(Recommended)` without a space, no longer counts as a witnessed pick (#159).
 
+### Fixed
+
+- `weighin scan`, and the hook that scans what a tool wrote, no longer raise a comment that
+  only describes something temporary, such as `/// a copy on the temporary disk`, as a
+  deferral; `temporary` now counts only in a phrase like `temporary until`, `temporary fix`,
+  `temporary hack` or `temporary workaround` (#175).
+
 ## 2.1.0 (2026-11-20)
 
 Weigh-In becomes the place other Redkiln plugins bring their decisions: Bench's parked tickets
